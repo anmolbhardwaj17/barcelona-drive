@@ -471,7 +471,7 @@ function animate(time = 0) {
 
   // Phase 0 tunnel diagnostic overlay (?debug=tunnel) — flag-gated, no cost when off.
   updateTunnelDebug(scene, world, camera);
-  updateCollisionDebug(scene, world);
+  updateCollisionDebug(scene, world, camera);
 
   // Animate grass + tree wind (same time base for spatial coherence)
   updateGrassWind(time / 1000);

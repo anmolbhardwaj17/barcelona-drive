@@ -136,6 +136,40 @@ function findNearestRoad(sx, sz, roads) {
   return best;
 }
 
+/** Shortest distance from a point to a road's polyline (segments). */
+function distToRoad(px, pz, road) {
+  const pts = road.points;
+  if (!pts || pts.length < 2) return Infinity;
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const ax = pts[i].x, az = pts[i].y;
+    const bx = pts[i + 1].x, bz = pts[i + 1].y;
+    const dx = bx - ax, dz = bz - az;
+    const lenSq = dx * dx + dz * dz;
+    if (lenSq === 0) continue;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lenSq));
+    const d = Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * True if (px,pz) sits inside (or too close to) ANY road's carriageway — i.e. the shelter would
+ * intrude into a driving lane. `clearance` accounts for the shelter's own footprint. Checking every
+ * road (not just the snapped one) is what stops a stop on a narrow service lane from landing in the
+ * middle of the wide avenue running alongside it.
+ */
+function intrudesOnRoad(px, pz, roads, clearance) {
+  for (const r of roads) {
+    if (!r.points || r.points.length < 2) continue;
+    if (r.bridge) continue;  // elevated — different level, ignore
+    const halfW = (Number.isFinite(r.width) && r.width > 0 ? r.width : 6) / 2;
+    if (distToRoad(px, pz, r) < halfW + clearance) return true;
+  }
+  return false;
+}
+
 function isNearEndpoint(road, segIdx, nearestX, nearestZ, threshold) {
   const pts = road.points;
   const p1 = pts[segIdx];
@@ -357,15 +391,32 @@ export function buildBusStopMeshes(busStops, roads, getElevationAt) {
     if (hit.road.bridge) continue;  // don't place shelters on elevated flyover segments
     if (isNearEndpoint(hit.road, hit.segIdx, hit.nearestX, hit.nearestZ, MIN_INTERSECTION_DISTANCE)) continue;
 
-    // Determine which side of the road the stop is on
+    // Determine which side of the road the stop is on (prefer it, but we'll switch if it's blocked)
     const dotPerp = (sx - hit.nearestX) * hit.perpX + (sz - hit.nearestZ) * hit.perpZ;
-    const side = dotPerp >= 0 ? 1 : -1;
+    const preferredSide = dotPerp >= 0 ? 1 : -1;
 
-    const roadHalfWidth = (hit.road.width ?? 6) / 2;
+    const roadHalfWidth = (Number.isFinite(hit.road.width) && hit.road.width > 0 ? hit.road.width : 6) / 2;
+    // Keep the whole shelter footprint off the carriageway: its road-facing edge is ~SHELTER_DEPTH/2
+    // in front of its centre, so require that much clearance beyond every road's half-width.
+    const CLEARANCE = SHELTER_DEPTH / 2 + 0.4;
+    const baseOffset = roadHalfWidth + SIDEWALK_OFFSET;
 
-    // Shelter: placed at road edge + sidewalk offset
-    const px = hit.nearestX + hit.perpX * (roadHalfWidth + SIDEWALK_OFFSET) * side;
-    const pz = hit.nearestZ + hit.perpZ * (roadHalfWidth + SIDEWALK_OFFSET) * side;
+    // Search outward on the preferred side, then the other side, for a spot that clears EVERY road.
+    let px, pz, side = preferredSide, found = false;
+    for (const trySide of [preferredSide, -preferredSide]) {
+      for (let extra = 0; extra <= 7; extra += 0.7) {
+        const off = baseOffset + extra;
+        const cx = hit.nearestX + hit.perpX * off * trySide;
+        const cz = hit.nearestZ + hit.perpZ * off * trySide;
+        if (!intrudesOnRoad(cx, cz, roads, CLEARANCE)) {
+          px = cx; pz = cz; side = trySide; found = true; break;
+        }
+      }
+      if (found) break;
+    }
+    // Couldn't find a clear sidewalk spot (e.g. a stop stranded between dual carriageways) → skip it
+    // rather than plant a shelter in a driving lane.
+    if (!found) continue;
     const py = getElevationAt ? (getElevationAt(px, pz) || 0) : 0;
 
     // Marking: placed ON the road surface, centred in the nearside lane (road edge − half marking width)
