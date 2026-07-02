@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Barcelona Drive</title>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Poppins:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Poppins:wght@400;500;700&display=swap" rel="stylesheet" />
     <style>
       * { margin: 0; padding: 0; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e15; }
@@ -60,15 +60,22 @@
         background: #24406a; transition: opacity .5s ease;
       }
       #dd-title.hide { opacity: 0; pointer-events: none; }
-      /* background layer: grayscale→colour reveal on load + slow breathing zoom */
+      /* two stacked background layers: grayscale base + full-colour on top, revealed by an expanding
+         radial MASK from the centre (feels nicer than a flat fade). Both share the breathing zoom. */
       #dd-title .bg {
         position: absolute; inset: -3%; z-index: 0; transform-origin: center;
         background: url('/title-bg.png') center / cover no-repeat;
-        animation: ddColorIn 2.2s ease-out forwards, ddBreathe 20s ease-in-out infinite;
+        animation: ddBreathe 20s ease-in-out infinite;
       }
-      @keyframes ddColorIn {
-        0%   { filter: grayscale(1) contrast(1.05) brightness(0.7); }
-        100% { filter: grayscale(0) contrast(1) brightness(1); }
+      #dd-title .bg.gray { filter: grayscale(1) brightness(0.78); }
+      #dd-title .bg.color {
+        -webkit-mask: radial-gradient(circle at 50% 46%, #000 58%, transparent 76%) center / 0% 0% no-repeat;
+        mask: radial-gradient(circle at 50% 46%, #000 58%, transparent 76%) center / 0% 0% no-repeat;
+        animation: ddBreathe 20s ease-in-out infinite, ddReveal 2.6s ease-out forwards;
+      }
+      @keyframes ddReveal {
+        0%   { -webkit-mask-size: 0% 0%;     mask-size: 0% 0%; }
+        100% { -webkit-mask-size: 280% 280%; mask-size: 280% 280%; }
       }
       @keyframes ddBreathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.12); } }
       /* vignette on top of the background */
@@ -80,11 +87,10 @@
         animation: ddBob 2.8s ease-in-out infinite;
       }
       #dd-title .tagline {
-        position: relative; z-index: 2; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 500;
-        font-size: 20px; letter-spacing: 1px; color: #fff; margin-top: -6px;
-        padding: 9px 26px; border-radius: 22px;
-        background: rgba(14,20,36,0.5); border: 1px solid rgba(255,255,255,0.18);
-        backdrop-filter: blur(4px); text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        position: relative; z-index: 2; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 700;
+        font-size: 20px; letter-spacing: 0.3px; color: #fff; margin-top: -6px;
+        padding: 10px 36px; background: #000;
+        clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%); /* parallelogram */
       }
       #dd-title .play {
         position: relative; z-index: 2; cursor: pointer; user-select: none;
@@ -101,7 +107,8 @@
   </head>
   <body>
     <div id="dd-title">
-      <div class="bg"></div>
+      <div class="bg gray"></div>
+      <div class="bg color"></div>
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
