@@ -13,7 +13,7 @@
       /* ── Loading screen (shown instantly, faded out by main.js when the world is ready) ── */
       #dd-loading {
         position: fixed; inset: 0; z-index: 9999;
-        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
         background: radial-gradient(130% 100% at 50% -5%, #1e2637, #121722 62%, #080a10);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         transition: opacity .55s ease;
@@ -35,8 +35,17 @@
         animation: ddSlide 1.25s ease-in-out infinite;
       }
       @keyframes ddSlide { 0% { transform: translateX(-130%); } 100% { transform: translateX(360%); } }
+      #dd-loading .factlabel {
+        color: #ffd23f; letter-spacing: 3px; font-size: 11px; font-weight: 700;
+        text-transform: uppercase; margin-top: 8px;
+      }
+      #dd-loading .fact {
+        max-width: min(580px, 82vw); text-align: center; color: rgba(255,255,255,0.78);
+        font-size: 16px; line-height: 1.55; min-height: 52px; padding: 0 24px;
+        transition: opacity .3s ease;
+      }
       #dd-loading .txt {
-        color: rgba(255,255,255,0.5); letter-spacing: 5px; font-size: 12.5px;
+        color: rgba(255,255,255,0.4); letter-spacing: 5px; font-size: 11.5px;
         font-weight: 600; text-transform: uppercase;
       }
     </style>
@@ -45,8 +54,65 @@
     <div id="dd-loading">
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="bar"><i></i></div>
+      <div class="factlabel">✦ Did you know?</div>
+      <div class="fact" id="dd-fact"></div>
       <div class="txt">Loading Barcelona…</div>
     </div>
+
+    <!-- Rotating Barcelona facts on the loading screen (runs immediately, before the JS bundle). -->
+    <script>
+      (function () {
+        var facts = [
+          "Barcelona was founded by the Romans over 2,000 years ago as “Barcino”.",
+          "The Sagrada Família has been under construction since 1882 — and still isn't finished.",
+          "Antoni Gaudí shaped the city: the Sagrada Família, Park Güell, Casa Batlló and La Pedrera.",
+          "The Eixample's grid, with its chamfered corners, was designed by Ildefons Cerdà in 1859.",
+          "Camp Nou is the largest football stadium in Europe, seating around 99,000.",
+          "FC Barcelona's motto is “Més que un club” — More than a club.",
+          "Barcelona hosted the 1992 Summer Olympics.",
+          "The city holds 9 UNESCO World Heritage Sites.",
+          "Barcelona has around 4.5 km of city beaches along the Mediterranean.",
+          "La Rambla is a 1.2 km tree-lined pedestrian boulevard.",
+          "Catalan and Spanish are both official languages here.",
+          "Montjuïc hill overlooks the port, crowned by a 17th-century castle.",
+          "Tibidabo, at 512 m, is the city's highest point — with an amusement park on top.",
+          "Casa Milà (La Pedrera) famously has almost no straight lines.",
+          "When finished, the Sagrada Família's central tower will reach 172.5 m.",
+          "Gaudí kept the Sagrada Família just under Montjuïc's height — out of respect for nature.",
+          "Barcelona is Spain's second-largest city, after Madrid.",
+          "Around 5.6 million people live in the Barcelona metropolitan area.",
+          "Gaudí died in 1926 after being struck by a tram.",
+          "The Gothic Quarter's streets trace back to medieval — and Roman — times.",
+          "Passeig de Gràcia is Barcelona's grand avenue of luxury and modernist architecture.",
+          "The Magic Fountain of Montjuïc puts on light-and-music shows.",
+          "La Boqueria, off La Rambla, is one of Europe's most famous food markets.",
+          "Avinguda Diagonal slices across the entire city grid at an angle.",
+          "Barcelona's port is one of the Mediterranean's busiest cruise hubs.",
+          "La Mercè, the city's biggest festival, honours its patron saint each September.",
+          "Barcelona pioneered car-free “superblocks” (superilles).",
+          "The 1888 and 1929 World's Fairs both reshaped the city.",
+          "Park Güell's mosaic salamander, “El Drac”, is a beloved city icon.",
+          "Barcelona sits between the Collserola hills and the Mediterranean Sea.",
+          "The Barcelona Metro carries over a million riders on an average day.",
+          "Park Güell was originally planned as a housing estate that never sold."
+        ];
+        var el = document.getElementById("dd-fact");
+        if (!el) return;
+        var last = -1;
+        function show() {
+          var i; do { i = (Math.random() * facts.length) | 0; } while (i === last && facts.length > 1);
+          last = i;
+          el.style.opacity = 0;
+          setTimeout(function () { el.textContent = facts[i]; el.style.opacity = 1; }, 250);
+        }
+        show();
+        var t = setInterval(function () {
+          if (!document.getElementById("dd-loading")) { clearInterval(t); return; }
+          show();
+        }, 3000);
+      })();
+    </script>
+
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
