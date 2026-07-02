@@ -197,12 +197,22 @@
       })();
     </script>
 
-    <!-- Title screen: PLAY drops into the game (the game loads in the background meanwhile). -->
+    <!-- Title screen shows only on a fresh entry ("/"). PLAY moves us to "/game" and marks the session,
+         so any later reload (incl. a Settings spawn change → ?spawn) stays in-game and skips the title. -->
     <script>
       (function () {
         var title = document.getElementById('dd-title');
+        if (!title) return;
+        var params = new URLSearchParams(location.search);
+        var played = false;
+        try { played = sessionStorage.getItem('dd_played') === '1'; } catch (e) {}
+        var inGame = /\/game\/?$/.test(location.pathname) || params.has('spawn') || played;
+        if (inGame) { title.remove(); return; } // already in-game → straight to the loading/game view
+
         var play = document.getElementById('dd-play');
         if (play) play.addEventListener('click', function () {
+          try { sessionStorage.setItem('dd_played', '1'); } catch (e) {}
+          try { history.replaceState({}, '', '/game' + location.search); } catch (e) {}
           title.classList.add('hide');
           setTimeout(function () { if (title) title.remove(); }, 550);
         });
