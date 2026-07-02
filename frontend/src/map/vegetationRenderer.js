@@ -21,7 +21,7 @@ import { rasterizeSegment } from './roadOccupancyGrid.js';
 // 4 variants: stylised Indian roadside trees (Neem, Gulmohar, Ashoka, Banyan)
 // Each uses trunk cylinder + clustered dodecahedron foliage for organic canopy
 const TREE_VARIANTS = [
-  { // Variant 0: Umbrella tree (Neem / Peepal) — round dome canopy
+  { // Variant 0: Plane tree — round dome canopy (the classic Barcelona street tree)
     trunkRadius: 0.3, trunkHeight: 5.0,
     foliage: [
       { radius: 2.8, x: 0,    y: 6.5, z: 0,    rot: 0 },     // central (enlarged to cover gaps)
@@ -29,7 +29,7 @@ const TREE_VARIANTS = [
       { radius: 2.0, x: -1.6, y: 6.2, z: -0.7, rot: 2.5 },   // left
     ],
   },
-  { // Variant 1: Spread tree (Gulmohar) — wide horizontal canopy
+  { // Variant 1: Elm/lime — wide horizontal canopy
     trunkRadius: 0.35, trunkHeight: 4.5,
     foliage: [
       { radius: 2.4, x: -1.8, y: 5.5, z: 0,    rot: 0.5 },   // left (enlarged)
@@ -37,14 +37,14 @@ const TREE_VARIANTS = [
       { radius: 1.8, x: 0,    y: 6.2, z: 0.5,  rot: 1.0 },   // top-center
     ],
   },
-  { // Variant 2: Column tree (Ashoka) — tall narrow shape
+  { // Variant 2: Cypress — tall narrow column
     trunkRadius: 0.25, trunkHeight: 5.5,
     foliage: [
       { radius: 1.4, x: 0,    y: 6.5, z: 0,   rot: 0,   scaleY: 1.6 },
       { radius: 1.2, x: 0.2,  y: 9.0, z: 0.1, rot: 1.5, scaleY: 1.4 },
     ],
   },
-  { // Variant 3: Irregular tree (Banyan) — organic asymmetric canopy
+  { // Variant 3: Mixed broadleaf — organic asymmetric canopy
     trunkRadius: 0.4, trunkHeight: 4.0,
     foliage: [
       { radius: 2.5, x: 0.3,  y: 5.4, z: 0.2,  rot: 0.3 },   // center (enlarged)
@@ -56,15 +56,17 @@ const TREE_VARIANTS = [
 
 const FOLIAGE_DETAIL = 0;          // dodecahedron detail level (0 = 20 tris)
 const TRUNK_RADIAL_SEGMENTS = 3;   // 3 sides sufficient at game scale
+// Mediterranean / Barcelona palettes — fresh street greens (plane trees line most avenues), kept
+// distinct between variants so a row of trees reads as varied rather than one flat green.
 const FOLIAGE_COLORS = [
-  [0x5E7F3A, 0x6A8A3F, 0x7A8B4A],  // Neem — dusty Delhi greens
-  [0x6A8A3F, 0x7A8B4A, 0x8A8F5A],  // Gulmohar (warmest)
-  [0x5E7F3A, 0x6A8A3F, 0x5A7535],  // Ashoka (darker)
-  [0x7A8B4A, 0x6A8A3F, 0x8A8F5A],  // Banyan (warm)
+  [0x4F7D33, 0x5E8E3D, 0x6E9E48],  // Plane tree — fresh mid green
+  [0x5A8B3A, 0x6E9E48, 0x88AC54],  // Elm/lime — lighter, yellow-green highlights
+  [0x33602A, 0x3E6E30, 0x4C7A38],  // Cypress/pine — deep rich green
+  [0x5E8E3D, 0x6E9E48, 0x8AA850],  // Jacaranda/mixed — warm varied green
 ];
-const TRUNK_COLOR = 0x7A6B55;      // dusty grey-brown
+const TRUNK_COLOR = 0x877662;      // mottled plane-bark grey-brown
 const DUST_COLOR = 0x9B8B6E;
-const DUST_BLEND_MAX = 0.35;
+const DUST_BLEND_MAX = 0.12;       // Barcelona isn't dusty — keep foliage clean green (was 0.35, Delhi)
 const WHITE_BAND_COLOR = 0xE8E0D0;  // off-white lime wash
 const WHITE_BAND_HEIGHT = 1.2;      // metres from ground
 
@@ -780,13 +782,14 @@ function getTreeBillboardAtlas() {
   canvas.height = cellH;
   const ctx = canvas.getContext('2d');
 
-  // Silhouette specs — matched to the RENDERED appearance of 3D trees
-  // (MeshLambert + vertex colors + instance tint + scene lighting = very dark olive)
+  // Silhouette specs — matched to the DAY-LIT appearance of the 3D trees (fresh Mediterranean greens,
+  // FOLIAGE_COLORS). Night matching is handled separately by darkening the material (setTreeBillboardNightMode),
+  // since these are unlit and won't dim with the scene like the lit 3D trees do.
   const specs = [
-    { trunk: '#35302A', fol: '#3A4528', folD: '#2C3620', fw: 0.55, fh: 0.45, ty: 0.38 }, // Neem
-    { trunk: '#35302A', fol: '#3E4A2C', folD: '#303C22', fw: 0.48, fh: 0.42, ty: 0.40 }, // Gulmohar
-    { trunk: '#35302A', fol: '#344020', folD: '#283418', fw: 0.30, fh: 0.52, ty: 0.32 }, // Ashoka
-    { trunk: '#35302A', fol: '#424E30', folD: '#364226', fw: 0.60, fh: 0.44, ty: 0.36 }, // Banyan
+    { trunk: '#6E6252', fol: '#5E8C3E', folD: '#4C7632', fw: 0.55, fh: 0.45, ty: 0.38 }, // Plane
+    { trunk: '#6E6252', fol: '#6E9C48', folD: '#5A8A3C', fw: 0.48, fh: 0.42, ty: 0.40 }, // Elm
+    { trunk: '#6E6252', fol: '#3F6E32', folD: '#33602A', fw: 0.30, fh: 0.52, ty: 0.32 }, // Cypress
+    { trunk: '#6E6252', fol: '#5E8C3E', folD: '#4C7A38', fw: 0.60, fh: 0.44, ty: 0.36 }, // Mixed
   ];
 
   for (let i = 0; i < specs.length; i++) {
@@ -819,15 +822,6 @@ function getTreeBillboardAtlas() {
     ctx.ellipse(cx - fw * 0.08, fy + fh * 0.08, fw * 0.3, fh * 0.28, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1.0;
-
-    // Dusty bottom fade (Delhi dust gradient on lower foliage) — heavier for distance realism
-    const grad = ctx.createLinearGradient(0, fy + fh * 0.1, 0, fy + fh * 0.5);
-    grad.addColorStop(0, 'rgba(120,110,90,0)');
-    grad.addColorStop(1, 'rgba(120,110,90,0.4)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.ellipse(cx, fy, fw / 2, fh / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -835,6 +829,14 @@ function getTreeBillboardAtlas() {
   tex.magFilter = THREE.LinearFilter;
   _billboardAtlasTex = tex;
   return _billboardAtlasTex;
+}
+
+// Tree billboards are unlit (MeshBasic), so they won't dim with the scene at night like the lit 3D
+// trees do → distant trees glow pale. Darken the material by hand so LOD matches the near trees.
+export function setTreeBillboardNightMode(isNight) {
+  for (const m of _bbMaterials) {
+    if (m) m.color.setRGB(isNight ? 0.34 : 1, isNight ? 0.38 : 1, isNight ? 0.40 : 1);
+  }
 }
 
 const _bbMaterials = [];

@@ -41,6 +41,13 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
   let _pending = null;
   let _lastX = Infinity, _lastZ = Infinity;
 
+  // Glowing head/tail lights (so parked cars read at night). Two shared InstancedMeshes; each parked
+  // car contributes 2 white front + 2 red rear quads, transformed by the car matrix.
+  const LIGHT_CAP = 1400;
+  let tailIM = null, headIM = null, lightLocals = [];
+  let tailCount = 0, headCount = 0;
+  const _lm = new THREE.Matrix4();
+
   loadCityCarTemplates('/models/cars/', 3.8).then((tpls) => {
     if (!tpls.length) { console.warn('[parkedCars] no car templates loaded'); return; }
     meshes = tpls.map((t) => {
@@ -53,6 +60,20 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
       return im;
     });
     nVar = meshes.length;
+
+    // Light instanced meshes + per-variant local light-quad matrices (from each car's dims).
+    const lightGeo = new THREE.PlaneGeometry(0.24, 0.12);
+    const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a12, side: THREE.DoubleSide, fog: true });
+    const headMat = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });
+    tailIM = new THREE.InstancedMesh(lightGeo, tailMat, LIGHT_CAP); tailIM.frustumCulled = false; tailIM.castShadow = false; tailIM.count = 0; scene.add(tailIM);
+    headIM = new THREE.InstancedMesh(lightGeo, headMat, LIGHT_CAP); headIM.frustumCulled = false; headIM.castShadow = false; headIM.count = 0; scene.add(headIM);
+    const _tq = new THREE.Quaternion();
+    lightLocals = tpls.map((t) => {
+      const w = t.dims.w, h = t.dims.h, l = t.dims.l, y = h * 0.42;
+      const mk = (x, z, ry) => { const m = new THREE.Matrix4(); _tq.setFromAxisAngle(YAXIS, ry); m.compose(new THREE.Vector3(x, y, z), _tq, new THREE.Vector3(1, 1, 1)); return m; };
+      return { head: [mk(-w * 0.3, l * 0.49, 0), mk(w * 0.3, l * 0.49, 0)], tail: [mk(-w * 0.3, -l * 0.49, Math.PI), mk(w * 0.3, -l * 0.49, Math.PI)] };
+    });
+
     if (_pending) { rebuild(_pending.x, _pending.z); _pending = null; }
   }).catch((e) => console.warn('[parkedCars] load error', e?.message || e));
 
@@ -67,6 +88,13 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     const idx = counts[variant]++;
     meshes[variant].setMatrixAt(idx, _m);
     meshes[variant].setColorAt(idx, _col.setHex(colorHex));
+
+    // Glowing lights, transformed by this car's matrix (_m still holds it).
+    const L = lightLocals[variant];
+    if (L && tailIM && tailCount + 2 <= LIGHT_CAP && headCount + 2 <= LIGHT_CAP) {
+      for (const lm of L.head) { _lm.multiplyMatrices(_m, lm); headIM.setMatrixAt(headCount++, _lm); }
+      for (const lm of L.tail) { _lm.multiplyMatrices(_m, lm); tailIM.setMatrixAt(tailCount++, _lm); }
+    }
   }
 
   function rebuild(playerPx, playerPz) {
@@ -75,6 +103,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     if (!segs) return;
     const origin = getOrigin();
     for (let v = 0; v < nVar; v++) counts[v] = 0;
+    tailCount = 0; headCount = 0;
     const rangeSq = RANGE * RANGE;
 
     for (const seg of segs) {
@@ -127,6 +156,8 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
       meshes[v].instanceMatrix.needsUpdate = true;
       if (meshes[v].instanceColor) meshes[v].instanceColor.needsUpdate = true;
     }
+    if (tailIM) { tailIM.count = tailCount; tailIM.instanceMatrix.needsUpdate = true; }
+    if (headIM) { headIM.count = headCount; headIM.instanceMatrix.needsUpdate = true; }
   }
 
   function update(playerPx, playerPz) {
@@ -136,9 +167,17 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     rebuild(playerPx, playerPz);
   }
 
-  function setEnabled(on) { _enabled = on; for (const m of meshes) { m.visible = on; if (!on) m.count = 0; } }
+  function setEnabled(on) {
+    _enabled = on;
+    for (const m of meshes) { m.visible = on; if (!on) m.count = 0; }
+    if (tailIM) { tailIM.visible = on; if (!on) tailIM.count = 0; }
+    if (headIM) { headIM.visible = on; if (!on) headIM.count = 0; }
+  }
   function getCount() { let n = 0; for (const m of meshes) n += m.count; return n; }
-  function dispose() { for (const m of meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose?.(); } }
+  function dispose() {
+    for (const m of meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose?.(); }
+    for (const im of [tailIM, headIM]) { if (im) { scene.remove(im); im.geometry.dispose(); im.material.dispose?.(); } }
+  }
 
   return { update, setEnabled, getCount, dispose };
 }

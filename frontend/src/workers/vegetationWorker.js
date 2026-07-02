@@ -1467,7 +1467,9 @@ function positionsAlongRoadEdges(roads, tileKey) {
 }
 
 function collectGrassPositions(tileData, tileKey, vegMask, treePositions, config) {
-  const MAX_GRASS = config.MAX_GRASS_PER_TILE || 50000;
+  // ?? not || — MAX_GRASS_PER_TILE:0 must mean ZERO grass, but `0 || 50000` gave the *max* (falsy-zero bug).
+  const MAX_GRASS = config.MAX_GRASS_PER_TILE ?? 50000;
+  if (MAX_GRASS <= 0) return [];
   const positions = [];
   const buildings = tileData.buildings || [];
   const seed = (tileKey || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);

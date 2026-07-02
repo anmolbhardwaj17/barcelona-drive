@@ -35,8 +35,8 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   const model    = await createCarModel(scene);
   const effects  = createCarEffects(scene, model, physics);
 
-  // Wire sound toggle button from carModel's color panel
-  const colorPanel = document.querySelector('[style*="position:fixed"][style*="top:12px"]');
+  // Wire sound toggle button from carModel's color panel (stable id — panel is re-parented into the ESC menu)
+  const colorPanel = document.getElementById('dd-car-color-panel');
   if (colorPanel) colorPanel._onSoundToggle = () => sound.setMuted(!sound.isMuted());
   const sound    = createCarSound();
 

@@ -429,6 +429,7 @@ export async function createCarModel(scene) {
 
   // Create color picker panel
   const colorPanel = document.createElement('div');
+  colorPanel.id = 'dd-car-color-panel';
   colorPanel.style.cssText = 'position:fixed;top:12px;left:12px;z-index:100;display:flex;gap:6px;align-items:center;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:8px;';
   const colorLabel = document.createElement('span');
   colorLabel.textContent = 'Car';

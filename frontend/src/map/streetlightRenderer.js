@@ -16,7 +16,7 @@ const POLE_RADIUS    = 0.08;
 const ARM_LENGTH     = 1.8;   // arm overhangs road by ARM_LENGTH - EDGE_OFFSET
 const ARM_RADIUS     = 0.055;
 const LAMP_SIZE      = 0.3;
-const LIGHT_SPACING  = 30;
+const LIGHT_SPACING  = 22;   // denser lamps — nights felt too dark/sparse (was 30)
 const EDGE_OFFSET    = 0.6;   // pole close to curb
 const JUNCTION_SKIP  = 10;
 const LAYER_HEIGHT_STEP = 6;
@@ -82,8 +82,8 @@ let sharedPoleShadowGeom = null;
 let sharedPoleShadowMat  = null;
 
 // Stored defaults so setters work even before first tile builds the material.
-let _lampEmissiveIntensity = 1.5;
-let _poolOpacity = 1.0;
+let _lampEmissiveIntensity = 0.25; // day default — night toggle boosts (setStreetlightNightMode)
+let _poolOpacity = 0.0;             // day default — no ground light pools in daylight
 let _bridgeNightMode = false;
 const _bridgeNightCallbacks = new Set();
 
@@ -97,6 +97,12 @@ export function setLampEmissiveIntensity(v) {
 export function setPoolOpacity(v) {
   _poolOpacity = Math.max(0, Math.min(1, v));
   if (sharedPoolMat) sharedPoolMat.opacity = _poolOpacity;
+}
+
+/** Day/night for street lamps: bright glowing heads + warm ground pools at night, near-off by day. */
+export function setStreetlightNightMode(isNight) {
+  setLampEmissiveIntensity(isNight ? 2.8 : 0.25);
+  setPoolOpacity(isNight ? 0.95 : 0.0);
 }
 
 /** Toggle Indian tricolor on bridge poles (saffron/white/green) for night mode. */

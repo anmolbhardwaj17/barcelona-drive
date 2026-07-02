@@ -11,7 +11,8 @@ import { setBuildingNightMode } from '../map/buildingRenderer.js';
 import { setBusStopNightMode } from '../map/busStopRenderer.js';
 import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
 import { setVendorCartNightMode } from '../map/vendorCartRenderer.js';
-import { setBridgePoleNightMode } from '../map/streetlightRenderer.js';
+import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetlightRenderer.js';
+import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 
 const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
@@ -36,19 +37,18 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x5570a0,  // cool blue sky-bounce, a touch deeper
-  ambientIntensity: 0.75,      // dropped from 1.6 — the flat flood washed everything out (faded).
-                               //   Streetlights are ON now, so the city reads dark+moody, not grey.
-  hemiSkyColor:     0x213250,
-  hemiGroundColor:  0x0d0a14,
-  hemiIntensity:    0.08,
-  dirIntensity:     0.30,      // moonlight — slightly up for face modeling now that ambient is low
+  ambientColor:     0x6982b4,  // cool blue sky-bounce, lifted a touch for visibility
+  ambientIntensity: 1.15,      // raised (was 0.75) — felt too dark to drive; still moody, not washed (1.6 was).
+  hemiSkyColor:     0x2a3d60,
+  hemiGroundColor:  0x141020,
+  hemiIntensity:    0.20,      // more sky/ground fill so buildings + trees stay readable at night
+  dirIntensity:     0.45,      // moonlight — a bit stronger for form
   dirColor:         0xc8d8ff,  // cool blue-white moonlight
   fogColor:         0x0a1020,
   fogDensity:       0.009,
   skyVisible:       false,
-  bgColor:          0x0e1321,  // deep blue, not pure black
-  toneMappingExposure: 1.0,    // back to neutral — 1.1 was lifting the night toward grey
+  bgColor:          0x121a2e,  // deep blue, not pure black — slightly lifted
+  toneMappingExposure: 1.05,   // a touch more exposure at night
   lampEmissive:     5.0,       // streetlamp glow (bloom); a bit hotter so lamps read as the light source
   poolOpacity:      1.0,
   lightsOn:         true,
@@ -131,6 +131,8 @@ export function createEnvToggle(refs) {
     setGuardRailNightMode(isNight);
     setBillboardNightMode(isNight);
     setRoadMarkingNightMode(isNight);
+    setTreeBillboardNightMode(isNight);
+    setStreetlightNightMode(isNight);
     setDividerNightMode(isNight);
     setShoulderNightMode(isNight);
     setCloudNightMode(isNight);

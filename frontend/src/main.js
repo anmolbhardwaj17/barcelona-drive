@@ -26,6 +26,7 @@ import { createMetricsPanel } from './ui/metricsPanel.js';
 import { createMinimap } from './ui/minimap.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
+import { createEscMenu } from './ui/escMenu.js';
 import { worldToLatLon, latLonToWorld, latLonToTile, tileToBBox, TILE_ZOOM } from './projection.js';
 import { getActiveSpawn, START_LAT, START_LON } from './spawnConfig.js';
 import { loadTile, clearTileCache } from './map/mapLoader.js';
@@ -146,6 +147,7 @@ let metricsPanel;
 let minimap;
 let compassBar;
 let performancePanel;
+let escMenu = null;
 
 function tileKey(tx, ty) {
   return `${tx}_${ty}`;
@@ -318,6 +320,12 @@ spawnTileReady.finally(() => {
     minimap?.setMarkerMode(!!carDriver);
     compassBar       = createCompassBar();
     performancePanel = createPerformancePanel(scene, renderer, tileManager, CONFIG.ENABLE_PERFORMANCE_PANEL);
+    // ESC menu — re-parents the car-colour panel + day/night toggle into a gamified overlay, adds
+    // global place search (spawn anywhere in the baked area) and a HUD-metrics toggle.
+    escMenu = createEscMenu({
+      colorPanelElement: document.getElementById('dd-car-color-panel'),
+      metricsElements: [metricsPanel?.element, performancePanel?.element],
+    });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
     animate();
   });

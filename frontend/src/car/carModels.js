@@ -99,6 +99,30 @@ export async function loadCityCarTemplates(basePath = '/models/cars/', targetLen
  * colour as authored). Returns { scene, dims }; clone scene per car. For traffic (few cars, no merge).
  * The returned `scene` origin sits at the wheel-base centre (place at (x, groundY, z), rotate about Y).
  */
+// Shared glowing-light resources for traffic cars (one geometry + two materials for all clones).
+let _headLightMat = null, _tailLightMat = null, _carLightGeo = null;
+function addCarLights(outer, dims) {
+  if (!_carLightGeo) {
+    _carLightGeo   = new THREE.PlaneGeometry(0.28, 0.14);
+    _headLightMat  = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });
+    _tailLightMat  = new THREE.MeshBasicMaterial({ color: 0xff2a12, side: THREE.DoubleSide, fog: true });
+  }
+  const { w, h, l } = dims;
+  const y = h * 0.42;
+  const add = (mat, x, z, ry) => {
+    const m = new THREE.Mesh(_carLightGeo, mat);
+    m.position.set(x, y, z);
+    m.rotation.y = ry;
+    m.castShadow = false; m.renderOrder = 2;
+    m.userData.sharedGeometry = true; m.userData.sharedMaterial = true;
+    outer.add(m);
+  };
+  add(_headLightMat, -w * 0.30, l * 0.49, 0);          // front-left  (white, faces +Z)
+  add(_headLightMat,  w * 0.30, l * 0.49, 0);          // front-right
+  add(_tailLightMat, -w * 0.30, -l * 0.49, Math.PI);   // rear-left   (red, faces -Z)
+  add(_tailLightMat,  w * 0.30, -l * 0.49, Math.PI);   // rear-right
+}
+
 export async function loadCarSceneTemplate(url, targetLength = 3.8) {
   const gltf = await _loader.loadAsync(url);
   const inner = gltf.scene;
@@ -128,6 +152,9 @@ export async function loadCarSceneTemplate(url, targetLength = 3.8) {
   const s2 = bb2.getSize(new THREE.Vector3());
   // recentre so outer's origin = wheel-base centre
   scaler.position.set(-(bb2.min.x + bb2.max.x) / 2, -bb2.min.y, -(bb2.min.z + bb2.max.z) / 2);
+  // Glowing head/tail lights so traffic reads at night (outer is unscaled, origin = wheelbase centre;
+  // car travels along +Z so +Z = front/white, -Z = rear/red). Emissive-basic → bright + blooms.
+  addCarLights(outer, { w: s2.x, h: s2.y, l: s2.z });
   return { scene: outer, dims: { w: s2.x, h: s2.y, l: s2.z } };
 }
 

@@ -26,7 +26,7 @@ const SPEED_BY_TYPE = {
   primary: 14, primary_link: 11, trunk: 16, trunk_link: 12,
 };
 
-const MAX_CARS    = 22;
+const MAX_CARS    = 28;   // full-detail clones — modest bump (watch FPS); busier roads
 const SPAWN_MIN   = 32;
 const SPAWN_MAX   = 185;
 const DESPAWN     = 240;

@@ -21,7 +21,9 @@ export function createCarControls() {
 
   let _lastTime = performance.now();
 
+  const _typing = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
   const _onDown = (e) => {
+    if (_typing()) return; // don't drive the car while typing in a menu search box
     _keys.add(e.code);
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))
       e.preventDefault();

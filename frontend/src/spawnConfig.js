@@ -51,6 +51,16 @@ export function resetSpawn() {
   _activeSpawn = { ...DEFAULT_SPAWN };
 }
 
+// URL override: ?spawn=lat,lon (the ESC-menu place search reloads with this). Applied at module load,
+// before main.js reads getActiveSpawn(), so the whole world inits at the chosen location.
+try {
+  const sp = new URLSearchParams(globalThis.location?.search || '').get('spawn');
+  if (sp) {
+    const [la, lo] = sp.split(',').map(Number);
+    if (Number.isFinite(la) && Number.isFinite(lo)) setActiveSpawn({ lat: la, lon: lo });
+  }
+} catch { /* no window (SSR/worker) */ }
+
 // Flat re-exports so existing imports of START_LAT/START_LON from projection.js
 // can be migrated one file at a time. These always reflect DEFAULT_SPAWN (static),
 // not _activeSpawn (dynamic). For runtime-changed spawn, use getActiveSpawn().

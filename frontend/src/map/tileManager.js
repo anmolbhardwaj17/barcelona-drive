@@ -24,6 +24,7 @@ import { createGreensMeshes } from './greensRenderer.js';
 import { buildBarrierMeshes, buildBarrierColliders } from './barrierRenderer.js';
 import { buildBusStopMeshes } from './busStopRenderer.js';
 import { buildParkingMeshes } from './parkingRenderer.js';
+import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildDecalMeshes, disposeDecalMeshes } from './decalRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
@@ -1870,8 +1871,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // PHASE 4: Grass + Water + Props + Infra + Details (background)
     // -----------------------------------------------------------------------
 
-    // Grass (off main thread)
-    if (!skipNonRoad) {
+    // Grass (off main thread) — skipped entirely when disabled (no worker cost either).
+    if (!skipNonRoad && (CONFIG.MAX_GRASS_PER_TILE ?? 0) > 0) {
       let vegTileBounds = null;
       if (elevation) {
         vegTileBounds = { south: elevation.south, west: elevation.west, north: elevation.north, east: elevation.east };
@@ -2016,7 +2017,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Bus stops + Parking
     if (CONFIG.ENABLE_BUS_STOPS && data.busStops?.length) {
-      const { shelterMesh, markingMesh, glowMesh, poolMesh } = buildBusStopMeshes(data.busStops, roads, getElevationAt);
+      // getGroundY takes WORLD coords (what busStopRenderer passes); getElevationAt takes lat/lon — passing
+      // the latter mis-elevated every shelter (floating in one spot, sunk into the road in another).
+      const { shelterMesh, markingMesh, glowMesh, poolMesh } = buildBusStopMeshes(data.busStops, roads, getGroundY);
       if (shelterMesh) { safeSceneAdd(scene, shelterMesh); entry.busStopMeshes.push(shelterMesh); }
       if (markingMesh) { safeSceneAdd(scene, markingMesh); entry.busStopMeshes.push(markingMesh); }
       if (glowMesh)    { safeSceneAdd(scene, glowMesh);    entry.busStopMeshes.push(glowMesh); }
@@ -2053,6 +2056,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     if (CONFIG.ENABLE_VENDOR_CARTS && roads.length > 0) {
       entry.vendorCartMeshes = await mergeMeshesByMaterial(buildVendorCartMeshes(roads, buildings, key, options.vegetationMask, getGroundY), yieldToMain);
       for (const m of entry.vendorCartMeshes) { safeSceneAdd(scene, m); }
+    }
+
+    // Shop name boards on building fronts (one InstancedMesh per tile).
+    if (CONFIG.ENABLE_SHOP_SIGNS !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {
+      const signMesh = buildShopSignMesh(buildings, { getElevationAt, vertExag: _groundVertExag });
+      if (signMesh) { entry.shopSignMesh = signMesh; safeSceneAdd(scene, signMesh); }
     }
 
     await yieldToMain();
@@ -2323,6 +2332,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.trenchPortalMesh)     { scene.remove(entry.trenchPortalMesh);     allMeshes.push(entry.trenchPortalMesh); }
         if (entry.pedestrianPortalMesh) { scene.remove(entry.pedestrianPortalMesh); allMeshes.push(entry.pedestrianPortalMesh); }
         if (entry.debugPhysicsHelpers) { scene.remove(entry.debugPhysicsHelpers); allMeshes.push(entry.debugPhysicsHelpers); }
+        if (entry.shopSignMesh)        { scene.remove(entry.shopSignMesh);        allMeshes.push(entry.shopSignMesh); }
 
         // Physics removal (immediate — must be synchronous for simulation correctness)
         // Also null out shape references to help GC reclaim CANNON memory

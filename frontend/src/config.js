@@ -78,6 +78,8 @@ export const CONFIG = {
   GRASS_MAX_DISTANCE: 60,
   /** Roadside/tree-base bush tufts. OFF — they scattered grass clumps all over streets & crosswalks. */
   ENABLE_BUSHES: false,
+  /** Shop name boards on building fronts (random Spanish/English names, atlas-instanced). */
+  ENABLE_SHOP_SIGNS: true,
 
   /** Show top-right performance debug panel (FPS, draw calls, scene counts, tiles, memory). */
   ENABLE_PERFORMANCE_PANEL: true,

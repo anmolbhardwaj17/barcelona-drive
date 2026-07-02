@@ -21,7 +21,7 @@ const HALFW_BY_TYPE = {
 };
 
 const FRAMES       = 8;
-const PED_CAP      = 110;
+const PED_CAP      = 150;  // instanced flipbook — cheap; busier sidewalks
 const CAP_PER_CELL = 40;   // per (variant × frame) InstancedMesh
 const RANGE        = 150;
 const REBUILD_DIST = 40;

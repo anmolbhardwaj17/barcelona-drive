@@ -21,7 +21,7 @@ import { createRoadTextures } from './generate-road-atlas.js';
  */
 const LAYER_HEIGHT_STEP = 6;
 const ROAD_OFFSET = 0.05;
-const ROAD_VISUAL_ABOVE_TERRAIN = 0.06; // lift roads above the terrain mesh (decal offset) — clears z-fight + the bilinear-road vs triangle-mesh conformance gap on curved 128-grid cells. Was 0.22 (sized for the pre-smoothing bumpy DEM); reduced in Phase 2: wheels now ride the terrain heightfield (no surface-road decks, D-16), so the road slab floats ABOVE the wheel contact by exactly this amount — at 0.22 tires visibly sank ~30 cm into the slab. Raise only if roads start dipping under terrain on curved cells.
+const ROAD_VISUAL_ABOVE_TERRAIN = 0.05; // lift roads above the terrain mesh (decal offset) — clears z-fight + the bilinear-road vs triangle-mesh conformance gap on curved 128-grid cells. Was 0.22 (pre-smoothing DEM), 0.06 (Phase 2); wheels ride the terrain heightfield (D-16) so the slab floats ABOVE the wheel contact by exactly this amount → the car looks sunk by it. Shaved 0.06→0.05 to reduce that. Raise if roads start dipping under terrain on curved/hill cells.
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
 
@@ -77,7 +77,7 @@ const LANE_DIVIDER_WIDTH      = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10 m
 const DOUBLE_LINE_GAP = 0.20;
 const DASH_LENGTH = 2.0;
 const DASH_GAP = 2.0;
-const MARKING_Y_ABOVE_ROAD = 0.08; // was 0.03 — below the road's ±3.5cm surface noise, so paint sank
+const MARKING_Y_ABOVE_ROAD = 0.06; // was 0.03 (sank into ±3.5cm road noise) → 0.08 → 0.06: still clears noise, floats less above the wheels so the car looks less sunk
                                    // under bumps and vanished up close. 0.08 clears the noise + grazing z-fight.
 
 const LANES_BY_TYPE = {
@@ -873,6 +873,20 @@ export function createRoadMesh(road, options, taperedWidths) {
 /** White material for center lines, lane dividers, and edge lines (Norma 8.2-IC). */
 let whiteLineMaterial = null;
 let _mergedMarkingMaterial = null;
+let _markingNight = false;                 // persisted so materials built AFTER a night toggle inherit it
+// Unlit paint → hand-tuned per time of day. Day: muted worn grey (0xB0B0B0 read too bright).
+// Night: soft moonlit grey (visible, not glaring). Both one-line tunable.
+const MARK_DAY = 0x8a8a8a, MARK_NIGHT = 0x565b62;
+/** Shared unlit material for all lane lines + zebra crosswalks (created once, night-state-aware). */
+function getMarkingMaterial() {
+  if (!_mergedMarkingMaterial) {
+    _mergedMarkingMaterial = new THREE.MeshBasicMaterial({
+      color: _markingNight ? MARK_NIGHT : MARK_DAY,
+      vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
+  }
+  return _mergedMarkingMaterial;
+}
 let _mergedPedestrianMaterial = null;
 function getWhiteLineMaterial() {
   if (!whiteLineMaterial) {
@@ -1148,10 +1162,7 @@ function buildRoadMarkings(roads, options) {
     const merged = mergeGeometries(allMarkingGeoms);
     allMarkingGeoms.forEach((g) => g.dispose());
     if (merged) {
-      if (!_mergedMarkingMaterial) {
-        _mergedMarkingMaterial = new THREE.MeshBasicMaterial({ color: 0xB0B0B0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); // unshaded but MUTED (~0.69) → worn paint, visible in shadow, not glaring white in sun
-      }
-      const mesh = new THREE.Mesh(merged, _mergedMarkingMaterial);
+      const mesh = new THREE.Mesh(merged, getMarkingMaterial());
       mesh.castShadow = false;
       mesh.receiveShadow = false;
       mesh.frustumCulled = false; // tile-level LOD handles visibility; avoids marking pop-in at distance
@@ -1175,7 +1186,7 @@ function buildCrosswalks(roads, options) {
   if (!CONFIG.ENABLE_CROSSWALKS) return null;
 
   const CROSSWALK_SETBACK = 1.5; // metres past the clipping zone edge before first stripe
-  const CROSSWALK_Y_ABOVE = 0.08; // above the road's surface noise so stripes don't sink/vanish up close
+  const CROSSWALK_Y_ABOVE = 0.055; // above ±3.5cm road noise, but lowered from 0.08 so stripes don't float ~0.14m over the wheels (made the car look extra-sunk at crossings)
 
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
   if (junctionPoints.length === 0) return null;
@@ -1282,10 +1293,7 @@ function buildCrosswalks(roads, options) {
     }
     merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-    if (!_mergedMarkingMaterial) {
-      _mergedMarkingMaterial = new THREE.MeshBasicMaterial({ color: 0xB0B0B0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); // unshaded but MUTED (~0.69) → worn paint, visible in shadow, not glaring white in sun
-    }
-    const mesh = new THREE.Mesh(merged, _mergedMarkingMaterial);
+    const mesh = new THREE.Mesh(merged, getMarkingMaterial());
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = false; // tile-level LOD (crosswalkMesh hidden at >80m in tileManager)
@@ -1309,7 +1317,7 @@ function buildOnewayArrows(roads, options) {
   const ARROW_SPACING = 30;    // metres between arrows
   const ARROW_LENGTH  = 0.75;  // half-length of triangle (tip to center)
   const ARROW_HALF_W  = 0.30;  // half-width of triangle base
-  const ARROW_Y_ABOVE = 0.04;  // above road surface (same as crosswalks)
+  const ARROW_Y_ABOVE = 0.035;  // above road surface (lowered with crosswalks/markings)
 
   // Skip road types where arrows would be redundant clutter (direction implied by divider)
   const SKIP_TYPES = new Set(['motorway', 'trunk', 'motorway_link', 'trunk_link']);
@@ -1412,10 +1420,7 @@ function buildOnewayArrows(roads, options) {
     }
     merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-    if (!_mergedMarkingMaterial) {
-      _mergedMarkingMaterial = new THREE.MeshBasicMaterial({ color: 0xB0B0B0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); // unshaded but MUTED (~0.69) → worn paint, visible in shadow, not glaring white in sun
-    }
-    const mesh = new THREE.Mesh(merged, _mergedMarkingMaterial);
+    const mesh = new THREE.Mesh(merged, getMarkingMaterial());
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = false; // tile-level LOD (onewayArrowMesh hidden at >80m in tileManager)
@@ -2569,7 +2574,8 @@ function getRailingMaterial() {
 export function setRoadMarkingNightMode(isNight) {
   // Lane lines + zebra crosswalks use an UNLIT MeshBasicMaterial, so they don't darken with the scene at
   // night → they glared bright white. Dim the shared colour by hand: moonlit worn paint, not glowing.
-  if (_mergedMarkingMaterial) _mergedMarkingMaterial.color.set(isNight ? 0x3d4247 : 0xB0B0B0);
+  _markingNight = isNight; // persist so crosswalks/lines built later also come up dimmed
+  if (_mergedMarkingMaterial) _mergedMarkingMaterial.color.set(isNight ? MARK_NIGHT : MARK_DAY);
 }
 
 export function setGuardRailNightMode(isNight) {
