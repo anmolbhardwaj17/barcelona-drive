@@ -302,6 +302,38 @@ function buildConvexPrism(pts, groundY, h) {
   return { shape, offset: new CANNON.Vec3(cxp, groundY + h / 2, czp) };
 }
 
+/**
+ * Trace a footprint outline with thin vertical wall boxes — one per edge — so the collider hugs the
+ * real walls exactly, for ANY polygon (convex OR concave). Used for concave footprints (L/U-shaped
+ * blocks) where a single oriented box would fill the notch and jut out over the sidewalk/road.
+ * `pts` are cleaned physics-frame points {x,z}. Adds shapes to `body`.
+ */
+const PERIMETER_WALL_THICK = 2.0;   // thick → resists fast-car tunneling; offset fully INSIDE the footprint
+function addPerimeterWalls(body, pts, groundY, h) {
+  const YAX = new CANNON.Vec3(0, 1, 0);
+  const n = pts.length;
+  // centroid, to push each wall inward so its OUTER face lands exactly on the real wall line
+  let ccx = 0, ccz = 0;
+  for (const p of pts) { ccx += p.x; ccz += p.z; }
+  ccx /= n; ccz /= n;
+  const half = PERIMETER_WALL_THICK / 2;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], c = pts[(i + 1) % n];
+    const dx = c.x - a.x, dz = c.z - a.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.5) continue;                       // skip tiny edges
+    const mx = (a.x + c.x) / 2, mz = (a.z + c.z) / 2;
+    // inward normal (toward centroid), normalized
+    let nx = -dz / len, nz = dx / len;
+    if (nx * (ccx - mx) + nz * (ccz - mz) < 0) { nx = -nx; nz = -nz; }
+    const theta = Math.atan2(dz, dx);              // edge direction in XZ (physics frame)
+    const box = new CANNON.Box(new CANNON.Vec3(len / 2, h / 2, half));
+    const quat = new CANNON.Quaternion();
+    quat.setFromAxisAngle(YAX, -theta);            // box local X → along this edge
+    body.addShape(box, new CANNON.Vec3(mx + nx * half, groundY + h / 2, mz + nz * half), quat);
+  }
+}
+
 function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertExag) {
   const bodies = [];
   if (!buildings || buildings.length === 0) return bodies;
@@ -363,7 +395,12 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
       if (clean.length > 4) prism = buildConvexPrism(clean, groundY, h);
       if (prism) {
         body.addShape(prism.shape, prism.offset);
+      } else if (clean.length > 4) {
+        // Concave footprint (L/U-shaped block) — an OBB would fill the notch and jut into the road.
+        // Trace the real outline with thin perimeter walls so the collider matches the visible building.
+        addPerimeterWalls(body, clean, groundY, h);
       } else {
+        // Triangle / quad (rectangles) → cheap tight oriented box.
         const box = new CANNON.Box(new CANNON.Vec3(hu, h / 2, hv));
         const quat = new CANNON.Quaternion();
         quat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -phi); // box local X → footprint's dominant edge
