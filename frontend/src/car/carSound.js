@@ -105,7 +105,7 @@ export function createCarSound() {
   function _updateSampleEngine(rpmNorm, throttle, t) {
     if (!_sEng) return;
     const rate = 0.7 + rpmNorm * 1.3;                 // 0.7× idle → 2.0× redline: unmistakable rev sweep
-    const g = 0.5 + throttle * 0.4 + rpmNorm * 0.35;
+    const g = 0.9 + throttle * 0.55 + rpmNorm * 0.5;  // louder engine (was 0.5/0.4/0.35)
     _sEng.src.playbackRate.setTargetAtTime(rate, t, 0.05);
     _sEng.gain.gain.setTargetAtTime(g, t, 0.05);
     if (_engHP) _engHP.frequency.setTargetAtTime(150 + rpmNorm * 120, t, 0.08); // open up the top with revs
@@ -378,10 +378,8 @@ export function createCarSound() {
       screechBP.frequency.setTargetAtTime(5000 + absSpd * 6, t, 0.1);
     }
 
-    // ── Wind — rises with speed (airy rush past ~40 km/h, loud at motorway speed) ──
-    const windNorm = Math.min(1, absSpd / 150);
-    windGain.gain.setTargetAtTime(windNorm * windNorm * 0.11, t, 0.12);
-    windHP.frequency.setTargetAtTime(550 + absSpd * 7, t, 0.12);
+    // Wind removed (it masked the engine) — keep it silent.
+    windGain.gain.setTargetAtTime(0, t, 0.2);
 
     // ── Impact thud on a sharp single-frame speed drop (collision; skip frame hitches) ──
     _thudCooldown -= dt;
