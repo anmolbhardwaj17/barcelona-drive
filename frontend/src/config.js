@@ -24,7 +24,7 @@ export const CONFIG = {
   ROAD_ONLY_DEBUG: false,
 
   /** When true, driving mode with car physics + chase camera. When false, free orbit camera. */
-  ENABLE_CAR: false,
+  ENABLE_CAR: true,   // default = drive (car). Fly mode is opt-in via Settings (dd_flyMode) or ?mode=fly.
 
   // ── Car physics tuning ─────────────────────────────────────────────────────
   CAR_CHASSIS_MASS:       1200,   // kg

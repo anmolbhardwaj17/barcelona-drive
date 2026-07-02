@@ -160,6 +160,8 @@ export function createEscMenu(refs = {}) {
   const applyMetrics = () => { for (const e of metricsEls) e.style.display = metricsOn ? '' : 'none'; };
   applyMetrics();
   page.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
+  // Fly mode (free camera vs driving) — reloads to switch.
+  page.appendChild(check('Fly mode', ls('dd_flyMode', 'false') === 'true', (v) => { ss('dd_flyMode', v ? 'true' : 'false'); setTimeout(() => location.reload(), 120); }));
 
   // ── Sound ──
   page.appendChild(sec('Sound'));

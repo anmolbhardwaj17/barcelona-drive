@@ -126,7 +126,11 @@ const ENABLE_CAR = (() => {
     if (m === 'fly' || m === 'free' || m === 'drone') return false;
     if (p.has('car')) return p.get('car') !== '0' && p.get('car') !== 'false';
     if (p.has('fly') || p.has('drone')) return false;
-  } catch { /* no URL access */ }
+    // Persisted Settings preference (Fly-mode toggle) — used when no URL override.
+    const fly = localStorage.getItem('dd_flyMode');
+    if (fly === 'true') return false;
+    if (fly === 'false') return true;
+  } catch { /* no URL/storage access */ }
   return CONFIG.ENABLE_CAR;
 })();
 if (ENABLE_CAR !== CONFIG.ENABLE_CAR) {
