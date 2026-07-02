@@ -1087,6 +1087,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   let currentTx = 0;
   let currentTy = 0;
   let inFlightCount = 0;
+  let _startedLoading = false; // latches once the first tiles are requested (for the loading-screen gate)
   /** Track rendered water wayIds for dedupe across tiles. Removed on tile unload. */
   const renderedWaterIds = new Set();
   /** Queue of { key, tx0, ty0 } to load when a slot is free (avoids Overpass 429) */
@@ -2964,8 +2965,16 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     return n;
   }
 
+  // True once the initial spawn-area tiles have finished loading (nothing in-flight or queued after
+  // loading has begun). Used to hold the loading screen until the world around the car is actually built.
+  function isInitialLoadComplete() {
+    if (inFlightCount > 0 || pendingQueue.length > 0) { _startedLoading = true; return false; }
+    return _startedLoading && tileCache.size > 0;
+  }
+
   return {
     update,
+    isInitialLoadComplete,
     getLoadedRoadSegments,
     injectSpawnTile,
     getDebugMetrics,

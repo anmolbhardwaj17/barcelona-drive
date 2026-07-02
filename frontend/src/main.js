@@ -328,11 +328,14 @@ spawnTileReady.finally(() => {
     });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
     animate();
-    // Fade out the loading screen once the first couple of frames are on screen.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const l = document.getElementById('dd-loading');
-      if (l) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); }
-    }));
+    // Hold the loading screen until the spawn-area tiles are actually built (not just the first frame),
+    // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.
+    const _hideLoader = () => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); } };
+    let _polls = 0;
+    const _pollLoad = setInterval(() => {
+      _polls++;
+      if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) { clearInterval(_pollLoad); _hideLoader(); }
+    }, 150);
   });
 });
 // Safety net: never let the loader get stuck if init throws before animate().
