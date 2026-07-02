@@ -45,6 +45,7 @@ import { createPedestrians } from './car/pedestrians.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
 import { initTunnelDebug, updateTunnelDebug } from './tunnelDebugOverlay.js';
+import { initCollisionDebug, updateCollisionDebug } from './collisionDebug.js';
 import { initWorkerPool } from './workers/workerPool.js';
 
 const container = document.getElementById('app');
@@ -332,6 +333,7 @@ spawnTileReady.finally(() => {
       metricsElements: [metricsPanel?.element, performancePanel?.element],
     });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
+    initCollisionDebug(); // reads ?debug=collision; no-op when absent
     animate();
     // Hold the loading screen until the spawn-area tiles are actually built (not just the first frame),
     // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.
@@ -469,6 +471,7 @@ function animate(time = 0) {
 
   // Phase 0 tunnel diagnostic overlay (?debug=tunnel) — flag-gated, no cost when off.
   updateTunnelDebug(scene, world, camera);
+  updateCollisionDebug(scene, world);
 
   // Animate grass + tree wind (same time base for spatial coherence)
   updateGrassWind(time / 1000);
