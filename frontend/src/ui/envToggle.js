@@ -223,7 +223,7 @@ export function createEnvToggle(refs) {
   const knob = document.createElement('div');
   knob.style.cssText = `
     width: ${KNOB_SIZE}px; height: ${KNOB_SIZE}px; border-radius: 50%;
-    position: absolute; top: ${KNOB_PAD - 3}px; background: #fff;
+    position: absolute; top: ${(TRACK_H - KNOB_SIZE) / 2}px; background: #fff;
     transition: left .3s ease;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 2px 4px rgba(0,0,0,0.3);
@@ -234,7 +234,7 @@ export function createEnvToggle(refs) {
     const isNight = mode === 'night';
     toggle.style.background = isNight ? 'linear-gradient(#4a6ea5,#284872)' : 'linear-gradient(#ffe07a,#f5b32a)';
     toggle.style.boxShadow = (isNight ? '0 6px 0 #16304f' : '0 6px 0 #c8871a') + ', 0 9px 12px rgba(0,0,0,0.35)';
-    knob.style.left = isNight ? `${TRACK_W - KNOB_SIZE - KNOB_PAD - 3}px` : `${KNOB_PAD - 3}px`;
+    knob.style.left = isNight ? `${TRACK_W - KNOB_SIZE - KNOB_PAD}px` : `${KNOB_PAD}px`;
     knob.innerHTML = isNight
       ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="#3a5a8a"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
       : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5931f" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
