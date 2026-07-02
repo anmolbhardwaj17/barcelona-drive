@@ -16,6 +16,7 @@ const PRESETS = [
 const LOGO_URL = '/logo-barcelona-drive.png';
 
 import { uiSound } from './uiSound.js';
+import { audio } from '../audio/audioManager.js';
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
@@ -36,7 +37,11 @@ const CSS = `
   box-shadow:0 5px 0 rgba(0,0,0,0.35); transition:transform .1s, box-shadow .1s; }
 #dd-car-color-panel > div[style*="50%"]:hover { transform:translateY(-2px); }
 #dd-car-color-panel > div[style*="50%"].sel { border-color:#ffd23f !important; box-shadow:0 0 0 4px rgba(255,210,63,0.4), 0 5px 0 rgba(0,0,0,0.35) !important; }
-#dd-car-color-panel > div:not([style*="50%"]) { font-size:26px !important; margin-left:10px !important; }
+#dd-car-color-panel > div:not([style*="50%"]) { display:none !important; } /* hide the little speaker btn — Sound section handles it */
+.dd-esc-range { -webkit-appearance:none; appearance:none; width:240px; height:10px; border-radius:6px; background:rgba(0,0,0,0.4); border:2px solid rgba(0,0,0,0.28); outline:none; }
+.dd-esc-range::-webkit-slider-thumb { -webkit-appearance:none; width:26px; height:26px; border-radius:50%; background:linear-gradient(#ffe07a,#f5b32a); border:2px solid rgba(0,0,0,0.2); box-shadow:0 4px 0 #c88a10; cursor:pointer; }
+.dd-esc-range::-moz-range-thumb { width:24px; height:24px; border-radius:50%; background:#f5b32a; border:2px solid rgba(0,0,0,0.2); cursor:pointer; }
+.dd-esc-val { min-width:52px; color:#ffd23f; font-size:19px; text-shadow:0 2px 0 rgba(0,0,0,0.28); }
 .dd-esc-body { flex:1; overflow:auto; padding:14px 0; }
 .dd-esc-page { width:min(740px,100%); margin:0 auto; }
 .dd-esc-sec { display:flex; align-items:center; gap:14px; margin:24px 0 13px; font-size:19px; letter-spacing:1.5px;
@@ -86,6 +91,15 @@ function el(t, c, h) { const e = document.createElement(t); if (c) e.className =
 function sec(t) { return el('div', 'dd-esc-sec', t); }
 function ls(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } }
 function ss(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+function slider(label, value, fmt, onInput) {
+  const line = el('div', 'dd-esc-line');
+  const r = el('input', 'dd-esc-range'); r.type = 'range'; r.min = '0'; r.max = '100'; r.step = '1'; r.value = String(value);
+  const v = el('span', 'dd-esc-val', fmt(value));
+  r.addEventListener('input', () => { const n = parseInt(r.value, 10); v.textContent = fmt(n); onInput(n); });
+  line.appendChild(r); line.appendChild(v); line.appendChild(el('span', 'dd-esc-tlabel', label));
+  return line;
+}
 
 function check(label, checked, onChange) {
   const line = el('div', 'dd-esc-line');
@@ -147,9 +161,14 @@ export function createEscMenu(refs = {}) {
   applyMetrics();
   page.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
 
+  // ── Sound ──
+  page.appendChild(sec('Sound'));
+  page.appendChild(slider('Volume', Math.round(audio.getVolume() * 100), (n) => `${n}%`, (n) => audio.setVolume(n / 100)));
+  page.appendChild(check('Sound on', !audio.isMuted(), (v) => audio.setMuted(!v)));
+
   // ── Controls ──
   page.appendChild(sec('Controls'));
-  const keys = [['W / ↑', 'Accelerate'], ['S / ↓', 'Brake · Reverse'], ['A / D', 'Steer'], ['Space', 'Handbrake · Drift'], ['Esc', 'Menu']];
+  const keys = [['W / ↑', 'Accelerate'], ['S / ↓', 'Brake · Reverse'], ['A / D', 'Steer'], ['Space', 'Handbrake · Drift'], ['H', 'Horn'], ['Esc', 'Menu']];
   for (const [k, d] of keys) {
     const row = el('div', 'dd-esc-key');
     row.appendChild(el('span', 'd', d));

@@ -9,6 +9,8 @@
  * Plus: shaped noise for exhaust rumble.
  */
 
+import { audio } from '../audio/audioManager.js';
+
 const IDLE_RPM = 800;
 const REDLINE_RPM = 5500;
 const MASTER_VOLUME = 0.55;
@@ -53,13 +55,47 @@ export function createCarSound() {
   let _smoothThrottle = 0;
   let _prevThrottle = 0;
 
+  // ── Sample-based layers (used when files exist in /public/audio/, else synth fallback) ──
+  let _sampleTried = false, _sampleEngine = false;
+  let _sIdle = null, _sMid = null, _sHigh = null, _sSkid = null, _sAmb = null;
+  function _trySamples() {
+    if (_sampleTried || !_ctx) return; _sampleTried = true;
+    audio.preload().then(() => {
+      const eIdle = audio.get('engine_idle'), eMid = audio.get('engine_mid'), eHigh = audio.get('engine_high');
+      if (eIdle || eMid || eHigh) {
+        _sIdle = eIdle && audio.loop(eIdle, { gain: 0 });
+        _sMid  = eMid  && audio.loop(eMid,  { gain: 0 });
+        _sHigh = eHigh && audio.loop(eHigh, { gain: 0 });
+        _sampleEngine = true;
+        // silence the synthesized engine + exhaust (samples take over)
+        preGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);
+        noiseGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);
+      }
+      const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0 });
+      const am = audio.get('ambience');
+      if (am) { _sAmb = audio.loop(am, { gain: 0.16 }); ambGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2); }
+    }).catch(() => {});
+  }
+  // Crossfade idle/mid/high engine loops + pitch by RPM (the standard "good" technique).
+  function _updateSampleEngine(rpmNorm, throttle, t) {
+    const g = 0.4 + throttle * 0.45 + rpmNorm * 0.25;
+    const iG = Math.max(0, 1 - rpmNorm / 0.45);
+    const mG = Math.max(0, 1 - Math.abs(rpmNorm - 0.5) / 0.4);
+    const hG = Math.max(0, (rpmNorm - 0.55) / 0.45);
+    if (_sIdle) { _sIdle.src.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.55, t, 0.06); _sIdle.gain.gain.setTargetAtTime(iG * g, t, 0.06); }
+    if (_sMid)  { _sMid.src.playbackRate.setTargetAtTime(0.80 + rpmNorm * 0.75, t, 0.06);  _sMid.gain.gain.setTargetAtTime(mG * g, t, 0.06); }
+    if (_sHigh) { _sHigh.src.playbackRate.setTargetAtTime(0.80 + rpmNorm * 0.75, t, 0.06);  _sHigh.gain.gain.setTargetAtTime(hG * g, t, 0.06); }
+  }
+
   function _init() {
     if (_ctx) return;
-    _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    _ctx = audio.ctx();
+    if (!_ctx) return;
 
+    // Car submix → shared master (Settings volume + mute live on audioManager's master).
     master = _ctx.createGain();
-    master.gain.value = _muted ? 0 : MASTER_VOLUME;
-    master.connect(_ctx.destination);
+    master.gain.value = MASTER_VOLUME;
+    master.connect(audio.master());
 
     // ── Engine tone (two detuned sawtooths for thickness) ──────────────
     preGain = _ctx.createGain();
@@ -271,6 +307,7 @@ export function createCarSound() {
   function ensureStarted() {
     if (!_started) _init();
     if (_ctx && _ctx.state === 'suspended') _ctx.resume();
+    _trySamples();
   }
 
   /**
@@ -288,38 +325,34 @@ export function createCarSound() {
     const rpmNorm = Math.max(0, Math.min(1, (_smoothRpm - IDLE_RPM) / (REDLINE_RPM - IDLE_RPM)));
     const t = _ctx.currentTime;
 
-    // Engine tone pitch: low & bassy — old car rumble
-    // ~35 Hz at idle, ~110 Hz at redline (much lower than sports car)
-    const baseFreq = 35 + rpmNorm * 75;
-    eng1.frequency.setTargetAtTime(baseFreq, t, 0.04);
-    eng2.frequency.setTargetAtTime(baseFreq * 1.01, t, 0.04); // slight detune
+    if (_sampleEngine) {
+      _updateSampleEngine(rpmNorm, _smoothThrottle, t);
+    } else {
+      // Engine tone pitch: low & bassy — old car rumble (~35 Hz idle → ~110 Hz redline)
+      const baseFreq = 35 + rpmNorm * 75;
+      eng1.frequency.setTargetAtTime(baseFreq, t, 0.04);
+      eng2.frequency.setTargetAtTime(baseFreq * 1.01, t, 0.04); // slight detune
+      // AM frequency: half crank speed for heavier thump (RPM/60)
+      amOsc.frequency.setTargetAtTime(_smoothRpm / 60, t, 0.04);
+      engFilter.frequency.setTargetAtTime(250 + rpmNorm * 350, t, 0.06);
+      const revVol = 0.7 + rpmNorm * 0.3;
+      preGain.gain.setTargetAtTime(_smoothThrottle > 0.3 ? revVol : 0.35, t, 0.08);
+      noiseBP.frequency.setTargetAtTime(60 + rpmNorm * 80, t, 0.06);
+      noiseLP.frequency.setTargetAtTime(200 + rpmNorm * 150 + _smoothThrottle * 100, t, 0.06);
+      noiseGain.gain.setTargetAtTime(0.06 + _smoothThrottle * 0.08 + rpmNorm * 0.04, t, 0.08);
+    }
 
-    // AM frequency: half crank speed for heavier thump (RPM/60)
-    const firingRate = _smoothRpm / 60;
-    amOsc.frequency.setTargetAtTime(firingRate, t, 0.04);
-
-    // Engine filter — keep it muffled like an old car, less bright
-    engFilter.frequency.setTargetAtTime(250 + rpmNorm * 350, t, 0.06);
-
-    // Volume: louder on throttle and higher RPM
-    const idleVol = 0.35;
-    const revVol = 0.7 + rpmNorm * 0.3;
-    const targetVol = _smoothThrottle > 0.3 ? revVol : idleVol;
-    preGain.gain.setTargetAtTime(targetVol, t, 0.08);
-
-    // Exhaust noise: stays low and rumbly, old muffler
-    noiseBP.frequency.setTargetAtTime(60 + rpmNorm * 80, t, 0.06);
-    noiseLP.frequency.setTargetAtTime(200 + rpmNorm * 150 + _smoothThrottle * 100, t, 0.06);
-    noiseGain.gain.setTargetAtTime(0.06 + _smoothThrottle * 0.08 + rpmNorm * 0.04, t, 0.08);
-
-    // ── Tire screech on hard braking ──────────────────────────────────
+    // ── Tire screech on hard braking (sample if present, else synth squeal) ──
     const absSpd = Math.abs(speedKmh);
     const hardBraking = brake > 0.5 && absSpd > 15;
-    const screechVol = hardBraking ? Math.min(0.08, (absSpd - 15) / 80 * 0.08) : 0;
-    screechGain.gain.setTargetAtTime(screechVol, t, hardBraking ? 0.12 : 0.05);
-    // Squeal pitch rises slightly with speed
-    screechHP.frequency.setTargetAtTime(2800 + absSpd * 5, t, 0.1);
-    screechBP.frequency.setTargetAtTime(5000 + absSpd * 6, t, 0.1);
+    if (_sSkid) {
+      _sSkid.gain.gain.setTargetAtTime(hardBraking ? Math.min(0.55, (absSpd - 15) / 80 * 0.55) : 0, t, hardBraking ? 0.1 : 0.2);
+    } else {
+      const screechVol = hardBraking ? Math.min(0.08, (absSpd - 15) / 80 * 0.08) : 0;
+      screechGain.gain.setTargetAtTime(screechVol, t, hardBraking ? 0.12 : 0.05);
+      screechHP.frequency.setTargetAtTime(2800 + absSpd * 5, t, 0.1);
+      screechBP.frequency.setTargetAtTime(5000 + absSpd * 6, t, 0.1);
+    }
 
     // ── Wind — rises with speed (airy rush past ~40 km/h, loud at motorway speed) ──
     const windNorm = Math.min(1, absSpd / 150);
@@ -360,29 +393,17 @@ export function createCarSound() {
   }
 
   function dispose() {
-    if (_ctx) {
-      eng1?.stop();
-      eng2?.stop();
-      amOsc?.stop();
-      noiseNode?.stop();
-      screechNode?.stop();
-      ambNode?.stop();
-      windNode?.stop();
-      _ctx.close();
-      _ctx = null;
-      _started = false;
-    }
+    // Stop this car's nodes only — the AudioContext is shared (audioManager), don't close it.
+    eng1?.stop(); eng2?.stop(); amOsc?.stop();
+    noiseNode?.stop(); screechNode?.stop(); ambNode?.stop(); windNode?.stop();
+    _sIdle?.src.stop(); _sMid?.src.stop(); _sHigh?.src.stop(); _sSkid?.src.stop(); _sAmb?.src.stop();
+    _started = false;
   }
 
-  let _muted = false;
-  try { _muted = localStorage.getItem('dd_soundMuted') === 'true'; } catch {}
+  // Mute + volume now live on the shared audioManager master (Settings controls it).
+  function setMuted(muted) { audio.setMuted(muted); }
+  function isMuted() { return audio.isMuted(); }
+  function horn() { const h = audio.get('horn'); if (h) audio.oneShot(h, { gain: 0.6 }); }
 
-  function setMuted(muted) {
-    _muted = muted;
-    if (master) master.gain.setTargetAtTime(_muted ? 0 : MASTER_VOLUME, _ctx.currentTime, 0.05);
-    try { localStorage.setItem('dd_soundMuted', _muted ? 'true' : 'false'); } catch {}
-  }
-  function isMuted() { return _muted; }
-
-  return { ensureStarted, update, dispose, setMuted, isMuted };
+  return { ensureStarted, update, dispose, setMuted, isMuted, horn };
 }

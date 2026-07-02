@@ -49,6 +49,10 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   window.addEventListener('keydown', _startAudio);
   window.addEventListener('click', _startAudio);
 
+  // Horn (H) — plays the horn sample if present (no-op otherwise)
+  const _onHorn = (e) => { if (e.code === 'KeyH' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) sound.horn?.(); };
+  window.addEventListener('keydown', _onHorn);
+
   // ── Diagnostics ───────────────────────────────────────────────────────────
   let _logTimer = 0;
   let _prevGear = 1;
