@@ -25,6 +25,7 @@ import { buildBarrierMeshes, buildBarrierColliders } from './barrierRenderer.js'
 import { buildBusStopMeshes } from './busStopRenderer.js';
 import { buildParkingMeshes } from './parkingRenderer.js';
 import { buildShopSignMesh } from './shopSignRenderer.js';
+import { buildAwningMesh } from './awningRenderer.js';
 import { buildDecalMeshes, disposeDecalMeshes } from './decalRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
@@ -2066,6 +2067,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (signMesh) { entry.shopSignMesh = signMesh; safeSceneAdd(scene, signMesh); }
     }
 
+    // Projecting fabric awnings over the ground-floor shopfronts (one merged mesh per tile).
+    if (CONFIG.ENABLE_AWNINGS !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {
+      const awningMesh = buildAwningMesh(buildings, { getElevationAt, vertExag: _groundVertExag });
+      if (awningMesh) { entry.awningMesh = awningMesh; safeSceneAdd(scene, awningMesh); }
+    }
+
     await yieldToMain();
 
     // Vertex count warning
@@ -2335,6 +2342,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.pedestrianPortalMesh) { scene.remove(entry.pedestrianPortalMesh); allMeshes.push(entry.pedestrianPortalMesh); }
         if (entry.debugPhysicsHelpers) { scene.remove(entry.debugPhysicsHelpers); allMeshes.push(entry.debugPhysicsHelpers); }
         if (entry.shopSignMesh)        { scene.remove(entry.shopSignMesh);        allMeshes.push(entry.shopSignMesh); }
+        if (entry.awningMesh)          { scene.remove(entry.awningMesh);          allMeshes.push(entry.awningMesh); }
 
         // Physics removal (immediate — must be synchronous for simulation correctness)
         // Also null out shape references to help GC reclaim CANNON memory

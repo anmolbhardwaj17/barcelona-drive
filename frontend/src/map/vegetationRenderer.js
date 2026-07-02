@@ -18,7 +18,7 @@ import { rasterizeSegment } from './roadOccupancyGrid.js';
 // Procedural low-poly tree variants
 // ---------------------------------------------------------------------------
 
-// 4 variants: stylised Indian roadside trees (Neem, Gulmohar, Ashoka, Banyan)
+// 4 variants: stylised Barcelona street trees (plane, elm/lime, cypress, mixed broadleaf)
 // Each uses trunk cylinder + clustered dodecahedron foliage for organic canopy
 const TREE_VARIANTS = [
   { // Variant 0: Plane tree — round dome canopy (the classic Barcelona street tree)

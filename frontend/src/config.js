@@ -80,6 +80,8 @@ export const CONFIG = {
   ENABLE_BUSHES: false,
   /** Shop name boards on building fronts (random Spanish/English names, atlas-instanced). */
   ENABLE_SHOP_SIGNS: true,
+  /** Projecting fabric awnings (toldos) over ground-floor shopfronts — one merged mesh per tile. */
+  ENABLE_AWNINGS: true,
 
   /** Show top-right performance debug panel (FPS, draw calls, scene counts, tiles, memory). */
   ENABLE_PERFORMANCE_PANEL: true,

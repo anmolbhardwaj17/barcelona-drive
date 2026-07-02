@@ -21,8 +21,8 @@ const HALFW_BY_TYPE = {
 };
 
 const FRAMES       = 8;
-const PED_CAP      = 150;  // instanced flipbook — cheap; busier sidewalks
-const CAP_PER_CELL = 40;   // per (variant × frame) InstancedMesh
+const PED_CAP      = 210;  // instanced flipbook — cheap; busier, more alive sidewalks
+const CAP_PER_CELL = 55;   // per (variant × frame) InstancedMesh
 const RANGE        = 150;
 const REBUILD_DIST = 40;
 const SIDEWALK_PAD = 1.9;
@@ -120,7 +120,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     const farCand = cand.filter((c) => ((c.ax + c.bx) / 2 - playerPx) ** 2 + ((c.az + c.bz) / 2 - playerPz) ** 2 > NEAR_SPAWN_2);
     const pool = farCand.length ? farCand : cand;
 
-    const target = Math.min(PED_CAP, Math.max(0, Math.round(cand.length * 0.5)));
+    const target = Math.min(PED_CAP, Math.max(0, Math.round(cand.length * 0.62)));
     let guard = 0;
     while (peds.length < target && guard++ < target * 3) {
       spawnPed(pool[(Math.random() * pool.length) | 0]);
