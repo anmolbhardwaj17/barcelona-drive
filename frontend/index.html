@@ -38,12 +38,14 @@
       }
       @keyframes ddSlide { 0% { transform: translateX(-130%); } 100% { transform: translateX(360%); } }
       #dd-loading .factlabel {
-        color: #ffd23f; letter-spacing: 3px; font-size: 11px; font-weight: 700;
-        text-transform: uppercase; margin-top: 8px;
+        font-family: 'Lilita One', sans-serif;
+        color: #ffd23f; letter-spacing: 2px; font-size: 16px;
+        text-transform: uppercase; margin-top: 6px; text-shadow: 0 2px 0 rgba(0,0,0,0.3);
       }
       #dd-loading .fact {
-        max-width: min(580px, 82vw); text-align: center; color: rgba(255,255,255,0.78);
-        font-size: 16px; line-height: 1.55; min-height: 52px; padding: 0 24px;
+        font-family: 'Poppins', -apple-system, sans-serif; font-weight: 500;
+        max-width: min(620px, 84vw); text-align: center; color: rgba(255,255,255,0.9);
+        font-size: 18px; line-height: 1.6; min-height: 58px; padding: 0 24px;
         transition: opacity .3s ease;
       }
       #dd-loading .txt {
@@ -96,7 +98,28 @@
           "Park Güell's mosaic salamander, “El Drac”, is a beloved city icon.",
           "Barcelona sits between the Collserola hills and the Mediterranean Sea.",
           "The Barcelona Metro carries over a million riders on an average day.",
-          "Park Güell was originally planned as a housing estate that never sold."
+          "Park Güell was originally planned as a housing estate that never sold.",
+          "Gaudí is buried in the crypt of the Sagrada Família itself.",
+          "Cerdà's chamfered corners — the 'xamfrans' — give every Eixample crossing a little plaza.",
+          "The Columbus Monument at the foot of La Rambla points out to sea.",
+          "FC Barcelona vs Real Madrid is football's famous 'El Clásico'.",
+          "Camp Nou is being rebuilt into the larger 'Spotify Camp Nou'.",
+          "The Palau de la Música Catalana is a UNESCO-listed modernist concert hall.",
+          "The Hospital de Sant Pau is a dazzling modernist complex — also UNESCO-listed.",
+          "Torre Glòries (the old Agbar Tower) glows in thousands of colours at night.",
+          "Catalans build human towers called 'castells' at their festivals.",
+          "Gràcia was a separate town until Barcelona absorbed it in 1897.",
+          "Barcelona's beaches were largely rebuilt for the 1992 Olympics.",
+          "Gaudí rarely drew full plans — he built models and shaped his buildings on site.",
+          "The Bicing bike-share puts thousands of red bikes across the city.",
+          "Some Barcelona metro lines run completely driverless.",
+          "'Vermut' — a vermouth aperitif — is a beloved local weekend ritual.",
+          "The Barri Gòtic still hides sections of the old Roman city wall.",
+          "La Boqueria market has fed the city since the 13th century.",
+          "The W Barcelona hotel is shaped like a giant sail on the seafront.",
+          "Montjuïc means 'Jew's Mountain' — home to a medieval Jewish cemetery.",
+          "Barcelona is the capital of Catalonia, in Spain's northeast.",
+          "The Ronda de Dalt and Ronda Litoral ring roads loop the whole city."
         ];
         var el = document.getElementById("dd-fact");
         if (!el) return;
