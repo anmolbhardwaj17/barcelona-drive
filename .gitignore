@@ -1,0 +1,37 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Baked map tiles (≈12 GB — regenerate with the backend bake pipeline) ──
+backend/tiles/
+
+# ── Region source data: OSM PBF + Copernicus DEM GeoTIFF (large binaries) ──
+data/regions/
+backend/data/regions/
+*.pbf
+*.osm.pbf
+*.tif
+*.tiff
+*.dem
+
+# ── Bake pipeline state ──────────────────────────────────────
+bake/
+
+# ── Build output ─────────────────────────────────────────────
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# ── Editor / OS / tooling ────────────────────────────────────
+.DS_Store
+**/.DS_Store
+.cursor/
+.claude/
+*.log
+npm-debug.log*
+
+# ── Env / secrets ────────────────────────────────────────────
+.env
+.env.*
+!.env.example

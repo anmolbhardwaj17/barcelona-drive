@@ -1,0 +1,22 @@
+{
+  "name": "delhi-drive-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "nodemon server.js",
+    "start:prod": "node server.js",
+    "build:region": "node worldBuilder/buildRegion.js",
+    "build:test": "node worldBuilder/buildRegion.js --area aiims"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "geotiff": "^2.1.0",
+    "osm-pbf-parser": "^2.3.0",
+    "rbush": "^4.0.1",
+    "through2": "^4.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
