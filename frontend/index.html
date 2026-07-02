@@ -56,7 +56,7 @@
       /* ── Title / start screen (shown first; PLAY drops into the game) ── */
       #dd-title {
         position: fixed; inset: 0; z-index: 10000;
-        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 40px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
         background: #24406a url('/title-bg.png') center / cover no-repeat;
         transition: opacity .5s ease;
       }
@@ -68,22 +68,28 @@
         filter: drop-shadow(0 10px 16px rgba(0,0,0,0.45));
         animation: ddBob 2.8s ease-in-out infinite;
       }
+      #dd-title .tagline {
+        position: relative; z-index: 1; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 500;
+        font-size: 21px; letter-spacing: 1px; color: rgba(255,255,255,0.96);
+        text-shadow: 0 2px 8px rgba(0,0,0,0.55); margin-top: -6px;
+      }
       #dd-title .play {
         position: relative; z-index: 1; cursor: pointer; user-select: none;
-        font-family: 'Lilita One', sans-serif; font-size: 34px; letter-spacing: 3px; color: #123008;
-        padding: 16px 72px; border-radius: 24px; border: 3px solid rgba(0,0,0,0.18);
-        background: linear-gradient(#84e56f, #4fbf42);
-        box-shadow: 0 10px 0 #34922a, 0 16px 24px rgba(0,0,0,0.4);
-        text-shadow: 0 2px 0 rgba(255,255,255,0.35);
-        transition: transform .06s, box-shadow .06s;
+        font-family: 'Lilita One', sans-serif; font-size: 34px; letter-spacing: 3px; color: #3a2a00;
+        padding: 16px 76px; border-radius: 24px; border: 3px solid rgba(0,0,0,0.18);
+        background: linear-gradient(#ffe07a, #f5b32a);
+        box-shadow: 0 10px 0 #c8871a, 0 16px 24px rgba(0,0,0,0.4);
+        text-shadow: 0 2px 0 rgba(255,255,255,0.4);
+        transition: transform .06s, box-shadow .06s; margin-top: 6px;
       }
-      #dd-title .play:hover { filter: brightness(1.05); }
-      #dd-title .play:active { transform: translateY(8px); box-shadow: 0 2px 0 #34922a; }
+      #dd-title .play:hover { filter: brightness(1.06); }
+      #dd-title .play:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
     </style>
   </head>
   <body>
     <div id="dd-title">
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
+      <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
     </div>
 
