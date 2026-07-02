@@ -55,28 +55,39 @@
 
       /* ── Title / start screen (shown first; PLAY drops into the game) ── */
       #dd-title {
-        position: fixed; inset: 0; z-index: 10000;
+        position: fixed; inset: 0; z-index: 10000; overflow: hidden;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
-        background: #24406a url('/title-bg.png') center / cover no-repeat;
-        transition: opacity .5s ease;
+        background: #24406a; transition: opacity .5s ease;
       }
       #dd-title.hide { opacity: 0; pointer-events: none; }
-      #dd-title::before { content: ''; position: absolute; inset: 0;
-        background: radial-gradient(circle at 50% 42%, transparent 42%, rgba(10,14,26,0.4)); }
+      /* background layer: grayscale→colour reveal on load + slow breathing zoom */
+      #dd-title .bg {
+        position: absolute; inset: -3%; z-index: 0; transform-origin: center;
+        background: url('/title-bg.png') center / cover no-repeat;
+        animation: ddColorIn 2.2s ease-out forwards, ddBreathe 20s ease-in-out infinite;
+      }
+      @keyframes ddColorIn {
+        0%   { filter: grayscale(1) contrast(1.05) brightness(0.7); }
+        100% { filter: grayscale(0) contrast(1) brightness(1); }
+      }
+      @keyframes ddBreathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.12); } }
+      /* vignette on top of the background */
+      #dd-title::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+        background: radial-gradient(circle at 50% 44%, transparent 34%, rgba(8,12,24,0.28) 72%, rgba(6,9,18,0.6) 100%); }
       #dd-title .logo {
-        position: relative; z-index: 1; width: min(600px, 82vw);
+        position: relative; z-index: 2; width: min(600px, 82vw);
         filter: drop-shadow(0 10px 16px rgba(0,0,0,0.45));
         animation: ddBob 2.8s ease-in-out infinite;
       }
       #dd-title .tagline {
-        position: relative; z-index: 1; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 500;
+        position: relative; z-index: 2; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 500;
         font-size: 20px; letter-spacing: 1px; color: #fff; margin-top: -6px;
         padding: 9px 26px; border-radius: 22px;
         background: rgba(14,20,36,0.5); border: 1px solid rgba(255,255,255,0.18);
         backdrop-filter: blur(4px); text-shadow: 0 1px 4px rgba(0,0,0,0.5);
       }
       #dd-title .play {
-        position: relative; z-index: 1; cursor: pointer; user-select: none;
+        position: relative; z-index: 2; cursor: pointer; user-select: none;
         font-family: 'Lilita One', sans-serif; font-size: 34px; letter-spacing: 3px; color: #3a2a00;
         padding: 16px 76px; border-radius: 24px; border: 3px solid rgba(0,0,0,0.18);
         background: linear-gradient(#ffe07a, #f5b32a);
@@ -90,6 +101,7 @@
   </head>
   <body>
     <div id="dd-title">
+      <div class="bg"></div>
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
