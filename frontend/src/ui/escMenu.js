@@ -15,6 +15,8 @@ const PRESETS = [
 ];
 const LOGO_URL = '/logo-barcelona-drive.png';
 
+import { uiSound } from './uiSound.js';
+
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
 #dd-esc-overlay { position:fixed; inset:0; z-index:5000; display:none; color:#fff;
@@ -89,7 +91,7 @@ function check(label, checked, onChange) {
   const line = el('div', 'dd-esc-line');
   const tg = el('div', 'dd-esc-toggle' + (checked ? ' on' : ''));
   tg.appendChild(el('div', 'k'));
-  tg.addEventListener('click', () => { checked = !checked; tg.classList.toggle('on', checked); onChange(checked); });
+  tg.addEventListener('click', () => { checked = !checked; tg.classList.toggle('on', checked); uiSound.toggle(checked); onChange(checked); });
   line.appendChild(tg); line.appendChild(el('span', 'dd-esc-tlabel', label));
   return line;
 }
@@ -117,7 +119,7 @@ export function createEscMenu(refs = {}) {
   page.appendChild(searchRow);
   const err = el('div', 'dd-esc-err'); page.appendChild(err);
   const chips = el('div', 'dd-esc-chips');
-  for (const p of PRESETS) { const c = el('div', 'dd-esc-chip', p.name); c.addEventListener('click', () => spawnAt(p.lat, p.lon)); chips.appendChild(c); }
+  for (const p of PRESETS) { const c = el('div', 'dd-esc-chip', p.name); c.addEventListener('click', () => { uiSound.click(); spawnAt(p.lat, p.lon); }); chips.appendChild(c); }
   page.appendChild(chips);
 
   // ── Car colour (re-parented) ──
@@ -133,7 +135,7 @@ export function createEscMenu(refs = {}) {
     const markSel = (elm) => { swatches.forEach((s) => s.classList.remove('sel')); if (elm) elm.classList.add('sel'); };
     swatches.forEach((s) => {
       if (savedRgb && getComputedStyle(s).backgroundColor === savedRgb) markSel(s);
-      s.addEventListener('click', () => markSel(s));
+      s.addEventListener('click', () => { uiSound.click(); markSel(s); });
     });
   }
 
@@ -171,6 +173,7 @@ export function createEscMenu(refs = {}) {
   let searching = false;
   async function doSearch() {
     const q = input.value.trim(); if (!q || searching) return;
+    uiSound.confirm();
     searching = true; go.disabled = true; err.className = 'dd-esc-err'; err.textContent = 'Searching…';
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers: { Accept: 'application/json' } });
@@ -187,7 +190,10 @@ export function createEscMenu(refs = {}) {
 
   // ── Open / close ──
   let open = false;
-  function setOpen(v) { open = v; overlay.classList.toggle('open', v); fab.style.display = v ? 'none' : 'flex'; } // no auto-focus — search only focuses on click
+  function setOpen(v) {
+    if (v !== open) (v ? uiSound.open() : uiSound.back());
+    open = v; overlay.classList.toggle('open', v); fab.style.display = v ? 'none' : 'flex';
+  } // no auto-focus — search only focuses on click
   overlay.addEventListener('click', (e) => { if (e.target === overlay) setOpen(false); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(!open); } });
 

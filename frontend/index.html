@@ -4,14 +4,49 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Delhi Drive – 3D Simulator</title>
+    <title>Barcelona Drive</title>
     <style>
       * { margin: 0; padding: 0; }
-      html, body { width: 100%; height: 100%; overflow: hidden; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e15; }
       canvas { display: block; }
+
+      /* ── Loading screen (shown instantly, faded out by main.js when the world is ready) ── */
+      #dd-loading {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px;
+        background: radial-gradient(130% 100% at 50% -5%, #1e2637, #121722 62%, #080a10);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        transition: opacity .55s ease;
+      }
+      #dd-loading.hide { opacity: 0; pointer-events: none; }
+      #dd-loading .logo {
+        width: min(500px, 74vw); mix-blend-mode: screen;
+        filter: drop-shadow(0 6px 7px rgba(0,0,0,0.55));
+        animation: ddBob 2.6s ease-in-out infinite;
+      }
+      @keyframes ddBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+      #dd-loading .bar {
+        width: min(340px, 62vw); height: 9px; border-radius: 6px;
+        background: rgba(255,255,255,0.10); overflow: hidden;
+      }
+      #dd-loading .bar i {
+        display: block; height: 100%; width: 42%; border-radius: 6px;
+        background: linear-gradient(90deg, #ff5a4d, #ffd23f);
+        animation: ddSlide 1.25s ease-in-out infinite;
+      }
+      @keyframes ddSlide { 0% { transform: translateX(-130%); } 100% { transform: translateX(360%); } }
+      #dd-loading .txt {
+        color: rgba(255,255,255,0.5); letter-spacing: 5px; font-size: 12.5px;
+        font-weight: 600; text-transform: uppercase;
+      }
     </style>
   </head>
   <body>
+    <div id="dd-loading">
+      <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
+      <div class="bar"><i></i></div>
+      <div class="txt">Loading Barcelona…</div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
