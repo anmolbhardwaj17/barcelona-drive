@@ -85,9 +85,13 @@ export function createCarSound() {
     _isNight = !!isNight;
     if (!_ctx) return;
     const t = _ctx.currentTime;
-    if (_sAmb || _sAmbNight) {
-      _sAmb?.gain.gain.setTargetAtTime(_isNight ? 0 : 0.16, t, 1.2);
-      _sAmbNight?.gain.gain.setTargetAtTime(_isNight ? 0.16 : 0, t, 1.2);
+    if (_sAmb && _sAmbNight) {           // both beds → crossfade
+      _sAmb.gain.gain.setTargetAtTime(_isNight ? 0 : 0.16, t, 1.2);
+      _sAmbNight.gain.gain.setTargetAtTime(_isNight ? 0.16 : 0, t, 1.2);
+    } else if (_sAmb) {                   // only a day bed → just dim at night (don't go silent)
+      _sAmb.gain.gain.setTargetAtTime(_isNight ? 0.11 : 0.16, t, 1.0);
+    } else if (_sAmbNight) {
+      _sAmbNight.gain.gain.setTargetAtTime(_isNight ? 0.16 : 0.09, t, 1.0);
     } else if (ambGain && ambBP) { // synth fallback: quieter + lower at night
       ambGain.gain.setTargetAtTime(_isNight ? 0.014 : 0.022, t, 1.0);
       ambBP.frequency.setTargetAtTime(_isNight ? 300 : 380, t, 1.0);
