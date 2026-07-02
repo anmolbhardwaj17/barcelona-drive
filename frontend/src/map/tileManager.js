@@ -26,6 +26,7 @@ import { buildBusStopMeshes } from './busStopRenderer.js';
 import { buildParkingMeshes } from './parkingRenderer.js';
 import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildAwningMesh } from './awningRenderer.js';
+import { buildCafeTerrace } from './cafeTerraceRenderer.js';
 import { buildDecalMeshes, disposeDecalMeshes } from './decalRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
@@ -2073,6 +2074,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (awningMesh) { entry.awningMesh = awningMesh; safeSceneAdd(scene, awningMesh); }
     }
 
+    // Café terraces (parasol + table + chairs clusters) on the sidewalks in front of some shops.
+    if (CONFIG.ENABLE_CAFE_TERRACES !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {
+      const terraceMeshes = buildCafeTerrace(buildings, { getElevationAt, vertExag: _groundVertExag });
+      if (terraceMeshes) { entry.cafeTerraceMeshes = terraceMeshes; for (const m of terraceMeshes) safeSceneAdd(scene, m); }
+    }
+
     await yieldToMain();
 
     // Vertex count warning
@@ -2343,6 +2350,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.debugPhysicsHelpers) { scene.remove(entry.debugPhysicsHelpers); allMeshes.push(entry.debugPhysicsHelpers); }
         if (entry.shopSignMesh)        { scene.remove(entry.shopSignMesh);        allMeshes.push(entry.shopSignMesh); }
         if (entry.awningMesh)          { scene.remove(entry.awningMesh);          allMeshes.push(entry.awningMesh); }
+        if (entry.cafeTerraceMeshes)   { for (const m of entry.cafeTerraceMeshes) { scene.remove(m); allMeshes.push(m); } }
 
         // Physics removal (immediate — must be synchronous for simulation correctness)
         // Also null out shape references to help GC reclaim CANNON memory

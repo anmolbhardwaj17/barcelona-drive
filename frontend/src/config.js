@@ -82,6 +82,8 @@ export const CONFIG = {
   ENABLE_SHOP_SIGNS: true,
   /** Projecting fabric awnings (toldos) over ground-floor shopfronts — one merged mesh per tile. */
   ENABLE_AWNINGS: true,
+  /** Café terraces (parasol + table + chairs) on sidewalks in front of some shops — 2 instanced meshes/tile. */
+  ENABLE_CAFE_TERRACES: true,
 
   /** Show top-right performance debug panel (FPS, draw calls, scene counts, tiles, memory). */
   ENABLE_PERFORMANCE_PANEL: true,
