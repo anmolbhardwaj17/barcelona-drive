@@ -28,7 +28,7 @@ const CSS = `
 @keyframes ddPop { from{opacity:0; transform:scale(.96)} to{opacity:1; transform:none} }
 .dd-esc-wrap { position:relative; height:100%; padding:24px 6vw 28px; box-sizing:border-box; display:flex; flex-direction:column; }
 .dd-esc-top { display:flex; align-items:center; justify-content:space-between; }
-.dd-esc-logoimg { height:112px; mix-blend-mode:screen; filter:drop-shadow(0 4px 4px rgba(0,0,0,0.5)); }
+.dd-esc-logoimg { height:96px; filter:drop-shadow(0 5px 6px rgba(0,0,0,0.5)); }
 /* proper car colour swatches (the re-parented picker, enlarged + game-styled) */
 #dd-car-color-panel { gap:14px !important; align-items:center !important; }
 #dd-car-color-panel span { display:none !important; } /* hide the small "Car" label — section header covers it */
