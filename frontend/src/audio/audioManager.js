@@ -8,15 +8,11 @@
  */
 
 // name -> candidate URLs (first that decodes wins; .ogg preferred, .mp3 fallback)
+const V = (n) => [`/audio/${n}.ogg`, `/audio/${n}.mp3`, `/audio/${n}.wav`]; // preferred order
 export const MANIFEST = {
-  engine_idle: ['/audio/engine_idle.ogg', '/audio/engine_idle.mp3'],
-  engine_mid:  ['/audio/engine_mid.ogg',  '/audio/engine_mid.mp3'],
-  engine_high: ['/audio/engine_high.ogg', '/audio/engine_high.mp3'],
-  skid:            ['/audio/skid.ogg',            '/audio/skid.mp3'],
-  ambience:        ['/audio/ambience.ogg',        '/audio/ambience.mp3'],
-  ambience_night:  ['/audio/ambience_night.ogg',  '/audio/ambience_night.mp3'],
-  horn:            ['/audio/horn.ogg',            '/audio/horn.mp3'],
-  car_pass:        ['/audio/car_pass.ogg',        '/audio/car_pass.mp3'],
+  engine_idle: V('engine_idle'), engine_mid: V('engine_mid'), engine_high: V('engine_high'),
+  skid: V('skid'), ambience: V('ambience'), ambience_night: V('ambience_night'),
+  horn: V('horn'), car_pass: V('car_pass'),
 };
 
 let _ctx = null;

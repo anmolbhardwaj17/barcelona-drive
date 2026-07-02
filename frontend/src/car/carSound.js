@@ -74,9 +74,10 @@ export function createCarSound() {
       const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0 });
       const am = audio.get('ambience'), amN = audio.get('ambience_night');
       if (am || amN) {
-        _sAmb = am && audio.loop(am, { gain: _isNight ? 0 : 0.16 });
-        _sAmbNight = amN && audio.loop(amN, { gain: _isNight ? 0.16 : 0 });
+        _sAmb = am && audio.loop(am, { gain: 0.38 });       // louder city bed (day default)
+        _sAmbNight = amN && audio.loop(amN, { gain: 0 });
         ambGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2); // silence synth bed
+        setNight(_isNight); // apply correct day/night levels immediately
       }
     }).catch(() => {});
   }
@@ -97,15 +98,22 @@ export function createCarSound() {
       ambBP.frequency.setTargetAtTime(_isNight ? 300 : 380, t, 1.0);
     }
   }
-  // Crossfade idle/mid/high engine loops + pitch by RPM (the standard "good" technique).
+  // Crossfade idle/mid/high engine loops + pitch by RPM. Weights are NORMALISED by the layers that
+  // actually exist, so with only ONE file present it plays across the whole rev range (instead of
+  // fading to silence above mid-RPM, which left just wind).
   function _updateSampleEngine(rpmNorm, throttle, t) {
     const g = 0.4 + throttle * 0.45 + rpmNorm * 0.25;
-    const iG = Math.max(0, 1 - rpmNorm / 0.45);
-    const mG = Math.max(0, 1 - Math.abs(rpmNorm - 0.5) / 0.4);
-    const hG = Math.max(0, (rpmNorm - 0.55) / 0.45);
-    if (_sIdle) { _sIdle.src.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.55, t, 0.06); _sIdle.gain.gain.setTargetAtTime(iG * g, t, 0.06); }
-    if (_sMid)  { _sMid.src.playbackRate.setTargetAtTime(0.80 + rpmNorm * 0.75, t, 0.06);  _sMid.gain.gain.setTargetAtTime(mG * g, t, 0.06); }
-    if (_sHigh) { _sHigh.src.playbackRate.setTargetAtTime(0.80 + rpmNorm * 0.75, t, 0.06);  _sHigh.gain.gain.setTargetAtTime(hG * g, t, 0.06); }
+    const wI = _sIdle ? Math.max(0.0001, 1 - rpmNorm / 0.5) : 0;
+    const wM = _sMid  ? Math.max(0, 1 - Math.abs(rpmNorm - 0.5) / 0.4) : 0;
+    const wH = _sHigh ? Math.max(0, (rpmNorm - 0.5) / 0.5) : 0;
+    const sum = (wI + wM + wH) || 1;
+    // Mild pitch fine-tune only — the 3 loops already span the rev range via crossfade (over-pitching
+    // made it sound wrong). With a SINGLE layer present, widen it so idle→redline still has motion.
+    const single = (!!_sIdle + !!_sMid + !!_sHigh) === 1;
+    const rate = single ? (0.85 + rpmNorm * 0.75) : (0.92 + rpmNorm * 0.28);
+    if (_sIdle) { _sIdle.src.playbackRate.setTargetAtTime(rate, t, 0.06); _sIdle.gain.gain.setTargetAtTime(wI / sum * g, t, 0.06); }
+    if (_sMid)  { _sMid.src.playbackRate.setTargetAtTime(rate, t, 0.06);  _sMid.gain.gain.setTargetAtTime(wM / sum * g, t, 0.06); }
+    if (_sHigh) { _sHigh.src.playbackRate.setTargetAtTime(rate, t, 0.06);  _sHigh.gain.gain.setTargetAtTime(wH / sum * g, t, 0.06); }
   }
 
   function _init() {
