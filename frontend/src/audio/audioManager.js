@@ -81,12 +81,12 @@ export const audio = {
   setMuted(m) { _muted = !!m; try { localStorage.setItem('dd_soundMuted', _muted ? 'true' : 'false'); } catch {} _applyGain(); },
   isMuted() { return _muted; },
 
-  /** Start a looping source routed to master. Returns { src, gain } for live control (or null). */
-  loop(buffer, { gain = 1, rate = 1 } = {}) {
+  /** Start a looping source routed to `dest` (default master). Returns { src, gain } (or null). */
+  loop(buffer, { gain = 1, rate = 1, dest = null } = {}) {
     const c = ctx(); if (!c || !buffer) return null;
     const src = c.createBufferSource(); src.buffer = buffer; src.loop = true; src.playbackRate.value = rate;
     const g = c.createGain(); g.gain.value = gain;
-    src.connect(g); g.connect(_master); src.start();
+    src.connect(g); g.connect(dest || _master); src.start();
     return { src, gain: g };
   },
 

@@ -11,8 +11,8 @@
 
 import { audio } from '../audio/audioManager.js';
 
-const IDLE_RPM = 800;
-const REDLINE_RPM = 5500;
+const IDLE_RPM = 850;      // match carPhysics
+const REDLINE_RPM = 6500;  // match carPhysics (was 5500 → pitch saturated too early)
 const MASTER_VOLUME = 0.55;
 const CYLINDERS = 4;
 
@@ -57,18 +57,20 @@ export function createCarSound() {
 
   // ── Sample-based layers (used when files exist in /public/audio/, else synth fallback) ──
   let _sampleTried = false, _sampleEngine = false, _isNight = false;
-  let _sIdle = null, _sMid = null, _sHigh = null, _sSkid = null, _sAmb = null, _sAmbNight = null;
+  let _sEng = null, _engHP = null, _sSkid = null, _sAmb = null, _sAmbNight = null;
   function _trySamples() {
     if (_sampleTried || !_ctx) return; _sampleTried = true;
     audio.preload().then(() => {
-      const eIdle = audio.get('engine_idle'), eMid = audio.get('engine_mid'), eHigh = audio.get('engine_high');
-      if (eIdle || eMid || eHigh) {
-        _sIdle = eIdle && audio.loop(eIdle, { gain: 0 });
-        _sMid  = eMid  && audio.loop(eMid,  { gain: 0 });
-        _sHigh = eHigh && audio.loop(eHigh, { gain: 0 });
+      // ONE engine loop, pitched strongly by RPM (the 3 files are pitch-variants of the same loop, so a
+      // single pitched source tracks the revs clearly instead of muddy-crossfading). High-pass cuts boom.
+      const eng = audio.get('engine_mid') || audio.get('engine_idle') || audio.get('engine_high');
+      if (eng) {
+        _engHP = _ctx.createBiquadFilter(); _engHP.type = 'highpass'; _engHP.frequency.value = 160; _engHP.Q.value = 0.5;
+        const pres = _ctx.createBiquadFilter(); pres.type = 'peaking'; pres.frequency.value = 1600; pres.gain.value = 4; pres.Q.value = 1.0;
+        _engHP.connect(pres); pres.connect(master);
+        _sEng = audio.loop(eng, { gain: 0, dest: _engHP });
         _sampleEngine = true;
-        // silence the synthesized engine + exhaust (samples take over)
-        preGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);
+        preGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);  // silence synth engine + exhaust
         noiseGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);
       }
       const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0 });
@@ -98,22 +100,15 @@ export function createCarSound() {
       ambBP.frequency.setTargetAtTime(_isNight ? 300 : 380, t, 1.0);
     }
   }
-  // Crossfade idle/mid/high engine loops + pitch by RPM. Weights are NORMALISED by the layers that
-  // actually exist, so with only ONE file present it plays across the whole rev range (instead of
-  // fading to silence above mid-RPM, which left just wind).
+  // Single engine loop, pitched by RPM across a wide range so the note clearly rises through each gear
+  // and drops on the shift. Louder + slightly brighter at higher revs.
   function _updateSampleEngine(rpmNorm, throttle, t) {
-    const g = 0.4 + throttle * 0.45 + rpmNorm * 0.25;
-    const wI = _sIdle ? Math.max(0.0001, 1 - rpmNorm / 0.5) : 0;
-    const wM = _sMid  ? Math.max(0, 1 - Math.abs(rpmNorm - 0.5) / 0.4) : 0;
-    const wH = _sHigh ? Math.max(0, (rpmNorm - 0.5) / 0.5) : 0;
-    const sum = (wI + wM + wH) || 1;
-    // Mild pitch fine-tune only — the 3 loops already span the rev range via crossfade (over-pitching
-    // made it sound wrong). With a SINGLE layer present, widen it so idle→redline still has motion.
-    const single = (!!_sIdle + !!_sMid + !!_sHigh) === 1;
-    const rate = single ? (0.85 + rpmNorm * 0.75) : (0.92 + rpmNorm * 0.28);
-    if (_sIdle) { _sIdle.src.playbackRate.setTargetAtTime(rate, t, 0.06); _sIdle.gain.gain.setTargetAtTime(wI / sum * g, t, 0.06); }
-    if (_sMid)  { _sMid.src.playbackRate.setTargetAtTime(rate, t, 0.06);  _sMid.gain.gain.setTargetAtTime(wM / sum * g, t, 0.06); }
-    if (_sHigh) { _sHigh.src.playbackRate.setTargetAtTime(rate, t, 0.06);  _sHigh.gain.gain.setTargetAtTime(wH / sum * g, t, 0.06); }
+    if (!_sEng) return;
+    const rate = 0.7 + rpmNorm * 1.3;                 // 0.7× idle → 2.0× redline: unmistakable rev sweep
+    const g = 0.5 + throttle * 0.4 + rpmNorm * 0.35;
+    _sEng.src.playbackRate.setTargetAtTime(rate, t, 0.05);
+    _sEng.gain.gain.setTargetAtTime(g, t, 0.05);
+    if (_engHP) _engHP.frequency.setTargetAtTime(150 + rpmNorm * 120, t, 0.08); // open up the top with revs
   }
 
   function _init() {
@@ -425,7 +420,7 @@ export function createCarSound() {
     // Stop this car's nodes only — the AudioContext is shared (audioManager), don't close it.
     eng1?.stop(); eng2?.stop(); amOsc?.stop();
     noiseNode?.stop(); screechNode?.stop(); ambNode?.stop(); windNode?.stop();
-    _sIdle?.src.stop(); _sMid?.src.stop(); _sHigh?.src.stop(); _sSkid?.src.stop(); _sAmb?.src.stop();
+    _sEng?.src.stop(); _sSkid?.src.stop(); _sAmb?.src.stop(); _sAmbNight?.src.stop();
     _started = false;
   }
 
