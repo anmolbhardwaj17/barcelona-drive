@@ -170,7 +170,7 @@ export function createCarCamera(camera) {
     if ((dt || 0.016) < 0.06 && _drop > 12) _shakeAmp = Math.min(0.45, _drop / 55); // collision punch
     _shakeAmp *= Math.pow(0.0008, dt || 0.016);                                     // fast decay
     _prevSpeedKmh = _absSpd;
-    const _rumble = Math.max(0, (speed - 95) / 130) * 0.035;                         // airy rumble >95 km/h
+    const _rumble = Math.max(0, (_absSpd - 30) / 150) * 0.12;                         // speed shake from ~30 km/h, ramps up
     const _shakeMag = _shakeAmp + _rumble;
     if (_shakeMag > 0.0008) {
       const ts = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;

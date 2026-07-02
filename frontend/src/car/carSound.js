@@ -13,7 +13,7 @@ import { audio } from '../audio/audioManager.js';
 
 const IDLE_RPM = 850;      // match carPhysics
 const REDLINE_RPM = 6500;  // match carPhysics (was 5500 → pitch saturated too early)
-const MASTER_VOLUME = 0.55;
+const MASTER_VOLUME = 0.78;   // car submix (raised — engine was too quiet)
 const CYLINDERS = 4;
 
 let _ctx = null;
@@ -65,7 +65,7 @@ export function createCarSound() {
       // single pitched source tracks the revs clearly instead of muddy-crossfading). High-pass cuts boom.
       const eng = audio.get('engine_mid') || audio.get('engine_idle') || audio.get('engine_high');
       if (eng) {
-        _engHP = _ctx.createBiquadFilter(); _engHP.type = 'highpass'; _engHP.frequency.value = 160; _engHP.Q.value = 0.5;
+        _engHP = _ctx.createBiquadFilter(); _engHP.type = 'highpass'; _engHP.frequency.value = 85; _engHP.Q.value = 0.5; // cut only sub-boom, keep body (=loudness)
         const pres = _ctx.createBiquadFilter(); pres.type = 'peaking'; pres.frequency.value = 1600; pres.gain.value = 4; pres.Q.value = 1.0;
         _engHP.connect(pres); pres.connect(master);
         _sEng = audio.loop(eng, { gain: 0, dest: _engHP });
@@ -76,7 +76,7 @@ export function createCarSound() {
       const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0 });
       const am = audio.get('ambience'), amN = audio.get('ambience_night');
       if (am || amN) {
-        _sAmb = am && audio.loop(am, { gain: 0.38 });       // louder city bed (day default)
+        _sAmb = am && audio.loop(am, { gain: 0.6 });        // louder city bed (day default)
         _sAmbNight = amN && audio.loop(amN, { gain: 0 });
         ambGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2); // silence synth bed
         setNight(_isNight); // apply correct day/night levels immediately
@@ -89,12 +89,12 @@ export function createCarSound() {
     if (!_ctx) return;
     const t = _ctx.currentTime;
     if (_sAmb && _sAmbNight) {           // both beds → crossfade
-      _sAmb.gain.gain.setTargetAtTime(_isNight ? 0 : 0.16, t, 1.2);
-      _sAmbNight.gain.gain.setTargetAtTime(_isNight ? 0.16 : 0, t, 1.2);
+      _sAmb.gain.gain.setTargetAtTime(_isNight ? 0 : 0.6, t, 1.2);
+      _sAmbNight.gain.gain.setTargetAtTime(_isNight ? 0.6 : 0, t, 1.2);
     } else if (_sAmb) {                   // only a day bed → just dim at night (don't go silent)
-      _sAmb.gain.gain.setTargetAtTime(_isNight ? 0.11 : 0.16, t, 1.0);
+      _sAmb.gain.gain.setTargetAtTime(_isNight ? 0.45 : 0.6, t, 1.0);
     } else if (_sAmbNight) {
-      _sAmbNight.gain.gain.setTargetAtTime(_isNight ? 0.16 : 0.09, t, 1.0);
+      _sAmbNight.gain.gain.setTargetAtTime(_isNight ? 0.6 : 0.35, t, 1.0);
     } else if (ambGain && ambBP) { // synth fallback: quieter + lower at night
       ambGain.gain.setTargetAtTime(_isNight ? 0.014 : 0.022, t, 1.0);
       ambBP.frequency.setTargetAtTime(_isNight ? 300 : 380, t, 1.0);
@@ -108,7 +108,7 @@ export function createCarSound() {
     const g = 0.9 + throttle * 0.55 + rpmNorm * 0.5;  // louder engine (was 0.5/0.4/0.35)
     _sEng.src.playbackRate.setTargetAtTime(rate, t, 0.05);
     _sEng.gain.gain.setTargetAtTime(g, t, 0.05);
-    if (_engHP) _engHP.frequency.setTargetAtTime(150 + rpmNorm * 120, t, 0.08); // open up the top with revs
+    if (_engHP) _engHP.frequency.setTargetAtTime(85 + rpmNorm * 90, t, 0.08); // open the top a little with revs
   }
 
   function _init() {
