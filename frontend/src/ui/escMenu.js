@@ -17,6 +17,7 @@ const LOGO_URL = '/logo-barcelona-drive.png';
 
 import { uiSound } from './uiSound.js';
 import { audio } from '../audio/audioManager.js';
+import { setCollisionDebugActive, isCollisionDebugActive } from '../collisionDebug.js';
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
@@ -162,6 +163,8 @@ export function createEscMenu(refs = {}) {
   page.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
   // Fly mode (free camera vs driving) — reloads to switch.
   page.appendChild(check('Fly mode', ls('dd_flyMode', 'false') === 'true', (v) => { ss('dd_flyMode', v ? 'true' : 'false'); setTimeout(() => location.reload(), 120); }));
+  // Collision wireframes — debug overlay of every collider near the car (also toggles with the K key).
+  page.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v)));
 
   // ── Sound ──
   page.appendChild(sec('Sound'));
