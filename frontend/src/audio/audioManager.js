@@ -12,9 +12,11 @@ export const MANIFEST = {
   engine_idle: ['/audio/engine_idle.ogg', '/audio/engine_idle.mp3'],
   engine_mid:  ['/audio/engine_mid.ogg',  '/audio/engine_mid.mp3'],
   engine_high: ['/audio/engine_high.ogg', '/audio/engine_high.mp3'],
-  skid:        ['/audio/skid.ogg',        '/audio/skid.mp3'],
-  ambience:    ['/audio/ambience.ogg',    '/audio/ambience.mp3'],
-  horn:        ['/audio/horn.ogg',        '/audio/horn.mp3'],
+  skid:            ['/audio/skid.ogg',            '/audio/skid.mp3'],
+  ambience:        ['/audio/ambience.ogg',        '/audio/ambience.mp3'],
+  ambience_night:  ['/audio/ambience_night.ogg',  '/audio/ambience_night.mp3'],
+  horn:            ['/audio/horn.ogg',            '/audio/horn.mp3'],
+  car_pass:        ['/audio/car_pass.ogg',        '/audio/car_pass.mp3'],
 };
 
 let _ctx = null;
@@ -99,4 +101,45 @@ export const audio = {
     const g = c.createGain(); g.gain.value = gain;
     src.connect(g); g.connect(_master); src.start();
   },
+
+  /** Panned pass-by "whoosh" for a car passing the player. Uses the car_pass sample, else a synth sweep. */
+  whoosh(pan = 0, intensity = 1) {
+    if (_muted) return;
+    const c = ctx(); if (!c) return;
+    pan = Math.max(-1, Math.min(1, pan));
+    const panner = c.createStereoPanner ? c.createStereoPanner() : null;
+    if (panner) panner.pan.value = pan;
+    const out = panner || _master;
+    const sample = _buffers.get('car_pass');
+    if (sample) {
+      const src = c.createBufferSource(); src.buffer = sample; src.playbackRate.value = 0.9 + Math.random() * 0.3;
+      const g = c.createGain(); g.gain.value = 0.35 * intensity;
+      src.connect(g); g.connect(out); if (panner) panner.connect(_master); src.start();
+      return;
+    }
+    // synth fallback: band-passed noise sweeping up then down = a doppler-ish "vroom"
+    const dur = 0.42, t = c.currentTime;
+    const src = c.createBufferSource(); src.buffer = _noise(c); src.loop = true;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.3;
+    bp.frequency.setValueAtTime(280, t);
+    bp.frequency.linearRampToValueAtTime(820, t + dur * 0.45);
+    bp.frequency.linearRampToValueAtTime(220, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.16 * intensity, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); g.connect(out); if (panner) panner.connect(_master);
+    src.start(t); src.stop(t + dur + 0.05);
+  },
 };
+
+// cached white-noise buffer for synth fallbacks
+let _noiseBuf = null;
+function _noise(c) {
+  if (_noiseBuf) return _noiseBuf;
+  const len = c.sampleRate * 1;
+  _noiseBuf = c.createBuffer(1, len, c.sampleRate);
+  const d = _noiseBuf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return _noiseBuf;
+}

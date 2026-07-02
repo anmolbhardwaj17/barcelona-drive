@@ -317,6 +317,7 @@ spawnTileReady.finally(() => {
     metricsPanel     = createMetricsPanel();
     minimap          = createMinimap(spawnCenter);
     if (minimap?.setNightMode) onNightModeChange((isNight) => minimap.setNightMode(isNight));
+    onNightModeChange((isNight) => carDriver?.setNight?.(isNight)); // day/night ambience swap
     minimap?.setMarkerMode(!!carDriver);
     compassBar       = createCompassBar();
     performancePanel = createPerformancePanel(scene, renderer, tileManager, CONFIG.ENABLE_PERFORMANCE_PANEL);

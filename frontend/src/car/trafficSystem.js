@@ -14,6 +14,9 @@
 import * as CANNON from 'cannon-es';
 import { COLLISION_GROUP_WORLD, COLLISION_GROUP_VEHICLE } from '../collisionGroups.js';
 import { loadCitySceneTemplates } from './carModels.js';
+import { audio } from '../audio/audioManager.js';
+
+const PASS_DIST = 5.5; // m — a traffic car entering this radius fires a pass-by whoosh
 
 const DRIVABLE = new Set([
   'residential', 'living_street', 'unclassified',
@@ -204,6 +207,18 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
 
       const pts = car.path.pts;
       const cx = car._x, cz = car._z, fdx = car._dx, fdz = car._dz;
+
+      // Pass-by whoosh: fire once as a car enters the pass radius, panned by side, louder the faster the pass.
+      {
+        const pdx = cx - playerPx, pdz = cz - playerPz;
+        const pdist = Math.hypot(pdx, pdz);
+        car._passCd = (car._passCd || 0) - d;
+        if (pdist < PASS_DIST && (car._prevDist || 99) >= PASS_DIST && car._passCd <= 0 && (Math.abs(carSpeedKmh) > 8 || car.cur > 2)) {
+          audio.whoosh(pdx / PASS_DIST, 0.45 + Math.min(0.65, (Math.abs(carSpeedKmh) + car.cur * 3.6) / 110));
+          car._passCd = 1.2;
+        }
+        car._prevDist = pdist;
+      }
 
       // stop if the lane ahead is blocked (player or another car)
       let blocked = false;

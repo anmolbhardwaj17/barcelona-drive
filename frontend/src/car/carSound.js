@@ -56,8 +56,8 @@ export function createCarSound() {
   let _prevThrottle = 0;
 
   // ── Sample-based layers (used when files exist in /public/audio/, else synth fallback) ──
-  let _sampleTried = false, _sampleEngine = false;
-  let _sIdle = null, _sMid = null, _sHigh = null, _sSkid = null, _sAmb = null;
+  let _sampleTried = false, _sampleEngine = false, _isNight = false;
+  let _sIdle = null, _sMid = null, _sHigh = null, _sSkid = null, _sAmb = null, _sAmbNight = null;
   function _trySamples() {
     if (_sampleTried || !_ctx) return; _sampleTried = true;
     audio.preload().then(() => {
@@ -72,9 +72,26 @@ export function createCarSound() {
         noiseGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);
       }
       const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0 });
-      const am = audio.get('ambience');
-      if (am) { _sAmb = audio.loop(am, { gain: 0.16 }); ambGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2); }
+      const am = audio.get('ambience'), amN = audio.get('ambience_night');
+      if (am || amN) {
+        _sAmb = am && audio.loop(am, { gain: _isNight ? 0 : 0.16 });
+        _sAmbNight = amN && audio.loop(amN, { gain: _isNight ? 0.16 : 0 });
+        ambGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2); // silence synth bed
+      }
     }).catch(() => {});
+  }
+  /** Day↔night ambience: crossfade sample beds if present, else nudge the synth bed. */
+  function setNight(isNight) {
+    _isNight = !!isNight;
+    if (!_ctx) return;
+    const t = _ctx.currentTime;
+    if (_sAmb || _sAmbNight) {
+      _sAmb?.gain.gain.setTargetAtTime(_isNight ? 0 : 0.16, t, 1.2);
+      _sAmbNight?.gain.gain.setTargetAtTime(_isNight ? 0.16 : 0, t, 1.2);
+    } else if (ambGain && ambBP) { // synth fallback: quieter + lower at night
+      ambGain.gain.setTargetAtTime(_isNight ? 0.014 : 0.022, t, 1.0);
+      ambBP.frequency.setTargetAtTime(_isNight ? 300 : 380, t, 1.0);
+    }
   }
   // Crossfade idle/mid/high engine loops + pitch by RPM (the standard "good" technique).
   function _updateSampleEngine(rpmNorm, throttle, t) {
@@ -405,5 +422,5 @@ export function createCarSound() {
   function isMuted() { return audio.isMuted(); }
   function horn() { const h = audio.get('horn'); if (h) audio.oneShot(h, { gain: 0.6 }); }
 
-  return { ensureStarted, update, dispose, setMuted, isMuted, horn };
+  return { ensureStarted, update, dispose, setMuted, isMuted, horn, setNight };
 }
