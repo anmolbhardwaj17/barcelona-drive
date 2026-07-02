@@ -141,6 +141,9 @@ export const CONFIG = {
   ENABLE_DECALS: false,
   ENABLE_BARRIERS: false,
   ENABLE_CRASH_BARRIERS: false,
+  /** Physics collision on street trees. OFF — trees line the curb, so collision made the car stop dead
+   *  the moment it touched a sidewalk. Trees are now decorative (drive-through); buildings still block. */
+  ENABLE_TREE_COLLISION: false,
   ENABLE_BUS_STOPS: true, // bus shelters on the sidewalks
   ENABLE_DIVIDERS: false,
   ENABLE_STREETLIGHTS: true, // procedural poles + lamp heads along road edges; glow at night (bloom)

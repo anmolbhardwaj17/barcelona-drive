@@ -201,8 +201,9 @@ function buildSceneryColliders(treePositions, pillarPositions, physicsOrigin, ge
   const bodies = [];
   const treesToCollide = treePositions || [];
 
-  // Trees — only positions that passed ground-road filtering reach here
-  if (treesToCollide.length > 0) {
+  // Trees — only positions that passed ground-road filtering reach here.
+  // Gated: trees line the curb, so their colliders stopped the car dead on touching a sidewalk.
+  if (CONFIG.ENABLE_TREE_COLLISION !== false && treesToCollide.length > 0) {
     const BATCH_SIZE = 200;
     for (let batchStart = 0; batchStart < treesToCollide.length; batchStart += BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + BATCH_SIZE, treesToCollide.length);
