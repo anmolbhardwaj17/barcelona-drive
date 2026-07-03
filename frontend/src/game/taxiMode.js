@@ -10,6 +10,7 @@
  * px=-(wx-ox), pz=wz-oz; the marker lives in `scene` with the traffic so it sits on the road.
  */
 import * as THREE from 'three';
+import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
 
 const HIT_RADIUS = 16;
 const RING_R = 5.0;
@@ -211,14 +212,20 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
             expectT = Math.max(6, tripDist / 13); fareT = 0; tip = 0.6;
             target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
             getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(720);
-            showToast('🧍 Passenger aboard — drop off!');
+            fxBanner('<span style="font-size:34px;color:#8ef0b0">🧍 PASSENGER ABOARD</span>', { duration: 1400, top: '32%' });
+            fxConfetti(14, ['#2ee06a', '#8ef0b0', '#ffffff'], 0.4);
+            fxFlash('rgba(46,224,106,.14)');
           }
         } else {
-          // delivered → pay out
+          // delivered → pay out (celebration)
           const payout = Math.round(fareBase * (1 + tip));
+          const gold = tip > 0.45;   // fast delivery = big tip
           total += payout; fares += 1;
-          pop.textContent = `+$${payout}`; pop.style.animation = 'none'; void pop.offsetWidth; pop.style.animation = 'ddPay 1.1s ease-out'; pop.style.display = 'block';
-          ding(880); setTimeout(() => ding(1046), 110);
+          fxBanner(`<div style="font-size:30px;color:#8ef0b0">${gold ? '⭐ FARE COMPLETE!' : '✅ DELIVERED!'}</div>` +
+                   `<div style="font-size:50px;color:#ffd23f;margin-top:2px">+$${payout}</div>`, { duration: 1900, top: '32%' });
+          fxConfetti(gold ? 40 : 26, undefined, 0.4);
+          fxFlash(gold ? 'rgba(255,210,63,.2)' : 'rgba(255,210,63,.13)');
+          ding(880); setTimeout(() => ding(1046), 110); if (gold) setTimeout(() => ding(1318), 220);
           newPickup(carPx, carPz);
         }
       }

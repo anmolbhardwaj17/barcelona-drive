@@ -14,9 +14,10 @@ const ROTATION_LERP = 0.15;
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
-// Game-styled map tint: warm parchment by day (matches the tan streets), deep navy by night.
-const FILTER_DAY = 'sepia(0.38) saturate(1.35) brightness(0.98) contrast(1.04) hue-rotate(-12deg)';
-const FILTER_NIGHT = 'invert(0.92) hue-rotate(185deg) saturate(0.9) brightness(0.72) contrast(1.12)';
+// Voyager base is already warm + detailed (coloured roads, green parks, blue water); just punch it a
+// little by day and flip to a deep navy by night. Light touch so the map keeps its colour + detail.
+const FILTER_DAY = 'saturate(1.3) contrast(1.1) brightness(0.97)';
+const FILTER_NIGHT = 'invert(0.9) hue-rotate(188deg) saturate(0.95) brightness(0.72) contrast(1.12)';
 let _isNight = false;
 
 let map = null;
@@ -303,8 +304,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
     attributionControl: false,
   });
 
-  // CARTO Positron (no labels) — a clean, minimal roads+water base that reads like a game map once tinted.
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png', {
+  // CARTO Voyager (no labels) — warm, detailed base (coloured roads, green parks, blue water) that reads
+  // as a proper game map, unlike the near-white Positron.
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png', {
     maxZoom: 20, subdomains: 'abcd',
   }).addTo(map);
 

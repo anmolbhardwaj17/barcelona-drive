@@ -11,6 +11,7 @@
  * live in `scene` (physics frame) like the traffic, so they sit on the road.
  */
 import * as THREE from 'three';
+import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
 
 const N_CHECKPOINTS = 10;
 const MIN_GAP = 45, MAX_GAP = 120;   // metres between gates (closer + more of them)
@@ -232,6 +233,10 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     _medal = medalFor(elapsed, route.length);
     clearGates(); nav.style.display = 'none'; gateTag.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
     ding(880); setTimeout(() => ding(1174), 140); renderHud();
+    // celebration
+    const m = _medal || medalFor(elapsed, route.length);
+    fxBanner(`<div style="font-size:60px">${m.emoji}</div><div style="font-size:32px;color:${m.color}">FINISH!</div>`, { duration: 2200, top: '30%' });
+    fxConfetti(46, undefined, 0.38); fxFlash('rgba(255,210,63,.16)');
     // auto-clear the result after a while if the player just drives off
     setTimeout(() => { if (state === 'finished') stop(); }, 12000);
   }
@@ -325,7 +330,9 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
         if (gates[activeIdx]) gates[activeIdx].visible = false;
         activeIdx++;
         if (activeIdx >= route.length) { finish(); return; }
-        ding(680 + activeIdx * 45); refreshGateColors();
+        ding(680 + activeIdx * 45);
+        fxConfetti(9, ['#35e0ff', '#8fdcff', '#ffffff'], 0.45); fxFlash('rgba(53,224,255,.1)', 260);
+        refreshGateColors();
       }
     }
 

@@ -805,7 +805,7 @@ function buildSpeedSignMeshes(signInstances) {
   for (const [speed, group] of bySpeed) {
     const tex = getSpeedSignTexture(speed);
     const boardGeom = new THREE.PlaneGeometry(SPEED_SIGN_W, SPEED_SIGN_H);
-    const boardMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false });
+    const boardMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false, side: THREE.DoubleSide });
     const backMat = getSignBackMaterial();
 
     const instMesh = new THREE.InstancedMesh(boardGeom, boardMat, group.length);
@@ -1095,7 +1095,8 @@ function buildDirectionBoardMeshes(boardInstances) {
     // Sign board — front face with texture
     const signGeom = new THREE.PlaneGeometry(BOARD_W, BOARD_H);
     const tex = getDirectionBoardTexture(b.roadName);
-    const signMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false });
+    // DoubleSide so the sign is visible from BOTH directions (was FrontSide → invisible from behind).
+    const signMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false, side: THREE.DoubleSide });
 
     const signMesh = new THREE.Mesh(signGeom, signMat);
     const signPos = new THREE.Vector3(0, BOARD_SIGN_Y + BOARD_H / 2 + b.baseY, 0.04);
@@ -1105,18 +1106,6 @@ function buildDirectionBoardMeshes(boardInstances) {
     signMesh.castShadow = false;
     signMesh.receiveShadow = false;
     meshes.push(signMesh);
-
-    // Back face — plain gray, offset slightly behind the front face
-    const backGeom = new THREE.PlaneGeometry(BOARD_W, BOARD_H);
-    const backMesh = new THREE.Mesh(backGeom, getSignBackMaterial());
-    backMesh.userData.sharedMaterial = true;
-    const backOffset = new THREE.Vector3(0, 0, -0.05);
-    backOffset.applyQuaternion(_q);
-    backMesh.position.copy(signPos).add(backOffset);
-    backMesh.quaternion.copy(_q);
-    backMesh.castShadow = false;
-    backMesh.receiveShadow = false;
-    meshes.push(backMesh);
   }
 
   // Merge all poles into one mesh
@@ -1305,7 +1294,7 @@ function buildGantryMeshes(gantryInstances) {
     const boardH = GANTRY_BOARD_H;
     const boardGeom = new THREE.PlaneGeometry(boardW, boardH);
     const tex = getGantrySignTexture(g.roadName, g.connectedNames);
-    const boardMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false });
+    const boardMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false, side: THREE.DoubleSide });
 
     const boardMesh = new THREE.Mesh(boardGeom, boardMat);
     const boardPos = new THREE.Vector3(0, GANTRY_POLE_HEIGHT - boardH * 0.5 - 0.1 + g.baseY, 0.2);
