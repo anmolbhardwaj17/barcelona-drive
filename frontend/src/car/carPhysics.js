@@ -174,6 +174,7 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
   const _antiFlipUp = new CANNON.Vec3();
   const _antiFlipCarUp = new CANNON.Vec3();
   const _antiFlipCross = new CANNON.Vec3();
+  const _antiFlipFwd = new CANNON.Vec3();
   const STEER_LERP_SPEED = 3.5;
   const DOWNFORCE_COEFF = 0.50;   // strong downforce — prevents flipping in hard turns
   const LATERAL_DAMP = 0.6;       // let the car slide and feel its weight
@@ -395,6 +396,13 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     if (tiltDot < 0.9) {
       const correctionStrength = (1 - tiltDot) * 6000;
       _antiFlipCarUp.cross(_antiFlipUp, _antiFlipCross);
+      // Near-perfect inversion: car-up and world-up are antiparallel → their cross ≈ 0 → no righting
+      // torque, so the car could rest on its roof forever. Fall back to the car's forward axis as a
+      // deterministic roll axis so it always tips back over.
+      if (_antiFlipCross.lengthSquared() < 1e-4) {
+        _antiFlipFwd.set(0, 0, 1);
+        chassisBody.quaternion.vmult(_antiFlipFwd, _antiFlipCross);
+      }
       _antiFlipCross.scale(correctionStrength, _antiFlipCross);
       chassisBody.torque.vadd(_antiFlipCross, chassisBody.torque);
     }

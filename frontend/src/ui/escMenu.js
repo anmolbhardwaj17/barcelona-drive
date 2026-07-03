@@ -166,8 +166,19 @@ export function createEscMenu(refs = {}) {
   const applyMetrics = () => { for (const e of metricsEls) e.style.display = metricsOn ? '' : 'none'; };
   applyMetrics();
   page.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
-  // Fly mode (free camera vs driving) — reloads to switch.
-  page.appendChild(check('Fly mode', ls('dd_flyMode', 'false') === 'true', (v) => { ss('dd_flyMode', v ? 'true' : 'false'); setTimeout(() => location.reload(), 120); }));
+  // Fly mode (free camera vs driving) — reloads to switch. Reflect the RESOLVED mode (a URL ?mode param
+  // outranks dd_flyMode), and strip any mode param from the URL on reload so the toggle isn't a dead no-op.
+  const flyInitial = refs.carMode != null ? !refs.carMode : (ls('dd_flyMode', 'false') === 'true');
+  page.appendChild(check('Fly mode', flyInitial, (v) => {
+    ss('dd_flyMode', v ? 'true' : 'false');
+    setTimeout(() => {
+      try {
+        const u = new URL(location.href);
+        ['mode', 'car', 'fly', 'free', 'drone'].forEach((k) => u.searchParams.delete(k));
+        location.replace(u.toString());
+      } catch { location.reload(); }
+    }, 120);
+  }));
   // Collision wireframes — debug overlay of every collider near the car (also toggles with the K key).
   page.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v), isCollisionDebugActive, syncers));
 

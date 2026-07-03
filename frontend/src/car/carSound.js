@@ -425,7 +425,24 @@ export function createCarSound() {
   // Mute + volume now live on the shared audioManager master (Settings controls it).
   function setMuted(muted) { audio.setMuted(muted); }
   function isMuted() { return audio.isMuted(); }
-  function horn() { const h = audio.get('horn'); if (h) audio.oneShot(h, { gain: 0.6 }); }
+  function horn() {
+    const h = audio.get('horn');
+    if (h) { audio.oneShot(h, { gain: 0.6 }); return; }
+    // No horn sample on disk → synth fallback (two detuned saws = a car-horn "beep"), so H is never silent.
+    if (!_ctx || !master) return;
+    const t = _ctx.currentTime;
+    const g = _ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.03);
+    g.gain.setValueAtTime(0.5, t + 0.33);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    g.connect(master);
+    for (const f of [415, 466]) {
+      const o = _ctx.createOscillator();
+      o.type = 'sawtooth'; o.frequency.value = f;
+      o.connect(g); o.start(t); o.stop(t + 0.52);
+    }
+  }
 
   return { ensureStarted, update, dispose, setMuted, isMuted, horn, setNight };
 }

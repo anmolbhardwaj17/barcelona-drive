@@ -331,6 +331,7 @@ spawnTileReady.finally(() => {
     escMenu = createEscMenu({
       colorPanelElement: document.getElementById('dd-car-color-panel'),
       metricsElements: [metricsPanel?.element, performancePanel?.element],
+      carMode: ENABLE_CAR,   // resolved mode (URL ?mode outranks dd_flyMode) — for an honest Fly-mode toggle
     });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
     initCollisionDebug(); // reads ?debug=collision; no-op when absent

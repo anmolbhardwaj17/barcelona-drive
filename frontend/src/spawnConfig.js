@@ -30,6 +30,14 @@ export const DEFAULT_SPAWN = {
   heading: null,
 };
 
+// Rough baked Barcelona map extent — a spawn outside this has no tiles (blank/broken world).
+const SPAWN_BOUNDS = { minLat: 41.28, maxLat: 41.47, minLon: 2.04, maxLon: 2.24 };
+export function isSpawnInBounds(lat, lon) {
+  return Number.isFinite(lat) && Number.isFinite(lon) &&
+    lat >= SPAWN_BOUNDS.minLat && lat <= SPAWN_BOUNDS.maxLat &&
+    lon >= SPAWN_BOUNDS.minLon && lon <= SPAWN_BOUNDS.maxLon;
+}
+
 let _activeSpawn = { ...DEFAULT_SPAWN };
 
 /** Returns the current active spawn. Always returns a copy. */
@@ -57,7 +65,9 @@ try {
   const sp = new URLSearchParams(globalThis.location?.search || '').get('spawn');
   if (sp) {
     const [la, lo] = sp.split(',').map(Number);
-    if (Number.isFinite(la) && Number.isFinite(lo)) setActiveSpawn({ lat: la, lon: lo });
+    // Reject out-of-area coords (e.g. ?spawn=0,0) — they'd boot into an empty world with no baked tiles.
+    if (isSpawnInBounds(la, lo)) setActiveSpawn({ lat: la, lon: lo });
+    else if (sp) console.warn(`[spawn] ?spawn=${sp} is outside the Barcelona map area — using default spawn.`);
   }
 } catch { /* no window (SSR/worker) */ }
 
