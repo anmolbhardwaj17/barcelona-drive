@@ -80,10 +80,10 @@ export async function createCarModel(scene) {
       color: _src.color ? _src.color.clone() : new THREE.Color(0xff5a2a),
       map: _src.map || null,
       normalMap: _src.normalMap || null,
-      metalness: 0.6,
-      roughness: 0.28,
-      clearcoat: 1.0,          // glossy clear lacquer over the paint
-      clearcoatRoughness: 0.12,
+      metalness: 0.35,          // lower → keeps the paint colour instead of mirroring the bright sky to white
+      roughness: 0.36,
+      clearcoat: 0.4,           // subtle clear-lacquer sheen, not a mirror
+      clearcoatRoughness: 0.2,
     });
     carPaintMesh.material = carPaintMat;
     // Generate a simple gradient env map for reflections (no external HDR needed)
@@ -126,7 +126,7 @@ export async function createCarModel(scene) {
       skyMat.dispose();
 
       carPaintMat.envMap = envMap;
-      carPaintMat.envMapIntensity = 1.15;   // stronger sky reflections on the glossy body
+      carPaintMat.envMapIntensity = 0.5;   // subtle sky reflection — don't wash the paint to white
     }
   }
 
