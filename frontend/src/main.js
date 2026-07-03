@@ -44,6 +44,7 @@ import { createParkedCars } from './car/parkedCars.js';
 import { createPedestrians } from './car/pedestrians.js';
 import { createDashMode } from './game/dashMode.js';
 import { createTaxiMode } from './game/taxiMode.js';
+import { createGameLauncher } from './game/gameLauncher.js';
 import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
@@ -330,6 +331,8 @@ spawnTileReady.finally(() => {
           getOrigin: getOriginOffset,
           audio,
         });
+        // One "Play" launcher for all modes (enforces one-at-a-time + surfaces the controls).
+        createGameLauncher([dashMode, taxiMode]);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
         freeCameraControls = createFreeCameraController(camera, renderer.domElement, spawnCenter, origin);

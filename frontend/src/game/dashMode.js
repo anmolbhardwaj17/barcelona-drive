@@ -39,16 +39,8 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   const sceneZ = (wz) => wz - getOrigin().z;
   const worldFromScene = (px, pz) => ({ wx: getOrigin().x - px, wz: pz + getOrigin().z });
 
-  // ── HUD: Start/Quit button (top-left, clear of the compass) + centre timer/arrow ────────────────
-  const btn = document.createElement('button');
-  btn.style.cssText = 'position:fixed;top:92px;left:14px;z-index:1300;cursor:pointer;' +
-    'font-family:Poppins,system-ui,sans-serif;font-weight:700;font-size:14px;color:#241a08;' +
-    'background:linear-gradient(#ffd23f,#f5a623);border:none;border-radius:22px;padding:9px 18px;' +
-    'box-shadow:0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35);transition:transform .06s,box-shadow .06s;';
-  btn.onmousedown = () => { btn.style.transform = 'translateY(4px)'; btn.style.boxShadow = '0 1px 0 #b9791a'; };
-  btn.onmouseup = () => { btn.style.transform = ''; btn.style.boxShadow = '0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35)'; };
-  btn.onclick = () => { if (state === 'running') stop(); else start(); };
-  document.body.appendChild(btn);
+  // Start/Quit is driven by the shared game launcher (main.js), not a per-mode button.
+  const btn = { style: {}, remove() {} };   // harmless stub for the internal label writes
 
   const hud = document.createElement('div');
   hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;' +
@@ -339,8 +331,9 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
 
   renderHud();
   return {
-    update,
-    dispose() { stop(); hud.remove(); btn.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); cdStyle.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
-    isRunning: () => state === 'running',
+    name: 'Checkpoint Dash', icon: '🏁',
+    update, start, stop,
+    dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); cdStyle.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
+    isRunning: () => state === 'running' || state === 'countdown',
   };
 }

@@ -50,16 +50,8 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     markerGroup.visible = true;
   }
 
-  // ── HUD ─────────────────────────────────────────────────────────────────
-  const btn = document.createElement('button');
-  btn.style.cssText = 'position:fixed;top:136px;left:14px;z-index:1300;cursor:pointer;' +
-    'font-family:Poppins,system-ui,sans-serif;font-weight:700;font-size:14px;color:#122;' +
-    'background:linear-gradient(#8ef0b0,#2ee06a);border:none;border-radius:22px;padding:9px 18px;' +
-    'box-shadow:0 5px 0 #1c9c48,0 8px 14px rgba(0,0,0,.35);transition:transform .06s,box-shadow .06s;';
-  btn.onmousedown = () => { btn.style.transform = 'translateY(4px)'; btn.style.boxShadow = '0 1px 0 #1c9c48'; };
-  btn.onmouseup = () => { btn.style.transform = ''; btn.style.boxShadow = '0 5px 0 #1c9c48,0 8px 14px rgba(0,0,0,.35)'; };
-  btn.onclick = () => { if (state === 'idle') start(); else stop(); };
-  document.body.appendChild(btn);
+  // Start/Quit is driven by the shared game launcher (main.js).
+  const btn = { style: {}, remove() {} };   // harmless stub for the internal label writes
 
   const hud = document.createElement('div');
   hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
@@ -234,8 +226,9 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
 
   renderHud();
   return {
-    update,
-    dispose() { stop(); btn.remove(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    name: 'City Cab', icon: '🚕',
+    update, start, stop,
+    dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
     isRunning: () => state === 'toPickup' || state === 'toDropoff',
   };
 }
