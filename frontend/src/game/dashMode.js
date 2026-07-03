@@ -12,8 +12,8 @@
  */
 import * as THREE from 'three';
 
-const N_CHECKPOINTS = 6;
-const MIN_GAP = 70, MAX_GAP = 230;   // metres between gates
+const N_CHECKPOINTS = 10;
+const MIN_GAP = 45, MAX_GAP = 120;   // metres between gates (closer + more of them)
 const HIT_RADIUS = 16;
 const RING_R = 5.0;
 
