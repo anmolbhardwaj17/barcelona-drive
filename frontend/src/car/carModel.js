@@ -71,11 +71,21 @@ export async function createCarModel(scene) {
   console.log('[CarModel] native body size', _ns.toArray().map((v) => v.toFixed(2)),
     '→ CAR_VISUAL_SCALE', CAR_VISUAL_SCALE.toFixed(3), '(target length', M3_TARGET_LENGTH, 'm)');
 
-  // Clone CarPaint material — add env map for glossy reflections
+  // Upgrade CarPaint to a physical material with a clearcoat — real automotive paint is a metallic base
+  // under a glossy clear lacquer, which reads far more "premium" than flat MeshStandard paint.
   let carPaintMat = null;
   if (carPaintMesh) {
-    carPaintMesh.material = carPaintMesh.material.clone();
-    carPaintMat = carPaintMesh.material;
+    const _src = carPaintMesh.material;
+    carPaintMat = new THREE.MeshPhysicalMaterial({
+      color: _src.color ? _src.color.clone() : new THREE.Color(0xff5a2a),
+      map: _src.map || null,
+      normalMap: _src.normalMap || null,
+      metalness: 0.6,
+      roughness: 0.28,
+      clearcoat: 1.0,          // glossy clear lacquer over the paint
+      clearcoatRoughness: 0.12,
+    });
+    carPaintMesh.material = carPaintMat;
     // Generate a simple gradient env map for reflections (no external HDR needed)
     const _renderer = window._ddRenderer;
     if (!_renderer) console.warn('[CarModel] No renderer for env map');
@@ -116,10 +126,8 @@ export async function createCarModel(scene) {
       skyMat.dispose();
 
       carPaintMat.envMap = envMap;
-      carPaintMat.envMapIntensity = 0.6;
+      carPaintMat.envMapIntensity = 1.15;   // stronger sky reflections on the glossy body
     }
-    carPaintMat.metalness = 0.4;
-    carPaintMat.roughness = 0.3;
   }
 
   // Apply uniform scale
