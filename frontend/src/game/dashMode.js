@@ -61,8 +61,8 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
     'pointer-events:none;user-select:none;text-align:center;background:rgba(8,20,30,.72);border:2px solid #35e0ff;' +
     'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
   nav.innerHTML =
-    '<div class="nav-tri" style="width:0;height:0;margin:0 auto 5px;border-left:13px solid transparent;' +
-    'border-right:13px solid transparent;border-bottom:22px solid #35e0ff;filter:drop-shadow(0 0 5px #35e0ff);transition:transform .12s"></div>' +
+    '<div class="nav-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
+    'border-right:8px solid transparent;border-bottom:30px solid #35e0ff;filter:drop-shadow(0 0 5px #35e0ff);transition:transform .12s"></div>' +
     '<div style="font:800 11px Poppins,sans-serif;letter-spacing:1px;color:#9fe9ff">NEXT CHECKPOINT</div>' +
     '<div class="nav-dist" style="font-family:\'Lilita One\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
   const navTri = nav.querySelector('.nav-tri');
