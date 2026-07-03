@@ -88,6 +88,8 @@ composer.addPass(new OutputPass());
 const envToggle = createEnvToggle({
   scene, renderer, ambientLight, hemiLight, dirLight, sky,
   setLampEmissiveIntensity, setPoolOpacity,
+  // Day/night-aware bloom: lower threshold + more strength at night so lamps/windows/signs actually glow.
+  setBloom: (strength, threshold) => { bloomPass.strength = strength; bloomPass.threshold = threshold; },
 });
 
 // Dynamic PointLights removed — emissive lamp material + ground pool decals

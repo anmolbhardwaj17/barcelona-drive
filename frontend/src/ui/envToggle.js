@@ -35,6 +35,8 @@ const DAY = {
   toneMappingExposure: 1.0,
   lampEmissive:     0.25,   // subtle glow in daylight
   poolOpacity:      0.04,   // barely visible in daylight
+  bloomStrength:    0.5,    // subtle bloom by day (only the sun/bright highlights)
+  bloomThreshold:   1.1,    // high threshold → daytime scene doesn't bloom
   lightsOn:         false,
 };
 
@@ -53,6 +55,8 @@ const NIGHT = {
   toneMappingExposure: 1.05,   // a touch more exposure at night
   lampEmissive:     5.0,       // streetlamp glow (bloom); a bit hotter so lamps read as the light source
   poolOpacity:      1.0,
+  bloomStrength:    0.95,      // stronger glow at night
+  bloomThreshold:   0.62,      // lower threshold → lamps/windows/signs/shopfronts all bloom
   lightsOn:         true,
 };
 
@@ -71,7 +75,7 @@ const NIGHT = {
  */
 export function createEnvToggle(refs) {
   const { scene, renderer, ambientLight, hemiLight, dirLight, sky,
-          setLampEmissiveIntensity, setPoolOpacity } = refs;
+          setLampEmissiveIntensity, setPoolOpacity, setBloom } = refs;
 
   let mode = 'day';
 
@@ -124,6 +128,7 @@ export function createEnvToggle(refs) {
     renderer.toneMappingExposure = lerpNum(from.toneMappingExposure, to.toneMappingExposure, t);
     setLampEmissiveIntensity?.(lerpNum(from.lampEmissive, to.lampEmissive, t));
     setPoolOpacity?.(lerpNum(from.poolOpacity, to.poolOpacity, t));
+    setBloom?.(lerpNum(from.bloomStrength, to.bloomStrength, t), lerpNum(from.bloomThreshold, to.bloomThreshold, t));
 
     // Sky visibility toggles at midpoint
     if (sky && t >= 0.5) sky.visible = to.skyVisible;
