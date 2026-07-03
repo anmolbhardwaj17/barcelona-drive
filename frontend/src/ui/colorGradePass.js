@@ -38,25 +38,25 @@ const ColorGradeShader = {
 
       // 1. Saturation — richer streets (city read a bit flat/grey).
       float l0 = luma(c);
-      c = mix(c, mix(vec3(l0), c, 1.24), s);
+      c = mix(c, mix(vec3(l0), c, 1.15), s);
 
       // 2. Gentle contrast S-curve around a linear mid pivot — adds punch without crushing.
       const float pivot = 0.18;
-      c = mix(c, (c - pivot) * 1.15 + pivot, s);
+      c = mix(c, (c - pivot) * 1.06 + pivot, s);
 
       // 3. Cinematic split-tone: warm golden highlights, faintly cool/teal shadows.
       float l1 = luma(c);
-      vec3 warm = vec3(1.07, 1.02, 0.91);    // Barcelona afternoon (a touch warmer/golden)
-      vec3 cool = vec3(0.97, 1.00, 1.05);
+      vec3 warm = vec3(1.045, 1.01, 0.95);   // Barcelona afternoon (gentle warmth)
+      vec3 cool = vec3(0.98, 1.00, 1.03);
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);
 
-      // 4. Lift blacks slightly so shadows stay readable (Mediterranean bounce light).
-      c = mix(c, c * 0.98 + 0.012, s);
+      // 4. Lift blacks so shadows stay open/readable (Mediterranean bounce light) — no crushed darks.
+      c = mix(c, c * 0.965 + 0.024, s);
 
-      // 5. Vignette — draws focus to the road ahead.
+      // 5. Vignette — subtle, draws focus to the road ahead without darkening the scene.
       float dist = length(vUv - vec2(0.5));
-      float vignette = 1.0 - smoothstep(0.34, 0.80, dist) * 0.24 * s;
+      float vignette = 1.0 - smoothstep(0.36, 0.82, dist) * 0.15 * s;
       c *= vignette;
 
       gl_FragColor = vec4(max(c, 0.0), col.a);
