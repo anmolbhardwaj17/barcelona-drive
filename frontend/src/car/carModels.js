@@ -184,11 +184,17 @@ function bakePosedMesh(mesh) {
     v.applyMatrix4(mesh.matrixWorld);           // → world
     outPos[i * 3] = v.x; outPos[i * 3 + 1] = v.y; outPos[i * 3 + 2] = v.z;
   }
-  // vertex colours from the material groups (each part → its baseColor)
-  const cols = new Float32Array(n * 3).fill(0.7);
+  // vertex colours from the material groups (each part → its baseColor). Boosted ~1.3× (clamped) because
+  // the baked GLB albedos read underexposed under Lambert lighting — skin especially looked too dark.
+  const cols = new Float32Array(n * 3).fill(0.82);
   const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   const idx = geo.index;
-  const setCol = (vi, c) => { cols[vi * 3] = c.r; cols[vi * 3 + 1] = c.g; cols[vi * 3 + 2] = c.b; };
+  const PED_BOOST = 1.3;
+  const setCol = (vi, c) => {
+    cols[vi * 3] = Math.min(1, c.r * PED_BOOST);
+    cols[vi * 3 + 1] = Math.min(1, c.g * PED_BOOST);
+    cols[vi * 3 + 2] = Math.min(1, c.b * PED_BOOST);
+  };
   if (geo.groups && geo.groups.length) {
     for (const g of geo.groups) {
       const c = mats[g.materialIndex]?.color || new THREE.Color(0.7, 0.7, 0.7);
@@ -260,7 +266,9 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
     fall.translate(-(fb.min.x + fb.max.x) / 2, -fb.min.y, -(fb.min.z + fb.max.z) / 2);
   }
 
-  return { frames, idle, fall, material: new THREE.MeshLambertMaterial({ vertexColors: true }) };
+  // Subtle emissive floor so pedestrians never fall into a dark/underexposed silhouette in shadow.
+  const pedMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: new THREE.Color(0x2a2a2a) });
+  return { frames, idle, fall, material: pedMat };
 }
 
 export async function loadPeopleWalkTemplates(basePath = '/models/people/', targetHeight = 1.8, frameCount = 8) {
