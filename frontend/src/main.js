@@ -43,6 +43,7 @@ import { createTrafficSystem } from './car/trafficSystem.js';
 import { createParkedCars } from './car/parkedCars.js';
 import { createPedestrians } from './car/pedestrians.js';
 import { createDashMode } from './game/dashMode.js';
+import { createTaxiMode } from './game/taxiMode.js';
 import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
@@ -146,6 +147,7 @@ let tileManager;
 let freeCameraControls;
 let carDriver = null;
 let dashMode = null;
+let taxiMode = null;
 let trafficSystem = null;
 let parkedCars = null;
 let pedestrians = null;
@@ -321,6 +323,13 @@ spawnTileReady.finally(() => {
           getOrigin: getOriginOffset,
           audio,
         });
+        taxiMode = createTaxiMode({
+          scene, camera, getMinimap: () => minimap,
+          getRoadSegments: () => tileManager.getLoadedRoadSegments(),
+          getGroundY: (wx, wz) => { const s = tileManager.getSurfaceHeightAt?.(wx, wz); return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : (tileManager.getTerrainHeightAt?.(wx, wz) ?? 0); },
+          getOrigin: getOriginOffset,
+          audio,
+        });
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
         freeCameraControls = createFreeCameraController(camera, renderer.domElement, spawnCenter, origin);
@@ -416,6 +425,7 @@ function animate(time = 0) {
     if (pedestrians) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
+    if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt);
     headingDeg = carDriver.getHeadingDeg();
   } else {
     // ── Free camera mode ──────────────────────────────────────────────────────
