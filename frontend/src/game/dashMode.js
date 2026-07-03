@@ -55,17 +55,29 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
     'font-family:Poppins,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
   document.body.appendChild(hud);
 
-  // compass arrow to the next gate
-  const arrow = document.createElement('div');
-  arrow.style.cssText = 'position:fixed;top:150px;left:50%;transform:translateX(-50%);z-index:1290;' +
-    'pointer-events:none;user-select:none;display:none;text-align:center;';
-  arrow.innerHTML =
-    '<div class="dd-dash-arrow" style="width:0;height:0;margin:0 auto;border-left:16px solid transparent;' +
-    'border-right:16px solid transparent;border-bottom:28px solid #35e0ff;filter:drop-shadow(0 0 6px #35e0ff);transition:transform .1s"></div>' +
-    '<div class="dd-dash-dist" style="font:700 13px Poppins,sans-serif;color:#eafcff;text-shadow:0 1px 3px rgba(0,0,0,.8);margin-top:4px"></div>';
-  const arrowTri = arrow.querySelector('.dd-dash-arrow');
-  const arrowDist = arrow.querySelector('.dd-dash-dist');
-  document.body.appendChild(arrow);
+  // ── Objective marker: a labelled compass pill (top-centre) + a tag that floats over the gate ──
+  const nav = document.createElement('div');
+  nav.style.cssText = 'position:fixed;top:150px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
+    'pointer-events:none;user-select:none;text-align:center;background:rgba(8,20,30,.72);border:2px solid #35e0ff;' +
+    'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
+  nav.innerHTML =
+    '<div class="nav-tri" style="width:0;height:0;margin:0 auto 5px;border-left:13px solid transparent;' +
+    'border-right:13px solid transparent;border-bottom:22px solid #35e0ff;filter:drop-shadow(0 0 5px #35e0ff);transition:transform .12s"></div>' +
+    '<div style="font:800 11px Poppins,sans-serif;letter-spacing:1px;color:#9fe9ff">NEXT CHECKPOINT</div>' +
+    '<div class="nav-dist" style="font-family:\'Lilita One\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
+  const navTri = nav.querySelector('.nav-tri');
+  const navDist = nav.querySelector('.nav-dist');
+  document.body.appendChild(nav);
+
+  // floating "NEXT ▾" tag pinned over the gate when it's on screen
+  const gateTag = document.createElement('div');
+  gateTag.style.cssText = 'position:fixed;z-index:1291;display:none;pointer-events:none;user-select:none;' +
+    'transform:translate(-50%,-100%);text-align:center;font-family:Poppins,sans-serif;';
+  gateTag.innerHTML =
+    '<div style="display:inline-block;background:#35e0ff;color:#062430;font-weight:800;font-size:11px;letter-spacing:.5px;' +
+    'padding:3px 9px;border-radius:9px;box-shadow:0 2px 8px rgba(0,0,0,.45)">NEXT</div>' +
+    '<div style="width:0;height:0;margin:0 auto;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #35e0ff"></div>';
+  document.body.appendChild(gateTag);
 
   const bestKey = 'dd_dashBest';
   const getBest = () => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : null; };
@@ -92,7 +104,8 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
       hud.innerHTML = best != null ? `<div style="font-weight:700;font-size:12px;opacity:.7;text-shadow:0 1px 3px rgba(0,0,0,.7)">Dash best ${fmt(best)}</div>` : '';
       btn.textContent = '🏁 Start Dash';
     }
-    arrow.style.display = state === 'running' ? 'block' : 'none';
+    nav.style.display = state === 'running' ? 'block' : 'none';
+    if (state !== 'running') gateTag.style.display = 'none';
   }
 
   // ── build the route from loaded roads (robust: relax the forward bias if a step stalls) ────────
@@ -194,19 +207,35 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
   const _v = new THREE.Vector3(), _camDir = new THREE.Vector3();
   let _t = 0;
   function updateArrow(carPx, carPz) {
-    const target = route[activeIdx]; if (!target) { arrow.style.display = 'none'; return; }
-    arrow.style.display = 'block';
+    const target = route[activeIdx];
+    const g = gates[activeIdx];
+    if (!target || !g) { nav.style.display = 'none'; gateTag.style.display = 'none'; return; }
+    nav.style.display = 'block';
+
     const gx = sceneX(target.wx), gz = sceneZ(target.wz);
     const dist = Math.hypot(carPx - gx, carPz - gz);
-    arrowDist.textContent = `${Math.round(dist)} m`;
-    // relative bearing: camera heading vs direction to gate (horizontal)
+    navDist.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+
+    // rotating arrow: relative bearing camera→gate (0 = straight ahead)
     camera.getWorldDirection(_camDir);
     const camH = Math.atan2(_camDir.x, _camDir.z);
     const gateH = Math.atan2(gx - camera.position.x, gz - camera.position.z);
     let rel = gateH - camH;
     while (rel > Math.PI) rel -= 2 * Math.PI;
     while (rel < -Math.PI) rel += 2 * Math.PI;
-    arrowTri.style.transform = `rotate(${rel}rad)`;   // 0 = straight ahead (points up)
+    navTri.style.transform = `rotate(${rel}rad)`;
+
+    // floating "NEXT" tag over the gate when it's on screen
+    _v.set(gx, g.position.y + RING_R + 0.6, gz).project(camera);
+    const inFront = Math.abs(rel) < Math.PI / 2;
+    if (inFront && Math.abs(_v.x) < 0.95 && Math.abs(_v.y) < 0.95) {
+      const sx = (_v.x * 0.5 + 0.5) * window.innerWidth;
+      const sy = (-_v.y * 0.5 + 0.5) * window.innerHeight;
+      gateTag.style.left = `${sx}px`; gateTag.style.top = `${sy}px`;
+      gateTag.style.display = 'block';
+    } else {
+      gateTag.style.display = 'none';
+    }
   }
 
   function update(carPx, carPz, dt) {
@@ -253,7 +282,7 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
   let _flash = null;
   function hudFlash(msg) {
     if (_flash) clearTimeout(_flash);
-    arrow.style.display = 'none';
+    nav.style.display = 'none'; gateTag.style.display = 'none';
     hud.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
     _flash = setTimeout(() => { _flash = null; renderHud(); }, 2800);
   }
@@ -261,7 +290,7 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
   renderHud();
   return {
     update,
-    dispose() { stop(); hud.remove(); btn.remove(); arrow.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
+    dispose() { stop(); hud.remove(); btn.remove(); nav.remove(); gateTag.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
     isRunning: () => state === 'running',
   };
 }
