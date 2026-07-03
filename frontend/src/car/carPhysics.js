@@ -160,6 +160,7 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
   let _reverse = false;
   let _currentSteer = 0;
   let _driftFactor = 0;
+  let _upDot = 1;   // chassis up · world up — 1 upright, <0 flipped (for the "press R" hint)
   let _isBraking = false;
   let _skidLevel = 0;   // 0..1 tyre-slip for skid marks + smoke: real sideways slide OR handbrake OR hard braking
   let _handbraking = false;
@@ -393,6 +394,7 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     _antiFlipUp.set(0, 1, 0);
     chassisBody.quaternion.vmult(_antiFlipUp, _antiFlipCarUp);
     const tiltDot = _antiFlipCarUp.dot(_antiFlipUp);
+    _upDot = tiltDot;   // 1 = upright, 0 = on its side, <0 = past its side / upside-down
     if (tiltDot < 0.9) {
       const correctionStrength = (1 - tiltDot) * 6000;
       _antiFlipCarUp.cross(_antiFlipUp, _antiFlipCross);
@@ -422,5 +424,6 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     getCurrentGear() { return _reverse ? -1 : _currentGear; },
     getCurrentRpm() { return _currentRpm; },
     getCurrentSteer() { return _currentSteer; },
+    getUpDot() { return _upDot; },
   };
 }

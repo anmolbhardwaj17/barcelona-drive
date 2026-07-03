@@ -83,6 +83,14 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   popStyle.textContent = '@keyframes ddPay{0%{transform:translate(-50%,-40%) scale(.6);opacity:0}20%{transform:translate(-50%,-50%) scale(1.1);opacity:1}100%{transform:translate(-50%,-90%) scale(1);opacity:0}}';
   document.head.appendChild(popStyle);
 
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:33%;left:50%;transform:translate(-50%,-50%);z-index:1300;display:none;' +
+    "font:800 19px Poppins,system-ui,sans-serif;color:#fff;background:rgba(18,58,30,.92);border:2px solid #2ee06a;" +
+    'padding:9px 18px;border-radius:14px;box-shadow:0 4px 16px rgba(0,0,0,.5);pointer-events:none;white-space:nowrap;';
+  document.body.appendChild(toast);
+  let _toastT = null;
+  function showToast(msg) { toast.textContent = msg; toast.style.display = 'block'; if (_toastT) clearTimeout(_toastT); _toastT = setTimeout(() => { toast.style.display = 'none'; }, 2200); }
+
   const bestKey = 'dd_taxiBest';
   const getBest = () => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : 0; };
 
@@ -203,6 +211,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
             expectT = Math.max(6, tripDist / 13); fareT = 0; tip = 0.6;
             target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
             getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(720);
+            showToast('🧍 Passenger aboard — drop off!');
           }
         } else {
           // delivered → pay out
@@ -228,7 +237,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   return {
     name: 'City Cab', icon: '🚕',
     update, start, stop,
-    dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); toast.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
     isRunning: () => state === 'toPickup' || state === 'toDropoff',
   };
 }

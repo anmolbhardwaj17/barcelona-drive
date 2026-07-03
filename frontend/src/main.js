@@ -149,6 +149,8 @@ let freeCameraControls;
 let carDriver = null;
 let dashMode = null;
 let taxiMode = null;
+let recoverHint = null;
+let _flipT = 0;
 let trafficSystem = null;
 let parkedCars = null;
 let pedestrians = null;
@@ -333,6 +335,13 @@ spawnTileReady.finally(() => {
         });
         // One "Play" launcher for all modes (enforces one-at-a-time + surfaces the controls).
         createGameLauncher([dashMode, taxiMode]);
+        // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
+        recoverHint = document.createElement('div');
+        recoverHint.style.cssText = 'position:fixed;bottom:118px;left:50%;transform:translateX(-50%);z-index:1200;display:none;' +
+          'font:800 15px Poppins,system-ui,sans-serif;color:#fff;background:rgba(176,42,30,.9);padding:9px 16px;border-radius:12px;' +
+          'box-shadow:0 4px 16px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap;';
+        recoverHint.innerHTML = '🔄 Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px">R</b> to recover';
+        document.body.appendChild(recoverHint);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
         freeCameraControls = createFreeCameraController(camera, renderer.domElement, spawnCenter, origin);
@@ -429,6 +438,12 @@ function animate(time = 0) {
     if (contactShadows) contactShadows.commit();
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
     if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt);
+    // Flipped-over hint (press R)
+    if (recoverHint) {
+      const upDot = carDriver.getUpDot?.() ?? 1;
+      _flipT = upDot < -0.05 ? _flipT + frameDt : 0;
+      recoverHint.style.display = _flipT > 0.6 ? 'block' : 'none';
+    }
     headingDeg = carDriver.getHeadingDeg();
   } else {
     // ── Free camera mode ──────────────────────────────────────────────────────
