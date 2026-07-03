@@ -14,8 +14,9 @@ const ROTATION_LERP = 0.15;
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
-const FILTER_DAY = 'grayscale(1) brightness(1.1) contrast(1.05)';
-const FILTER_NIGHT = 'grayscale(1) invert(1) brightness(0.85) contrast(1.0) hue-rotate(180deg)';
+// Game-styled map tint: warm parchment by day (matches the tan streets), deep navy by night.
+const FILTER_DAY = 'sepia(0.38) saturate(1.35) brightness(0.98) contrast(1.04) hue-rotate(-12deg)';
+const FILTER_NIGHT = 'invert(0.92) hue-rotate(185deg) saturate(0.9) brightness(0.72) contrast(1.12)';
 let _isNight = false;
 
 let map = null;
@@ -302,8 +303,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
     attributionControl: false,
   });
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
+  // CARTO Positron (no labels) — a clean, minimal roads+water base that reads like a game map once tinted.
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png', {
+    maxZoom: 20, subdomains: 'abcd',
   }).addTo(map);
 
   const { lat, lon } = worldToLatLon(spawnCenter.x, spawnCenter.z);
@@ -338,8 +340,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       frame.style.borderRadius = '16px';
       frame.style.transform = 'translate(-50%, -50%)';
       frame.style.zIndex = '11';
-      frame.style.background = '#888';
-      frame.style.boxShadow = '0 8px 32px rgba(0,0,0,0.5)';
+      frame.style.background = '#12203a';
+      frame.style.border = '4px solid #f5c542';
+      frame.style.boxShadow = '0 12px 48px rgba(0,0,0,0.6)';
       compassRing.style.display = 'none';
       borderRing.style.display = 'none';
       wrapper.style.top = `${BORDER_WIDTH}px`;
@@ -356,7 +359,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       mapInner.style.transform = 'none';
       mapInner.style.left = '0';
       mapInner.style.top = '0';
-      mapInner.style.filter = 'none';
+      mapInner.style.filter = _isNight ? FILTER_NIGHT : FILTER_DAY;   // keep the game tint in the big map too
       innerShadow.style.display = 'none';
       highlight.style.display = 'none';
       markerEl.style.display = 'none';
@@ -408,6 +411,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       frame.style.transform = 'none';
       frame.style.zIndex = '10';
       frame.style.background = 'none';
+      frame.style.border = 'none';
       frame.style.boxShadow = 'none';
       compassRing.style.display = '';
       borderRing.style.display = '';
@@ -447,9 +451,12 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
     setExpanded(true);
   });
 
+  const _typing = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
   document.addEventListener('keydown', (e) => {
     // When the expanded minimap is up, Escape collapses it and must NOT also open the settings menu.
-    if (e.key === 'Escape' && expanded) { setExpanded(false); e.stopImmediatePropagation(); }
+    if (e.key === 'Escape' && expanded) { setExpanded(false); e.stopImmediatePropagation(); return; }
+    // M toggles the big map (but not while typing in a text field, e.g. the settings search).
+    if ((e.key === 'm' || e.key === 'M') && !_typing()) { setExpanded(!expanded); e.stopImmediatePropagation(); }
   }, { capture: true });
 
   // Cache the SVG rotate group for per-frame updates

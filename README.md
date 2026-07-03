@@ -223,6 +223,7 @@ The frontend is a static Vite build (`npm run build` in `frontend/`); the backen
 ## 🙏 Credits
 
 - Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
+- Minimap basemap © OpenStreetMap contributors © [CARTO](https://carto.com/attributions) (Positron).
 - Elevation from the [Copernicus GLO-30](https://spacedata.copernicus.eu/) global DEM.
 - 3D models from [Kenney](https://kenney.nl/) and [Poly Pizza](https://poly.pizza/) (check individual asset licenses before redistribution).
 - Audio: CC0 / public-domain loops (see `frontend/public/audio/ATTRIBUTION.md`).
