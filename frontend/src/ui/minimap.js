@@ -14,10 +14,10 @@ const ROTATION_LERP = 0.15;
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
-// Voyager base is already warm + detailed (coloured roads, green parks, blue water); just punch it a
-// little by day and flip to a deep navy by night. Light touch so the map keeps its colour + detail.
-const FILTER_DAY = 'saturate(1.3) contrast(1.1) brightness(0.97)';
-const FILTER_NIGHT = 'invert(0.9) hue-rotate(188deg) saturate(0.95) brightness(0.72) contrast(1.12)';
+// OSM standard is colourful + detailed (green parks, blue water, coloured roads). Light touch: punch it
+// a little by day, flip to a deep navy by night. (CARTO CDN proved unreliable on some networks.)
+const FILTER_DAY = 'saturate(1.15) contrast(1.05) brightness(1.0)';
+const FILTER_NIGHT = 'invert(0.93) hue-rotate(190deg) saturate(0.9) brightness(0.7) contrast(1.12)';
 let _isNight = false;
 
 let map = null;
@@ -304,10 +304,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
     attributionControl: false,
   });
 
-  // CARTO Voyager (no labels) — warm, detailed base (coloured roads, green parks, blue water) that reads
-  // as a proper game map, unlike the near-white Positron.
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png', {
-    maxZoom: 20, subdomains: 'abcd',
+  // OpenStreetMap standard — colourful + detailed (parks, water, roads, buildings) and reliably reachable
+  // (CARTO's CDN timed out on this network). Tinted lightly below to sit with the game.
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, subdomains: 'abc',
   }).addTo(map);
 
   const { lat, lon } = worldToLatLon(spawnCenter.x, spawnCenter.z);

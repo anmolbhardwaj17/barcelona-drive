@@ -241,7 +241,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     setTimeout(() => { if (state === 'finished') stop(); }, 12000);
   }
 
-  const _v = new THREE.Vector3(), _camDir = new THREE.Vector3();
+  const _v = new THREE.Vector3(), _camSpace = new THREE.Vector3(), _invQ = new THREE.Quaternion();
   let _t = 0;
   function updateArrow(carPx, carPz) {
     const target = route[activeIdx];
@@ -253,13 +253,11 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     const dist = Math.hypot(carPx - gx, carPz - gz);
     navDist.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
 
-    // rotating arrow: relative bearing camera→gate (0 = straight ahead)
-    camera.getWorldDirection(_camDir);
-    const camH = Math.atan2(_camDir.x, _camDir.z);
-    const gateH = Math.atan2(gx - camera.position.x, gz - camera.position.z);
-    let rel = gateH - camH;
-    while (rel > Math.PI) rel -= 2 * Math.PI;
-    while (rel < -Math.PI) rel += 2 * Math.PI;
+    // rotating arrow in the CAMERA's frame (matches what's on screen — a world-bearing calc came out
+    // mirrored L/R because the visual world is X-mirrored). 0 = straight ahead, +cw = to the right.
+    _invQ.copy(camera.quaternion).invert();
+    _camSpace.set(gx, camera.position.y, gz).sub(camera.position).applyQuaternion(_invQ);
+    const rel = Math.atan2(_camSpace.x, -_camSpace.z);
     navTri.style.transform = `rotate(${rel}rad)`;
 
     // floating "NEXT" tag over the gate when it's on screen
