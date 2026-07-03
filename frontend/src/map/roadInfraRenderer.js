@@ -749,6 +749,7 @@ function generateSpeedSigns(roads, junctions, rng) {
         z: s.z + nz * edgeDist,
         angle: facingAngle(s.tx, s.tz),
         baseY: s.elevation != null ? s.elevation : layer * LAYER_HEIGHT_STEP,
+        bridge: !!road.bridge,
         speed,
       });
     }
@@ -900,6 +901,7 @@ function generateTrafficLights(intersections, roads) {
         x: px, z: pz,
         angle: Math.atan2(-cr.tx, -cr.tz),
         baseY: cr.elevation != null ? cr.elevation : layer * LAYER_HEIGHT_STEP,
+        bridge: !!cr.road?.bridge,
       });
       placedThisIntersection++;
     }
@@ -1351,12 +1353,25 @@ function buildGantryMeshes(gantryInstances) {
  * @param {string} tileKey - for deterministic seeding
  * @returns {{ meshes: THREE.Mesh[] }}
  */
-export function buildRoadInfrastructure(roads, tileKey) {
+export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
   if (!roads || roads.length === 0) return { meshes: [] };
 
   const rng = seededRandom(tileKeyToSeed(tileKey));
   const intersections = findIntersections(roads);
   const junctionPts = intersections.map(i => ({ x: i.x, z: i.z }));
+
+  // Roadside poles (signs, traffic lights) are baked at the ROAD elevation. Where the road is baked
+  // above the terrain (e.g. Montjuïc slopes), that leaves the pole hanging in the air. Drop it to the
+  // terrain it's actually planted in — but not on real bridges, where road level is correct.
+  const groundInstances = (list) => {
+    if (!getGroundY || !list) return list;
+    for (const inst of list) {
+      if (inst.bridge) continue;
+      const g = getGroundY(inst.x, inst.z);
+      if (Number.isFinite(g) && inst.baseY - g > 0.5) inst.baseY = g;
+    }
+    return list;
+  };
 
   const meshes = [];
   const _m = new THREE.Matrix4();
@@ -1366,12 +1381,12 @@ export function buildRoadInfrastructure(roads, tileKey) {
   const _axisY = new THREE.Vector3(0, 1, 0);
 
   // 1. Speed limit signs (Indian-style yellow board with red circle)
-  const signInstances = generateSpeedSigns(roads, junctionPts, rng);
+  const signInstances = groundInstances(generateSpeedSigns(roads, junctionPts, rng));
   const speedSignMeshes = buildSpeedSignMeshes(signInstances);
   meshes.push(...speedSignMeshes);
 
   // 2. Traffic lights (pole + 3 animated bulb InstancedMeshes)
-  const tlInstances = generateTrafficLights(intersections, roads);
+  const tlInstances = groundInstances(generateTrafficLights(intersections, roads));
   if (tlInstances.length > 0) {
     const { poleGeom, poleMat, bulbGeom } = getTLPoleResources();
     const count = tlInstances.length;

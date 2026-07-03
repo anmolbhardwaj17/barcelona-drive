@@ -2089,7 +2089,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Road infra (signs, gantries)
     if (CONFIG.ENABLE_ROAD_INFRA) {
-      const { meshes: infraMeshesRaw } = buildRoadInfrastructure(roads, key);
+      const { meshes: infraMeshesRaw } = buildRoadInfrastructure(roads, key, getGroundY);
       entry.roadInfraMeshes = await mergeMeshesByMaterial(infraMeshesRaw, yieldToMain);
       for (const m of entry.roadInfraMeshes) { safeSceneAdd(scene, m); }
     }
