@@ -2126,7 +2126,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Café terraces (parasol + table + chairs clusters) on the sidewalks in front of some shops.
     if (CONFIG.ENABLE_CAFE_TERRACES !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {
-      const terraceMeshes = buildCafeTerrace(buildings, { getElevationAt, vertExag: _groundVertExag });
+      const terraceMeshes = buildCafeTerrace(buildings, { getElevationAt, vertExag: _groundVertExag, roads });
       if (terraceMeshes) { entry.cafeTerraceMeshes = terraceMeshes; for (const m of terraceMeshes) safeSceneAdd(scene, m); }
     }
 

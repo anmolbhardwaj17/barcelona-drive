@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
+import { audio } from '../audio/audioManager.js';
 
 const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this so it matches the physics box
 // MUST match carPhysics CHASSIS_BOX_OFFSET_Y: the physics CoM/origin sits low and the collision box is
@@ -454,19 +455,16 @@ export async function createCarModel(scene) {
     colorPanel.appendChild(btn);
   }
 
-  // Sound toggle button — restore saved mute state
-  const savedMute = (() => { try { return localStorage.getItem('dd_soundMuted') === 'true'; } catch { return false; } })();
+  // Sound toggle button — single source of truth is audioManager (same as the ESC "Sound on" toggle),
+  // so the two never desync and dd_soundMuted isn't written twice.
   const soundBtn = document.createElement('div');
-  soundBtn.textContent = savedMute ? '\u{1F507}' : '\u{1F50A}';
   soundBtn.title = 'Toggle engine sound';
   soundBtn.style.cssText = 'cursor:pointer;font-size:16px;margin-left:6px;user-select:none;';
-  soundBtn.dataset.on = savedMute ? 'false' : 'true';
+  const _syncSoundIcon = () => { soundBtn.textContent = audio.isMuted() ? '\u{1F507}' : '\u{1F50A}'; };
+  _syncSoundIcon();
   soundBtn.addEventListener('click', () => {
-    const isOn = soundBtn.dataset.on === 'true';
-    soundBtn.dataset.on = isOn ? 'false' : 'true';
-    soundBtn.textContent = isOn ? '\u{1F507}' : '\u{1F50A}';
-    try { localStorage.setItem('dd_soundMuted', isOn ? 'true' : 'false'); } catch {}
-    // Fire registered callback
+    audio.setMuted(!audio.isMuted());   // audioManager persists dd_soundMuted
+    _syncSoundIcon();
     if (colorPanel._onSoundToggle) colorPanel._onSoundToggle();
   });
   colorPanel.appendChild(soundBtn);

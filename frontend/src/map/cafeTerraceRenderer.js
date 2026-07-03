@@ -91,10 +91,31 @@ function getCanopyMaterial() {
  * @param {{ getElevationAt?: (lat:number,lon:number)=>number|null, vertExag?: number }} opts
  * @returns {THREE.InstancedMesh[]|null}
  */
+/** Shortest distance from a point to any road's carriageway edge (negative-ish → on the road). */
+function tooCloseToRoad(px, pz, roads) {
+  if (!roads) return false;
+  for (const r of roads) {
+    const pts = r.points;
+    if (!pts || pts.length < 2 || r.bridge) continue;
+    const halfW = (Number.isFinite(r.width) && r.width > 0 ? r.width : 6) / 2;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
+      const dx = bx - ax, dz = bz - az;
+      const lenSq = dx * dx + dz * dz;
+      if (lenSq === 0) continue;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lenSq));
+      const d = Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+      if (d < halfW + 0.8) return true;   // table would sit on the carriageway
+    }
+  }
+  return false;
+}
+
 export function buildCafeTerrace(buildings, opts = {}) {
   if (!buildings || !buildings.length) return null;
   const getElevationAt = opts.getElevationAt;
   const vertExag = Number.isFinite(opts.vertExag) ? opts.vertExag : 1;
+  const roads = opts.roads;
 
   const matrices = [];
   const colorIdx = [];
@@ -151,6 +172,7 @@ export function buildCafeTerrace(buildings, opts = {}) {
       const off = SIDEWALK_OFFSET + jitterOut;
       const px = a.x + dx * (t + jitterAlong) + nx * off;
       const pz = a.y + dz * (t + jitterAlong) + nz * off;
+      if (tooCloseToRoad(px, pz, roads)) continue;   // don't spill tables onto a narrow street's carriageway
       _p.set(px, groundY, pz);
       _q.setFromAxisAngle(YAXIS, rand() * Math.PI * 2);
       _m.compose(_p, _q, _s);
