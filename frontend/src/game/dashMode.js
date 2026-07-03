@@ -20,7 +20,7 @@ const RING_R = 5.0;
 const COL_NEXT = 0x35e0ff;   // active gate — cyan
 const COL_AFTER = 0xffc233;  // the one after — gold
 
-export function createDashMode({ scene, camera, getRoadSegments, getGroundY, getOrigin, audio }) {
+export function createDashMode({ scene, camera, getMinimap, getRoadSegments, getGroundY, getOrigin, audio }) {
   let state = 'idle';               // idle | running | finished
   let route = [];                   // [{wx, wz}]
   let activeIdx = 0;
@@ -79,6 +79,25 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
     '<div style="width:0;height:0;margin:0 auto;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #35e0ff"></div>';
   document.body.appendChild(gateTag);
 
+  // big centre countdown (3·2·1·GO)
+  const countdownEl = document.createElement('div');
+  countdownEl.style.cssText = 'position:fixed;top:44%;left:50%;transform:translate(-50%,-50%);z-index:1300;' +
+    "display:none;pointer-events:none;user-select:none;font-family:'Lilita One',sans-serif;font-size:120px;" +
+    'color:#fff;text-shadow:0 4px 20px rgba(0,0,0,.6),0 0 30px rgba(53,224,255,.5);';
+  document.body.appendChild(countdownEl);
+  const cdStyle = document.createElement('style');
+  cdStyle.textContent = '@keyframes ddCdPop{0%{transform:translate(-50%,-50%) scale(.4);opacity:0}25%{transform:translate(-50%,-50%) scale(1.15);opacity:1}100%{transform:translate(-50%,-50%) scale(.85);opacity:.85}}';
+  document.head.appendChild(cdStyle);
+
+  function medalFor(ms, n) {
+    const per = ms / Math.max(1, n);
+    if (per < 6500) return { emoji: '🥇', label: 'GOLD', color: '#ffd23f' };
+    if (per < 9000) return { emoji: '🥈', label: 'SILVER', color: '#d7dee8' };
+    if (per < 13000) return { emoji: '🥉', label: 'BRONZE', color: '#e0955a' };
+    return { emoji: '🏁', label: 'FINISHED', color: '#9fe9ff' };
+  }
+  let _medal = null, _newBest = false;
+
   const bestKey = 'dd_dashBest';
   const getBest = () => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : null; };
   const fmt = (ms) => {
@@ -87,25 +106,29 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
   };
 
   function renderHud() {
-    if (state === 'running') {
+    if (state === 'running' || state === 'countdown') {
       hud.innerHTML =
         `<div style="font-family:'Lilita One',sans-serif;font-size:34px;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
         `<div style="font-weight:700;font-size:15px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)">Checkpoint ${Math.min(activeIdx + 1, route.length)} / ${route.length}</div>`;
       btn.textContent = '✕ Quit';
     } else if (state === 'finished') {
       const best = getBest();
+      const m = _medal || medalFor(elapsed, route.length);
       hud.innerHTML =
-        `<div style="font-family:'Lilita One',sans-serif;font-size:26px;color:#ffd23f;text-shadow:0 2px 6px rgba(0,0,0,.6)">FINISH!</div>` +
-        `<div style="font-family:'Lilita One',sans-serif;font-size:36px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
-        `<div style="font-weight:700;font-size:14px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)">Best ${best != null ? fmt(best) : '—'}</div>`;
+        `<div style="font-size:52px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))">${m.emoji}</div>` +
+        `<div style="font-family:'Lilita One',sans-serif;font-size:22px;color:${m.color};letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${m.label}</div>` +
+        `<div style="font-family:'Lilita One',sans-serif;font-size:34px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
+        (_newBest ? `<div style="font-weight:800;font-size:13px;color:#ffd23f;letter-spacing:1px;text-shadow:0 1px 3px rgba(0,0,0,.7)">★ NEW BEST!</div>`
+                  : `<div style="font-weight:700;font-size:13px;opacity:.85;text-shadow:0 1px 3px rgba(0,0,0,.7)">Best ${best != null ? fmt(best) : '—'}</div>`);
       btn.textContent = '🏁 Race again';
     } else {
       const best = getBest();
       hud.innerHTML = best != null ? `<div style="font-weight:700;font-size:12px;opacity:.7;text-shadow:0 1px 3px rgba(0,0,0,.7)">Dash best ${fmt(best)}</div>` : '';
       btn.textContent = '🏁 Start Dash';
     }
-    nav.style.display = state === 'running' ? 'block' : 'none';
-    if (state !== 'running') gateTag.style.display = 'none';
+    const active = state === 'running' || state === 'countdown';
+    nav.style.display = active ? 'block' : 'none';
+    if (!active) gateTag.style.display = 'none';
   }
 
   // ── build the route from loaded roads (robust: relax the forward bias if a step stalls) ────────
@@ -178,6 +201,8 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
       g.visible = show;
       setGateColor(g, i === activeIdx ? COL_NEXT : COL_AFTER, i === activeIdx);
     }
+    const t = route[activeIdx];
+    getMinimap?.()?.setObjectiveMarker?.(t ? t.wx : null, t ? t.wz : null);
   }
   function clearGates() { for (const g of gates) if (g) { scene.remove(g); const u = g.userData; u.ringMat.dispose(); u.beamMat.dispose(); u.glowMat.dispose(); } gates.length = 0; }
 
@@ -196,12 +221,15 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
   // ── lifecycle ─────────────────────────────────────────────────────────────
   let _pendingStart = false;
   function start() { _pendingStart = true; state = 'running'; activeIdx = 0; elapsed = 0; renderHud(); }
-  function stop() { state = 'idle'; clearGates(); route = []; _pendingStart = false; renderHud(); }
+  function stop() { state = 'idle'; clearGates(); route = []; _pendingStart = false; countdownEl.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null); renderHud(); }
   function finish() {
     state = 'finished';
     const best = getBest();
-    if (best == null || elapsed < best) { try { localStorage.setItem(bestKey, String(Math.round(elapsed))); } catch {} }
-    clearGates(); ding(880); setTimeout(() => ding(1174), 140); renderHud();
+    _newBest = (best == null || elapsed < best);
+    if (_newBest) { try { localStorage.setItem(bestKey, String(Math.round(elapsed))); } catch {} }
+    _medal = medalFor(elapsed, route.length);
+    clearGates(); nav.style.display = 'none'; gateTag.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
+    ding(880); setTimeout(() => ding(1174), 140); renderHud();
   }
 
   const _v = new THREE.Vector3(), _camDir = new THREE.Vector3();
@@ -238,8 +266,9 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
     }
   }
 
+  let _cd = 0;
   function update(carPx, carPz, dt) {
-    if (state !== 'running') return;
+    if (state !== 'running' && state !== 'countdown') return;
 
     if (_pendingStart) {
       _pendingStart = false;
@@ -254,7 +283,28 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
         gates.push(makeGate(route[i], dir));
       }
       refreshGateColors();
-      elapsed = 0;
+      // 3·2·1·GO — timer + hit-testing start at GO
+      state = 'countdown'; _cd = 3.0; elapsed = 0;
+      countdownEl.style.display = 'block';
+    }
+
+    // ── countdown phase: gates show + arrow points, but the clock doesn't run yet ──
+    if (state === 'countdown') {
+      const prev = Math.ceil(_cd);
+      _cd -= dt;
+      const n = Math.ceil(_cd);
+      if (_cd > 0) {
+        if (n !== prev) { ding(520); countdownEl.style.animation = 'none'; void countdownEl.offsetWidth; countdownEl.style.animation = 'ddCdPop .9s ease-out'; }
+        countdownEl.textContent = String(n);
+      } else {
+        state = 'running'; elapsed = 0;
+        countdownEl.textContent = 'GO!'; countdownEl.style.animation = 'none'; void countdownEl.offsetWidth; countdownEl.style.animation = 'ddCdPop .6s ease-out';
+        ding(1046);
+        setTimeout(() => { if (state === 'running') countdownEl.style.display = 'none'; }, 550);
+      }
+      updateArrow(carPx, carPz);
+      renderHud();
+      return;
     }
 
     elapsed += dt * 1000; _t += dt;
@@ -290,7 +340,7 @@ export function createDashMode({ scene, camera, getRoadSegments, getGroundY, get
   renderHud();
   return {
     update,
-    dispose() { stop(); hud.remove(); btn.remove(); nav.remove(); gateTag.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
+    dispose() { stop(); hud.remove(); btn.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); cdStyle.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
     isRunning: () => state === 'running',
   };
 }

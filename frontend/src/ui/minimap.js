@@ -281,6 +281,13 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
   markerEl.innerHTML = CAR_MARKER_SVG;
   wrapper.appendChild(markerEl);
 
+  // Dash objective marker — a cyan dot pointing to the next checkpoint (heading-up, clamped to the rim)
+  let _objTarget = null;   // { lat, lon } | null
+  const gateMarkerEl = document.createElement('div');
+  gateMarkerEl.style.cssText = 'position:absolute;width:13px;height:13px;border-radius:50%;background:#35e0ff;' +
+    'border:2px solid #fff;box-shadow:0 0 8px #35e0ff;transform:translate(-50%,-50%);display:none;z-index:5;pointer-events:none;';
+  wrapper.appendChild(gateMarkerEl);
+
   frame.appendChild(wrapper);
   document.body.appendChild(frame);
 
@@ -464,6 +471,22 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       locationMarkerArrow.style.transform = `translate(-18px,-18px) rotate(${currentRotationDeg}deg)`;
     }
 
+    // Dash objective dot — heading-up bearing to the next checkpoint, clamped to the minimap rim.
+    if (_objTarget && !expanded && lastCarLatLon) {
+      const plat = lastCarLatLon[0], plon = lastCarLatLon[1];
+      const north = (_objTarget.lat - plat) * 111320;
+      const east = (_objTarget.lon - plon) * 111320 * Math.cos(plat * Math.PI / 180);
+      const a = Math.atan2(east, north) - currentRotationDeg * Math.PI / 180;   // 0 = up (heading-up)
+      const res = 156543.03392 * Math.cos(plat * Math.PI / 180) / Math.pow(2, MINIMAP_ZOOM); // m/px
+      const r = Math.min(MINIMAP_SIZE / 2 - 9, Math.hypot(north, east) / res);
+      const c = MINIMAP_SIZE / 2;
+      gateMarkerEl.style.left = `${c + Math.sin(a) * r}px`;
+      gateMarkerEl.style.top = `${c - Math.cos(a) * r}px`;
+      gateMarkerEl.style.display = 'block';
+    } else if (gateMarkerEl.style.display !== 'none') {
+      gateMarkerEl.style.display = 'none';
+    }
+
     // Map tile panning is throttled (expensive Leaflet operation)
     const now = Date.now();
     if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return;
@@ -504,5 +527,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
     updateMarker();
   }
 
-  return { update, setNightMode, setMarkerMode };
+  /** Dash: show a marker to a checkpoint at world (wx, wz), or null to clear. */
+  function setObjectiveMarker(wx, wz) {
+    if (wx == null || wz == null) { _objTarget = null; gateMarkerEl.style.display = 'none'; return; }
+    _objTarget = worldToLatLon(wx, wz);
+  }
+
+  return { update, setNightMode, setMarkerMode, setObjectiveMarker };
 }

@@ -315,7 +315,7 @@ spawnTileReady.finally(() => {
         }
         // Checkpoint Dash game mode (Start button top-centre). Roads/gates use the traffic frame.
         dashMode = createDashMode({
-          scene, camera,
+          scene, camera, getMinimap: () => minimap,   // minimap is assigned later in init — resolve lazily
           getRoadSegments: () => tileManager.getLoadedRoadSegments(),
           getGroundY: (wx, wz) => { const s = tileManager.getSurfaceHeightAt?.(wx, wz); return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : (tileManager.getTerrainHeightAt?.(wx, wz) ?? 0); },
           getOrigin: getOriginOffset,
