@@ -596,8 +596,8 @@ function getNightEmissiveTexture(category) {
       const oy = gy * BASE;
       for (let y = oy + BASE - marginB - winH; y >= oy; y -= periodV) {
         for (let x = ox + marginL; x + winW <= ox + BASE; x += periodH) {
-          // ~12% chance to be lit — sparse, realistic
-          if (rnd() > 0.12) continue;
+          // ~16% chance to be lit — a bit denser so the night skyline reads as alive (was 12%)
+          if (rnd() > 0.16) continue;
 
           const warmth = rnd();
           // Vary color: warm yellow, cool white, or orange

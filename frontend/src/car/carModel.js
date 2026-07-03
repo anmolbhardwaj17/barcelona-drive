@@ -235,17 +235,24 @@ export async function createCarModel(scene) {
   }
 
   // ── Headlight SpotLights ─────────────────────────────────────────────────
+  const _headlightSpots = [];
+  const HEADLIGHT_DAY = 3.0, HEADLIGHT_NIGHT = 16.0;  // soft DRL by day, blazing beam at night
   if (CONFIG.ENABLE_CAR_LIGHTS) {
     const spotTarget = new THREE.Object3D();
     spotTarget.position.set(0, -1, 20);
     bodyGroup.add(spotTarget);
     for (const xPos of [-0.55, 0.55]) {
-      const spot = new THREE.SpotLight(0xFFFFCC, 12.0, 180, Math.PI / 5, 0.35);
+      const spot = new THREE.SpotLight(0xFFFFCC, HEADLIGHT_DAY, 180, Math.PI / 5, 0.35);
       spot.position.set(xPos, 0.30, 1.75);
       spot.target = spotTarget;
       spot.castShadow = false;
       bodyGroup.add(spot);
+      _headlightSpots.push(spot);
     }
+  }
+  /** Day/night: headlights are a soft DRL by day, a strong beam at night. */
+  function setNight(isNight) {
+    for (const s of _headlightSpots) s.intensity = isNight ? HEADLIGHT_NIGHT : HEADLIGHT_DAY;
   }
 
   scene.add(bodyGroup);
@@ -480,7 +487,7 @@ export async function createCarModel(scene) {
 
   console.log('[CarModel] BMW M3 ready');
   return {
-    update, dispose, setCarColor,
+    update, dispose, setCarColor, setNight,
     taillightMeshL: fakeTailMeshL, taillightMeshR: fakeTailMeshR,
     headlightMeshL: fakeHeadMeshL, headlightMeshR: fakeHeadMeshR,
     indicatorMatL: indicMatL, indicatorMatR: indicMatR,
