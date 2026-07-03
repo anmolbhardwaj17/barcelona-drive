@@ -345,6 +345,10 @@ spawnTileReady.finally(() => {
         clearInterval(_pollLoad); _hideLoader();
         // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
         try { envToggle?.reapply?.(); } catch {}
+        // Warm the GPU shader programs once now (materials are shared singletons, so this compiles almost
+        // every program the session will ever use). Kills the first-render compile stall as new tiles
+        // stream in at speed. compileAsync runs off the render path (KHR_parallel_shader_compile).
+        try { renderer.compileAsync?.(scene, camera); } catch {}
       }
     }, 150);
   });
@@ -411,7 +415,7 @@ function animate(time = 0) {
     if (groundMesh) groundMesh.position.set(viewerWx, 0, viewerWz);
   }
 
-  tileManager.update(viewerWx, viewerWz, { headingDeg });
+  tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });
   updateClouds(viewerWx, viewerWz);
   updateMoon(viewerWx, viewerWz);
   updateStars(viewerWx, viewerWz);

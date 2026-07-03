@@ -432,7 +432,7 @@ const tileCache = new Map();
 /** Tile keys currently being loaded – avoid starting duplicate requests */
 const loadingKeys = new Set();
 /** Max concurrent tile requests to avoid Overpass 429 rate limit */
-const MAX_CONCURRENT_TILE_LOADS = 2;
+const MAX_CONCURRENT_TILE_LOADS = 3;  // fetch is async; the shared per-frame build budget still caps CPU work
 
 function tileKey(tx, ty) {
   return `${tx}_${ty}`;
@@ -2323,10 +2323,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         wanted.add(tileKey(tx + dx, ty + dy));
       }
     }
-    // Add look-ahead tiles in the camera/driving direction (1 extra ring ahead)
+    // Add look-ahead tiles in the driving direction. Extend FURTHER the faster you go, so the fetch +
+    // build burst for the next tile row happens with lead time (spread over more frames) instead of
+    // landing right as you cross the boundary — that just-in-time burst is the high-speed stutter.
+    const speedKmh = (opts && Number.isFinite(opts.speedKmh)) ? opts.speedKmh : 0;
+    const dynLookahead = LOOKAHEAD_RADIUS + Math.min(3, Math.floor(speedKmh / 55));
     const camDirTileX = Math.round(Math.sin(cameraHeadingRad));
     const camDirTileZ = Math.round(Math.cos(cameraHeadingRad));
-    for (let r = GRID_RADIUS + 1; r <= LOOKAHEAD_RADIUS; r++) {
+    for (let r = GRID_RADIUS + 1; r <= dynLookahead; r++) {
       // Fan: center + two adjacent tiles in driving direction
       wanted.add(tileKey(tx + camDirTileX * r, ty + camDirTileZ * r));
       // Side tiles next to the center look-ahead
