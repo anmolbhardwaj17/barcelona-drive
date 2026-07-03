@@ -281,16 +281,20 @@ spawnTileReady.finally(() => {
             getOrigin: getOriginOffset,
           });
         }
+        // Pedestrians (sidewalks) and parked cars (curb) belong on the TERRAIN, not the road. Using the
+        // road-biased getSurfaceHeightAt (which returns max(roadHeight, terrain) within 10 m of any road)
+        // floated them wherever the road is baked above the terrain (e.g. Passeig Olímpic / Montjuïc).
+        const terrainGroundY = (wx, wz) => {
+          const t = tileManager.getTerrainHeightAt?.(wx, wz);
+          if (Number.isFinite(t)) return t;
+          const s = tileManager.getSurfaceHeightAt?.(wx, wz);
+          return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : 0;
+        };
         if (CONFIG.ENABLE_PARKED_CARS) {
           parkedCars = createParkedCars({
             scene,
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
-            getGroundY: (wx, wz) => {
-              const s = tileManager.getSurfaceHeightAt?.(wx, wz);
-              if (s && Number.isFinite(s.surfaceY)) return s.surfaceY;
-              const t = tileManager.getTerrainHeightAt?.(wx, wz);
-              return Number.isFinite(t) ? t : 0;
-            },
+            getGroundY: terrainGroundY,
             getOrigin: getOriginOffset,
           });
         }
@@ -298,12 +302,7 @@ spawnTileReady.finally(() => {
           pedestrians = createPedestrians({
             scene, contactShadows,
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
-            getGroundY: (wx, wz) => {
-              const s = tileManager.getSurfaceHeightAt?.(wx, wz);
-              if (s && Number.isFinite(s.surfaceY)) return s.surfaceY;
-              const t = tileManager.getTerrainHeightAt?.(wx, wz);
-              return Number.isFinite(t) ? t : 0;
-            },
+            getGroundY: terrainGroundY,
             getOrigin: getOriginOffset,
           });
         }
