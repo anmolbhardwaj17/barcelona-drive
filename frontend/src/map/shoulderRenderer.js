@@ -43,8 +43,11 @@ let sharedShoulderMat = null;
 const SHOULDER_OPACITY_DAY   = 0.18;   // reduced — vertex shading + blend strip handle most of the transition
 const SHOULDER_OPACITY_NIGHT = 0.08;   // dim — road edges should not glow at night
 
+let _shoulderNight = false;   // persisted so a material created AFTER a night toggle comes up night-side
+
 /** Dim/restore shoulder overlay when toggling day ↔ night. */
 export function setShoulderNightMode(isNight) {
+  _shoulderNight = isNight;
   if (sharedShoulderMat) {
     sharedShoulderMat.opacity = isNight ? SHOULDER_OPACITY_NIGHT : SHOULDER_OPACITY_DAY;
   }
@@ -77,6 +80,7 @@ function getSharedShoulderMat() {
     sharedShoulderMat = new THREE.MeshBasicMaterial({
       map:                 createShoulderTexture(),
       transparent:         true,
+      opacity:             _shoulderNight ? SHOULDER_OPACITY_NIGHT : SHOULDER_OPACITY_DAY,  // was missing → defaulted to 1.0 in day
       depthWrite:          false,
       side:                THREE.DoubleSide,
       polygonOffset:       true,

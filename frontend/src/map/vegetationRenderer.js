@@ -833,10 +833,11 @@ function getTreeBillboardAtlas() {
 
 // Tree billboards are unlit (MeshBasic), so they won't dim with the scene at night like the lit 3D
 // trees do → distant trees glow pale. Darken the material by hand so LOD matches the near trees.
+let _bbNight = false;   // persisted so billboards created after a night toggle come up darkened
+function _applyBbNight(m) { m.color.setRGB(_bbNight ? 0.34 : 1, _bbNight ? 0.38 : 1, _bbNight ? 0.40 : 1); }
 export function setTreeBillboardNightMode(isNight) {
-  for (const m of _bbMaterials) {
-    if (m) m.color.setRGB(isNight ? 0.34 : 1, isNight ? 0.38 : 1, isNight ? 0.40 : 1);
-  }
+  _bbNight = isNight;
+  for (const m of _bbMaterials) { if (m) _applyBbNight(m); }
 }
 
 const _bbMaterials = [];
@@ -852,6 +853,7 @@ export function getTreeBillboardMaterial(variantIndex) {
     depthWrite: true,
     fog: true,
   });
+  _applyBbNight(mat);   // match current day/night state at creation
 
   const uOff = variantIndex / 4;
   mat.onBeforeCompile = (shader) => {

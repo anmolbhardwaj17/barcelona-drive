@@ -13,6 +13,7 @@ import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
 import { setVendorCartNightMode } from '../map/vendorCartRenderer.js';
 import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetlightRenderer.js';
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
+import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 
 const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
@@ -132,6 +133,7 @@ export function createEnvToggle(refs) {
     setBillboardNightMode(isNight);
     setRoadMarkingNightMode(isNight);
     setTreeBillboardNightMode(isNight);
+    setShopSignNightMode(isNight);
     setStreetlightNightMode(isNight);
     setDividerNightMode(isNight);
     setShoulderNightMode(isNight);
@@ -253,5 +255,9 @@ export function createEnvToggle(refs) {
   return {
     element: toggle,
     isNight: () => mode === 'night',
+    // Re-apply the current night state to all shared materials. Call once after the initial tiles have
+    // built — at startup the callbacks fire before any tile material exists (no-ops), so loading straight
+    // into night otherwise leaves shoulders/dividers/bus-stop glow/tree billboards etc. in day appearance.
+    reapply: () => fireMaterialCallbacks(mode === 'night'),
   };
 }

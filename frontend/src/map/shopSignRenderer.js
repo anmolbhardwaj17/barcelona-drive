@@ -72,10 +72,19 @@ function getShopSignAtlas() {
 }
 
 let _signMaterial = null;
+let _signNight = false;   // persisted so signs built after a night toggle come up dimmed
+const _SIGN_DAY = 0xffffff, _SIGN_NIGHT = 0x6a6a78;
+
+/** Dim the (unlit) shop-name boards at night so they don't glow like billboards. */
+export function setShopSignNightMode(isNight) {
+  _signNight = isNight;
+  if (_signMaterial) _signMaterial.color.setHex(isNight ? _SIGN_NIGHT : _SIGN_DAY);
+}
+
 function getShopSignMaterial() {
   if (_signMaterial) return _signMaterial;
   const cw = (1 / COLS).toFixed(6), ch = (1 / ROWS).toFixed(6);
-  const mat = new THREE.MeshBasicMaterial({ map: getShopSignAtlas(), fog: true });
+  const mat = new THREE.MeshBasicMaterial({ map: getShopSignAtlas(), fog: true, color: _signNight ? _SIGN_NIGHT : _SIGN_DAY });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = 'attribute vec2 aUvOffset;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(

@@ -341,7 +341,11 @@ spawnTileReady.finally(() => {
     let _polls = 0;
     const _pollLoad = setInterval(() => {
       _polls++;
-      if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) { clearInterval(_pollLoad); _hideLoader(); }
+      if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) {
+        clearInterval(_pollLoad); _hideLoader();
+        // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
+        try { envToggle?.reapply?.(); } catch {}
+      }
     }, 150);
   });
 });
