@@ -38,15 +38,15 @@ const ColorGradeShader = {
 
       // 1. Saturation — richer streets (city read a bit flat/grey).
       float l0 = luma(c);
-      c = mix(c, mix(vec3(l0), c, 1.18), s);
+      c = mix(c, mix(vec3(l0), c, 1.24), s);
 
       // 2. Gentle contrast S-curve around a linear mid pivot — adds punch without crushing.
       const float pivot = 0.18;
-      c = mix(c, (c - pivot) * 1.10 + pivot, s);
+      c = mix(c, (c - pivot) * 1.15 + pivot, s);
 
       // 3. Cinematic split-tone: warm golden highlights, faintly cool/teal shadows.
       float l1 = luma(c);
-      vec3 warm = vec3(1.05, 1.015, 0.93);   // Barcelona afternoon
+      vec3 warm = vec3(1.07, 1.02, 0.91);    // Barcelona afternoon (a touch warmer/golden)
       vec3 cool = vec3(0.97, 1.00, 1.05);
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);

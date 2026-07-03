@@ -22,12 +22,12 @@ export function onNightModeChange(cb) { _nightModeCallbacks.push(cb); }
 
 const DAY = {
   ambientColor:     0xc8dce8,
-  ambientIntensity: 0.36,  // lowered (was 0.45) — shadows were washed out / scene too flat
+  ambientIntensity: 0.32,  // a touch lower → deeper shadows, less flat (was 0.36)
   hemiSkyColor:     0xaab8d0,
   hemiGroundColor:  0xcc7733,
   hemiIntensity:    0.42,   // slightly down with ambient
-  dirIntensity:     3.1,    // stronger sun (was 2.5) → firmer shadows + more contrast
-  dirColor:         0xffeedd,
+  dirIntensity:     3.35,   // stronger golden sun → firmer shadows + more contrast (was 3.1)
+  dirColor:         0xffe6c2, // warmer afternoon sun (was 0xffeedd)
   fogColor:         0xaecadb,  // slightly lighter, warmer haze
   fogDensity:       0.0052,     // eased from 0.007 — keeps the city crisp, distance still hazes
   skyVisible:       true,
