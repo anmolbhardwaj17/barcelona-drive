@@ -67,6 +67,7 @@ export function createCarCamera(camera) {
   // Camera shake state (impact punch decays; high-speed rumble is continuous)
   let _shakeAmp = 0;
   let _prevSpeedKmh = 0;
+  let _prevPX = null, _prevPZ = null;   // to distinguish a real deceleration from a recover-teleport
 
   function update(chassisBody, dt, speedKmh) {
     const p = chassisBody.position;
@@ -167,9 +168,12 @@ export function createCarCamera(camera) {
     // ── Camera shake: impact punch (sharp speed drop) + subtle high-speed rumble ──
     const _absSpd = Math.abs(speedKmh || 0);
     const _drop = _prevSpeedKmh - _absSpd;
-    if ((dt || 0.016) < 0.06 && _drop > 12) _shakeAmp = Math.min(0.45, _drop / 55); // collision punch
+    // A recover/teleport zeroes velocity AND jumps position discontinuously — don't punch the camera for it.
+    const _jump = (_prevPX == null) ? 0 : Math.hypot(p.x - _prevPX, p.z - _prevPZ);
+    if ((dt || 0.016) < 0.06 && _drop > 12 && _jump < 6) _shakeAmp = Math.min(0.45, _drop / 55); // collision punch
     _shakeAmp *= Math.pow(0.0008, dt || 0.016);                                     // fast decay
     _prevSpeedKmh = _absSpd;
+    _prevPX = p.x; _prevPZ = p.z;
     const _rumble = Math.max(0, (_absSpd - 140) / 120) * 0.05;                        // shake ONLY above 140 km/h
     const _shakeMag = _shakeAmp + _rumble;
     if (_shakeMag > 0.0008) {

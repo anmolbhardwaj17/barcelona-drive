@@ -19,6 +19,8 @@ let _ctx = null;
 let _master = null;
 let _volume = 0.8;
 let _muted = false;
+let _whooshLast = 0, _whooshActive = 0;      // pass-by whoosh rate/voice cap
+const WHOOSH_MIN_GAP = 0.06, WHOOSH_MAX = 4;
 try { const v = parseFloat(localStorage.getItem('dd_soundVolume')); if (Number.isFinite(v)) _volume = v; } catch {}
 try { _muted = localStorage.getItem('dd_soundMuted') === 'true'; } catch {}
 
@@ -100,8 +102,12 @@ export const audio = {
 
   /** Panned pass-by "whoosh" for a car passing the player. Uses the car_pass sample, else a synth sweep. */
   whoosh(pan = 0, intensity = 1) {
-    if (_muted) return;
+    if (_muted || _volume <= 0) return;   // volume 0 == effectively muted → don't build inaudible graphs
     const c = ctx(); if (!c) return;
+    // Global rate + voice cap so a burst of cars crossing in dense traffic can't stack into clipping.
+    if (c.currentTime - _whooshLast < WHOOSH_MIN_GAP || _whooshActive >= WHOOSH_MAX) return;
+    _whooshLast = c.currentTime; _whooshActive++;
+    setTimeout(() => { _whooshActive = Math.max(0, _whooshActive - 1); }, 500);
     pan = Math.max(-1, Math.min(1, pan));
     const panner = c.createStereoPanner ? c.createStereoPanner() : null;
     if (panner) panner.pan.value = pan;
