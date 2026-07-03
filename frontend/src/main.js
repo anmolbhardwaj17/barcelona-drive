@@ -342,6 +342,13 @@ spawnTileReady.finally(() => {
           'box-shadow:0 4px 16px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap;';
         recoverHint.innerHTML = '🔄 Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px">R</b> to recover';
         document.body.appendChild(recoverHint);
+        // Subtle controls hint, bottom-centre, small font.
+        const controlsStrip = document.createElement('div');
+        controlsStrip.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;' +
+          'font:600 11px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.5);text-shadow:0 1px 2px rgba(0,0,0,.6);' +
+          'pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.3px;';
+        controlsStrip.innerHTML = 'WASD drive &nbsp;·&nbsp; Space handbrake &nbsp;·&nbsp; H horn &nbsp;·&nbsp; R recover &nbsp;·&nbsp; M map &nbsp;·&nbsp; Esc menu';
+        document.body.appendChild(controlsStrip);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
         freeCameraControls = createFreeCameraController(camera, renderer.domElement, spawnCenter, origin);
