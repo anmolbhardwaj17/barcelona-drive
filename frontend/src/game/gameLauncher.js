@@ -22,6 +22,26 @@ export function createGameLauncher(modes) {
   btn.onmouseup = () => { btn.style.transform = ''; btn.style.boxShadow = '0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35)'; };
   document.body.appendChild(btn);
 
+  // First-run nudge: pulse the Play button + a tooltip until the player interacts with it.
+  let _tip = null, _pulse = null;
+  const _seen = () => { try { return localStorage.getItem('dd_seenPlay') === '1'; } catch { return true; } };
+  if (!_seen()) {
+    _pulse = el('style');
+    _pulse.textContent = '@keyframes ddPlayPulse{0%,100%{box-shadow:0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35),0 0 0 0 rgba(245,197,66,.55)}50%{box-shadow:0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35),0 0 0 12px rgba(245,197,66,0)}}';
+    document.head.appendChild(_pulse);
+    btn.style.animation = 'ddPlayPulse 1.6s ease-out infinite';
+    _tip = el('div');
+    _tip.style.cssText = 'position:fixed;top:90px;left:118px;z-index:1301;background:#0e1a2e;border:2px solid #f5c542;color:#fff;' +
+      'font:800 12px Poppins,sans-serif;padding:7px 11px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.4);pointer-events:none;white-space:nowrap;';
+    _tip.textContent = '▶ New here? Pick a mode';
+    document.body.appendChild(_tip);
+  }
+  function dismissNudge() {
+    if (_pulse) { btn.style.animation = ''; _pulse.remove(); _pulse = null; }
+    if (_tip) { _tip.remove(); _tip = null; }
+    try { localStorage.setItem('dd_seenPlay', '1'); } catch {}
+  }
+
   // ── popover menu ────────────────────────────────────────────────────────────
   const pop = el('div');
   pop.style.cssText = 'position:fixed;top:130px;left:14px;z-index:1301;display:none;width:250px;' +
@@ -78,6 +98,7 @@ export function createGameLauncher(modes) {
 
   btn.onclick = (e) => {
     e.stopPropagation();
+    dismissNudge();
     if (running()) { quitAll(); }
     else { setOpen(!open); }
   };

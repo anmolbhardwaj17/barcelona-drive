@@ -145,7 +145,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   let _pending = false;
   function start() { _pending = true; state = 'toPickup'; total = 0; fares = 0; renderHud(); }
   function stop() {
-    if (fares > 0 || total > 0) { if (total > getBest()) { try { localStorage.setItem(bestKey, String(total)); } catch {} } state = 'ended'; }
+    if (fares > 0 || total > 0) { if (total > getBest()) { try { localStorage.setItem(bestKey, String(total)); } catch {} } state = 'ended'; setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 9000); }
     else state = 'idle';
     target = null; markerGroup.visible = false; getMinimap?.()?.setObjectiveMarker?.(null); renderHud();
   }

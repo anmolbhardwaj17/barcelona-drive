@@ -81,6 +81,15 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   cdStyle.textContent = '@keyframes ddCdPop{0%{transform:translate(-50%,-50%) scale(.4);opacity:0}25%{transform:translate(-50%,-50%) scale(1.15);opacity:1}100%{transform:translate(-50%,-50%) scale(.85);opacity:.85}}';
   document.head.appendChild(cdStyle);
 
+  // contextual "Race again" — only on the finish screen (not a persistent button)
+  const againBtn = document.createElement('button');
+  againBtn.textContent = '🏁 Race again';
+  againBtn.style.cssText = 'position:fixed;top:236px;left:50%;transform:translateX(-50%);z-index:1295;display:none;cursor:pointer;' +
+    'font-family:Poppins,system-ui,sans-serif;font-weight:800;font-size:14px;color:#241a08;background:linear-gradient(#ffd23f,#f5a623);' +
+    'border:none;border-radius:22px;padding:9px 20px;box-shadow:0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35);';
+  againBtn.onclick = () => start();
+  document.body.appendChild(againBtn);
+
   function medalFor(ms, n) {
     const per = ms / Math.max(1, n);
     if (per < 6500) return { emoji: '🥇', label: 'GOLD', color: '#ffd23f' };
@@ -121,6 +130,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     const active = state === 'running' || state === 'countdown';
     nav.style.display = active ? 'block' : 'none';
     if (!active) gateTag.style.display = 'none';
+    againBtn.style.display = state === 'finished' ? 'block' : 'none';
   }
 
   // ── build the route from loaded roads (robust: relax the forward bias if a step stalls) ────────
@@ -222,6 +232,8 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     _medal = medalFor(elapsed, route.length);
     clearGates(); nav.style.display = 'none'; gateTag.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
     ding(880); setTimeout(() => ding(1174), 140); renderHud();
+    // auto-clear the result after a while if the player just drives off
+    setTimeout(() => { if (state === 'finished') stop(); }, 12000);
   }
 
   const _v = new THREE.Vector3(), _camDir = new THREE.Vector3();
@@ -333,7 +345,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   return {
     name: 'Checkpoint Dash', icon: '🏁',
     update, start, stop,
-    dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); cdStyle.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
+    dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); againBtn.remove(); cdStyle.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
     isRunning: () => state === 'running' || state === 'countdown',
   };
 }
