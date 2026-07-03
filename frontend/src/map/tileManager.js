@@ -1254,6 +1254,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       pedestrianPortalMesh: null,
       tunnelWallBody: null,
       approachWallBody: null,
+      rampBodies: [],
       tunnelShoulderBody: null,
       terrainTrimeshBody: null,
       decalMeshes: [],
@@ -1455,6 +1456,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     let tunnelMeshGroup = null;
     let tunnelWallBody = null;
     let approachWallBody = null;
+    const rampBodies = [];   // tunnel-portal ramp trimeshes — tracked so unload removes them (was leaking)
     if (CONFIG.ENABLE_TUNNELS && tunnelRoads.length > 0) {
       // Simple-tunnel mode: VISUAL enclosure/trench/walls/gates OFF (just the road descending into the
       // carved terrain hole + ramp). PHYSICS colliders stay on (below) so the car drives through contained.
@@ -1513,6 +1515,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             const rampBody = new CANNON.Body({ mass: 0, material: roadMaterial });
             rampBody.addShape(trimesh);
             world.addBody(rampBody);
+            rampBodies.push(rampBody);
           };
           buildRampBody(pts[0], pts[1]);
           buildRampBody(pts[pts.length - 1], pts[pts.length - 2]);
@@ -1694,6 +1697,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     entry.pedestrianPortalMesh = pedestrianPortalMesh || null;
     entry.tunnelWallBody = tunnelWallBody || null;
     entry.approachWallBody = approachWallBody || null;
+    entry.rampBodies = rampBodies;
     entry.terrainTrimeshBody = terrainTrimeshBody || null;
     entry.spatialIndex = spatialIndex;
     entry.roadMinY = tileRoadMinY === Infinity ? null : tileRoadMinY;
@@ -1738,7 +1742,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         for (let dx = -1; dx <= 1; dx++) {
           for (let dy = -1; dy <= 1; dy++) {
             if (dx === 0 && dy === 0) continue;
-            const nk = `${TILE_ZOOM}_${tx0 + dx}_${ty0 + dy}`;
+            const nk = tileKey(tx0 + dx, ty0 + dy);  // cache keys are 2-part `tx_ty` (was 3-part w/ zoom → never matched)
             const neighbor = tileCache.get(nk);
             if (neighbor?.roads) neighborRoads.push(...neighbor.roads);
           }
@@ -1937,6 +1941,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           if (grassMesh) {
             grassMesh.userData.type = 'grass';
             grassMesh.userData.maxInstanceCount = grassMesh.count;
+            // geometry + material are module-level singletons (getFallbackGrassGeometry/getProceduralGrassMaterial)
+            // — flag them so tile unload doesn't dispose them out from under every other grass tile.
+            grassMesh.userData.sharedGeometry = true;
+            grassMesh.userData.sharedMaterial = true;
             safeSceneAdd(scene, grassMesh);
             vegetationMeshes.push(grassMesh);
           }
@@ -1989,6 +1997,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Dividers disabled
 
     await yieldToMain();
+    if (aborted()) return entry;
 
     if (CONFIG.ENABLE_STREETLIGHTS) {
       const jp = getJunctionPoints(roads, 2);
@@ -2012,6 +2021,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     await yieldToMain();
+    if (aborted()) return entry;
 
     // Barriers
     if (CONFIG.ENABLE_BARRIERS && data.barriers?.length) {
@@ -2043,6 +2053,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     await yieldToMain();
+    if (aborted()) return entry;
 
     // Guard rails
     if (world) {
@@ -2073,6 +2084,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     await yieldToMain();
+    if (aborted()) return entry;
 
     // Road infra (signs, gantries)
     if (CONFIG.ENABLE_ROAD_INFRA) {
@@ -2088,6 +2100,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     await yieldToMain();
+    if (aborted()) return entry;
 
     // Urban features + Vendor carts
     if (CONFIG.ENABLE_URBAN_FEATURES && data.urbanFeatures?.length) {
@@ -2118,6 +2131,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     await yieldToMain();
+    if (aborted()) return entry;
 
     // Vertex count warning
     const totalVertices = countVertices(roadMeshes) + countVertices(entry.railwayMeshes) + countVertices(buildingMeshes);
@@ -2137,12 +2151,17 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       const vertExag = CONFIG.ELEVATION_VERTICAL_EXAGGERATION != null && Number.isFinite(CONFIG.ELEVATION_VERTICAL_EXAGGERATION) ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION : 1;
       entry.sceneryBodies = buildSceneryColliders(treePos, pillarPositions, physicsOrigin, getElevationAt, vertExag);
       await yieldToMain();
+      // If the tile was unloaded during any of these yields, STOP — otherwise we add colliders to a
+      // dead entry the unload sweep already cleared → invisible phantom walls + a permanent physics leak.
+      if (aborted()) return entry;
       for (const b of entry.sceneryBodies) world.addBody(b);
       await yieldToMain();
+      if (aborted()) return entry;
       // Building colliders — solid shapes so the car can't drive through buildings.
       entry.buildingBodies = (CONFIG.ENABLE_BUILDINGS && filteredTileData.buildings?.length)
         ? buildBuildingColliders(filteredTileData.buildings, physicsOrigin, getElevationAt, vertExag) : [];
       await yieldToMain();
+      if (aborted()) return entry;
       for (const b of entry.buildingBodies) world.addBody(b);
     }
 
@@ -2402,7 +2421,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         removeBodyAndShapes(entry.approachWallBody);
         removeBodyAndShapes(entry.tunnelShoulderBody);
         removeBodyAndShapes(entry.terrainTrimeshBody);
-        unregisterTunnelZones(tileKey);
+        if (entry.rampBodies?.length) for (const b of entry.rampBodies) removeBodyAndShapes(b);
+        unregisterTunnelZones(key);   // was tileKey (the function) — registry keyed by the string `key`
         if (entry.heightfieldBody && world) {
           removeBodyAndShapes(entry.heightfieldBody);
           tileManagerState.numHeightfieldBodies -= 1;
@@ -2444,6 +2464,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             if (Array.isArray(m.material)) m.material.forEach((mat) => { if (mat.map) mat.map.dispose(); mat.dispose(); });
             else { if (m.material.map) m.material.map.dispose(); m.material.dispose(); }
           }
+          // InstancedMesh/BatchedMesh own per-mesh instanceMatrix/instanceColor GPU buffers that
+          // geometry.dispose() does NOT free — release them explicitly (safe: doesn't touch shared geo/mat).
+          if (m.isInstancedMesh || m.isBatchedMesh) { m.instanceMatrix?.dispose?.(); m.instanceColor?.dispose?.(); }
         }
       }
       if (disposal.decals) disposeDecalMeshes(disposal.decals);

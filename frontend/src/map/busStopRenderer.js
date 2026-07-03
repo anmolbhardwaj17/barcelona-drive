@@ -447,6 +447,7 @@ export function buildBusStopMeshes(busStops, roads, getElevationAt) {
   const shelterMesh = new THREE.Mesh(mergedShelter, shelterMat);
   shelterMesh.castShadow = false;  // projected shadows used for small props
   shelterMesh.receiveShadow = true;
+  shelterMesh.userData.sharedMaterial = true;  // _sharedShelterMat is a singleton — don't dispose on unload
 
   // Merge all marking geometries into one mesh
   const validMarkings = markingGeoms.filter(g => g != null);
@@ -467,6 +468,7 @@ export function buildBusStopMeshes(busStops, roads, getElevationAt) {
     validMarkings.forEach(g => g.dispose());
     markingMesh = new THREE.Mesh(mergedMarking, markingMat);
     markingMesh.receiveShadow = false;
+    markingMesh.userData.sharedMaterial = true;  // _sharedMarkingMat is a singleton — don't dispose on unload
   }
 
   // ── Night illumination meshes ──
