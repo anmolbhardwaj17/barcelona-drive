@@ -27,6 +27,7 @@ import { buildParkingMeshes } from './parkingRenderer.js';
 import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildAwningMesh } from './awningRenderer.js';
 import { buildCafeTerrace } from './cafeTerraceRenderer.js';
+import { buildShopfrontMeshes } from './shopfrontRenderer.js';
 import { buildDecalMeshes, disposeDecalMeshes } from './decalRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
@@ -2118,6 +2119,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (signMesh) { entry.shopSignMesh = signMesh; safeSceneAdd(scene, signMesh); }
     }
 
+    // Ground-floor shopfronts (glass windows + door) UNDER the awnings/signs so shops read as entrances.
+    if (CONFIG.ENABLE_SHOPFRONTS !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {
+      const sfMeshes = buildShopfrontMeshes(buildings, { getElevationAt, vertExag: _groundVertExag });
+      if (sfMeshes) { entry.shopfrontMeshes = sfMeshes; for (const m of sfMeshes) safeSceneAdd(scene, m); }
+    }
+
     // Projecting fabric awnings over the ground-floor shopfronts (one merged mesh per tile).
     if (CONFIG.ENABLE_AWNINGS !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {
       const awningMesh = buildAwningMesh(buildings, { getElevationAt, vertExag: _groundVertExag });
@@ -2407,6 +2414,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.shopSignMesh)        { scene.remove(entry.shopSignMesh);        allMeshes.push(entry.shopSignMesh); }
         if (entry.awningMesh)          { scene.remove(entry.awningMesh);          allMeshes.push(entry.awningMesh); }
         if (entry.cafeTerraceMeshes)   { for (const m of entry.cafeTerraceMeshes) { scene.remove(m); allMeshes.push(m); } }
+        if (entry.shopfrontMeshes)     { for (const m of entry.shopfrontMeshes) { scene.remove(m); allMeshes.push(m); } }
 
         // Physics removal (immediate — must be synchronous for simulation correctness)
         // Also null out shape references to help GC reclaim CANNON memory

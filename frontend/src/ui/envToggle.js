@@ -14,6 +14,7 @@ import { setVendorCartNightMode } from '../map/vendorCartRenderer.js';
 import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetlightRenderer.js';
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
+import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
 
 const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
@@ -134,6 +135,7 @@ export function createEnvToggle(refs) {
     setRoadMarkingNightMode(isNight);
     setTreeBillboardNightMode(isNight);
     setShopSignNightMode(isNight);
+    setShopfrontNightMode(isNight);
     setStreetlightNightMode(isNight);
     setDividerNightMode(isNight);
     setShoulderNightMode(isNight);

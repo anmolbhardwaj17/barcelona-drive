@@ -84,6 +84,8 @@ export const CONFIG = {
   ENABLE_AWNINGS: true,
   /** Café terraces (parasol + table + chairs) on sidewalks in front of some shops — 2 instanced meshes/tile. */
   ENABLE_CAFE_TERRACES: true,
+  /** Ground-floor shopfronts (glass windows + door + frame) under the awnings — 2 merged meshes/tile. */
+  ENABLE_SHOPFRONTS: true,
 
   /** Show top-right performance debug panel (FPS, draw calls, scene counts, tiles, memory). */
   ENABLE_PERFORMANCE_PANEL: true,
