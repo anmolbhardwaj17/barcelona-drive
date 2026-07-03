@@ -1147,12 +1147,16 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   // finalizing concurrently share the same budget — total tile work per frame is capped no matter how
   // many tiles entered range at once. This is what keeps new areas from stuttering: work spreads across
   // frames instead of several tiles materializing in one frame. Kept small so the render always has headroom.
-  const FRAME_BUDGET_MS = 4; // max ms of tile build work per frame (~12ms left for render+physics at 60fps)
+  const FRAME_BUDGET_MS = 4;      // baseline ms of tile build work per frame when the frame rate is healthy
+  const BUDGET_MIN = 1.2, BUDGET_MAX = 5;
+  let _budgetMs = FRAME_BUDGET_MS; // ADAPTIVE: shrinks when frames run long (heavy streaming at speed),
+                                   //           grows back when they're smooth — so build never compounds a slow frame
+  let _lastUpdateAt = 0;
   let _frameBudgetStart = performance.now();
 
   const yieldToMain = () => {
     const elapsed = performance.now() - _frameBudgetStart;
-    if (elapsed < FRAME_BUDGET_MS) {
+    if (elapsed < _budgetMs) {
       // Budget not exhausted this frame — continue working without yielding
       return Promise.resolve();
     }
@@ -2301,7 +2305,17 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   async function update(localX, localZ, opts) {
     // Start of a new frame → reset the shared tile-work budget (see yieldToMain). All in-flight tile
     // finalizes measure against this single per-frame reference, capping total build work per frame.
-    _frameBudgetStart = performance.now();
+    const _now = performance.now();
+    // Adaptive budget: the gap between update() calls ≈ the last frame's duration. If frames are running
+    // long (streaming + render can't keep 60fps), shrink the build budget so tile work stops piling onto an
+    // already-slow frame (the high-speed stutter); when frames are smooth again, grow it back to catch up.
+    if (_lastUpdateAt) {
+      const frameMs = _now - _lastUpdateAt;
+      if (frameMs > 20) _budgetMs = Math.max(BUDGET_MIN, _budgetMs - 0.6);        // < ~50 fps → back off
+      else if (frameMs < 17) _budgetMs = Math.min(BUDGET_MAX, _budgetMs + 0.4);   // ~60 fps → resume
+    }
+    _lastUpdateAt = _now;
+    _frameBudgetStart = _now;
     if (opts && Number.isFinite(opts.headingDeg)) {
       cameraHeadingRad = opts.headingDeg * Math.PI / 180;
     }
