@@ -8,7 +8,8 @@ Sound files bundled here and their licenses.
 | `ambience.ogg` | ["Sunday in the city street noise"](https://commons.wikimedia.org/wiki/File:Sunday_in_the_city_street_noise2.ogg) — Wikimedia (via pdsounds.org) | Cori Samuel | **Public Domain** |
 | `horn.wav` | ["Car Horn.wav"](https://commons.wikimedia.org/wiki/File:Car_Horn.wav) — Wikimedia Commons | 15HPanska_Ruttner_Jan | **CC0** (public domain) |
 | `skid.wav` | ["Car Tire Squeal Skid Loop"](https://opengameart.org/content/car-tire-squeal-skid-loop) — OpenGameArt | audible-edge (Tom Haigh), via qubodup | **CC-BY 3.0** |
+| `ambience_night.mp3` | Derived from `ambience.ogg` (low-pass + attenuated = muffled night city) | — | **Public Domain** (same as source) |
 
 Most audio is public-domain / CC0. `skid.wav` is **CC-BY 3.0** and requires the attribution above.
 
-Empty slots (`car_pass`, `ambience_night`) still fall back to synthesized sound. See README.md.
+Only `car_pass` still falls back to a synthesized doppler whoosh (works well; a recording can't pan/doppler per-pass). See README.md.
