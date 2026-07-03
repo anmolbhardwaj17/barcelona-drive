@@ -18,6 +18,7 @@ const LOGO_URL = '/logo-barcelona-drive.png';
 import { uiSound } from './uiSound.js';
 import { audio } from '../audio/audioManager.js';
 import { setCollisionDebugActive, isCollisionDebugActive } from '../collisionDebug.js';
+import { setInputBlocked } from '../inputGate.js';
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
@@ -102,17 +103,21 @@ function slider(label, value, fmt, onInput) {
   return line;
 }
 
-function check(label, checked, onChange) {
+function check(label, checked, onChange, live, syncers) {
   const line = el('div', 'dd-esc-line');
   const tg = el('div', 'dd-esc-toggle' + (checked ? ' on' : ''));
   tg.appendChild(el('div', 'k'));
   tg.addEventListener('click', () => { checked = !checked; tg.classList.toggle('on', checked); uiSound.toggle(checked); onChange(checked); });
   line.appendChild(tg); line.appendChild(el('span', 'dd-esc-tlabel', label));
+  // Optional live re-sync when the menu opens — keeps a toggle honest if its state can change elsewhere
+  // (e.g. Collision wireframes via the K key or ?debug), instead of showing the stale build-time value.
+  if (live && syncers) syncers.push(() => { checked = live(); tg.classList.toggle('on', checked); });
   return line;
 }
 
 export function createEscMenu(refs = {}) {
   document.head.appendChild(Object.assign(el('style'), { textContent: CSS }));
+  const syncers = [];   // run on menu-open to refresh toggle states that can change elsewhere
 
   const overlay = el('div'); overlay.id = 'dd-esc-overlay';
   const wrap = el('div', 'dd-esc-wrap'); overlay.appendChild(wrap);
@@ -164,7 +169,7 @@ export function createEscMenu(refs = {}) {
   // Fly mode (free camera vs driving) — reloads to switch.
   page.appendChild(check('Fly mode', ls('dd_flyMode', 'false') === 'true', (v) => { ss('dd_flyMode', v ? 'true' : 'false'); setTimeout(() => location.reload(), 120); }));
   // Collision wireframes — debug overlay of every collider near the car (also toggles with the K key).
-  page.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v)));
+  page.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v), isCollisionDebugActive, syncers));
 
   // ── Sound ──
   page.appendChild(sec('Sound'));
@@ -210,13 +215,19 @@ export function createEscMenu(refs = {}) {
     finally { searching = false; go.disabled = false; }
   }
   go.addEventListener('click', doSearch);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); e.stopPropagation(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSearch();
+    else if (e.key === 'Escape') { input.blur(); setOpen(false); }  // Escape closes even while search is focused
+    e.stopPropagation();
+  });
 
   // ── Open / close ──
   let open = false;
   function setOpen(v) {
     if (v !== open) (v ? uiSound.open() : uiSound.back());
     open = v; overlay.classList.toggle('open', v); fab.style.display = v ? 'none' : 'flex';
+    setInputBlocked(v);                    // pause car/recover/horn input while the menu is open
+    if (v) for (const s of syncers) s();   // refresh live toggle states on open
   } // no auto-focus — search only focuses on click
   overlay.addEventListener('click', (e) => { if (e.target === overlay) setOpen(false); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(!open); } });

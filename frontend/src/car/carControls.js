@@ -3,6 +3,8 @@
  * Keys ramp up smoothly instead of snapping to 0/1 for more realistic feel.
  * Prevents browser scroll on arrow keys.
  */
+import { isInputBlocked } from '../inputGate.js';
+
 export function createCarControls() {
   const _keys = new Set();
 
@@ -23,7 +25,7 @@ export function createCarControls() {
 
   const _typing = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
   const _onDown = (e) => {
-    if (_typing()) return; // don't drive the car while typing in a menu search box
+    if (_typing() || isInputBlocked()) return; // don't drive while typing or while the ESC menu is open
     _keys.add(e.code);
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))
       e.preventDefault();
@@ -39,6 +41,13 @@ export function createCarControls() {
     const now = performance.now();
     const dt = Math.min((now - _lastTime) / 1000, 0.05); // cap at 50ms
     _lastTime = now;
+
+    // ESC menu open → release everything so a key held at open-time doesn't keep driving under the menu.
+    if (isInputBlocked()) {
+      _keys.clear();
+      _throttleVal = 0; _brakeVal = 0; _steerVal = 0;
+      return { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
+    }
 
     // Throttle ramp
     const wantThrottle = (_keys.has('KeyW') || _keys.has('ArrowUp')) ? 1 : 0;

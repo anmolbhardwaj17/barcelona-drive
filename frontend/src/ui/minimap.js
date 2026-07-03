@@ -441,8 +441,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && expanded) setExpanded(false);
-  });
+    // When the expanded minimap is up, Escape collapses it and must NOT also open the settings menu.
+    if (e.key === 'Escape' && expanded) { setExpanded(false); e.stopImmediatePropagation(); }
+  }, { capture: true });
 
   // Cache the SVG rotate group for per-frame updates
   const _compassRotateGroup = compassRing.querySelector('.compass-rotate');

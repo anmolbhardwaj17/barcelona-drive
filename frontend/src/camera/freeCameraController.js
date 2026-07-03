@@ -10,8 +10,13 @@ const WASD_SPEED = 120; // units per second (scene space)
 const keys = { w: false, s: false, a: false, d: false };
 const GAME_KEYS = new Set(['w', 'a', 's', 'd']);
 
+// Don't hijack w/a/s/d (and preventDefault them) while the user is typing in a text field — that
+// made it impossible to type most Barcelona place names into the settings search box.
+const _typing = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
+
 function setupWASD() {
   const onKeyDown = (e) => {
+    if (_typing()) return;
     const k = e.key.toLowerCase();
     if (GAME_KEYS.has(k)) {
       e.preventDefault();
@@ -22,6 +27,7 @@ function setupWASD() {
     }
   };
   const onKeyUp = (e) => {
+    if (_typing()) return;
     const k = e.key.toLowerCase();
     if (GAME_KEYS.has(k)) {
       e.preventDefault();

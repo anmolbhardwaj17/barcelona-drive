@@ -18,6 +18,7 @@ import { createCarModel }    from './carModel.js';
 import { createCarEffects }  from './carEffects.js';
 import { createCarSound }    from './carSound.js';
 import { isInTunnelZone }    from '../tunnelZones.js';
+import { isInputBlocked, isTypingTarget } from '../inputGate.js';
 
 // Pre-allocated for getHeadingDeg — no alloc in hot path
 const _hq = { x: 0, y: 0, z: 0, w: 1 };
@@ -50,7 +51,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   window.addEventListener('click', _startAudio);
 
   // Horn (H) — plays the horn sample if present (no-op otherwise)
-  const _onHorn = (e) => { if (e.code === 'KeyH' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) sound.horn?.(); };
+  const _onHorn = (e) => { if (e.code === 'KeyH' && !isInputBlocked() && !isTypingTarget()) sound.horn?.(); };
   window.addEventListener('keydown', _onHorn);
 
   // ── Diagnostics ───────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   let _crumbTimer = 0;
   let _resetCooldown = 0;
   const _onRecoverKey = (e) => {
-    if (e.code !== 'KeyR' || _resetCooldown > 0) return;
+    if (e.code !== 'KeyR' || _resetCooldown > 0 || isInputBlocked() || isTypingTarget()) return;
     _resetCooldown = 1.0;
     const b = physics.chassisBody;
     b.position.set(_crumb.x, _crumb.y + 0.8, _crumb.z);
