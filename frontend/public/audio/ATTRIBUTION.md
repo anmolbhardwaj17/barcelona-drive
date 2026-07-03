@@ -6,7 +6,9 @@ Sound files bundled here and their licenses.
 |---|---|---|---|
 | `engine_idle.wav` / `engine_mid.wav` / `engine_high.wav` | ["Racing car engine sound loops"](https://opengameart.org/content/racing-car-engine-sound-loops) — OpenGameArt (loop_0 / loop_2 / loop_5) | domasx2 | **CC0** (public domain) |
 | `ambience.ogg` | ["Sunday in the city street noise"](https://commons.wikimedia.org/wiki/File:Sunday_in_the_city_street_noise2.ogg) — Wikimedia (via pdsounds.org) | Cori Samuel | **Public Domain** |
+| `horn.wav` | ["Car Horn.wav"](https://commons.wikimedia.org/wiki/File:Car_Horn.wav) — Wikimedia Commons | 15HPanska_Ruttner_Jan | **CC0** (public domain) |
+| `skid.wav` | ["Car Tire Squeal Skid Loop"](https://opengameart.org/content/car-tire-squeal-skid-loop) — OpenGameArt | audible-edge (Tom Haigh), via qubodup | **CC-BY 3.0** |
 
-All current audio is public-domain / CC0 — no attribution legally required, credit appreciated.
+Most audio is public-domain / CC0. `skid.wav` is **CC-BY 3.0** and requires the attribution above.
 
-Empty slots (`skid`, `horn`, `car_pass`, `ambience_night`) fall back to synthesized sound. See README.md.
+Empty slots (`car_pass`, `ambience_night`) still fall back to synthesized sound. See README.md.
