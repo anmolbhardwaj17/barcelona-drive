@@ -142,7 +142,9 @@ function deterministicIndex(id) {
  */
 function createFastElevation(elevation, offset) {
   if (!elevation || !elevation.elevations || (!Array.isArray(elevation.elevations) && !ArrayBuffer.isView(elevation.elevations))) {
-    return () => 0;
+    // No grid → fall back to the spawn-normalized ground floor (sea level ≈ -offset), NOT absolute 0.
+    // Returning 0 (the spawn-height plane) floats whole building blocks ~offset metres up at the port/hills.
+    return () => -offset;
   }
 
   const { south, west, north, east, gridRows, gridCols, elevations } = elevation;

@@ -2899,16 +2899,35 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION
       : 1;
 
+  /** The spawn-normalized ground floor (Y where raw DEM == spawn elevation shifted to 0 → sea-level ≈ -offset).
+   *  Used as a last-resort so an unknown-terrain sample never snaps an object to absolute Y=0 (which floats it
+   *  ~offset metres above the real ground everywhere terrain is below spawn — the port/hill float bug). */
+  function normalizedGroundFloor() {
+    return -((getWorldElevationOffset() ?? 0) * vertExag());
+  }
+
   /**
    * Terrain height at world (wx, wz) in same coordinate space as terrain mesh (normalized * vertExag).
+   * Falls back to the nearest loaded neighbour tile that has terrain, so a partial/road-only tile under
+   * the query point doesn't force the caller onto the absolute-0 fallback (which floats it).
    * @returns {number | null}
    */
   function getTerrainHeightAt(wx, wz) {
     const { x: tx, y: ty } = worldToSlippyTile(wx, wz);
-    const key = tileKey(tx, ty);
-    const entry = tileCache.get(key);
-    if (!entry?.getElevationAt) return null;
     const { lat, lon } = worldToLatLon(wx, wz);
+    let entry = tileCache.get(tileKey(tx, ty));
+    if (!entry?.getElevationAt) {
+      // exact tile has no terrain sampler — borrow the nearest neighbour that does (terrain is continuous)
+      for (let r = 1; r <= 2 && !entry?.getElevationAt; r++) {
+        for (let dx = -r; dx <= r && !entry?.getElevationAt; dx++) {
+          for (let dy = -r; dy <= r; dy++) {
+            const e = tileCache.get(tileKey(tx + dx, ty + dy));
+            if (e?.getElevationAt) { entry = e; break; }
+          }
+        }
+      }
+    }
+    if (!entry?.getElevationAt) return null;
     const norm = entry.getElevationAt(lat, lon);
     return norm * vertExag();
   }
@@ -2997,9 +3016,11 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   function getSurfaceHeightAt(wx, wz) {
     const terrainY = getTerrainHeightAt(wx, wz);
     const roadResult = getRoadHeightAt(wx, wz);
-    // No terrain data → no heightfield; ground is flat at Y=0. Do not use road height (may be raw meters).
+    // No terrain data → fall back to the spawn-normalized ground floor, NOT absolute Y=0 (which floats the
+    // object ~offset metres up wherever real terrain is below spawn — the port/hill float bug). Never use
+    // raw road elevation here (may be raw metres).
     if (terrainY == null) {
-      return { surfaceY: 0, onRoad: roadResult != null };
+      return { surfaceY: normalizedGroundFloor(), onRoad: roadResult != null };
     }
     const terrainVal = terrainY;
     if (roadResult) {
@@ -3075,6 +3096,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     getTerrainHeightAt,
     getRoadHeightAt,
     getSurfaceHeightAt,
+    normalizedGroundFloor,
     getCurrentTileTerrainRange,
     getStreetlightPositions,
   };

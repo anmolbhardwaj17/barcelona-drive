@@ -288,7 +288,9 @@ spawnTileReady.finally(() => {
           const t = tileManager.getTerrainHeightAt?.(wx, wz);
           if (Number.isFinite(t)) return t;
           const s = tileManager.getSurfaceHeightAt?.(wx, wz);
-          return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : 0;
+          if (s && Number.isFinite(s.surfaceY)) return s.surfaceY;
+          // never snap to absolute 0 (floats entities where terrain is below spawn) — use the normalized floor
+          return tileManager.normalizedGroundFloor?.() ?? 0;
         };
         if (CONFIG.ENABLE_PARKED_CARS) {
           parkedCars = createParkedCars({

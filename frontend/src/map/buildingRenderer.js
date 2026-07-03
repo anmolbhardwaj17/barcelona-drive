@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
 import { findNearestRoadSegment } from './spatialIndex.js';
+import { getWorldElevationOffset } from '../elevationOffset.js';
 
 const CYLINDER_RADIAL_SEGMENTS = 5;
 const MAX_VERTICES_PER_TILE = 35000;
@@ -2553,8 +2554,10 @@ export function renderLODBuildings(buildings, getWorldElevation) {
 
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const rawBaseY = getWorldElevation ? getWorldElevation(cx, cz) : 0;
-    const baseY = Number.isFinite(rawBaseY) ? rawBaseY : 0; // guard: NaN elevation (G-06 water bug in baked grids)
+    const rawBaseY = getWorldElevation ? getWorldElevation(cx, cz) : NaN;
+    // guard: NaN/absent elevation (G-06 water bug in baked grids). Fall back to the spawn-normalized ground
+    // floor (≈ -offset), NOT absolute 0 — 0 is the spawn-height plane and floats port/hill buildings ~30 m up.
+    const baseY = Number.isFinite(rawBaseY) ? rawBaseY : -(getWorldElevationOffset() ?? 0);
     const topY = baseY + height;
     const hw = w / 2, hd = d / 2;
 
