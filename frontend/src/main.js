@@ -42,6 +42,8 @@ import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
 import { createParkedCars } from './car/parkedCars.js';
 import { createPedestrians } from './car/pedestrians.js';
+import { createDashMode } from './game/dashMode.js';
+import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
 import { initTunnelDebug, updateTunnelDebug } from './tunnelDebugOverlay.js';
@@ -143,6 +145,7 @@ if (ENABLE_CAR !== CONFIG.ENABLE_CAR) {
 let tileManager;
 let freeCameraControls;
 let carDriver = null;
+let dashMode = null;
 let trafficSystem = null;
 let parkedCars = null;
 let pedestrians = null;
@@ -310,6 +313,14 @@ spawnTileReady.finally(() => {
             getOrigin: getOriginOffset,
           });
         }
+        // Checkpoint Dash game mode (Start button top-centre). Roads/gates use the traffic frame.
+        dashMode = createDashMode({
+          scene,
+          getRoadSegments: () => tileManager.getLoadedRoadSegments(),
+          getGroundY: (wx, wz) => { const s = tileManager.getSurfaceHeightAt?.(wx, wz); return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : (tileManager.getTerrainHeightAt?.(wx, wz) ?? 0); },
+          getOrigin: getOriginOffset,
+          audio,
+        });
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
         freeCameraControls = createFreeCameraController(camera, renderer.domElement, spawnCenter, origin);
@@ -404,6 +415,7 @@ function animate(time = 0) {
     if (parkedCars) parkedCars.update(lp.lx, lp.lz);
     if (pedestrians) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
+    if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
     headingDeg = carDriver.getHeadingDeg();
   } else {
     // ── Free camera mode ──────────────────────────────────────────────────────
