@@ -345,7 +345,7 @@ spawnTileReady.finally(() => {
         // Subtle controls hint, bottom-centre, small font.
         const controlsStrip = document.createElement('div');
         controlsStrip.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;' +
-          'font:800 13px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.7);' +
+          'font:500 13px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.8);text-shadow:0 1px 3px rgba(0,0,0,.7);' +
           'pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.4px;';
         controlsStrip.innerHTML = 'WASD DRIVE &nbsp;·&nbsp; SPACE DRIFT &nbsp;·&nbsp; H HORN &nbsp;·&nbsp; R RECOVER &nbsp;·&nbsp; M MAP &nbsp;·&nbsp; ESC MENU';
         document.body.appendChild(controlsStrip);
