@@ -21,9 +21,12 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
   const COOLDOWN = 210;     // frames (~3.5s) to hold after a change. Each change reallocates the render
                             // targets (a resize can flash black), so we must NOT thrash — settle, then rest.
 
+  const PHOTO_SCALE = Math.min(window.devicePixelRatio || 1, 2); // full crispness for photos (retina if available)
   let scale = CAP;
   let acc = 0, n = 0;
   let cool = 0;   // frames left in the post-change cooldown
+  let photo = false;
+  let preScale = CAP;   // scale to restore when photo mode ends
   let w = width, h = height;
 
   function apply() {
@@ -40,8 +43,17 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
     getScale() { return scale; },
     /** Call from the resize handler instead of renderer/composer.setSize. */
     setSize(nw, nh) { w = nw; h = nh; apply(); },
+    /** Photo Mode: pin full resolution (no adaptive downscaling) for crisp screenshots. */
+    setPhotoMode(on) {
+      if (on === photo) return;
+      photo = on;
+      if (on) { preScale = scale; scale = PHOTO_SCALE; }
+      else { scale = preScale; }
+      apply();
+    },
     /** Call once per frame with the frame delta (seconds). */
     tick(frameDtSeconds) {
+      if (photo) return;   // resolution pinned high for photos — don't auto-adjust
       acc += (frameDtSeconds || 0) * 1000;
       n += 1;
       if (cool > 0) cool -= 1;

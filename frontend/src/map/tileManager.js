@@ -51,6 +51,12 @@ let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
 const LOOKAHEAD_RADIUS = 2; // extend 1 extra tile in driving direction for seamless look-ahead
 const UNLOAD_DISTANCE = 2; // keep fewer tiles resident (was 3 → up to 49 tiles → 1GB heap, 38fps)
+const PHOTO_GRID_RADIUS = 2; // Photo Mode (fly): load a wider 5x5 area so the aerial frame fills in
+
+// Photo Mode — for clean fly-through screenshots: load a wider area and disable ALL distance
+// culling / LOD (every loaded mesh renders at full detail). Heavier, but it's opt-in and not driving.
+let _photoMode = false;
+function setPhotoMode(on) { _photoMode = !!on; }
 const MAX_VERTICES_PER_TILE = 250000;  // Phase 3 (sidewalks+curbs+bike lanes) soft budget
 const VERTEX_BUDGET_HARD    = 300000;  // hard budget — investigate if any tile exceeds this
 
@@ -2342,8 +2348,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Tiles we want loaded: 3×3 core grid + look-ahead tiles in driving direction.
     // Reuse a persistent Set (cleared) instead of allocating one every frame → far less GC churn.
     const wanted = _wantedSet; wanted.clear();
-    for (let dx = -GRID_RADIUS; dx <= GRID_RADIUS; dx++) {
-      for (let dy = -GRID_RADIUS; dy <= GRID_RADIUS; dy++) {
+    const gridR = _photoMode ? PHOTO_GRID_RADIUS : GRID_RADIUS; // wider load area for photo mode
+    for (let dx = -gridR; dx <= gridR; dx++) {
+      for (let dy = -gridR; dy <= gridR; dy++) {
         wanted.add(tileKey(tx + dx, ty + dy));
       }
     }
@@ -2354,7 +2361,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const dynLookahead = LOOKAHEAD_RADIUS + Math.min(2, Math.floor(speedKmh / 75)); // less aggressive prefetch → fewer resident tiles
     const camDirTileX = Math.round(Math.sin(cameraHeadingRad));
     const camDirTileZ = Math.round(Math.cos(cameraHeadingRad));
-    for (let r = GRID_RADIUS + 1; r <= dynLookahead; r++) {
+    for (let r = gridR + 1; r <= dynLookahead; r++) {
       // Fan: center + two adjacent tiles in driving direction
       wanted.add(tileKey(tx + camDirTileX * r, ty + camDirTileZ * r));
       // Side tiles next to the center look-ahead
@@ -2518,10 +2525,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
     // Always run on first frame or when moved enough
     if (lodNeedsUpdate) {
-    const treeFullDist = typeof CONFIG.TREE_FULL_DISTANCE === 'number' ? CONFIG.TREE_FULL_DISTANCE : 200;
+    const treeFullDist = _photoMode ? Infinity : (typeof CONFIG.TREE_FULL_DISTANCE === 'number' ? CONFIG.TREE_FULL_DISTANCE : 200);
     const treeMaxDist = typeof CONFIG.TREE_MAX_DISTANCE === 'number' ? CONFIG.TREE_MAX_DISTANCE : 500;
     const treeFadeRange = Math.max(1, treeMaxDist - treeFullDist);
-    const grassMaxDist = typeof CONFIG.GRASS_MAX_DISTANCE === 'number' ? CONFIG.GRASS_MAX_DISTANCE : 250;
+    const grassMaxDist = _photoMode ? Infinity : (typeof CONFIG.GRASS_MAX_DISTANCE === 'number' ? CONFIG.GRASS_MAX_DISTANCE : 250);
 
     // Camera-altitude-aware multiplier — scales building LOD/detail thresholds so drone/fly
     // mode loads detail at greater distances. Ground driving (cameraY ≤ 5m) → multiplier = 1,
@@ -2544,7 +2551,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // ── Fog culling: hide EVERYTHING on tiles fully inside fog ──────────
       // With FogExp2 density 0.006, objects at 250m are ~90% fogged.
       // Skip all per-mesh checks for distant tiles → saves CPU + draw calls.
-      const FOG_FULL_DIST = CONFIG.ENABLE_FOG ? 280 : Infinity;
+      const FOG_FULL_DIST = (_photoMode || !CONFIG.ENABLE_FOG) ? Infinity : 280;
       if (nearEdgeDist > FOG_FULL_DIST) {
         const hideAll = (meshes) => { if (meshes) for (const m of meshes) m.visible = false; };
         hideAll(entry.vegetationMeshes);
@@ -2670,8 +2677,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         m.visible = dist <= treeMaxDist;
       }
 
-      const bldgMaxDist    = (typeof CONFIG.BUILDING_MAX_DISTANCE === 'number' ? CONFIG.BUILDING_MAX_DISTANCE : 180) * altMult;
-      const bldgDetailDist = 120 * altMult;
+      const bldgMaxDist    = _photoMode ? Infinity : (typeof CONFIG.BUILDING_MAX_DISTANCE === 'number' ? CONFIG.BUILDING_MAX_DISTANCE : 180) * altMult;
+      const bldgDetailDist = _photoMode ? Infinity : 120 * altMult;
       const lodStart       = (typeof CONFIG.BUILDING_LOD_START === 'number' ? CONFIG.BUILDING_LOD_START : 110) * altMult;
       const lodEnd         = (typeof CONFIG.BUILDING_LOD_END   === 'number' ? CONFIG.BUILDING_LOD_END   : 230) * altMult;
       if (entry.buildingMeshes) {
@@ -2693,9 +2700,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // ── Distance culling for ALL remaining mesh types ──────────────────
       // These previously had NO distance culling and rendered on all 15 tiles.
       // Using nearEdgeDist for accuracy near tile boundaries.
-      const infraDist = 140;   // road infra (signs, gantries, signals)
-      const detailDist = 80 * altMult;   // fine details (barriers, bus stops, vendor carts, decals) — altitude-aware
-      const lightDist = 140;   // streetlights
+      const infraDist = _photoMode ? Infinity : 140;   // road infra (signs, gantries, signals)
+      const detailDist = _photoMode ? Infinity : 80 * altMult;   // fine details (barriers, bus stops, vendor carts, decals) — altitude-aware
+      const lightDist = _photoMode ? Infinity : 140;   // streetlights
 
       // Road infrastructure
       if (entry.roadInfraMeshes) {
@@ -3112,6 +3119,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     isInitialLoadComplete,
     getLoadedRoadSegments,
     injectSpawnTile,
+    setPhotoMode,
     getDebugMetrics,
     getTerrainElevationRange,
     getHeightfieldBodyCount,

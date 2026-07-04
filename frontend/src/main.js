@@ -24,6 +24,7 @@ import { createStreetDisplay } from './ui/streetDisplay.js';
 import { createSpeedDisplay } from './ui/speedDisplay.js';
 import { createSpeedLines } from './ui/speedLines.js';
 import { createMetricsPanel } from './ui/metricsPanel.js';
+import { isInputBlocked, isTypingTarget } from './inputGate.js';
 import { createMinimap } from './ui/minimap.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
@@ -366,6 +367,7 @@ spawnTileReady.finally(() => {
         document.body.appendChild(recoverHint);
         // Subtle controls hint, bottom-centre, small font.
         const controlsStrip = document.createElement('div');
+        controlsStrip.id = 'controls-strip';
         controlsStrip.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;' +
           'font:500 13px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.8);' +
           'pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.4px;';
@@ -589,4 +591,28 @@ window.addEventListener('resize', () => {
   adaptiveRes.setSize(w, h); // owns renderer/composer pixel-ratio + size + bloom resolution
 });
 
-window._debugWorld = world;  
+// ── Photo Mode (press P) — clean fly-through screenshots ─────────────────────────────────────────
+// Full-detail render (no LOD / no distance culling, wider tile radius), full resolution (no adaptive
+// downscale), and a hidden HUD. Best used in fly mode. Toggle again to restore.
+const _photoStyle = document.createElement('style');
+_photoStyle.textContent =
+  'body.dd-photo #compass-bar, body.dd-photo #street-display, body.dd-photo #minimap-frame, ' +
+  'body.dd-photo #minimap-wrapper, body.dd-photo #env-toggle, body.dd-photo #performance-panel, ' +
+  'body.dd-photo .dd-esc-fab, body.dd-photo #controls-strip { display: none !important; }';
+document.head.appendChild(_photoStyle);
+let _photoOn = false;
+function setPhotoMode(on) {
+  _photoOn = on;
+  document.body.classList.toggle('dd-photo', on);
+  try { tileManager?.setPhotoMode?.(on); } catch {}
+  try { adaptiveRes.setPhotoMode(on); } catch {}
+  if (speedDisplay?.element) speedDisplay.element.style.display = on ? 'none' : '';
+  if (metricsPanel?.element) metricsPanel.element.style.display = on ? 'none' : '';
+}
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyP' || isInputBlocked() || isTypingTarget(document.activeElement)) return;
+  e.preventDefault();
+  setPhotoMode(!_photoOn);
+});
+
+window._debugWorld = world;
