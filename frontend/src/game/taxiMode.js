@@ -54,26 +54,39 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   // Start/Quit is driven by the shared game launcher (main.js).
   const btn = { style: {}, remove() {} };   // harmless stub for the internal label writes
 
+  // ── Money / fare card — top-left corner (below the ☰ button), out of the compass + centre view ──
   const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
-    'font-family:Poppins,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
-  // Persistent live nodes — updated via textContent/style each frame (no per-frame innerHTML reflow).
-  const liveWrap = document.createElement('div'); liveWrap.style.display = 'none';
+  hud.style.cssText = 'position:fixed;top:92px;left:14px;z-index:1290;display:none;' +
+    'font-family:Poppins,system-ui,sans-serif;color:#fff;pointer-events:none;user-select:none;';
+  const liveWrap = document.createElement('div');
+  liveWrap.style.cssText = 'display:none;background:linear-gradient(160deg,rgba(12,34,20,.92),rgba(8,22,14,.92));' +
+    'border:2px solid #2ee06a;border-radius:14px;padding:9px 15px 11px;box-shadow:0 4px 14px rgba(0,0,0,.45);min-width:120px;';
+  const moneyRow = document.createElement('div');
+  moneyRow.style.cssText = 'display:flex;align-items:center;gap:7px;';
+  const coin = document.createElement('div'); coin.textContent = '💵'; coin.style.cssText = 'font-size:19px;line-height:1;';
   const liveTotal = document.createElement('div');
-  liveTotal.style.cssText = "font-family:'Lilita One',sans-serif;font-size:32px;color:#8ef0b0;text-shadow:0 2px 6px rgba(0,0,0,.6)";
+  liveTotal.style.cssText = "font-family:'Lilita One',sans-serif;font-size:30px;line-height:1;color:#8ef0b0;text-shadow:0 2px 5px rgba(0,0,0,.6)";
+  moneyRow.appendChild(coin); moneyRow.appendChild(liveTotal);
   const liveObj = document.createElement('div');
-  liveObj.style.cssText = 'font-weight:700;font-size:14px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)';
+  liveObj.style.cssText = 'font-weight:700;font-size:12px;letter-spacing:.3px;opacity:.85;margin-top:4px;';
   const meterWrap = document.createElement('div');
-  meterWrap.style.cssText = 'margin-top:5px;width:150px;height:6px;background:rgba(255,255,255,.2);border-radius:3px;overflow:hidden;margin-left:auto;margin-right:auto;display:none';
-  const meterFill = document.createElement('div'); meterFill.style.cssText = 'height:100%;width:60%;background:#ffd23f'; meterWrap.appendChild(meterFill);
-  const tipLbl = document.createElement('div'); tipLbl.style.cssText = 'font-size:11px;opacity:.8;margin-top:2px;display:none';
-  liveWrap.appendChild(liveTotal); liveWrap.appendChild(liveObj); liveWrap.appendChild(meterWrap); liveWrap.appendChild(tipLbl);
-  const resultWrap = document.createElement('div'); resultWrap.style.display = 'none';
-  hud.appendChild(liveWrap); hud.appendChild(resultWrap);
+  meterWrap.style.cssText = 'margin-top:7px;width:100%;height:6px;background:rgba(255,255,255,.18);border-radius:3px;overflow:hidden;display:none';
+  const meterFill = document.createElement('div'); meterFill.style.cssText = 'height:100%;width:60%;background:#ffd23f;transition:width .2s'; meterWrap.appendChild(meterFill);
+  const tipLbl = document.createElement('div'); tipLbl.style.cssText = 'font-size:10px;opacity:.8;margin-top:2px;display:none';
+  liveWrap.appendChild(moneyRow); liveWrap.appendChild(liveObj); liveWrap.appendChild(meterWrap); liveWrap.appendChild(tipLbl);
+  hud.appendChild(liveWrap);
   document.body.appendChild(hud);
+
+  // ── End-of-shift result — its own centred overlay (not the corner card) ──
+  const resultWrap = document.createElement('div');
+  resultWrap.style.cssText = 'position:fixed;top:34%;left:50%;transform:translate(-50%,-50%);z-index:1300;display:none;' +
+    'text-align:center;font-family:Poppins,sans-serif;color:#fff;pointer-events:none;user-select:none;' +
+    'background:rgba(8,22,14,.92);border:2px solid #2ee06a;border-radius:18px;padding:16px 32px;box-shadow:0 6px 22px rgba(0,0,0,.55);';
+  document.body.appendChild(resultWrap);
+
   const updateLiveHud = () => {
     liveTotal.textContent = `$${total}`;
-    liveObj.textContent = `Fare ${fares + 1} · ${state === 'toPickup' ? 'PICK UP' : 'DROP OFF'}`;
+    liveObj.textContent = `Fare ${fares + 1} · ${state === 'toPickup' ? 'Pick up' : 'Drop off'}`;
     const drop = state === 'toDropoff';
     meterWrap.style.display = drop ? 'block' : 'none';
     tipLbl.style.display = drop ? 'block' : 'none';
@@ -82,7 +95,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
 
   // objective compass pill + on-marker tag
   const nav = document.createElement('div');
-  nav.style.cssText = 'position:fixed;top:158px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
+  nav.style.cssText = 'position:fixed;top:132px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
     'pointer-events:none;user-select:none;text-align:center;background:rgba(8,26,16,.72);border:2px solid #2ee06a;' +
     'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
   nav.innerHTML =
@@ -119,7 +132,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   // State-change only (start/pickup/dropoff/end) — per-frame values go through updateLiveHud().
   function renderHud() {
     const active = state === 'toPickup' || state === 'toDropoff';
-    hud.style.display = (active || state === 'ended') ? 'block' : 'none';
+    hud.style.display = active ? 'block' : 'none';
     liveWrap.style.display = active ? 'block' : 'none';
     resultWrap.style.display = state === 'ended' ? 'block' : 'none';
     if (active) {
@@ -245,11 +258,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     updateLiveHud();
   }
 
-  function flash(msg) {
-    liveWrap.style.display = 'none'; resultWrap.style.display = 'block';
-    resultWrap.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
-    hud.style.display = 'block'; setTimeout(renderHud, 2600);
-  }
+  function flash(msg) { showToast(msg); }
 
   renderHud();
   return {

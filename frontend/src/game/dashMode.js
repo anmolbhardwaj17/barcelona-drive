@@ -126,7 +126,9 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   function renderHud() {
     const active = state === 'running' || state === 'countdown';
     liveWrap.style.display = active ? 'block' : 'none';
-    resultWrap.style.display = active ? 'none' : 'block';
+    // Only show the result on the finish screen — NOT when idle. The old idle "Dash best …" teaser
+    // stayed painted at top-centre even while another mode (City Cab) was active → overlapping HUDs.
+    resultWrap.style.display = state === 'finished' ? 'block' : 'none';
     if (active) {
       updateLiveHud();
     } else if (state === 'finished') {
