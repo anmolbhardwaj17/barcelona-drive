@@ -45,7 +45,6 @@ import { createParkedCars } from './car/parkedCars.js';
 import { createPedestrians } from './car/pedestrians.js';
 import { createDashMode } from './game/dashMode.js';
 import { createTaxiMode } from './game/taxiMode.js';
-import { createGameLauncher } from './game/gameLauncher.js';
 import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
@@ -341,8 +340,7 @@ spawnTileReady.finally(() => {
           getOrigin: getOriginOffset,
           audio,
         });
-        // One "Play" launcher for all modes (enforces one-at-a-time + surfaces the controls).
-        createGameLauncher([dashMode, taxiMode]);
+        // Mode is chosen on the title screen (dd_mode) and switchable from the ESC menu — no on-screen column.
         // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
         recoverHint = document.createElement('div');
         recoverHint.style.cssText = 'position:fixed;bottom:118px;left:50%;transform:translateX(-50%);z-index:1200;display:none;' +
@@ -382,6 +380,7 @@ spawnTileReady.finally(() => {
       colorPanelElement: document.getElementById('dd-car-color-panel'),
       metricsElements: [metricsPanel?.element, performancePanel?.element],
       carMode: ENABLE_CAR,   // resolved mode (URL ?mode outranks dd_flyMode) — for an honest Fly-mode toggle
+      gameModes: carDriver ? [dashMode, taxiMode] : [],   // in-game mode switcher (empty in fly mode)
     });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
     initCollisionDebug(); // reads ?debug=collision; no-op when absent
@@ -400,6 +399,12 @@ spawnTileReady.finally(() => {
         // every program the session will ever use). Kills the first-render compile stall as new tiles
         // stream in at speed. compileAsync runs off the render path (KHR_parallel_shader_compile).
         try { renderer.compileAsync?.(scene, camera); } catch {}
+        // Auto-start the mode chosen on the title screen (roads are loaded now, so gates/fares can place).
+        try {
+          const chosen = sessionStorage.getItem('dd_mode');
+          if (chosen === 'dash') dashMode?.start?.();
+          else if (chosen === 'taxi') taxiMode?.start?.();
+        } catch {}
       }
     }, 150);
   });

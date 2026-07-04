@@ -103,6 +103,25 @@
       }
       #dd-title .play:hover { filter: brightness(1.06); }
       #dd-title .play:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
+
+      /* ── Mode picker (revealed after PLAY) ── */
+      #dd-title .modes { display: none; flex-direction: column; align-items: center; gap: 16px; position: relative; z-index: 2; }
+      #dd-title .modes.show { display: flex; animation: ddModesIn .32s ease-out; }
+      @keyframes ddModesIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+      #dd-title .modes-row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+      #dd-title .mode {
+        cursor: pointer; user-select: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
+        font-family: 'Lilita One', sans-serif; font-size: 18px; letter-spacing: 1px; color: #241a08;
+        width: 172px; padding: 22px 14px; border-radius: 16px; border: 3px solid rgba(0,0,0,0.16);
+        background: linear-gradient(#ffe07a, #f5b32a); box-shadow: 0 8px 0 #c8871a, 0 12px 20px rgba(0,0,0,0.4);
+        text-shadow: 0 2px 0 rgba(255,255,255,0.35); transition: transform .06s, box-shadow .06s, filter .1s;
+      }
+      #dd-title .mode .ic { font-size: 38px; line-height: 1; }
+      #dd-title .mode:hover { filter: brightness(1.06); }
+      #dd-title .mode:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
+      #dd-title .mode[data-mode="free"] { background: linear-gradient(#bcd0ff, #7aa0f5); box-shadow: 0 8px 0 #3f5fc8, 0 12px 20px rgba(0,0,0,0.4); color: #0a1633; }
+      #dd-title .mode[data-mode="dash"] { background: linear-gradient(#ffd23f, #f5a623); box-shadow: 0 8px 0 #b9791a, 0 12px 20px rgba(0,0,0,0.4); }
+      #dd-title .mode[data-mode="taxi"] { background: linear-gradient(#8ef0b0, #2ee06a); box-shadow: 0 8px 0 #1c9c48, 0 12px 20px rgba(0,0,0,0.4); color: #0b2417; }
     </style>
   </head>
   <body>
@@ -112,6 +131,13 @@
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
+      <div id="dd-modes" class="modes">
+        <div class="modes-row">
+          <button class="mode" data-mode="free"><span class="ic">🗺️</span>Free Roam</button>
+          <button class="mode" data-mode="dash"><span class="ic">🏁</span>Checkpoint Dash</button>
+          <button class="mode" data-mode="taxi"><span class="ic">🚕</span>City Cab</button>
+        </div>
+      </div>
     </div>
 
     <div id="dd-loading">
@@ -209,11 +235,26 @@
         if (inGame) { title.remove(); return; } // already in-game → straight to the loading/game view
 
         var play = document.getElementById('dd-play');
-        if (play) play.addEventListener('click', function () {
+        var modesBox = document.getElementById('dd-modes');
+        var tagline = title.querySelector('.tagline');
+
+        // Enter the game with the chosen mode (stored for main.js to auto-start).
+        function enter(mode) {
+          try { sessionStorage.setItem('dd_mode', mode); } catch (e) {}
           try { sessionStorage.setItem('dd_played', '1'); } catch (e) {}
           try { history.replaceState({}, '', '/game' + location.search); } catch (e) {}
           title.classList.add('hide');
           setTimeout(function () { if (title) title.remove(); }, 550);
+        }
+
+        // PLAY just reveals the mode picker; picking a mode drops into the game.
+        if (play) play.addEventListener('click', function () {
+          play.style.display = 'none';
+          if (tagline) tagline.textContent = 'Choose your mode';
+          if (modesBox) modesBox.classList.add('show');
+        });
+        if (modesBox) modesBox.querySelectorAll('.mode').forEach(function (b) {
+          b.addEventListener('click', function () { enter(b.getAttribute('data-mode')); });
         });
       })();
     </script>

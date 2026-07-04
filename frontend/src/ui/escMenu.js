@@ -67,6 +67,7 @@ const CSS = `
   background:linear-gradient(#3c4658,#2a323f); border:2px solid rgba(0,0,0,0.28); box-shadow:0 5px 0 #171d26, 0 8px 12px rgba(0,0,0,0.35); }
 .dd-esc-chip:hover { border-color:#ffd23f; color:#fff; }
 .dd-esc-chip:active { transform:translateY(5px); box-shadow:0 1px 0 #171d26; }
+.dd-esc-chip.sel { border-color:#ffd23f; color:#fff; box-shadow:0 0 0 3px rgba(255,210,63,0.4), 0 5px 0 #171d26, 0 8px 12px rgba(0,0,0,0.35); }
 .dd-esc-toggle { width:80px; height:40px; border-radius:22px; background:#5a4a8a; border:3px solid rgba(0,0,0,0.2);
   position:relative; cursor:pointer; box-shadow:inset 0 3px 6px rgba(0,0,0,0.35); transition:.15s; }
 .dd-esc-toggle .k { position:absolute; top:3px; left:3px; width:32px; height:30px; border-radius:18px; background:#fff; box-shadow:0 3px 5px rgba(0,0,0,0.35); transition:.15s; }
@@ -130,6 +131,38 @@ export function createEscMenu(refs = {}) {
 
   const bodyEl = el('div', 'dd-esc-body'); wrap.appendChild(bodyEl);
   const page = el('div', 'dd-esc-page'); bodyEl.appendChild(page);
+
+  // ── Game Mode (switch modes in-game; chosen first on the title screen) ──
+  const gameModes = (refs.gameModes || []).filter(Boolean);
+  if (gameModes.length) {
+    page.appendChild(sec('Game Mode'));
+    const modeRow = el('div', 'dd-esc-chips');
+    // Free Roam (no active mode) + one chip per registered mode.
+    const entries = [{ icon: '🗺️', label: 'Free Roam', mode: null }]
+      .concat(gameModes.map((m) => ({ icon: m.icon, label: m.name, mode: m })));
+    const chipEls = [];
+    const repaint = () => {
+      const running = gameModes.some((m) => m.isRunning && m.isRunning());
+      entries.forEach((e, i) => {
+        const active = e.mode ? (e.mode.isRunning && e.mode.isRunning()) : !running;
+        chipEls[i].classList.toggle('sel', !!active);
+      });
+    };
+    entries.forEach((e) => {
+      const c = el('div', 'dd-esc-chip', `${e.icon} ${e.label}`);
+      c.addEventListener('click', () => {
+        uiSound.click();
+        gameModes.forEach((m) => { if (m !== e.mode) m.stop && m.stop(); });  // one at a time
+        if (e.mode && e.mode.start) e.mode.start();
+        try { sessionStorage.setItem('dd_mode', e.mode ? (e.mode === gameModes[0] ? 'dash' : 'taxi') : 'free'); } catch {}
+        repaint();
+        setOpen(false);  // drop back into the game to play the chosen mode
+      });
+      chipEls.push(c); modeRow.appendChild(c);
+    });
+    page.appendChild(modeRow);
+    syncers.push(repaint);  // refresh the active highlight each time the menu opens
+  }
 
   // ── Spawn location ──
   page.appendChild(sec('Spawn'));
