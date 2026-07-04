@@ -29,9 +29,21 @@ const REBUILD_DIST = 35;   // m — player movement before a rebuild
 const JUNCTION_GAP = 8;    // m — no parking within this of a road's ends (junctions)
 const YAXIS = new THREE.Vector3(0, 1, 0);
 // Per-car tint (multiplies the Kenney texture: white body → this colour, dark glass/wheels stay dark).
+// Bright, cheerful automotive colours — no dark/grey (they read as "off"/dead against the world).
 const TINT = [
-  0xE8E8E8, 0xCED2D6, 0xBFC3C7, 0x2B2F34, 0x8A9099, 0x565B61,
-  0xB23A2E, 0x2471A3, 0x239B56, 0x34495E, 0xC9A227, 0x7B4B2A, 0x922B21,
+  0xE8433A, // red
+  0x2E86DE, // blue
+  0x27AE60, // green
+  0xF39C12, // orange
+  0xF1C40F, // yellow
+  0xF2F2F2, // white
+  0x9B59B6, // purple
+  0x16A085, // teal
+  0xEC7FB0, // pink
+  0x5DADE2, // sky blue
+  0xE67E22, // pumpkin
+  0x48C9B0, // mint
+  0xEC7063, // coral
 ];
 
 export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin }) {

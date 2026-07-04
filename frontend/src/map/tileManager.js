@@ -322,7 +322,7 @@ function addPerimeterWalls(body, pts, groundY, h) {
     const a = pts[i], c = pts[(i + 1) % n];
     const dx = c.x - a.x, dz = c.z - a.z;
     const len = Math.hypot(dx, dz);
-    if (len < 0.5) continue;                       // skip tiny edges
+    if (len < 1.3) continue;                       // skip short edges → fewer wall boxes (perf)
     const mx = (a.x + c.x) / 2, mz = (a.z + c.z) / 2;
     // inward normal (toward centroid), normalized
     let nx = -dz / len, nz = dx / len;
@@ -2166,7 +2166,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // If the tile was unloaded during any of these yields, STOP — otherwise we add colliders to a
       // dead entry the unload sweep already cleared → invisible phantom walls + a permanent physics leak.
       if (aborted()) return entry;
-      for (const b of entry.sceneryBodies) world.addBody(b);
+      // addBody recomputes each body's AABB over all its shapes (buildings can hold hundreds of perimeter-
+      // wall boxes), so adding many in one synchronous burst jolts the frame. Yield every few bodies.
+      for (let i = 0; i < entry.sceneryBodies.length; i++) {
+        world.addBody(entry.sceneryBodies[i]);
+        if ((i & 7) === 7) { await yieldToMain(); if (aborted()) return entry; }
+      }
       await yieldToMain();
       if (aborted()) return entry;
       // Building colliders — solid shapes so the car can't drive through buildings.
@@ -2174,7 +2179,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         ? buildBuildingColliders(filteredTileData.buildings, physicsOrigin, getElevationAt, vertExag) : [];
       await yieldToMain();
       if (aborted()) return entry;
-      for (const b of entry.buildingBodies) world.addBody(b);
+      for (let i = 0; i < entry.buildingBodies.length; i++) {
+        world.addBody(entry.buildingBodies[i]);
+        if ((i & 3) === 3) { await yieldToMain(); if (aborted()) return entry; }
+      }
     }
 
     return entry;

@@ -31,6 +31,7 @@ function _applyGain() {
   if (_master && _ctx) _master.gain.setTargetAtTime(_muted ? 0 : _volume, _ctx.currentTime, 0.04);
 }
 
+let _bgSuspended = false;   // suspended because the tab is hidden (don't auto-resume until it's visible)
 function ctx() {
   if (!_ctx) {
     try {
@@ -40,8 +41,16 @@ function ctx() {
       _master.connect(_ctx.destination);
     } catch { return null; }
   }
-  if (_ctx.state === 'suspended') _ctx.resume();
+  if (_ctx.state === 'suspended' && !_bgSuspended) _ctx.resume();
   return _ctx;
+}
+
+// Pause ALL game audio when the tab isn't focused (no engine/ambience leaking from a background tab).
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { _bgSuspended = true; if (_ctx && _ctx.state === 'running') _ctx.suspend(); }
+    else { _bgSuspended = false; if (_ctx && _ctx.state === 'suspended') _ctx.resume(); }
+  });
 }
 
 async function load(name, urls) {

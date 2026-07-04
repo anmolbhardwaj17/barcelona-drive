@@ -6,6 +6,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { worldToLatLon } from '../projection.js';
+import { uiSound } from './uiSound.js';
 
 const MINIMAP_SIZE = 170;
 const MINIMAP_ZOOM = 17;
@@ -317,6 +318,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
   function setExpanded(isExpanded) {
     if (expanded === isExpanded) return;
     expanded = isExpanded;
+    (isExpanded ? uiSound.open : uiSound.back)();   // map open/close blip
     if (expanded) {
       if (!backdropEl) {
         backdropEl = document.createElement('div');

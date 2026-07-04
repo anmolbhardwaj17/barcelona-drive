@@ -1349,17 +1349,20 @@ export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
   const intersections = findIntersections(roads);
   const junctionPts = intersections.map(i => ({ x: i.x, z: i.z }));
 
-  // Roadside poles (signs, traffic lights) are baked at the ROAD elevation. Where the road is baked
-  // above the terrain (e.g. Montjuïc slopes), that leaves the pole hanging in the air. Drop it to the
-  // terrain it's actually planted in — but not on real bridges, where road level is correct.
+  // Roadside poles (signs, traffic lights) are baked at the ROAD elevation, which can be wrong/spiky and
+  // leaves the pole hanging in the sky. Plant EVERY non-bridge pole on the terrain it stands in; if the
+  // terrain sample fails, drop the instance entirely rather than leave a pole floating in the air.
   const groundInstances = (list) => {
-    if (!getGroundY || !list) return list;
+    if (!list) return list;
+    if (!getGroundY) return list;
+    const out = [];
     for (const inst of list) {
-      if (inst.bridge) continue;
+      if (inst.bridge) { out.push(inst); continue; }
       const g = getGroundY(inst.x, inst.z);
-      if (Number.isFinite(g) && inst.baseY - g > 0.5) inst.baseY = g;
+      if (Number.isFinite(g)) { inst.baseY = g; out.push(inst); }   // always snap to terrain
+      // else: unknown terrain here → skip (no floaters)
     }
-    return list;
+    return out;
   };
 
   const meshes = [];
