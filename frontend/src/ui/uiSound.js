@@ -6,7 +6,7 @@
 import { audio } from '../audio/audioManager.js';
 
 // one short enveloped oscillator note → shared master
-function note(freq, dur, { type = 'triangle', gain = 0.06, slideTo = null, delay = 0 } = {}) {
+function note(freq, dur, { type = 'triangle', gain = 0.16, slideTo = null, delay = 0 } = {}) {
   if (audio.isMuted()) return;
   const c = audio.ctx(); const master = audio.master(); if (!c || !master) return;
   const t = c.currentTime + delay;
@@ -21,10 +21,11 @@ function note(freq, dur, { type = 'triangle', gain = 0.06, slideTo = null, delay
   o.start(t); o.stop(t + dur + 0.02);
 }
 
+// Gains boosted ~2.7× — the engine on the shared master bus was drowning these blips out.
 export const uiSound = {
-  click:  () => note(430, 0.07, { type: 'square',   gain: 0.05, slideTo: 300 }),
-  toggle: (on) => note(on ? 520 : 360, 0.09, { type: 'triangle', gain: 0.05, slideTo: on ? 780 : 250 }),
-  open:   () => note(300, 0.13, { type: 'sine',     gain: 0.05, slideTo: 520 }),
-  back:   () => note(440, 0.10, { type: 'square',   gain: 0.045, slideTo: 240 }),
-  confirm:() => { note(520, 0.08, { type: 'triangle', gain: 0.05, slideTo: 700 }); note(800, 0.12, { type: 'triangle', gain: 0.05, slideTo: 980, delay: 0.07 }); },
+  click:  () => note(430, 0.07, { type: 'square',   gain: 0.14, slideTo: 300 }),
+  toggle: (on) => note(on ? 520 : 360, 0.09, { type: 'triangle', gain: 0.14, slideTo: on ? 780 : 250 }),
+  open:   () => note(300, 0.13, { type: 'sine',     gain: 0.15, slideTo: 520 }),
+  back:   () => note(440, 0.10, { type: 'square',   gain: 0.13, slideTo: 240 }),
+  confirm:() => { note(520, 0.08, { type: 'triangle', gain: 0.14, slideTo: 700 }); note(800, 0.12, { type: 'triangle', gain: 0.14, slideTo: 980, delay: 0.07 }); },
 };
