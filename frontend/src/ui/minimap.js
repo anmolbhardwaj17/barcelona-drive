@@ -355,9 +355,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       wrapper.style.height = 'auto';
       wrapper.style.borderRadius = '0';
       wrapper.style.cursor = 'default';
-      // Fade the edges to transparent so the map blends into the scene (no hard border/box).
-      const _fade = 'radial-gradient(ellipse 70% 70% at center, #000 52%, transparent 100%)';
-      wrapper.style.webkitMaskImage = _fade; wrapper.style.maskImage = _fade;
+      // Fade ALL FOUR edges evenly (two intersecting linear gradients) so the map blends into the scene.
+      const _h = 'linear-gradient(to right, transparent 0, #000 11%, #000 89%, transparent 100%)';
+      const _v = 'linear-gradient(to bottom, transparent 0, #000 11%, #000 89%, transparent 100%)';
+      wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
+      wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
