@@ -2389,9 +2389,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Unload tiles too far away — two-phase disposal to prevent GC spikes:
     // Phase A (immediate): remove from scene + physics (prevents rendering/simulation)
     // Phase B (deferred): GPU resource disposal spread across frames
+    // In Photo Mode the wanted radius is huge — the unload distance MUST match it, or tiles past the
+    // normal UNLOAD_DISTANCE load then immediately unload every frame (the "flickering / stuck" thrash).
+    const unloadDist = _photoMode ? _photoRadius : UNLOAD_DISTANCE;
     for (const [key, entry] of tileCache.entries()) {
       if (!entry._tx) { const p = key.split('_'); entry._tx = +p[0]; entry._ty = +p[1]; }
-      if (tileDistance(entry._tx, entry._ty, tx, ty) > UNLOAD_DISTANCE) {
+      if (tileDistance(entry._tx, entry._ty, tx, ty) > unloadDist) {
         cancelTile(key);
 
         // Phase A: immediate scene removal (cheap — just detaches from scene graph)
