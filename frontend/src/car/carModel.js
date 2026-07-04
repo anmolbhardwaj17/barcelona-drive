@@ -351,6 +351,7 @@ export async function createCarModel(scene) {
   const _localForward = new THREE.Vector3();
   const _v = new THREE.Vector3();
   const _wheelSpinQ = new THREE.Quaternion();
+  const _X_AXIS = new THREE.Vector3(1, 0, 0);   // constant — hoisted out of the per-frame wheel loop
   let _visualRoll = 0;
   let _wheelSpinAngle = 0;  // cumulative spin angle for visual wheel rotation
   const MAX_ROLL_ANGLE = 0.05;   // subtle body lean — matches stiffer suspension
@@ -408,7 +409,7 @@ export async function createCarModel(scene) {
         t.quaternion.x, t.quaternion.y, t.quaternion.z, t.quaternion.w,
       );
       // Apply speed-based spin on top of steering
-      _wheelSpinQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), _wheelSpinAngle);
+      _wheelSpinQ.setFromAxisAngle(_X_AXIS, _wheelSpinAngle);
       wheelPivots[i].quaternion.multiply(_wheelSpinQ);
     }
   }

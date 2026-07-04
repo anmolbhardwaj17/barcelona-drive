@@ -513,6 +513,7 @@ function animate(time = 0) {
       dirLight.target.updateMatrixWorld();
       _lastShadowX = camera.position.x;
       _lastShadowZ = camera.position.z;
+      renderer.shadowMap.needsUpdate = true; // shadow map is autoUpdate=false → refresh only when the light moved
     }
   }
 
@@ -536,9 +537,10 @@ function animate(time = 0) {
   updateGrassWind(time / 1000);
   updateTreeWind(time / 1000);
 
-  // Radial edge blur scales with speed
+  // Radial edge blur scales with speed — skip the full-screen pass entirely below 40 km/h (a free frame)
   const blurSpd = Math.abs(speedKmh || 0);
   radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 40) / 80));
+  radialBlurPass.enabled = blurSpd > 42;
   renderer.info.reset();
   composer.render();
   performancePanel?.tick(time, frameDt, { cameraY: camera.position.y });

@@ -473,12 +473,13 @@ export function createScene(container) {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setSize(width, height);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap: DPR 2 = 4× the fragments everywhere
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.LinearToneMapping;
   renderer.toneMappingExposure = 1.25;
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false; // don't re-render the shadow map every frame — only when the sun/light moves (main.js)
   const canvas = renderer.domElement;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -555,7 +556,7 @@ export function createScene(container) {
   const dirLight = new THREE.DirectionalLight(0xffd9a0, 1.2);  // warm late-afternoon sun
   dirLight.position.copy(sunDir.clone().multiplyScalar(1000));
   dirLight.castShadow = CONFIG.ENABLE_SHADOWS;
-  const shadowSize = Math.max(2048, CONFIG.SHADOW_MAP_SIZE ?? 2048);
+  const shadowSize = CONFIG.SHADOW_MAP_SIZE ?? 2048; // honor config (1024) — was forced to 2048 (4× fragments)
   dirLight.shadow.mapSize.width  = shadowSize;
   dirLight.shadow.mapSize.height = shadowSize;
   dirLight.shadow.radius         = 3;

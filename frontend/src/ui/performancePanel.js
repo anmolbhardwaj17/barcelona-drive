@@ -112,6 +112,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
 
   let frameCount = 0;
   let lastPanelUpdate = 0;
+  let _heavyCount = 0;   // the scene-traverse + tile metrics are expensive — run them every ~4s, not every 1s
   const sceneCounts = { meshes: 0, lights: 0, instanced: 0, lightsShadow: 0 };
 
   function tick(time, frameDt, context) {
@@ -130,31 +131,34 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
       vGeometries.textContent = String(info.memory.geometries);
       vTextures.textContent = String(info.memory.textures);
 
-      sceneCounts.meshes = 0;
-      sceneCounts.lights = 0;
-      sceneCounts.instanced = 0;
-      sceneCounts.lightsShadow = 0;
-      traverseCounts(scene, sceneCounts);
-      vChildren.textContent = String(scene.children.length);
-      vMeshes.textContent = String(sceneCounts.meshes);
-      vLights.textContent = `${sceneCounts.lights} / ${sceneCounts.lightsShadow}`;
-      vInstanced.textContent = String(sceneCounts.instanced);
+      // Heavy: walking 2500+ meshes + iterating every tile's roads/buildings — throttle to ~4s so it
+      // doesn't cause a rhythmic ~1Hz hitch. FPS/calls/triangles above stay at 1s.
+      if (++_heavyCount >= 4) {
+        _heavyCount = 0;
+        sceneCounts.meshes = 0;
+        sceneCounts.lights = 0;
+        sceneCounts.instanced = 0;
+        sceneCounts.lightsShadow = 0;
+        traverseCounts(scene, sceneCounts);
+        vChildren.textContent = String(scene.children.length);
+        vMeshes.textContent = String(sceneCounts.meshes);
+        vLights.textContent = `${sceneCounts.lights} / ${sceneCounts.lightsShadow}`;
+        vInstanced.textContent = String(sceneCounts.instanced);
 
-      const cameraY = context?.cameraY;
-      const metrics = tileManager.getDebugMetrics(
-        cameraY != null ? { cameraY } : undefined
-      );
-      vTiles.textContent = String(metrics.activeTiles);
-      vRoadsTotal.textContent = String(metrics.totalRoads ?? 0);
-      vRoadMeshes.textContent = String(metrics.totalRoadMeshes ?? 0);
-      vBuildings.textContent = String(metrics.buildingsCount ?? 0);
-      vBuildingObjs.textContent = String(metrics.totalBuildingObjects ?? 0);
-      vTrees.textContent = String(metrics.treesCount ?? 0);
-      vVegMeshes.textContent = String(metrics.vegetationMeshCount ?? 0);
-      vRoadInfra.textContent = String(metrics.roadInfraCount ?? 0);
-      vStreetlights.textContent = String(metrics.streetlightCount ?? 0);
-      vPhysics.textContent = String(metrics.physicsBodyCount ?? 0);
-      vCameraY.textContent = metrics.cameraY != null ? metrics.cameraY.toFixed(1) : '—';
+        const cameraY = context?.cameraY;
+        const metrics = tileManager.getDebugMetrics(cameraY != null ? { cameraY } : undefined);
+        vTiles.textContent = String(metrics.activeTiles);
+        vRoadsTotal.textContent = String(metrics.totalRoads ?? 0);
+        vRoadMeshes.textContent = String(metrics.totalRoadMeshes ?? 0);
+        vBuildings.textContent = String(metrics.buildingsCount ?? 0);
+        vBuildingObjs.textContent = String(metrics.totalBuildingObjects ?? 0);
+        vTrees.textContent = String(metrics.treesCount ?? 0);
+        vVegMeshes.textContent = String(metrics.vegetationMeshCount ?? 0);
+        vRoadInfra.textContent = String(metrics.roadInfraCount ?? 0);
+        vStreetlights.textContent = String(metrics.streetlightCount ?? 0);
+        vPhysics.textContent = String(metrics.physicsBodyCount ?? 0);
+        vCameraY.textContent = metrics.cameraY != null ? metrics.cameraY.toFixed(1) : '—';
+      }
 
       if (typeof performance !== 'undefined' && performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
         vHeap.textContent = (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + ' MB';

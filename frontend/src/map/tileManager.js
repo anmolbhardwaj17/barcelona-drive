@@ -1152,6 +1152,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   let _budgetMs = FRAME_BUDGET_MS; // ADAPTIVE: shrinks when frames run long (heavy streaming at speed),
                                    //           grows back when they're smooth — so build never compounds a slow frame
   let _lastUpdateAt = 0;
+  const _wantedSet = new Set();   // reused every frame in update() to avoid per-frame Set allocation
   let _frameBudgetStart = performance.now();
 
   const yieldToMain = () => {
@@ -2330,8 +2331,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     currentTx = tx;
     currentTy = ty;
 
-    // Tiles we want loaded: 3×3 core grid + look-ahead tiles in driving direction
-    const wanted = new Set();
+    // Tiles we want loaded: 3×3 core grid + look-ahead tiles in driving direction.
+    // Reuse a persistent Set (cleared) instead of allocating one every frame → far less GC churn.
+    const wanted = _wantedSet; wanted.clear();
     for (let dx = -GRID_RADIUS; dx <= GRID_RADIUS; dx++) {
       for (let dy = -GRID_RADIUS; dy <= GRID_RADIUS; dy++) {
         wanted.add(tileKey(tx + dx, ty + dy));
@@ -2357,7 +2359,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         wanted.add(tileKey(tx + 1, ty + camDirTileZ * r));
       }
     }
-    const allLoaded = [...wanted].every((k) => tileCache.has(k));
+    let allLoaded = true;
+    for (const k of wanted) { if (!tileCache.has(k)) { allLoaded = false; break; } } // no array spread / closure
     if (tx === prevTx && ty === prevTy && allLoaded) return;
 
     // Drop pending tiles that are no longer wanted (e.g. user drove away)
