@@ -113,16 +113,21 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   let frameCount = 0;
   let lastPanelUpdate = 0;
   let _heavyCount = 0;   // the scene-traverse + tile metrics are expensive — run them every ~4s, not every 1s
+  let _worstMs = 0;      // longest frame in the current second (min-FPS / stutter tracker)
   const sceneCounts = { meshes: 0, lights: 0, instanced: 0, lightsShadow: 0 };
 
   function tick(time, frameDt, context) {
     frameCount += 1;
+    const ms = (frameDt || 0) * 1000;
+    if (ms > _worstMs) _worstMs = ms;   // worst (longest) frame this second → min FPS = the stutter metric
     const now = time;
 
     if (now - lastPanelUpdate >= PANEL_UPDATE_INTERVAL_MS) {
       lastPanelUpdate = now;
       const fpsValue = frameCount;
-      vFps.textContent = String(fpsValue);
+      const minFps = _worstMs > 0 ? Math.round(1000 / _worstMs) : fpsValue;
+      vFps.textContent = `${fpsValue}  (min ${minFps}, worst ${_worstMs.toFixed(0)}ms)`;
+      _worstMs = 0;
       frameCount = 0;
 
       const info = renderer.info;

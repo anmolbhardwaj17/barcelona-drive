@@ -479,7 +479,6 @@ export function createScene(container) {
   renderer.toneMappingExposure = 1.25;
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.shadowMap.autoUpdate = false; // don't re-render the shadow map every frame — only when the sun/light moves (main.js)
   const canvas = renderer.domElement;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -560,12 +559,14 @@ export function createScene(container) {
   dirLight.shadow.mapSize.width  = shadowSize;
   dirLight.shadow.mapSize.height = shadowSize;
   dirLight.shadow.radius         = 3;
+  // Tight shadow frustum — only casters near the car → cheap depth pass every frame (was 240m wide/far
+  // 3000, which drew far too many buildings into the shadow map). Also gives sharper nearby shadows.
   dirLight.shadow.camera.near   = 1;
-  dirLight.shadow.camera.far    = 3000;
-  dirLight.shadow.camera.left   = -120;
-  dirLight.shadow.camera.right  = 120;
-  dirLight.shadow.camera.top    = 120;
-  dirLight.shadow.camera.bottom = -120;
+  dirLight.shadow.camera.far    = 600;
+  dirLight.shadow.camera.left   = -85;
+  dirLight.shadow.camera.right  = 85;
+  dirLight.shadow.camera.top    = 85;
+  dirLight.shadow.camera.bottom = -85;
   dirLight.shadow.bias       = -0.0002;
   dirLight.shadow.normalBias = 0.03;
   scene.add(dirLight.target);  // target must be in scene for shadow camera to follow
