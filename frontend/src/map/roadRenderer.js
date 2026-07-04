@@ -99,6 +99,11 @@ const MARKING_RULES = {
   tertiary_link:  { center: 'dashed',       lanes: false, edge: true },
   residential:    { center: null,           lanes: false, edge: true },
   unclassified:   { center: null,           lanes: false, edge: true },
+  // Small drivable streets that were absent from the table → got NO markings at all (plain grey).
+  // Give them solid edge lines too (no centre line — they're single-carriageway side streets).
+  living_street:  { center: null,           lanes: false, edge: true },
+  service:        { center: null,           lanes: false, edge: true },
+  road:           { center: null,           lanes: false, edge: true },
 };
 
 /** Bridge pillar spacing (m). */
