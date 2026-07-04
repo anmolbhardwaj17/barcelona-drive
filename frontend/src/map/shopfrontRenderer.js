@@ -28,7 +28,7 @@ const SEG_CAP    = 260;
 const C_FRAME = 0x26262b;  // dark frame / mullions / lintel
 const C_KICK  = 0x595961;  // stone stallriser
 const GLASS_DAY   = 0x16242c;
-const GLASS_NIGHT = 0xffcf87;
+const GLASS_NIGHT = 0xb0813f; // dimmer warm amber — 0xffcf87 was so bright it bloomed into a wall of glow at night
 
 let _glassMat = null;
 let _glassNight = false;

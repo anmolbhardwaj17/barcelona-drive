@@ -19,6 +19,7 @@ import { createCarEffects }  from './carEffects.js';
 import { createCarSound }    from './carSound.js';
 import { isInTunnelZone }    from '../tunnelZones.js';
 import { isInputBlocked, isTypingTarget } from '../inputGate.js';
+import { audio }             from '../audio/audioManager.js';
 
 // Pre-allocated for getHeadingDeg — no alloc in hot path
 const _hq = { x: 0, y: 0, z: 0, w: 1 };
@@ -35,6 +36,21 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   const carCam   = createCarCamera(camera, _domElement);
   const model    = await createCarModel(scene);
   const effects  = createCarEffects(scene, model, physics);
+
+  // Collision sound — the chassis emits a 'collide' event per contact. Play a synth impact scaled by the
+  // closing speed along the contact normal; the threshold rejects resting/rolling road contact, and a
+  // short debounce collapses the burst of contacts a single hit generates into one sound.
+  let _lastImpactT = -1e9;
+  physics.chassisBody.addEventListener('collide', (e) => {
+    const eq = e && e.contact;
+    if (!eq || typeof eq.getImpactVelocityAlongNormal !== 'function') return;
+    const cv = Math.abs(eq.getImpactVelocityAlongNormal());
+    if (cv < 2.6) return;                                   // ignore gentle taps / driving on the road
+    const now = (typeof performance !== 'undefined') ? performance.now() : 0;
+    if (now - _lastImpactT < 110) return;                   // one sound per hit, not per contact point
+    _lastImpactT = now;
+    audio.impact(Math.min(1, (cv - 2.6) / 12));             // ~2.6 m/s = tap, ~15 m/s = full crunch
+  });
 
   // Wire sound toggle button from carModel's color panel (stable id — panel is re-parented into the ESC menu)
   const colorPanel = document.getElementById('dd-car-color-panel');

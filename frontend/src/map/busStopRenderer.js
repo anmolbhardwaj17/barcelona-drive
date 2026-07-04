@@ -16,7 +16,7 @@ let _sharedShelterMat = null;
 let _sharedMarkingMat = null;
 
 const GLOW_INTENSITY_DAY   = 0.0;
-const GLOW_INTENSITY_NIGHT = 3.0;
+const GLOW_INTENSITY_NIGHT = 0.65; // was 3.0 → an effectively-solid bright panel that bloomed to a white blob; now a soft translucent glow
 const POOL_OPACITY_DAY     = 0.0;
 const POOL_OPACITY_NIGHT   = 0.6;
 

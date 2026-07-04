@@ -379,8 +379,15 @@ export async function createCarModel(scene) {
   const ROLL_LERP_SPEED = 4;
 
   function update(chassisBody, vehicle, dt, steerValue, speedKmh) {
-    const p = chassisBody.position;
-    const q = chassisBody.quaternion;
+    // Render at the INTERPOLATED transform, not the raw one. Physics steps at a fixed 60 Hz; the render
+    // runs at a different, wobbling rate — reading the raw (stepped) position makes the car micro-stutter
+    // against the smoothly-rendered static world, and jump on load hitches. cannon-es fills
+    // interpolatedPosition/Quaternion (we use the accumulator step form) for exactly this. Wheels below
+    // take X/Z from `p` + a body-local offset (not the raycast world transform), so they follow for free;
+    // only wheel Y stays raw for suspension bounce.
+    const ip = chassisBody.interpolatedPosition, iq = chassisBody.interpolatedQuaternion;
+    const p = (ip && (ip.x !== 0 || ip.y !== 0 || ip.z !== 0)) ? ip : chassisBody.position;
+    const q = (iq && (iq.x !== 0 || iq.y !== 0 || iq.z !== 0 || iq.w !== 1)) ? iq : chassisBody.quaternion;
 
     bodyGroup.position.set(p.x, p.y, p.z);
     bodyGroup.quaternion.set(q.x, q.y, q.z, q.w);

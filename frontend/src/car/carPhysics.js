@@ -158,6 +158,7 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
 
   // ── Internal state ────────────────────────────────────────────────────────
   let _reverse = false;
+  let _burnout = false;   // W+S held at low speed → hold front, spin the powered rears (wheelspin + smoke)
   let _currentSteer = 0;
   let _driftFactor = 0;
   let _upDot = 1;   // chassis up · world up — 1 upright, <0 flipped (for the "press R" hint)
@@ -198,6 +199,10 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     // Reverse: hold brake when nearly stopped to start reversing
     if (brake > 0 && absSpeed < 1.0) _reverse = true;
     if (throttle > 0)                _reverse = false;
+
+    // Burnout: throttle AND brake together at low speed (throttle wins the reverse test above, so we're
+    // driving forward). Hold the front wheels, power + un-grip the rears → they spin in place (smoke).
+    _burnout = throttle > 0.3 && brake > 0.3 && absSpeed < 16 && !_handbraking && !_reverse;
 
     // Track braking state for effects
     _isBraking = !_reverse && brake > 0 && absSpeed > 5;
@@ -293,6 +298,12 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
       vehicle.setBrake(0, 1);
       vehicle.setBrake(BRAKE_FORCE * 2.2, 2); // break rear traction but DON'T halt the car — keeps drift momentum
       vehicle.setBrake(BRAKE_FORCE * 2.2, 3);
+    } else if (_burnout) {
+      // Burnout: clamp the front wheels so the car stays put; leave the rears free to spin under power.
+      vehicle.setBrake(BRAKE_FORCE * 3.0, 0);
+      vehicle.setBrake(BRAKE_FORCE * 3.0, 1);
+      vehicle.setBrake(0, 2);
+      vehicle.setBrake(0, 3);
     } else {
       const bf = (_reverse || brake === 0) ? 0 : brake * BRAKE_FORCE;
       for (let i = 0; i < 4; i++) vehicle.setBrake(bf, i);
@@ -334,7 +345,7 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     const totalDrift = Math.min(1, _driftFactor + turnDrift);
 
     // Rear grip — handbrake gives progressive slide, not instant lockup
-    const rearSlip = FRICTION_SLIP * (1 - totalDrift * 0.85); // deeper grip loss → a real slide angle
+    const rearSlip = _burnout ? 1.1 : FRICTION_SLIP * (1 - totalDrift * 0.85); // burnout = near-zero rear grip → wheelspin
     vehicle.wheelInfos[2].frictionSlip = rearSlip;
     vehicle.wheelInfos[3].frictionSlip = rearSlip;
 
@@ -359,7 +370,8 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     _skidLevel = Math.max(
       totalDrift,                                    // handbrake + steering-induced drift
       Math.min(1, _slideMag / 3),                    // sideways slide: ≥3 m/s → full
-      (brake > 0 && absSpeed > 18) ? Math.min(1, (absSpeed - 18) / 35) : 0 // hard braking lockup
+      (brake > 0 && absSpeed > 18) ? Math.min(1, (absSpeed - 18) / 35) : 0, // hard braking lockup
+      _burnout ? 1 : 0                               // burnout wheelspin → full smoke + skid marks
     );
     const coastGrip = throttle === 0 && !_handbraking ? 1.3 : 1.0;
     // During handbrake drift, dramatically reduce lateral damping so car slides freely
@@ -421,6 +433,7 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     getSkidLevel() { return _skidLevel; },
     isBraking() { return _isBraking; },
     isReversing() { return _reverse; },
+    isBurnout() { return _burnout; },
     getCurrentGear() { return _reverse ? -1 : _currentGear; },
     getCurrentRpm() { return _currentRpm; },
     getCurrentSteer() { return _currentSteer; },

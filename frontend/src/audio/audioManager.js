@@ -142,6 +142,30 @@ export const audio = {
     src.connect(bp); bp.connect(g); g.connect(out); if (panner) panner.connect(_master);
     src.start(t); src.stop(t + dur + 0.05);
   },
+
+  /** Collision "thud + crunch", synthesised. intensity 0..1 scales loudness, low-end weight and duration. */
+  impact(intensity = 0.5) {
+    if (_muted || _volume <= 0) return;
+    const c = ctx(); if (!c) return;
+    const t = c.currentTime;
+    const k = Math.max(0, Math.min(1, intensity));
+    const level = 0.22 + k * 0.55;
+    // Low body thud — a damped sine dropping in pitch (the "boom" of the chassis).
+    const osc = c.createOscillator(); osc.type = 'sine';
+    osc.frequency.setValueAtTime(150 - k * 40, t);
+    osc.frequency.exponentialRampToValueAtTime(46, t + 0.14 + k * 0.06);
+    const og = c.createGain();
+    og.gain.setValueAtTime(level, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.20 + k * 0.12);
+    osc.connect(og); og.connect(_master); osc.start(t); osc.stop(t + 0.36);
+    // Crunch — a short low-passed noise transient (panel/scrape), brighter on harder hits.
+    const src = c.createBufferSource(); src.buffer = _noise(c);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320 + k * 1100; lp.Q.value = 0.7;
+    const ng = c.createGain();
+    ng.gain.setValueAtTime(level * 0.75, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.07 + k * 0.05);
+    src.connect(lp); lp.connect(ng); ng.connect(_master); src.start(t); src.stop(t + 0.16);
+  },
 };
 
 // cached white-noise buffer for synth fallbacks

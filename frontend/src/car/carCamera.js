@@ -77,8 +77,11 @@ export function createCarCamera(camera, domElement) {
   let _prevPX = null, _prevPZ = null;   // to distinguish a real deceleration from a recover-teleport
 
   function update(chassisBody, dt, speedKmh) {
-    const p = chassisBody.position;
-    const q = chassisBody.quaternion;
+    // Follow the INTERPOLATED transform (see carModel.update) so the chase cam is smooth against the
+    // render rate instead of snapping on the fixed 60 Hz physics grid.
+    const ip = chassisBody.interpolatedPosition, iq = chassisBody.interpolatedQuaternion;
+    const p = (ip && (ip.x !== 0 || ip.y !== 0 || ip.z !== 0)) ? ip : chassisBody.position;
+    const q = (iq && (iq.x !== 0 || iq.y !== 0 || iq.z !== 0 || iq.w !== 1)) ? iq : chassisBody.quaternion;
 
     // Extract yaw only — no pitch/roll
     _yawOnly.set(q.x, q.y, q.z, q.w);
