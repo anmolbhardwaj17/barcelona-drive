@@ -159,6 +159,7 @@ let dashMode = null;
 let taxiMode = null;
 let recoverHint = null;
 let _flipT = 0;
+let _captureRequested = false;   // Photo Mode capture: read the canvas next render (declared early — animate() may run before the Photo Mode block)
 let trafficSystem = null;
 let parkedCars = null;
 let pedestrians = null;
@@ -579,6 +580,9 @@ function animate(time = 0) {
   radialBlurPass.enabled = blurSpd > 42;
   renderer.info.reset();
   composer.render();
+  // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is
+  // cleared before the next frame; we don't set preserveDrawingBuffer, so reading here is the reliable path).
+  if (_captureRequested) { _captureRequested = false; captureScreenshot(); }
   adaptiveRes.tick(frameDt);
   performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale() });
 }
@@ -600,19 +604,68 @@ _photoStyle.textContent =
   'body.dd-photo #minimap-wrapper, body.dd-photo #env-toggle, body.dd-photo #performance-panel, ' +
   'body.dd-photo .dd-esc-fab, body.dd-photo #controls-strip { display: none !important; }';
 document.head.appendChild(_photoStyle);
+
+// Capture button — visible only in Photo Mode. Downloads a PNG of the rendered frame (the canvas only,
+// so no HUD/button ends up in the shot). Click sets the flag; the actual read happens in the render loop.
+const _captureBtn = document.createElement('button');
+_captureBtn.id = 'photo-capture-btn';
+_captureBtn.textContent = '📷 Capture';
+_captureBtn.style.cssText = 'position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:6000;display:none;' +
+  'cursor:pointer;font:800 16px Poppins,system-ui,sans-serif;color:#141414;padding:12px 28px;border:none;border-radius:14px;' +
+  'background:linear-gradient(#ffffff,#e4e4e4);box-shadow:0 6px 0 #b4b4b4,0 10px 18px rgba(0,0,0,.4);letter-spacing:.5px;';
+_captureBtn.onmousedown = () => { _captureBtn.style.transform = 'translateX(-50%) translateY(4px)'; _captureBtn.style.boxShadow = '0 2px 0 #b4b4b4'; };
+const _captureBtnUp = () => { _captureBtn.style.transform = 'translateX(-50%)'; _captureBtn.style.boxShadow = '0 6px 0 #b4b4b4,0 10px 18px rgba(0,0,0,.4)'; };
+_captureBtn.onmouseup = _captureBtnUp; _captureBtn.onmouseleave = _captureBtnUp;
+_captureBtn.onclick = () => { _captureRequested = true; };
+document.body.appendChild(_captureBtn);
+
+// Live area readout ( +/- adjusts the load radius ). Shown only in Photo Mode.
+const _photoInfo = document.createElement('div');
+_photoInfo.id = 'photo-info';
+_photoInfo.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:6000;display:none;' +
+  'font:700 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);padding:8px 16px;border-radius:12px;' +
+  'pointer-events:none;user-select:none;letter-spacing:.3px;text-align:center;';
+document.body.appendChild(_photoInfo);
+function _updatePhotoInfo() {
+  const r = tileManager?.getPhotoRadius?.() ?? 4; const n = 2 * r + 1;
+  _photoInfo.innerHTML = `📷 PHOTO MODE &nbsp;·&nbsp; area ${n}×${n} &nbsp;·&nbsp; <b>+ / −</b> resize &nbsp;·&nbsp; <b>P</b> exit`;
+}
+
+function captureScreenshot() {
+  try {
+    const url = renderer.domElement.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = `barcelona-drive-${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    // Shutter flash for feedback.
+    const f = document.createElement('div');
+    f.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:9999;pointer-events:none;opacity:.8;transition:opacity .4s';
+    document.body.appendChild(f);
+    requestAnimationFrame(() => { f.style.opacity = '0'; setTimeout(() => f.remove(), 450); });
+  } catch (e) { console.error('[capture] screenshot failed', e); }
+}
+
 let _photoOn = false;
 function setPhotoMode(on) {
   _photoOn = on;
   document.body.classList.toggle('dd-photo', on);
+  _captureBtn.style.display = on ? 'block' : 'none';
+  _photoInfo.style.display = on ? 'block' : 'none';
+  if (on) _updatePhotoInfo();
   try { tileManager?.setPhotoMode?.(on); } catch {}
   try { adaptiveRes.setPhotoMode(on); } catch {}
   if (speedDisplay?.element) speedDisplay.element.style.display = on ? 'none' : '';
   if (metricsPanel?.element) metricsPanel.element.style.display = on ? 'none' : '';
 }
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyP' || isInputBlocked() || isTypingTarget(document.activeElement)) return;
-  e.preventDefault();
-  setPhotoMode(!_photoOn);
+  if (isInputBlocked() || isTypingTarget(document.activeElement)) return;
+  if (e.code === 'KeyP') { e.preventDefault(); setPhotoMode(!_photoOn); return; }
+  // While in Photo Mode, +/- grow/shrink the loaded area (push it up until your machine strains).
+  if (_photoOn && (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+')) {
+    e.preventDefault(); tileManager?.setPhotoRadius?.((tileManager.getPhotoRadius?.() ?? 4) + 1); _updatePhotoInfo();
+  } else if (_photoOn && (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-')) {
+    e.preventDefault(); tileManager?.setPhotoRadius?.((tileManager.getPhotoRadius?.() ?? 4) - 1); _updatePhotoInfo();
+  }
 });
 
 window._debugWorld = world;

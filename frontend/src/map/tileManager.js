@@ -51,12 +51,15 @@ let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
 const LOOKAHEAD_RADIUS = 2; // extend 1 extra tile in driving direction for seamless look-ahead
 const UNLOAD_DISTANCE = 2; // keep fewer tiles resident (was 3 → up to 49 tiles → 1GB heap, 38fps)
-const PHOTO_GRID_RADIUS = 3; // Photo Mode (fly): load a wider 7x7 area so the aerial frame fills in
-
-// Photo Mode — for clean fly-through screenshots: load a wider area and disable ALL distance
-// culling / LOD (every loaded mesh renders at full detail). Heavier, but it's opt-in and not driving.
+// Photo Mode — for clean fly-through screenshots: load a wide area and disable ALL distance culling /
+// LOD (every loaded mesh renders at full detail). Heavy + slow, but opt-in and not driving. The radius
+// is live-adjustable ('+'/'-' in Photo Mode) so you can push it up until your machine strains — full
+// geometry is built per tile, so large radii are memory-bound and will eventually crash the tab.
 let _photoMode = false;
+let _photoRadius = 4;  // ± tiles → (2N+1)² loaded; 4 = 9x9. Raise/lower live via setPhotoRadius.
 function setPhotoMode(on) { _photoMode = !!on; }
+function setPhotoRadius(n) { _photoRadius = Math.max(1, Math.min(20, Math.round(n))); return _photoRadius; }
+function getPhotoRadius() { return _photoRadius; }
 const MAX_VERTICES_PER_TILE = 250000;  // Phase 3 (sidewalks+curbs+bike lanes) soft budget
 const VERTEX_BUDGET_HARD    = 300000;  // hard budget — investigate if any tile exceeds this
 
@@ -2348,7 +2351,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Tiles we want loaded: 3×3 core grid + look-ahead tiles in driving direction.
     // Reuse a persistent Set (cleared) instead of allocating one every frame → far less GC churn.
     const wanted = _wantedSet; wanted.clear();
-    const gridR = _photoMode ? PHOTO_GRID_RADIUS : GRID_RADIUS; // wider load area for photo mode
+    const gridR = _photoMode ? _photoRadius : GRID_RADIUS; // wider (live-adjustable) load area for photo mode
     for (let dx = -gridR; dx <= gridR; dx++) {
       for (let dy = -gridR; dy <= gridR; dy++) {
         wanted.add(tileKey(tx + dx, ty + dy));
@@ -3120,6 +3123,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     getLoadedRoadSegments,
     injectSpawnTile,
     setPhotoMode,
+    setPhotoRadius,
+    getPhotoRadius,
     getDebugMetrics,
     getTerrainElevationRange,
     getHeightfieldBodyCount,
