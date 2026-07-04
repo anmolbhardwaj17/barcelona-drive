@@ -295,7 +295,7 @@ function adjustPlacement(wx, wz, angle, type, roads, buildings) {
   const fp = FOOTPRINT[type];
   if (!fp) return { x: wx, z: wz };
 
-  const margin = 2.0;
+  const margin = 3.0; // clearance from road edge (was 2.0 — a bit more so features don't kiss the asphalt)
 
   // If already clear, done
   if (footprintRoadOverlap(wx, wz, fp.hw, fp.hd, angle, roads, margin) <= 0) {

@@ -11,13 +11,15 @@
 import * as THREE from 'three';
 import { loadCityCarTemplates } from './carModels.js';
 
+// living_street dropped — those are the tight lanes where big parked cars look unrealistic.
 const DRIVABLE = new Set([
-  'residential', 'living_street', 'unclassified',
+  'residential', 'unclassified',
   'tertiary', 'tertiary_link', 'secondary', 'secondary_link',
   'primary', 'primary_link',
 ]);
+const MIN_PARK_WIDTH = 6.5; // m — skip parked cars on roads narrower than this (tight streets)
 const HALFW_BY_TYPE = {
-  residential: 4, living_street: 3.5, unclassified: 4,
+  residential: 4, unclassified: 4,
   tertiary: 4.5, tertiary_link: 4, secondary: 5.5, secondary_link: 4.5,
   primary: 6.5, primary_link: 5,
 };
@@ -121,6 +123,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     for (const seg of segs) {
       if (!DRIVABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) continue;
       const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
+      if (halfW * 2 < MIN_PARK_WIDTH) continue; // tight street → no parked cars
       const offset = halfW - 0.2;
       const pts = seg.points;
       let seed = (seg.id | 0) % 997; if (seed < 0) seed += 997;
