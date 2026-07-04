@@ -587,6 +587,15 @@ export function createScene(container) {
   world.broadphase = new CANNON.NaiveBroadphase(world);
   world.allowSleep = true;
   world.defaultContactMaterial.friction = 0.3;
+  // Car-vs-building/wall collisions use THIS default material (building bodies have no material of
+  // their own). restitution 0 made head-on hits feel like slamming a brick wall (dead stop) — much
+  // more rigid than side scrapes, which carry less normal speed. A little give + softer contact makes
+  // a frontal impact recoil slightly instead of stopping dead, and (being velocity-dependent) it eases
+  // fast head-on hits far more than slow side scrapes. Road/terrain use the stiff road material, so
+  // driving grip is unaffected.
+  world.defaultContactMaterial.restitution = 0.18;
+  world.defaultContactMaterial.contactEquationStiffness = 6e6;   // was default 1e7 — a touch of squish
+  world.defaultContactMaterial.contactEquationRelaxation = 3.5;
 
   // No infinite ground plane — per-tile Trimesh colliders follow the terrain.
   // groundBody kept as reference (null) for API compatibility.

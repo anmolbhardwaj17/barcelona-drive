@@ -189,11 +189,21 @@ function bakePosedMesh(mesh) {
   const cols = new Float32Array(n * 3).fill(0.82);
   const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   const idx = geo.index;
-  const PED_BOOST = 1.3;
+  // The baked GLB albedos read muddy/desaturated under Lambert lighting (worst on the khaki
+  // "adventurer"), so a flat brightness boost just washed them into monochrome. Push SATURATION and
+  // lightness in HSL so clothes read as real colours, then a mild overall brighten. This is what
+  // actually kills the "bland" look.
+  const PED_BOOST = 1.12;   // overall brighten (was 1.3 — sat/lightness now do the lifting)
+  const PED_SAT   = 1.5;    // colour pop
+  const PED_LIGHT = 1.16;   // lift out of the mud
+  const _hsl = { h: 0, s: 0, l: 0 };
+  const _tmpC = new THREE.Color();
   const setCol = (vi, c) => {
-    cols[vi * 3] = Math.min(1, c.r * PED_BOOST);
-    cols[vi * 3 + 1] = Math.min(1, c.g * PED_BOOST);
-    cols[vi * 3 + 2] = Math.min(1, c.b * PED_BOOST);
+    _tmpC.copy(c).getHSL(_hsl);
+    _tmpC.setHSL(_hsl.h, Math.min(1, _hsl.s * PED_SAT), Math.min(1, _hsl.l * PED_LIGHT));
+    cols[vi * 3]     = Math.min(1, _tmpC.r * PED_BOOST);
+    cols[vi * 3 + 1] = Math.min(1, _tmpC.g * PED_BOOST);
+    cols[vi * 3 + 2] = Math.min(1, _tmpC.b * PED_BOOST);
   };
   if (geo.groups && geo.groups.length) {
     for (const g of geo.groups) {
@@ -267,7 +277,7 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
   }
 
   // Subtle emissive floor so pedestrians never fall into a dark/underexposed silhouette in shadow.
-  const pedMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: new THREE.Color(0x2a2a2a) });
+  const pedMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: new THREE.Color(0x343434) }); // a bit more self-fill so peds read at night without going flat
   return { frames, idle, fall, material: pedMat };
 }
 
