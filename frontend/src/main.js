@@ -265,7 +265,23 @@ spawnTileReady.finally(() => {
     ? tileManager.injectSpawnTile(tileKey(spawnTx, spawnTy), spawnTx, spawnTy, spawnTileData)
     : Promise.resolve();
 
-  injectPromise.then(async () => {
+  // Start the render loop NOW — not after the async car/UI setup below. Otherwise a slow spawn-tile
+  // build (workers under contention can take 20 s+) keeps animate() from ever starting, and when the
+  // loading screen's safety-net lifts it reveals a BLACK canvas (nothing has rendered) instead of the
+  // sky. animate() null-guards every object created later, so it's safe to run before they exist.
+  animate();
+
+  // Don't let a hung spawn-tile build block car/UI creation. processTileData awaits worker geometry,
+  // and a dropped worker message under load can leave it pending FOREVER — which used to strand init
+  // with no car and (before animate() moved up) a black screen. Cap the wait; the tile still finishes
+  // in the background and neighbours stream in via the normal update loop. On a healthy machine the
+  // inject completes in well under this cap, so the timeout is purely a safety net.
+  const injectGated = Promise.race([
+    injectPromise,
+    new Promise((resolve) => setTimeout(resolve, 8000)),
+  ]);
+
+  injectGated.then(async () => {
     const origin = getOriginOffset();
 
     if (ENABLE_CAR) {
@@ -384,7 +400,7 @@ spawnTileReady.finally(() => {
     });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
     initCollisionDebug(); // reads ?debug=collision; no-op when absent
-    animate();
+    // (animate() already started earlier, before this async block — see the render-loop note above.)
     // Hold the loading screen until the spawn-area tiles are actually built (not just the first frame),
     // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.
     const _hideLoader = () => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); } };
@@ -407,6 +423,11 @@ spawnTileReady.finally(() => {
         } catch {}
       }
     }, 150);
+  }).catch((err) => {
+    // Never let an init failure leave a silent black screen — log it and lift the loader.
+    console.error('[main] init failed after tile inject:', err);
+    const l = document.getElementById('dd-loading');
+    if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); }
   });
 });
 // Safety net: never let the loader get stuck if init throws before animate().

@@ -15,10 +15,31 @@ const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this 
 // lifted to body height; the visual body is lifted the same amount so it aligns with the box.
 const CHASSIS_BOX_OFFSET_Y = 0.5;
 
+// Load a GLB with a per-attempt timeout + retries. A stalled fetch (the car-model request getting
+// starved behind the burst of tile/asset fetches at load — browsers cap ~6 connections/host) would
+// otherwise leave loadAsync pending FOREVER, hanging the whole init downstream of it → black screen
+// with no error. Racing a timeout turns a stall into a reject we can retry, and ultimately throw so
+// the caller's fallback (free camera) runs and the world still renders.
+async function loadGLBResilient(loader, url, { tries = 3, timeoutMs = 12000 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      return await Promise.race([
+        loader.loadAsync(url),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('GLB load timed out')), timeoutMs)),
+      ]);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < tries) console.warn(`[CarModel] ${url} attempt ${attempt}/${tries} failed (${e.message}); retrying…`);
+    }
+  }
+  throw lastErr;
+}
+
 export async function createCarModel(scene) {
   console.log('[CarModel] Loading BMW M3 GLB...');
   const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync('/models/bmw_m3.glb');
+  const gltf = await loadGLBResilient(loader, '/models/bmw_m3.glb');
   const model = gltf.scene;
 
   // ── Find nodes by name ───────────────────────────────────────────────────
