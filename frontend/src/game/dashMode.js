@@ -46,7 +46,21 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   const hud = document.createElement('div');
   hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;' +
     'font-family:Poppins,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
+  // Persistent live display (timer + counter) — updated via textContent each frame, NOT innerHTML,
+  // so the running HUD doesn't re-parse HTML + reflow 60×/s (that tanked FPS while a mode was active).
+  const liveWrap = document.createElement('div'); liveWrap.style.display = 'none';
+  const liveTimer = document.createElement('div');
+  liveTimer.style.cssText = "font-family:'Lilita One',sans-serif;font-size:34px;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)";
+  const liveCount = document.createElement('div');
+  liveCount.style.cssText = 'font-weight:700;font-size:15px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)';
+  liveWrap.appendChild(liveTimer); liveWrap.appendChild(liveCount);
+  const resultWrap = document.createElement('div'); resultWrap.style.display = 'none';
+  hud.appendChild(liveWrap); hud.appendChild(resultWrap);
   document.body.appendChild(hud);
+  const updateLiveHud = () => {
+    liveTimer.textContent = fmt(elapsed);
+    liveCount.textContent = `Checkpoint ${Math.min(activeIdx + 1, route.length)} / ${route.length}`;
+  };
 
   // ── Objective marker: a labelled compass pill (top-centre) + a tag that floats over the gate ──
   const nav = document.createElement('div');
@@ -107,28 +121,27 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
   };
 
+  // Called only on STATE CHANGES (start/stop/finish/checkpoint) — not per frame. The per-frame timer/counter
+  // are updated by updateLiveHud() via textContent, so no innerHTML churn while a mode is running.
   function renderHud() {
-    if (state === 'running' || state === 'countdown') {
-      hud.innerHTML =
-        `<div style="font-family:'Lilita One',sans-serif;font-size:34px;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
-        `<div style="font-weight:700;font-size:15px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)">Checkpoint ${Math.min(activeIdx + 1, route.length)} / ${route.length}</div>`;
-      btn.textContent = '✕ Quit';
+    const active = state === 'running' || state === 'countdown';
+    liveWrap.style.display = active ? 'block' : 'none';
+    resultWrap.style.display = active ? 'none' : 'block';
+    if (active) {
+      updateLiveHud();
     } else if (state === 'finished') {
       const best = getBest();
       const m = _medal || medalFor(elapsed, route.length);
-      hud.innerHTML =
+      resultWrap.innerHTML =
         `<div style="font-size:52px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))">${m.emoji}</div>` +
         `<div style="font-family:'Lilita One',sans-serif;font-size:22px;color:${m.color};letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${m.label}</div>` +
         `<div style="font-family:'Lilita One',sans-serif;font-size:34px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
         (_newBest ? `<div style="font-weight:800;font-size:13px;color:#ffd23f;letter-spacing:1px;text-shadow:0 1px 3px rgba(0,0,0,.7)">★ NEW BEST!</div>`
                   : `<div style="font-weight:700;font-size:13px;opacity:.85;text-shadow:0 1px 3px rgba(0,0,0,.7)">Best ${best != null ? fmt(best) : '—'}</div>`);
-      btn.textContent = '🏁 Race again';
     } else {
       const best = getBest();
-      hud.innerHTML = best != null ? `<div style="font-weight:700;font-size:12px;opacity:.7;text-shadow:0 1px 3px rgba(0,0,0,.7)">Dash best ${fmt(best)}</div>` : '';
-      btn.textContent = '🏁 Start Dash';
+      resultWrap.innerHTML = best != null ? `<div style="font-weight:700;font-size:12px;opacity:.7;text-shadow:0 1px 3px rgba(0,0,0,.7)">Dash best ${fmt(best)}</div>` : '';
     }
-    const active = state === 'running' || state === 'countdown';
     nav.style.display = active ? 'block' : 'none';
     if (!active) gateTag.style.display = 'none';
     againBtn.style.display = state === 'finished' ? 'block' : 'none';
@@ -293,6 +306,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
       // 3·2·1·GO — timer + hit-testing start at GO
       state = 'countdown'; _cd = 3.0; elapsed = 0;
       countdownEl.style.display = 'block';
+      renderHud();   // once — show the live wrap
     }
 
     // ── countdown phase: gates show + arrow points, but the clock doesn't run yet ──
@@ -310,7 +324,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
         setTimeout(() => { if (state === 'running') countdownEl.style.display = 'none'; }, 550);
       }
       updateArrow(carPx, carPz);
-      renderHud();
+      updateLiveHud();
       return;
     }
 
@@ -335,14 +349,15 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     }
 
     updateArrow(carPx, carPz);
-    renderHud();
+    updateLiveHud();
   }
 
   let _flash = null;
   function hudFlash(msg) {
     if (_flash) clearTimeout(_flash);
     nav.style.display = 'none'; gateTag.style.display = 'none';
-    hud.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
+    liveWrap.style.display = 'none'; resultWrap.style.display = 'block';
+    resultWrap.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
     _flash = setTimeout(() => { _flash = null; renderHud(); }, 2800);
   }
 

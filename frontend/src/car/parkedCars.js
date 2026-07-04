@@ -23,7 +23,7 @@ const HALFW_BY_TYPE = {
 };
 
 const CAPACITY_PER = 180;  // per-variant instance capacity
-const SPACING      = 14;   // m between parked-car slots along a curb
+const SPACING      = 17.5; // m between parked-car slots (widened ~20% → fewer cars, better perf)
 const RANGE        = 200;  // m — place within this radius of the player
 const REBUILD_DIST = 35;   // m — player movement before a rebuild
 const JUNCTION_GAP = 8;    // m — no parking within this of a road's ends (junctions)

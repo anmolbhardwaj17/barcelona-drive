@@ -57,7 +57,28 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   const hud = document.createElement('div');
   hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
     'font-family:Poppins,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
+  // Persistent live nodes — updated via textContent/style each frame (no per-frame innerHTML reflow).
+  const liveWrap = document.createElement('div'); liveWrap.style.display = 'none';
+  const liveTotal = document.createElement('div');
+  liveTotal.style.cssText = "font-family:'Lilita One',sans-serif;font-size:32px;color:#8ef0b0;text-shadow:0 2px 6px rgba(0,0,0,.6)";
+  const liveObj = document.createElement('div');
+  liveObj.style.cssText = 'font-weight:700;font-size:14px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)';
+  const meterWrap = document.createElement('div');
+  meterWrap.style.cssText = 'margin-top:5px;width:150px;height:6px;background:rgba(255,255,255,.2);border-radius:3px;overflow:hidden;margin-left:auto;margin-right:auto;display:none';
+  const meterFill = document.createElement('div'); meterFill.style.cssText = 'height:100%;width:60%;background:#ffd23f'; meterWrap.appendChild(meterFill);
+  const tipLbl = document.createElement('div'); tipLbl.style.cssText = 'font-size:11px;opacity:.8;margin-top:2px;display:none';
+  liveWrap.appendChild(liveTotal); liveWrap.appendChild(liveObj); liveWrap.appendChild(meterWrap); liveWrap.appendChild(tipLbl);
+  const resultWrap = document.createElement('div'); resultWrap.style.display = 'none';
+  hud.appendChild(liveWrap); hud.appendChild(resultWrap);
   document.body.appendChild(hud);
+  const updateLiveHud = () => {
+    liveTotal.textContent = `$${total}`;
+    liveObj.textContent = `Fare ${fares + 1} · ${state === 'toPickup' ? 'PICK UP' : 'DROP OFF'}`;
+    const drop = state === 'toDropoff';
+    meterWrap.style.display = drop ? 'block' : 'none';
+    tipLbl.style.display = drop ? 'block' : 'none';
+    if (drop) { meterFill.style.width = `${Math.round(tip / 0.6 * 100)}%`; tipLbl.textContent = `tip +${Math.round(tip * 100)}%`; }
+  };
 
   // objective compass pill + on-marker tag
   const nav = document.createElement('div');
@@ -95,31 +116,20 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   const bestKey = 'dd_taxiBest';
   const getBest = () => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : 0; };
 
+  // State-change only (start/pickup/dropoff/end) — per-frame values go through updateLiveHud().
   function renderHud() {
-    if (state === 'toPickup' || state === 'toDropoff') {
-      const meter = state === 'toDropoff'
-        ? `<div style="margin-top:5px;width:150px;height:6px;background:rgba(255,255,255,.2);border-radius:3px;overflow:hidden">
-             <div style="height:100%;width:${Math.round(tip / 0.6 * 100)}%;background:#ffd23f"></div></div>
-           <div style="font-size:11px;opacity:.8;margin-top:2px">tip +${Math.round(tip * 100)}%</div>`
-        : '';
-      hud.innerHTML =
-        `<div style="font-family:'Lilita One',sans-serif;font-size:32px;color:#8ef0b0;text-shadow:0 2px 6px rgba(0,0,0,.6)">$${total}</div>` +
-        `<div style="font-weight:700;font-size:14px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)">Fare ${fares + 1} · ${state === 'toPickup' ? 'PICK UP' : 'DROP OFF'}</div>` +
-        meter;
-      hud.style.display = 'block';
-      btn.textContent = '✕ End shift';
+    const active = state === 'toPickup' || state === 'toDropoff';
+    hud.style.display = (active || state === 'ended') ? 'block' : 'none';
+    liveWrap.style.display = active ? 'block' : 'none';
+    resultWrap.style.display = state === 'ended' ? 'block' : 'none';
+    if (active) {
+      updateLiveHud();
     } else if (state === 'ended') {
-      hud.innerHTML =
+      resultWrap.innerHTML =
         `<div style="font-family:'Lilita One',sans-serif;font-size:24px;color:#8ef0b0">SHIFT OVER</div>` +
         `<div style="font-family:'Lilita One',sans-serif;font-size:40px;text-shadow:0 2px 6px rgba(0,0,0,.6)">$${total}</div>` +
         `<div style="font-weight:700;font-size:13px;opacity:.9">${fares} fares · best $${getBest()}</div>`;
-      hud.style.display = 'block';
-      btn.textContent = '🚕 Start Shift';
-    } else {
-      hud.style.display = 'none';   // idle: keep clear of the dash HUD
-      btn.textContent = '🚕 Start Shift';
     }
-    const active = state === 'toPickup' || state === 'toDropoff';
     nav.style.display = active ? 'block' : 'none';
     if (!active) tag.style.display = 'none';
   }
@@ -232,11 +242,12 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     }
 
     updateMarkerUi(carPx, carPz);
-    renderHud();
+    updateLiveHud();
   }
 
   function flash(msg) {
-    hud.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
+    liveWrap.style.display = 'none'; resultWrap.style.display = 'block';
+    resultWrap.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
     hud.style.display = 'block'; setTimeout(renderHud, 2600);
   }
 
