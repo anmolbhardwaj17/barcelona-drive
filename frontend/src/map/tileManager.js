@@ -50,7 +50,7 @@ import { materializeBuildingMeshes, materializeVegetationMeshes, materializeGras
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
 const LOOKAHEAD_RADIUS = 2; // extend 1 extra tile in driving direction for seamless look-ahead
-const UNLOAD_DISTANCE = 3; // keep tiles cached beyond grid to avoid reload churn
+const UNLOAD_DISTANCE = 2; // keep fewer tiles resident (was 3 → up to 49 tiles → 1GB heap, 38fps)
 const MAX_VERTICES_PER_TILE = 250000;  // Phase 3 (sidewalks+curbs+bike lanes) soft budget
 const VERTEX_BUDGET_HARD    = 300000;  // hard budget — investigate if any tile exceeds this
 
@@ -2351,7 +2351,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // build burst for the next tile row happens with lead time (spread over more frames) instead of
     // landing right as you cross the boundary — that just-in-time burst is the high-speed stutter.
     const speedKmh = (opts && Number.isFinite(opts.speedKmh)) ? opts.speedKmh : 0;
-    const dynLookahead = LOOKAHEAD_RADIUS + Math.min(3, Math.floor(speedKmh / 55));
+    const dynLookahead = LOOKAHEAD_RADIUS + Math.min(2, Math.floor(speedKmh / 75)); // less aggressive prefetch → fewer resident tiles
     const camDirTileX = Math.round(Math.sin(cameraHeadingRad));
     const camDirTileZ = Math.round(Math.cos(cameraHeadingRad));
     for (let r = GRID_RADIUS + 1; r <= dynLookahead; r++) {

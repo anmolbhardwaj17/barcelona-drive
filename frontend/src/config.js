@@ -59,8 +59,8 @@ export const CONFIG = {
   ENABLE_SHADOWS: true,
   SHADOW_MAP_SIZE: 1024,
 
-  /** Max tree instances per tile. */
-  MAX_TREES_PER_TILE: 3000,
+  /** Max tree instances per tile. Halved (was 3000) — 128k trees / 4M tris was a big FPS drain. */
+  MAX_TREES_PER_TILE: 1500,
   /** Distance (m) within which all tree instances are shown at full density. */
   TREE_FULL_DISTANCE: 80,
   /** Distance (m) beyond which 3D trees fade to billboards — fog (~190m vis) masks the transition.

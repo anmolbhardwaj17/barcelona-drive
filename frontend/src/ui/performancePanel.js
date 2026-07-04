@@ -61,6 +61,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     <div class="perf-row"><span class="perf-k">Streetlights</span><span class="perf-v" id="perf-streetlights">—</span></div>
     <div class="perf-row"><span class="perf-k">Physics bodies</span><span class="perf-v" id="perf-physics">—</span></div>
     <div class="perf-row"><span class="perf-k">Heap (MB)</span><span class="perf-v" id="perf-heap">—</span></div>
+    <div class="perf-row"><span class="perf-k">Render scale</span><span class="perf-v" id="perf-render-scale">—</span></div>
     <div class="perf-row"><span class="perf-k">Camera Y</span><span class="perf-v" id="perf-camera-y">—</span></div>
   `;
   el.style.cssText = `
@@ -108,6 +109,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   const vStreetlights = el.querySelector('#perf-streetlights');
   const vPhysics = el.querySelector('#perf-physics');
   const vHeap = el.querySelector('#perf-heap');
+  const vRenderScale = el.querySelector('#perf-render-scale');
   const vCameraY = el.querySelector('#perf-camera-y');
 
   let frameCount = 0;
@@ -164,6 +166,9 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
         vPhysics.textContent = String(metrics.physicsBodyCount ?? 0);
         vCameraY.textContent = metrics.cameraY != null ? metrics.cameraY.toFixed(1) : '—';
       }
+
+      const rs = context?.renderScale;
+      if (typeof rs === 'number') vRenderScale.textContent = rs.toFixed(2) + '×';
 
       if (typeof performance !== 'undefined' && performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
         vHeap.textContent = (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + ' MB';

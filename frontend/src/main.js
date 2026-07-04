@@ -8,6 +8,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
 import { createColorGradePass } from './ui/colorGradePass.js';
+import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
 import { createTileManager } from './map/tileManager.js';
 import { updateTrafficLights } from './map/roadInfraRenderer.js';
@@ -86,6 +87,13 @@ const colorGradePass = createColorGradePass();
 composer.addPass(colorGradePass);
 window._colorGradePass = colorGradePass; // DevTools tuning: .uniforms.uGradeStrength.value
 composer.addPass(new OutputPass());
+
+// Adaptive resolution — auto-drops pixel ratio when the GPU is behind, restores it when there's
+// headroom. Owns renderer/composer pixel-ratio + sizing from here on (keeps framerate smooth).
+const adaptiveRes = createAdaptiveResolution(renderer, composer, bloomPass, {
+  width: container.clientWidth || window.innerWidth,
+  height: container.clientHeight || window.innerHeight,
+});
 
 
 // Day / Night toggle — created immediately so the day preset is applied before tile loads.
@@ -543,7 +551,8 @@ function animate(time = 0) {
   radialBlurPass.enabled = blurSpd > 42;
   renderer.info.reset();
   composer.render();
-  performancePanel?.tick(time, frameDt, { cameraY: camera.position.y });
+  adaptiveRes.tick(frameDt);
+  performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale() });
 }
 
 window.addEventListener('resize', () => {
@@ -551,9 +560,7 @@ window.addEventListener('resize', () => {
   const h = container.clientHeight || window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-  composer.setSize(w, h);
-  bloomPass.resolution.set(Math.floor(w / 2), Math.floor(h / 2));
+  adaptiveRes.setSize(w, h); // owns renderer/composer pixel-ratio + size + bloom resolution
 });
 
 window._debugWorld = world;  
