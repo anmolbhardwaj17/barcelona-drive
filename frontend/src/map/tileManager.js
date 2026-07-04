@@ -51,7 +51,7 @@ let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
 const LOOKAHEAD_RADIUS = 2; // extend 1 extra tile in driving direction for seamless look-ahead
 const UNLOAD_DISTANCE = 2; // keep fewer tiles resident (was 3 → up to 49 tiles → 1GB heap, 38fps)
-const PHOTO_GRID_RADIUS = 2; // Photo Mode (fly): load a wider 5x5 area so the aerial frame fills in
+const PHOTO_GRID_RADIUS = 3; // Photo Mode (fly): load a wider 7x7 area so the aerial frame fills in
 
 // Photo Mode — for clean fly-through screenshots: load a wider area and disable ALL distance
 // culling / LOD (every loaded mesh renders at full detail). Heavier, but it's opt-in and not driving.
