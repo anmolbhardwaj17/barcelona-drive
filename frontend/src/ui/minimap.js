@@ -335,26 +335,29 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       frame.style.left = '50%';
       frame.style.right = 'auto';
       frame.style.bottom = 'auto';
-      frame.style.width = '70vw';
-      frame.style.height = '70vh';
-      frame.style.maxWidth = '900px';
-      frame.style.maxHeight = '900px';
-      frame.style.borderRadius = '16px';
+      frame.style.width = '88vw';
+      frame.style.height = '86vh';
+      frame.style.maxWidth = '1200px';
+      frame.style.maxHeight = '1000px';
+      frame.style.borderRadius = '0';
       frame.style.transform = 'translate(-50%, -50%)';
       frame.style.zIndex = '11';
-      frame.style.background = '#12203a';
-      frame.style.border = '4px solid #f5c542';
-      frame.style.boxShadow = '0 12px 48px rgba(0,0,0,0.6)';
+      frame.style.background = 'transparent';
+      frame.style.border = 'none';
+      frame.style.boxShadow = 'none';
       compassRing.style.display = 'none';
       borderRing.style.display = 'none';
-      wrapper.style.top = `${BORDER_WIDTH}px`;
-      wrapper.style.left = `${BORDER_WIDTH}px`;
-      wrapper.style.right = `${BORDER_WIDTH}px`;
-      wrapper.style.bottom = `${BORDER_WIDTH}px`;
+      wrapper.style.top = '0';
+      wrapper.style.left = '0';
+      wrapper.style.right = '0';
+      wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '12px';
+      wrapper.style.borderRadius = '0';
       wrapper.style.cursor = 'default';
+      // Fade the edges to transparent so the map blends into the scene (no hard border/box).
+      const _fade = 'radial-gradient(ellipse 70% 70% at center, #000 52%, transparent 100%)';
+      wrapper.style.webkitMaskImage = _fade; wrapper.style.maskImage = _fade;
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
@@ -377,15 +380,15 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
             position:relative; width:0; height:0;
             transform-origin:0 0;
           ">
-            <svg id="loc-marker-svg" width="36" height="36" viewBox="0 0 36 36"
-              style="position:absolute;transform:translate(-18px,-18px) rotate(${deg}deg);transform-origin:18px 18px;overflow:visible;">
-              <!-- direction wedge -->
-              <polygon points="18,2 23,14 18,11 13,14" fill="#4285F4" opacity="0.92"/>
+            <svg id="loc-marker-svg" width="56" height="56" viewBox="0 0 56 56"
+              style="position:absolute;transform:translate(-28px,-28px) rotate(${deg}deg);transform-origin:28px 28px;overflow:visible;">
               <!-- accuracy halo -->
-              <circle cx="18" cy="18" r="13" fill="#4285F4" opacity="0.12"/>
-              <!-- dot -->
-              <circle cx="18" cy="18" r="8" fill="#4285F4" stroke="#ffffff" stroke-width="2.5"/>
-              <circle cx="18" cy="18" r="3.5" fill="#ffffff" opacity="0.7"/>
+              <circle cx="28" cy="28" r="24" fill="#f5a623" opacity="0.14"/>
+              <!-- heading wedge (points where you're facing) -->
+              <polygon points="28,1 37,22 28,17 19,22" fill="#f5a623" stroke="#ffffff" stroke-width="1.5"/>
+              <!-- you-are-here dot -->
+              <circle cx="28" cy="28" r="11" fill="#f5a623" stroke="#ffffff" stroke-width="3.5"/>
+              <circle cx="28" cy="28" r="4.5" fill="#ffffff" opacity="0.85"/>
             </svg>
           </div>`;
         if (!locationMarker) {
@@ -415,6 +418,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       frame.style.background = 'none';
       frame.style.border = 'none';
       frame.style.boxShadow = 'none';
+      wrapper.style.webkitMaskImage = 'none'; wrapper.style.maskImage = 'none';
       compassRing.style.display = '';
       borderRing.style.display = '';
       wrapper.style.top = `${INNER_OFFSET}px`;
@@ -477,7 +481,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
       }
     } else if (locationMarkerArrow) {
       // Update arrow rotation in expanded (north-up) map every frame
-      locationMarkerArrow.style.transform = `translate(-18px,-18px) rotate(${currentRotationDeg}deg)`;
+      locationMarkerArrow.style.transform = `translate(-28px,-28px) rotate(${currentRotationDeg}deg)`;
     }
 
     // Dash objective dot — heading-up bearing to the next checkpoint, clamped to the minimap rim.
