@@ -58,7 +58,7 @@ export function createCarCamera(camera, domElement) {
     if (isInputBlocked()) return;    // ESC menu / dialogs own the pointer — don't swing the camera
     const dxp = e.movementX || 0, dyp = e.movementY || 0;
     if (dxp === 0 && dyp === 0) return;
-    _orbitYaw   = Math.max(-Math.PI, Math.min(Math.PI, _orbitYaw - dxp * MOUSE_SENSITIVITY_X));
+    _orbitYaw   = Math.max(-Math.PI, Math.min(Math.PI, _orbitYaw + dxp * MOUSE_SENSITIVITY_X));
     _orbitPitch = Math.max(MAX_PITCH_DOWN, Math.min(MAX_PITCH_UP, _orbitPitch - dyp * MOUSE_SENSITIVITY_Y));
     _idleTime = 0;
     _mouseActive = true;
