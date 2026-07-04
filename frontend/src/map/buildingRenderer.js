@@ -634,6 +634,7 @@ function getNightEmissiveTexture(category) {
 }
 
 let _buildingNightMode = false;
+const NIGHT_EMISSIVE_INTENSITY = 1.4; // window-glow strength at night
 
 /**
  * Toggle building window glow for night mode.
@@ -648,16 +649,11 @@ export function setBuildingNightMode(isNight) {
 }
 
 function applyNightToMaterial(mat, category, isNight) {
-  if (isNight) {
-    mat.emissive = new THREE.Color(0xffffff);
-    mat.emissiveIntensity = 1.0;
-    mat.emissiveMap = getNightEmissiveTexture(category);
-  } else {
-    mat.emissive = new THREE.Color(0x000000);
-    mat.emissiveIntensity = 0;
-    mat.emissiveMap = null;
-  }
-  mat.needsUpdate = true;
+  // The emissiveMap is baked in at material creation (see getFacadeMaterial), so night mode is just a
+  // uniform toggle — no post-hoc emissiveMap add (that silently failed to recompile shared/merged
+  // materials, so the windows never lit). Safety net: attach the map if a material somehow lacks it.
+  if (isNight && !mat.emissiveMap) { mat.emissiveMap = getNightEmissiveTexture(category); mat.needsUpdate = true; }
+  mat.emissiveIntensity = isNight ? NIGHT_EMISSIVE_INTENSITY : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -766,19 +762,23 @@ function getFacadeMaterial(hexColor, category = 'residential') {
   if (facadeMaterialCache.has(cacheKey)) return facadeMaterialCache.get(cacheKey);
   const isGlass = (category === 'commercial_glass');
   const isTemple = (category === 'religious');
+  // Bake the night window-glow emissiveMap in at creation (intensity 0 by day). Night mode then only
+  // toggles emissiveIntensity — reliable, vs adding an emissiveMap to an already-compiled shared/merged
+  // material later (which didn't recompile → the reason no windows lit up at night).
+  const emis = { emissive: new THREE.Color(0xffffff), emissiveMap: getNightEmissiveTexture(category), emissiveIntensity: _buildingNightMode ? NIGHT_EMISSIVE_INTENSITY : 0 };
   let mat;
   if (isGlass) {
     mat = new THREE.MeshPhongMaterial({
       color: hexColor, vertexColors: true, map: getWindowTexture(category),
-      specular: 0x8899AA, shininess: 60, reflectivity: 0.4, side: THREE.DoubleSide,
+      specular: 0x8899AA, shininess: 60, reflectivity: 0.4, side: THREE.DoubleSide, ...emis,
     });
   } else if (isTemple) {
     mat = new THREE.MeshPhongMaterial({
       color: hexColor, vertexColors: true, map: getWindowTexture(category),
-      specular: 0x442211, shininess: 12, side: THREE.DoubleSide,
+      specular: 0x442211, shininess: 12, side: THREE.DoubleSide, ...emis,
     });
   } else {
-    mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, map: getWindowTexture(category), side: THREE.DoubleSide });
+    mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, map: getWindowTexture(category), side: THREE.DoubleSide, ...emis });
   }
   // Inject extra distance-based fade toward fog color so distant buildings soften
   mat.onBeforeCompile = (shader) => {

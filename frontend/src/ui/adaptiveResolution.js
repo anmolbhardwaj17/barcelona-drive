@@ -10,8 +10,8 @@
  * only a sustained slow/fast trend moves it, one small step at a time (no visible popping).
  */
 export function createAdaptiveResolution(renderer, composer, bloomPass, { width, height }) {
-  const CAP = Math.min(window.devicePixelRatio || 1, 1.5); // best quality when we have headroom
-  const FLOOR = Math.min(CAP, 0.8);                        // worst we'll accept — below this the image gets visibly soft
+  const CAP = Math.min(window.devicePixelRatio || 1, 1.2);  // best quality when idle (lowered 1.5→1.2 for smoothness — user opted into lower res)
+  const FLOOR = Math.min(CAP, 0.7);                         // worst we'll accept under load (lowered 0.8→0.7 for more headroom)
   const STEP_DOWN = 0.08;   // small steps near the target so it settles instead of oscillating
   const STEP_UP = 0.05;
   const SLOW_MS = 16.9;     // avg frame slower than this (~<59 fps) → drop resolution (TARGET: lock 60)
