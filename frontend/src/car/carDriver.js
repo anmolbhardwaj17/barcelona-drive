@@ -32,7 +32,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     z: spawnLocalPos.z,
   }, spawnHeading);
   const controls = createCarControls();
-  const carCam   = createCarCamera(camera);
+  const carCam   = createCarCamera(camera, _domElement);
   const model    = await createCarModel(scene);
   const effects  = createCarEffects(scene, model, physics);
 

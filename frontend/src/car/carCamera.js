@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { isInTunnelZone } from '../tunnelZones.js';
+import { isInputBlocked } from '../inputGate.js';
 
 const BASE_CAM_DISTANCE   = 8.2;   // follow distance behind car (was 6.5; pulled back further per user feedback — camera felt too close at spawn)
 const SPEED_DISTANCE_BOOST = 0.6;
@@ -43,23 +44,29 @@ const _fwdDir   = new THREE.Vector3();
 const _smoothLookAt = new THREE.Vector3();
 const _shakeOffset = new THREE.Vector3();
 
-export function createCarCamera(camera) {
+export function createCarCamera(camera, domElement) {
   let _init = false;
 
-  // Mouse orbit state
-  let _orbitYaw = 0;     // horizontal offset from behind-car (radians)
-  let _orbitPitch = 0;   // vertical offset (radians)
-  let _lastMoveTime = 0; // timestamp of last mouse movement
+  // Mouse orbit state — moving the mouse / trackpad swings the camera around the car (see it from the
+  // front, rear or sides); after a short idle it auto-returns to the default chase position behind it.
+  let _orbitYaw = 0;                 // horizontal offset from behind-car (radians)
+  let _orbitPitch = 0;               // vertical offset (radians)
+  let _idleTime = RETURN_DELAY;      // seconds since last pointer movement (start idle so it begins centred)
   let _mouseActive = false;
-  let _mouseDown = false;
 
-  function _onMouseMove(e) {
-    // Mouse camera orbit disabled — chase cam only
-    return;
+  function _onPointerMove(e) {
+    if (isInputBlocked()) return;    // ESC menu / dialogs own the pointer — don't swing the camera
+    const dxp = e.movementX || 0, dyp = e.movementY || 0;
+    if (dxp === 0 && dyp === 0) return;
+    _orbitYaw   = Math.max(-Math.PI, Math.min(Math.PI, _orbitYaw - dxp * MOUSE_SENSITIVITY_X));
+    _orbitPitch = Math.max(MAX_PITCH_DOWN, Math.min(MAX_PITCH_UP, _orbitPitch - dyp * MOUSE_SENSITIVITY_Y));
+    _idleTime = 0;
+    _mouseActive = true;
   }
 
-  // Mouse orbit disabled for now
-  // document.addEventListener('mousemove', _onMouseMove);
+  // Listen on the canvas so hovering the HUD/buttons doesn't hijack the camera. Fall back to document.
+  const _target = domElement || (typeof document !== 'undefined' ? document : null);
+  if (_target) _target.addEventListener('pointermove', _onPointerMove);
 
   // Smooth reverse camera flip
   let _reverseBlend = 0; // 0 = behind car (forward), 1 = in front of car (reverse)
@@ -110,7 +117,14 @@ export function createCarCamera(camera) {
     const camDist = inTunnel ? TUNNEL_CAM_DISTANCE : BASE_CAM_DISTANCE + speedFactor * SPEED_DISTANCE_BOOST;
     const lookAhead = BASE_LOOK_AHEAD + speedFactor * SPEED_LOOK_BOOST;
 
-    // No auto-return — camera stays where the mouse left it
+    // Auto-return: after RETURN_DELAY of no pointer movement, ease the orbit back to behind the car.
+    _idleTime += dt || 0.016;
+    if (_idleTime > RETURN_DELAY && (_orbitYaw !== 0 || _orbitPitch !== 0)) {
+      const rt = Math.min(1, RETURN_SPEED * (dt || 0.016));
+      _orbitYaw   += (0 - _orbitYaw)   * rt;
+      _orbitPitch += (0 - _orbitPitch) * rt;
+      if (Math.abs(_orbitYaw) < 0.003 && Math.abs(_orbitPitch) < 0.003) { _orbitYaw = 0; _orbitPitch = 0; _mouseActive = false; }
+    }
 
     // Compute camera direction: behind car + orbit offset
     // Start with the "behind" direction (-forward), then rotate by orbit yaw
@@ -210,5 +224,8 @@ export function createCarCamera(camera) {
     camera.updateProjectionMatrix();
   }
 
-  return { update };
+  return {
+    update,
+    dispose() { if (_target) _target.removeEventListener('pointermove', _onPointerMove); },
+  };
 }

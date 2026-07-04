@@ -274,8 +274,8 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
 
     let ef;
     if (_reverse) {
-      const revFade = absSpeed > 25 ? Math.max(0, 1 - (absSpeed - 25) / 5) : 1; // cap ~30 km/h
-      ef = +(brake * BASE_ENGINE_FORCE * 0.5 * revFade);
+      const revFade = absSpeed > 38 ? Math.max(0, 1 - (absSpeed - 38) / 7) : 1; // cap ~45 km/h (was ~30)
+      ef = +(brake * BASE_ENGINE_FORCE * 0.66 * revFade);                        // stronger reverse pull (was 0.5)
     } else {
       ef = -(throttle * rampedForce);
     }
