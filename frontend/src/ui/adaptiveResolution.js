@@ -11,11 +11,11 @@
  */
 export function createAdaptiveResolution(renderer, composer, bloomPass, { width, height }) {
   const CAP = Math.min(window.devicePixelRatio || 1, 1.5); // best quality when we have headroom
-  const FLOOR = Math.min(CAP, 0.75);                       // worst we'll accept (~1080p→810p) before giving up sharpness
-  const STEP_DOWN = 0.12;   // shed resolution faster than we add it back (bias toward smooth)
+  const FLOOR = Math.min(CAP, 0.8);                        // worst we'll accept — below this the image gets visibly soft
+  const STEP_DOWN = 0.08;   // small steps near the target so it settles instead of oscillating
   const STEP_UP = 0.05;
-  const SLOW_MS = 20.5;     // avg frame slower than this (~<49 fps) → drop resolution
-  const FAST_MS = 13.8;     // avg frame faster than this (~>72 fps) → we can afford more
+  const SLOW_MS = 16.7;     // avg frame slower than this (~<60 fps) → drop resolution (TARGET: lock 60)
+  const FAST_MS = 13.5;     // avg frame faster than this (~>74 fps) → headroom, add resolution back
   const WINDOW = 45;        // frames between adjustments (~0.7s at 60fps) — long enough to ignore one-off hitches
 
   let scale = CAP;

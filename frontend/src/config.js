@@ -67,8 +67,10 @@ export const CONFIG = {
    *  300→220→170: geometry is already minimal (3-side trunk, detail-0 foliage ~117 tris/tree), so the
    *  only tree lever is how many stay 3D. Area ∝ r²: 170²/220² ≈ 0.6 → ~40% fewer 3D trees vs 220. */
   TREE_MAX_DISTANCE: 170,
-  /** Distance (m) beyond which full-detail building meshes are hidden. */
-  BUILDING_MAX_DISTANCE: 280,
+  /** Distance (m) beyond which full-detail building meshes are hidden. 280→250: buildings are the
+   *  bulk of the triangle count and always render full geometry (LOD boxes are only a load placeholder,
+   *  not a distance LOD). 250m is far enough that pop-in stays subtle at driving speed. */
+  BUILDING_MAX_DISTANCE: 250,
   /** Distance (m) at which simplified LOD buildings start appearing. */
   BUILDING_LOD_START: 200,
   /** Distance (m) beyond which even LOD buildings are hidden. */
