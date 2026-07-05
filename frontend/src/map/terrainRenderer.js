@@ -562,6 +562,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     side: THREE.DoubleSide,
     depthWrite: true,
     fog: true,
+    flatShading: isRallyStyle(), // rally: faceted low-poly hills (each DEM triangle a distinct shade)
   });
 
   // Inject world-space procedural terrain coloring + texture detail into shader.

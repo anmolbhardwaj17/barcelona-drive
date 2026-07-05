@@ -544,22 +544,27 @@ export function createScene(container) {
   addStars(scene);
 
   // Base ambient — warm amber lerped 25% toward sky horizon for atmospheric cohesion.
-  // lerp(0xffe8c8, SKY_HORIZON, 0.25) ≈ #ECD9DC — still warm, slight sky-blue tinge.
-  const ambColor = new THREE.Color(0xffe8c8).lerp(SKY_HORIZON, 0.25);
-  const ambientLight = new THREE.AmbientLight(ambColor, 0.55);
+  // Rally style: COOL sky-bounce fill (blue) so shadows read cool against the warm sun — that
+  // warm-key / cool-shadow separation is what makes flat low-poly facets pop (the art-of-rally look).
+  const _rally = isRallyStyle();
+  const ambColor = _rally
+    ? new THREE.Color(0xbcd2f2).lerp(SKY_HORIZON, 0.3)   // cool blue sky-bounce
+    : new THREE.Color(0xffe8c8).lerp(SKY_HORIZON, 0.25);
+  const ambientLight = new THREE.AmbientLight(ambColor, _rally ? 0.62 : 0.55);
   scene.add(ambientLight);
 
   // Hemisphere light removed — simpler two-light setup
   const hemiLight = null;
 
-  // Directional sun light — always created so the env toggle can control it
-  const dirLight = new THREE.DirectionalLight(0xffd9a0, 1.2);  // warm late-afternoon sun
+  // Directional sun light — always created so the env toggle can control it. Rally: warmer + stronger
+  // key for crisp light/shade on flat facets.
+  const dirLight = new THREE.DirectionalLight(_rally ? 0xffcb84 : 0xffd9a0, _rally ? 1.75 : 1.2);
   dirLight.position.copy(sunDir.clone().multiplyScalar(1000));
   dirLight.castShadow = CONFIG.ENABLE_SHADOWS;
   const shadowSize = CONFIG.SHADOW_MAP_SIZE ?? 2048; // honor config (1024) — was forced to 2048 (4× fragments)
   dirLight.shadow.mapSize.width  = shadowSize;
   dirLight.shadow.mapSize.height = shadowSize;
-  dirLight.shadow.radius         = 3;
+  dirLight.shadow.radius         = _rally ? 6 : 3; // softer, painterly shadows in rally style
   // Tight shadow frustum — only casters near the car → cheap depth pass every frame (was 240m wide/far
   // 3000, which drew far too many buildings into the shadow map). Also gives sharper nearby shadows.
   dirLight.shadow.camera.near   = 1;

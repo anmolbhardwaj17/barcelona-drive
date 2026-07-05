@@ -767,21 +767,23 @@ function getFacadeMaterial(hexColor, category = 'residential') {
   // toggles emissiveIntensity — reliable, vs adding an emissiveMap to an already-compiled shared/merged
   // material later (which didn't recompile → the reason no windows lit up at night).
   const emis = { emissive: new THREE.Color(0xffffff), emissiveMap: getNightEmissiveTexture(category), emissiveIntensity: _buildingNightMode ? NIGHT_EMISSIVE_INTENSITY : 0 };
-  // Rally style: flat matte facades — drop the busy window texture, keep the subtle night window glow.
-  const faceMap = isRallyStyle() ? null : getWindowTexture(category);
+  // Rally style: flat matte facades — drop the busy window texture (keep subtle night window glow) and
+  // FLAT-shade so every facet catches the sun distinctly (the low-poly-but-banger look).
+  const rally = isRallyStyle();
+  const faceMap = rally ? null : getWindowTexture(category);
   let mat;
   if (isGlass) {
     mat = new THREE.MeshPhongMaterial({
-      color: hexColor, vertexColors: true, map: faceMap,
+      color: hexColor, vertexColors: true, map: faceMap, flatShading: rally,
       specular: 0x8899AA, shininess: 60, reflectivity: 0.4, side: THREE.DoubleSide, ...emis,
     });
   } else if (isTemple) {
     mat = new THREE.MeshPhongMaterial({
-      color: hexColor, vertexColors: true, map: faceMap,
+      color: hexColor, vertexColors: true, map: faceMap, flatShading: rally,
       specular: 0x442211, shininess: 12, side: THREE.DoubleSide, ...emis,
     });
   } else {
-    mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, map: faceMap, side: THREE.DoubleSide, ...emis });
+    mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, map: faceMap, flatShading: rally, side: THREE.DoubleSide, ...emis });
   }
   // Inject extra distance-based fade toward fog color so distant buildings soften
   mat.onBeforeCompile = (shader) => {
