@@ -582,7 +582,7 @@ export function createScene(container) {
     // Exponential fog — color matches sky horizon so terrain fades into sky seamlessly.
     // Density 0.005: reads as atmosphere without aggressively culling near tiles.
     // Rally style: a touch denser (0.0075) so distance melts into a soft haze — the diorama depth.
-    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0045 : 0.005);
+    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0025 : 0.005);
   }
 
   // Physics world (cannon-es)
