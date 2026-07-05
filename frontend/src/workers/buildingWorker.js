@@ -743,7 +743,20 @@ export function processBuildingsInWorker(data, config) {
       cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
     }
 
-    let baseY = fastElev(cx, cy) * vertExag + BUILDING_Z_OFFSET;
+    // Ground under a building isn't flat — a single centroid height leaves one end floating where the
+    // terrain slopes away (the "touching the ground on one side" bug). Sample the whole FOOTPRINT and
+    // take the LOWEST point, so the base sits on the lowest ground under the building; the higher side
+    // buries harmlessly underground instead of floating. Flat ground → min == centroid → no change.
+    let groundElev = fastElev(cx, cy);
+    if (b.footprint && b.footprint.length >= 3) {
+      for (let i = 0; i < b.footprint.length; i++) {
+        const p = b.footprint[i];
+        if (!p) continue;
+        const e = fastElev(p.x, p.y);
+        if (Number.isFinite(e) && e < groundElev) groundElev = e;
+      }
+    }
+    let baseY = groundElev * vertExag + BUILDING_Z_OFFSET;
 
     let category = getBuildingCategory(b, roads, cx, cy);
     // Barcelona: NO height-based auto-glass (was the dark-tower cause). Glass only via explicit tags.
