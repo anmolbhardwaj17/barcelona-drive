@@ -28,8 +28,8 @@ const DAY = {
   hemiIntensity:    0.50,   // more sky fill so shadows stay bright
   dirIntensity:     3.0,    // sun a touch softer → less harsh contrast
   dirColor:         0xffeada, // warm afternoon sun, but not orange-heavy
-  fogColor:         0xaecadb,  // slightly lighter, warmer haze
-  fogDensity:       0.0052,     // eased from 0.007 — keeps the city crisp, distance still hazes
+  fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
+  fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,
   bgColor:          null,
   toneMappingExposure: 1.0,
@@ -41,18 +41,18 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x263a9e,  // DEEP saturated indigo (grey-blue washed the night out — go richer + darker)
-  ambientIntensity: 0.72,      // much deeper shadows for CONTRAST (headlights are bright now); rich, not flat
-  hemiSkyColor:     0x223e9c,  // saturated blue sky fill
-  hemiGroundColor:  0x0f0c20,
-  hemiIntensity:    0.20,
-  dirIntensity:     0.5,       // moonlight — form on the tops
-  dirColor:         0xbcd0ff,  // cool blue-white moonlight
-  fogColor:         0x080f24,
-  fogDensity:       0.0045,     // thin night haze so the distance keeps its deep blue, not grey murk
+  ambientColor:     0x424c74,  // softer, LESS-saturated deep blue (pure indigo read too blue + cold)
+  ambientIntensity: 0.9,       // brighter than 0.72 — was too dark to see; still moody with grade-veil gone
+  hemiSkyColor:     0x364066,  // softer blue sky fill
+  hemiGroundColor:  0x1a1626,  // faint warm-ish ground bounce to break the all-blue cast
+  hemiIntensity:    0.24,
+  dirIntensity:     0.55,      // moonlight — form on the tops
+  dirColor:         0xcdd6f0,  // near-neutral cool moonlight (less blue)
+  fogColor:         0x121a34,
+  fogDensity:       0.0045,     // thin night haze so the distance keeps depth, not grey murk
   skyVisible:       false,
   bgColor:          0x0e1730,  // deeper blue night sky (was too washed/grey)
-  toneMappingExposure: 0.92,   // lower → moodier, deeper night so the blue reads rich (grade still lifts a bit)
+  toneMappingExposure: 1.02,   // was 0.92 (too dark to see) — lifted; grade black-lift is off at night so no grey wash
   lampEmissive:     8.5,       // hotter streetlamp glow → warm pops punch through the deep blue
   poolOpacity:      1.0,
   bloomStrength:    0.95,      // stronger glow at night

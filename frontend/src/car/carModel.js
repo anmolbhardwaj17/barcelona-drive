@@ -257,13 +257,15 @@ export async function createCarModel(scene) {
 
   // ── Headlight SpotLights ─────────────────────────────────────────────────
   const _headlightSpots = [];
-  const HEADLIGHT_DAY = 5.0, HEADLIGHT_NIGHT = 48.0;  // soft DRL by day, long blazing beam at night
+  const HEADLIGHT_DAY = 6.0, HEADLIGHT_NIGHT = 95.0;  // soft DRL by day, BROAD blazing beam at night (art-of-rally)
   if (CONFIG.ENABLE_CAR_LIGHTS) {
     const spotTarget = new THREE.Object3D();
     spotTarget.position.set(0, -1, 20);
     bodyGroup.add(spotTarget);
     for (const xPos of [-0.55, 0.55]) {
-      const spot = new THREE.SpotLight(0xFFFFCC, HEADLIGHT_DAY, 420, Math.PI / 5, 0.35); // 420m throw (was 180)
+      // BROAD warm cone (art-of-rally): wide angle (~56°) + long throw + soft edge → lights up the road
+      // AND the ground/foliage on both sides with lots of coverage.
+      const spot = new THREE.SpotLight(0xFFF0CC, HEADLIGHT_DAY, 520, Math.PI / 3.2, 0.55);
       spot.position.set(xPos, 0.30, 1.75);
       spot.target = spotTarget;
       spot.castShadow = false;

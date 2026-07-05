@@ -451,11 +451,11 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     const normalFactor = 0.85 + 0.15 * Math.max(0, ny);
 
     // ── Large soft grass color patches (4 colors blended via low-freq noise) ──
-    // Palette: dusty olive tones typical of Delhi dry-season ground
-    const GRASS_A = [0.46, 0.58, 0.30]; // dusty warm olive
-    const GRASS_B = [0.38, 0.50, 0.24]; // mid olive
-    const GRASS_C = [0.32, 0.44, 0.20]; // darker olive
-    const GRASS_D = [0.42, 0.54, 0.28]; // dusty sage
+    // Cooler, fresher greens (was dusty warm Delhi olive → read yellowish/weird against the art-of-rally palette).
+    const GRASS_A = [0.30, 0.50, 0.28]; // fresh green
+    const GRASS_B = [0.25, 0.43, 0.24]; // mid green
+    const GRASS_C = [0.20, 0.37, 0.20]; // darker green
+    const GRASS_D = [0.28, 0.47, 0.27]; // sage green
 
     // Very low frequency noise → large blobs (~30-60m patches)
     const patchNoise1 = terrainNoise(vx, vz, 0.007, 3.0);  // huge patches
@@ -510,10 +510,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     // Dirt patches — irregular worn soil areas using a separate noise layer
     const dirtNoise = terrainNoise(vx, vz, 0.08, 5.0); // ~4-10m patches
     if (dirtNoise > 0.2) {
-      const dirtStrength = Math.min(1, (dirtNoise - 0.2) / 0.30) * 0.38;
-      r = r * (1 - dirtStrength) + 0.48 * dirtStrength;
-      g = g * (1 - dirtStrength) + 0.42 * dirtStrength;
-      b = b * (1 - dirtStrength) + 0.30 * dirtStrength;
+      const dirtStrength = Math.min(1, (dirtNoise - 0.2) / 0.30) * 0.2; // subtler (was 0.38) — less tan wash
+      r = r * (1 - dirtStrength) + 0.40 * dirtStrength; // cooler, greyer soil (was warm tan 0.48/0.42/0.30)
+      g = g * (1 - dirtStrength) + 0.40 * dirtStrength;
+      b = b * (1 - dirtStrength) + 0.32 * dirtStrength;
     }
 
     // Roadside dark-dirt strip REMOVED — it painted a dark-brown band (heaviest right at the edge)

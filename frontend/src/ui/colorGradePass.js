@@ -59,9 +59,9 @@ const ColorGradeShader = {
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);
 
-      // 4. Lift blacks — for airy DAY shadows. NOT at night: lifting darks to grey is exactly the washed
-      //    "grey filter" veil over the night, so fade it out as uNight rises.
-      c = mix(c, c * 0.965 + mix(0.024, 0.05, uRally) * (1.0 - uNight), s);
+      // 4. Lift blacks — keep MINIMAL so shadows stay deep (a big lift read as a grey haze layer even by
+      //    day). Rally uses a tiny 0.018 lift (just avoids crushed darks), and none at night.
+      c = mix(c, c * 0.985 + mix(0.024, 0.018, uRally) * (1.0 - uNight), s);
 
       // 5. High-key brighten — bright/airy by DAY; at night it only greyed-out the deep shadows, so kill it.
       c *= mix(1.0, 1.14, uRally * s * (1.0 - uNight));
