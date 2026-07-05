@@ -88,7 +88,7 @@ export async function loadCarTemplate(url, targetLength = 4.4) {
 export async function loadCityCarTemplates(basePath = '/models/cars/', targetLength = 4.4) {
   const out = [];
   for (const name of CITY_CARS) {
-    try { out.push(await loadCarTemplate(basePath + name + '.glb', targetLength)); }
+    try { const t = await loadCarTemplate(basePath + name + '.glb', targetLength); t.name = name; out.push(t); }
     catch (e) { console.warn('[carModels] failed to load', name, e?.message || e); }
   }
   return out;
@@ -101,7 +101,7 @@ export async function loadCityCarTemplates(basePath = '/models/cars/', targetLen
  */
 // Shared glowing-light resources for traffic cars (one geometry + two materials for all clones).
 let _headLightMat = null, _tailLightMat = null, _carLightGeo = null;
-function addCarLights(outer, dims) {
+export function addCarLights(outer, dims) {
   if (!_carLightGeo) {
     _carLightGeo   = new THREE.PlaneGeometry(0.28, 0.14);
     _headLightMat  = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });

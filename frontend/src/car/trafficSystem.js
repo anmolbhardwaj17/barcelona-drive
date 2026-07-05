@@ -11,10 +11,22 @@
  * shared across cars of that variant, so the fleet is cheap. Frame: physics frame (added to `scene`).
  * World→physics: px = -(wx - origin.x), pz = wz - origin.z. Road point = {x:wx, y:wz}.
  */
+import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLLISION_GROUP_WORLD, COLLISION_GROUP_VEHICLE } from '../collisionGroups.js';
-import { loadCitySceneTemplates } from './carModels.js';
+import { loadCityCarTemplates, addCarLights } from './carModels.js';
 import { audio } from '../audio/audioManager.js';
+
+// Per-car body tint (multiplies the white-based Kenney texture → body takes this colour, while the dark
+// window texels + black wheel vertex-colours stay dark). Bright automotive palette — no greys (read dead).
+const CAR_TINTS = [
+  0xE8433A, 0x2E86DE, 0x27AE60, 0xF39C12, 0xF1C40F,
+  0xEcECEC, 0x8E44AD, 0x16A085, 0xD35400, 0x2C3E50,
+  0xC0392B, 0x3498DB, 0xffffff, 0x1ABC9C, 0xE67E22,
+];
+// Liveried models carry their own paint in the texture (taxi=yellow/black, police, delivery) — leave
+// them white-based so the authored livery shows through instead of being tint-shifted.
+const LIVERIED = new Set(['taxi', 'police', 'delivery']);
 
 const PASS_DIST = 5.5; // m — a traffic car entering this radius fires a pass-by whoosh
 
@@ -48,7 +60,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
   let _enabled = true;
   let _templates = [];
 
-  loadCitySceneTemplates('/models/cars/', 3.9)
+  loadCityCarTemplates('/models/cars/', 3.9)
     .then((t) => { _templates = t; })
     .catch((e) => console.warn('[traffic] car models load failed:', e?.message || e));
 
@@ -147,8 +159,14 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       if (startIdx < 0 || startIdx >= path.pts.length - 1) continue;
 
       const tpl = _templates[(Math.random() * _templates.length) | 0];
-      const mesh = tpl.scene.clone(true); // full-detail clone (textured: windows, lights, body)
-      mesh.traverse((o) => { if (o.isMesh) o.castShadow = false; }); // grounded by the fake contact shadow instead
+      // Merged tint-ready template (white body base + Kenney texture: windows dark in-texture, wheels
+      // black via baked vertex colours). Clone the material so we can give THIS car its own body colour —
+      // only the body picks up the tint; glass + wheels stay dark. Liveried models keep white (livery shows).
+      const mat = tpl.material.clone();
+      if (!LIVERIED.has(tpl.name)) mat.color.setHex(CAR_TINTS[(Math.random() * CAR_TINTS.length) | 0]);
+      const mesh = new THREE.Mesh(tpl.geometry, mat);
+      mesh.castShadow = false; // grounded by the fake contact shadow instead
+      addCarLights(mesh, tpl.dims); // glowing head/tail lights so traffic reads at night
       scene.add(mesh);
 
       const hw = tpl.dims.w / 2, hh = tpl.dims.h / 2, hl = tpl.dims.l / 2;
@@ -166,7 +184,8 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
   }
 
   function removeCar(car) {
-    scene.remove(car.mesh); // geometry/material are shared scene templates — don't dispose
+    scene.remove(car.mesh);
+    car.mesh.material?.dispose(); // per-car cloned tint material — dispose it (geometry is shared, keep it)
     world.removeBody(car.body);
   }
 
