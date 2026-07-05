@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
@@ -73,6 +74,20 @@ renderer.info.autoReset = false;
 // ── Post-processing — radial blur on screen edges at speed ────────────────
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// Depth-of-field (rally style only) — keep the car + foreground sharp, softly blur the far
+// background for that diorama look. Focus ~ chase-cam distance to the car. Tunable live via
+// window._bokehPass.uniforms.{focus,aperture,maxblur}.value.
+let bokehPass = null;
+if (isRallyStyle()) {
+  bokehPass = new BokehPass(scene, camera, {
+    focus: 22,        // world metres where things are sharp (car sits ~8–14m ahead of the chase cam)
+    aperture: 0.00028, // blur rate with distance from focus — small = only the far distance softens
+    maxblur: 0.008,   // clamp on blur radius
+    width: window.innerWidth, height: window.innerHeight,
+  });
+  composer.addPass(bokehPass);
+  window._bokehPass = bokehPass; // DevTools tuning
+}
 // Bloom — makes lights, tail lights, headlights, streetlights glow
 // Bloom at half resolution for performance — still looks great
 const bloomPass = new UnrealBloomPass(
