@@ -80,9 +80,9 @@ composer.addPass(new RenderPass(scene, camera));
 let bokehPass = null;
 if (isRallyStyle()) {
   bokehPass = new BokehPass(scene, camera, {
-    focus: 22,        // world metres where things are sharp (car sits ~8–14m ahead of the chase cam)
-    aperture: 0.00028, // blur rate with distance from focus — small = only the far distance softens
-    maxblur: 0.008,   // clamp on blur radius
+    focus: 12,         // metres — starting focus; the render loop locks it to the actual car distance
+    aperture: 0.00009, // SMALL → wide sharp zone (car + foreground crisp), only the far distance softens
+    maxblur: 0.004,    // gentle max blur
     width: window.innerWidth, height: window.innerHeight,
   });
   composer.addPass(bokehPass);
@@ -594,6 +594,12 @@ function animate(time = 0) {
   const blurSpd = Math.abs(speedKmh || 0);
   radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 40) / 80));
   radialBlurPass.enabled = blurSpd > 42;
+  // DOF (rally): lock focus to the car so it's ALWAYS tack-sharp; only the far background softens.
+  if (bokehPass && carDriver) {
+    const lp = carDriver.getLocalPosition();
+    const fdx = camera.position.x - lp.lx, fdz = camera.position.z - lp.lz;
+    bokehPass.uniforms['focus'].value = Math.max(6, Math.hypot(fdx, fdz));
+  }
   renderer.info.reset();
   composer.render();
   // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is
