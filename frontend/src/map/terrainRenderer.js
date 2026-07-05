@@ -715,8 +715,50 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   mesh.receiveShadow = !!CONFIG.ENABLE_SHADOWS;
   mesh.frustumCulled = true;
 
-  /** Returns normalized elevation (raw DEM - worldElevationOffset), NOT raw. Same space as terrain mesh before vertExag. */
+  // ── Baked-terrain sampler ────────────────────────────────────────────────────────────────────────
+  // getElevationAt must return the SAME height the ground is rendered + simulated at. The baked mesh
+  // positions carry the DEM *with tunnel carving + water dips applied*; the raw `elevation` grid does
+  // NOT — so reading the grid made buildings/colliders/scenery FLOAT over any carved or dipped area
+  // (the big floating-building bug). Sample the baked positions directly instead.
+  // Layout (terrainBaker): vi = r*cols + c, x linear in column (xWest + c*xStep), z constant per row.
+  let _bakedSample = null;
+  if (useBaked && positions && positions.length >= 12) {
+    const n = positions.length / 3;
+    const z0 = positions[2];
+    let cols = 1;
+    while (cols < n && positions[cols * 3 + 2] === z0) cols++;
+    const rows = (cols >= 2 && n % cols === 0) ? n / cols : 0;
+    const xStep = rows >= 2 ? (positions[(cols - 1) * 3] - positions[0]) / (cols - 1) : 0;
+    if (rows >= 2 && Math.abs(xStep) > 1e-9) {
+      const xW = positions[0];
+      const zRow = new Float64Array(rows);
+      for (let r = 0; r < rows; r++) zRow[r] = positions[(r * cols) * 3 + 2];
+      const zAsc = zRow[rows - 1] >= zRow[0];
+      _bakedSample = (wx, wz) => {
+        let fc = (wx - xW) / xStep;
+        if (fc < 0) fc = 0; else if (fc > cols - 1) fc = cols - 1;
+        const c0 = fc | 0, c1 = c0 + 1 < cols ? c0 + 1 : c0, cf = fc - c0;
+        let lo = 0, hi = rows - 1;                        // binary-search the row band (zRow monotonic)
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if ((zRow[mid] <= wz) === zAsc) lo = mid; else hi = mid; }
+        const zSpan = zRow[hi] - zRow[lo];
+        let rf = zSpan !== 0 ? (wz - zRow[lo]) / zSpan : 0;
+        if (rf < 0) rf = 0; else if (rf > 1) rf = 1;
+        const y00 = positions[(lo * cols + c0) * 3 + 1], y01 = positions[(lo * cols + c1) * 3 + 1];
+        const y10 = positions[(hi * cols + c0) * 3 + 1], y11 = positions[(hi * cols + c1) * 3 + 1];
+        const yT = y00 + (y01 - y00) * cf, yB = y10 + (y11 - y10) * cf;
+        return yT + (yB - yT) * rf;
+      };
+    }
+  }
+
+  /** Normalized elevation (DEM - worldElevationOffset). Sampled from the BAKED mesh (carving + water
+   *  baked in) so buildings/colliders sit on the ACTUAL ground; falls back to the raw grid. */
   function getElevationAt(lat, lon) {
+    if (_bakedSample) {
+      const w = latLonToWorld(lat, lon);
+      const y = _bakedSample(w.x, w.z);
+      if (Number.isFinite(y)) return y - offset;
+    }
     const raw = getElevationFromGrid(elevation, lat, lon);
     return raw - offset;
   }
