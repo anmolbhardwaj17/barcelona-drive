@@ -415,6 +415,12 @@ export function buildStreetlights(roads, junctionPoints, options) {
       } else {
         baseY = layer * LAYER_HEIGHT_STEP;
       }
+      // Drop poles whose base sits well above the terrain — the baked road elevation can be wrong/spiky
+      // and leaves a streetlight hanging in the sky. Remove it rather than plant a floater.
+      if (!isBridge && options?.getGroundY) {
+        const gy = options.getGroundY(px, pz);
+        if (Number.isFinite(gy) && baseY - gy > 6) continue; // floating in the air → skip entirely
+      }
       instances.push({ px, py: baseY, pz, armAngle, lampX, lampZ, roadTx: s.tx, roadTz: s.tz, isBridge });
 
       // Convex mirror: on residential road poles near junctions
