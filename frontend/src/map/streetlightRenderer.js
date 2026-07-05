@@ -22,7 +22,8 @@ const JUNCTION_SKIP  = 10;
 const LAYER_HEIGHT_STEP = 6;
 
 const POOL_SIZE      = 9;     // m diameter of ground light pool
-const POOL_Y_OFFSET  = 0.18;  // must clear road mesh (ROAD_VISUAL_ABOVE_TERRAIN = 0.09)
+const POOL_Y_OFFSET  = 0.34;  // clear the curb/sidewalk (~0.2m) too — the pool sits at road level but the
+                              // lamp stands on the higher sidewalk, so the curb was clipping half the glow.
 
 // Base shadow length for pole contact shadow
 const BASE_SHADOW_LEN = 10.0;

@@ -41,19 +41,19 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x37489c,  // RICH saturated indigo-blue (was 0x6982b4 grey-blue → whole night read grey)
-  ambientIntensity: 1.0,       // moody deep-blue fill (headlights are brighter now, so we can go deeper)
-  hemiSkyColor:     0x2a4290,  // more saturated blue sky fill
-  hemiGroundColor:  0x120e22,
-  hemiIntensity:    0.22,      // sky/ground fill so buildings + trees stay readable at night
-  dirIntensity:     0.5,       // moonlight — a bit stronger for form
+  ambientColor:     0x263a9e,  // DEEP saturated indigo (grey-blue washed the night out — go richer + darker)
+  ambientIntensity: 0.72,      // much deeper shadows for CONTRAST (headlights are bright now); rich, not flat
+  hemiSkyColor:     0x223e9c,  // saturated blue sky fill
+  hemiGroundColor:  0x0f0c20,
+  hemiIntensity:    0.20,
+  dirIntensity:     0.5,       // moonlight — form on the tops
   dirColor:         0xbcd0ff,  // cool blue-white moonlight
-  fogColor:         0x0a1226,
-  fogDensity:       0.005,      // thinner night haze (was 0.009) — grey murk was flattening the mood
+  fogColor:         0x080f24,
+  fogDensity:       0.0045,     // thin night haze so the distance keeps its deep blue, not grey murk
   skyVisible:       false,
-  bgColor:          0x121a2e,  // deep blue, not pure black — slightly lifted
-  toneMappingExposure: 1.05,   // a touch more exposure at night
-  lampEmissive:     5.0,       // streetlamp glow (bloom); a bit hotter so lamps read as the light source
+  bgColor:          0x0e1730,  // deeper blue night sky (was too washed/grey)
+  toneMappingExposure: 0.92,   // lower → moodier, deeper night so the blue reads rich (grade still lifts a bit)
+  lampEmissive:     8.5,       // hotter streetlamp glow → warm pops punch through the deep blue
   poolOpacity:      1.0,
   bloomStrength:    0.95,      // stronger glow at night
   bloomThreshold:   0.62,      // lower threshold → lamps/windows/signs/shopfronts all bloom
