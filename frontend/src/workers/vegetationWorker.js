@@ -1595,9 +1595,13 @@ function buildTreeVariantInstances(positions, getElev, vertExag) {
   const colors = new Float32Array(count * 3);
   const LEAN_MAX = (4 * Math.PI) / 180;
   const tintPalette = [
-    // Lighter, slightly warmer foliage so street trees read as airy canopy, not a dark forest.
-    hexToRgb(0x7C9B4E), hexToRgb(0x88A557),
-    hexToRgb(0x95A862), hexToRgb(0xA3AC72),
+    // Varied greens (the bulk) — light/medium/dark + yellow-green — so the canopy reads lively, not flat.
+    hexToRgb(0x7C9B4E), hexToRgb(0x88A557), hexToRgb(0x95A862), hexToRgb(0xA3AC72),
+    hexToRgb(0x6E9440), hexToRgb(0x5F8A3C), hexToRgb(0x9CB84E), hexToRgb(0x72A85A),
+    hexToRgb(0x84A94A), hexToRgb(0x678F3E),
+    // Warm autumn accents — a MINORITY (~2 of 12) so a few trees pop golden/amber (the art-of-rally
+    // colour variety) without turning urban Barcelona into a full autumn forest.
+    hexToRgb(0xC7A23E), hexToRgb(0xC17A34),
   ];
 
   for (let i = 0; i < count; i++) {
@@ -1617,9 +1621,10 @@ function buildTreeVariantInstances(positions, getElev, vertExag) {
     const pickIdx = Math.floor(seeded(i, 7) * tintPalette.length) % tintPalette.length;
     const tint = tintPalette[pickIdx];
     const brightShift = 0.82 + seeded(i, 8) * 0.36;
-    colors[i * 3]     = 0.6 + tint[0] * brightShift * 0.8;
-    colors[i * 3 + 1] = 0.6 + tint[1] * brightShift * 0.8;
-    colors[i * 3 + 2] = 0.6 + tint[2] * brightShift * 0.8;
+    // Less white-wash (0.6->0.46) + a touch more gain so the palette hues (incl. warm accents) read.
+    colors[i * 3]     = 0.46 + tint[0] * brightShift * 0.95;
+    colors[i * 3 + 1] = 0.46 + tint[1] * brightShift * 0.95;
+    colors[i * 3 + 2] = 0.46 + tint[2] * brightShift * 0.95;
   }
 
   return { matrices, colors, count };

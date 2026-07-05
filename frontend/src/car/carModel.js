@@ -271,9 +271,19 @@ export async function createCarModel(scene) {
       _headlightSpots.push(spot);
     }
   }
-  /** Day/night: headlights are a soft DRL by day, a strong beam at night. */
-  function setNight(isNight) {
-    for (const s of _headlightSpots) s.intensity = isNight ? HEADLIGHT_NIGHT : HEADLIGHT_DAY;
+  /** Day/night: headlights are a soft DRL by day, a strong beam at night — unless manually overridden. */
+  let _isNight = false;
+  let _lightsForced = null; // null = auto (follow day/night); true = forced ON; false = forced OFF
+  function _applyLights() {
+    const on = _lightsForced == null ? _isNight : _lightsForced;
+    for (const s of _headlightSpots) s.intensity = on ? HEADLIGHT_NIGHT : HEADLIGHT_DAY;
+  }
+  function setNight(isNight) { _isNight = isNight; _applyLights(); }
+  /** Cycle the headlights: auto -> ON -> OFF -> auto. Returns the new state label. */
+  function toggleHeadlights() {
+    _lightsForced = _lightsForced == null ? true : (_lightsForced ? false : null);
+    _applyLights();
+    return _lightsForced == null ? 'auto' : (_lightsForced ? 'on' : 'off');
   }
 
   scene.add(bodyGroup);
@@ -516,7 +526,7 @@ export async function createCarModel(scene) {
 
   console.log('[CarModel] BMW M3 ready');
   return {
-    update, dispose, setCarColor, setNight,
+    update, dispose, setCarColor, setNight, toggleHeadlights,
     taillightMeshL: fakeTailMeshL, taillightMeshR: fakeTailMeshR,
     headlightMeshL: fakeHeadMeshL, headlightMeshR: fakeHeadMeshR,
     indicatorMatL: indicMatL, indicatorMatR: indicMatR,

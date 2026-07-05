@@ -80,9 +80,9 @@ composer.addPass(new RenderPass(scene, camera));
 let bokehPass = null;
 if (isRallyStyle()) {
   bokehPass = new BokehPass(scene, camera, {
-    focus: 12,         // metres — starting focus; the render loop locks it to the actual car distance
-    aperture: 0.00009, // SMALL → wide sharp zone (car + foreground crisp), only the far distance softens
-    maxblur: 0.004,    // gentle max blur
+    focus: 12,          // metres — starting focus; the render loop locks it to the actual car distance
+    aperture: 0.000035, // VERY small → wide sharp zone: car + near/mid stay crisp, only the FAR distance softens
+    maxblur: 0.003,     // gentle max blur
     width: window.innerWidth, height: window.innerHeight,
   });
   composer.addPass(bokehPass);
@@ -682,6 +682,7 @@ function setPhotoMode(on) {
 window.addEventListener('keydown', (e) => {
   if (isInputBlocked() || isTypingTarget(document.activeElement)) return;
   if (e.code === 'KeyP') { e.preventDefault(); setPhotoMode(!_photoOn); return; }
+  if (e.code === 'KeyL') { e.preventDefault(); carDriver?.toggleHeadlights?.(); return; } // headlights: auto→on→off
   // While in Photo Mode, +/- grow/shrink the loaded area (push it up until your machine strains).
   if (_photoOn && (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+')) {
     e.preventDefault(); tileManager?.setPhotoRadius?.((tileManager.getPhotoRadius?.() ?? 4) + 1); _updatePhotoInfo();

@@ -1377,8 +1377,9 @@ export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
   const speedSignMeshes = buildSpeedSignMeshes(signInstances);
   meshes.push(...speedSignMeshes);
 
-  // 2. Traffic lights (pole + 3 animated bulb InstancedMeshes)
-  const tlInstances = groundInstances(generateTrafficLights(intersections, roads));
+  // 2. Traffic lights REMOVED per user request — in daylight the signal box just read as an ugly
+  //    dark box on a stick sitting in the driving path. (Re-enable: restore generateTrafficLights.)
+  const tlInstances = [];
   if (tlInstances.length > 0) {
     const { poleGeom, poleMat, bulbGeom } = getTLPoleResources();
     const count = tlInstances.length;
