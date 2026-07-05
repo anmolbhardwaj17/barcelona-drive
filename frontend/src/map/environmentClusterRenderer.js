@@ -373,7 +373,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
     const mat = getRockMaterial();
     const mesh = new THREE.InstancedMesh(geo, mat, rockInstances.length);
     mesh.count = rockInstances.length;
-    mesh.frustumCulled = true;
+    mesh.frustumCulled = false; // InstancedMesh bounding sphere = one base item at origin → getting close
+                                // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.userData.sharedGeometry = true;
@@ -412,7 +413,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
     const mat = getBushMaterial();
     const mesh = new THREE.InstancedMesh(geo, mat, bushInstances.length);
     mesh.count = bushInstances.length;
-    mesh.frustumCulled = true;
+    mesh.frustumCulled = false; // InstancedMesh bounding sphere = one base item at origin → getting close
+                                // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.userData.sharedGeometry = true;
@@ -465,7 +467,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       if (bucket.length === 0) continue;
       const mesh = new THREE.InstancedMesh(treeGeos[vi], treeMat, bucket.length);
       mesh.count = bucket.length;
-      mesh.frustumCulled = true;
+      mesh.frustumCulled = false; // InstancedMesh bounding sphere = one base item at origin → getting close
+                                // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.userData.sharedGeometry = true;
