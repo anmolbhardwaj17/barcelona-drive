@@ -7,6 +7,7 @@ import * as CANNON from 'cannon-es';
 import { latLonToWorld } from './projection.js';
 import { START_LAT, START_LON } from './spawnConfig.js';
 import { CONFIG } from './config.js';
+import { isRallyStyle } from './rallyStyle.js';
 
 // ---------------------------------------------------------------------------
 // Shared sky palette — single source of truth for sky, fog, ambient, and car env.
@@ -572,11 +573,11 @@ export function createScene(container) {
   scene.add(dirLight.target);  // target must be in scene for shadow camera to follow
   if (!CONFIG.ENABLE_DAY_NIGHT) scene.add(dirLight);
 
-  if (CONFIG.ENABLE_FOG) {
+  if (CONFIG.ENABLE_FOG || isRallyStyle()) {
     // Exponential fog — color matches sky horizon so terrain fades into sky seamlessly.
     // Density 0.005: reads as atmosphere without aggressively culling near tiles.
-    // tileManager FOG_FULL_DIST = 280m still fires correctly at this density.
-    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), 0.005);
+    // Rally style: a touch denser (0.0075) so distance melts into a soft haze — the diorama depth.
+    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0075 : 0.005);
   }
 
   // Physics world (cannon-es)

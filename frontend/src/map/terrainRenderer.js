@@ -11,6 +11,7 @@ import { CONFIG } from '../config.js';
 import { WATER_DEPTH, pointInWaterPolygon, polygonArea } from './waterRenderer.js';
 const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
+import { isRallyStyle } from '../rallyStyle.js';
 
 /** No-op stubs kept for API compatibility. */
 export function loadTerrainGroundTextures() { return Promise.resolve([]); }
@@ -659,13 +660,13 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.50;
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
-      // ── 7. Fiber texture micro-detail ──
+      // ── 7. Fiber texture micro-detail ── (rally style keeps the ground nearly flat/clean)
       vec2 fiberUV = wPos * detailScale;
       float fiber = texture2D(terrainDetailTex, fiberUV).r;
-      diffuseColor.rgb *= 0.70 + fiber * 0.52;`
+      diffuseColor.rgb *= ${isRallyStyle() ? '0.92 + fiber * 0.12' : '0.70 + fiber * 0.52'};`
     );
   };
-  material.customProgramCacheKey = () => 'terrainDelhiProcedural';
+  material.customProgramCacheKey = () => 'terrainDelhiProcedural' + (isRallyStyle() ? '_rally' : '');
 
   const mesh = new THREE.Mesh(geometry, material);
   if (useBaked) {

@@ -25,6 +25,7 @@ import { createSpeedDisplay } from './ui/speedDisplay.js';
 import { createSpeedLines } from './ui/speedLines.js';
 import { createMetricsPanel } from './ui/metricsPanel.js';
 import { isInputBlocked, isTypingTarget } from './inputGate.js';
+import { isRallyStyle } from './rallyStyle.js';
 import { createMinimap } from './ui/minimap.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
@@ -76,7 +77,7 @@ composer.addPass(new RenderPass(scene, camera));
 // Bloom at half resolution for performance — still looks great
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-  0.5,    // strength — visible glow on car lights
+  isRallyStyle() ? 0.28 : 0.5, // strength — rally keeps bloom restrained/clean
   0.4,    // radius — soft spread
   1.1,    // threshold — above sky/clouds (~1.0 max) but reachable by car light emissives
 );
