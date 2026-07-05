@@ -41,15 +41,15 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x6982b4,  // cool blue sky-bounce, lifted a touch for visibility
-  ambientIntensity: 1.15,      // raised (was 0.75) — felt too dark to drive; still moody, not washed (1.6 was).
-  hemiSkyColor:     0x2a3d60,
-  hemiGroundColor:  0x141020,
-  hemiIntensity:    0.20,      // more sky/ground fill so buildings + trees stay readable at night
-  dirIntensity:     0.45,      // moonlight — a bit stronger for form
-  dirColor:         0xc8d8ff,  // cool blue-white moonlight
-  fogColor:         0x0a1020,
-  fogDensity:       0.009,
+  ambientColor:     0x37489c,  // RICH saturated indigo-blue (was 0x6982b4 grey-blue → whole night read grey)
+  ambientIntensity: 1.0,       // moody deep-blue fill (headlights are brighter now, so we can go deeper)
+  hemiSkyColor:     0x2a4290,  // more saturated blue sky fill
+  hemiGroundColor:  0x120e22,
+  hemiIntensity:    0.22,      // sky/ground fill so buildings + trees stay readable at night
+  dirIntensity:     0.5,       // moonlight — a bit stronger for form
+  dirColor:         0xbcd0ff,  // cool blue-white moonlight
+  fogColor:         0x0a1226,
+  fogDensity:       0.005,      // thinner night haze (was 0.009) — grey murk was flattening the mood
   skyVisible:       false,
   bgColor:          0x121a2e,  // deep blue, not pure black — slightly lifted
   toneMappingExposure: 1.05,   // a touch more exposure at night
