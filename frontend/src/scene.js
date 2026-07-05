@@ -477,7 +477,7 @@ export function createScene(container) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap: DPR 2 = 4× the fragments everywhere
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.LinearToneMapping;
-  renderer.toneMappingExposure = 1.25;
+  renderer.toneMappingExposure = isRallyStyle() ? 1.5 : 1.25; // rally: brighter, airy high-key exposure
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const canvas = renderer.domElement;
@@ -548,9 +548,9 @@ export function createScene(container) {
   // warm-key / cool-shadow separation is what makes flat low-poly facets pop (the art-of-rally look).
   const _rally = isRallyStyle();
   const ambColor = _rally
-    ? new THREE.Color(0xbcd2f2).lerp(SKY_HORIZON, 0.3)   // cool blue sky-bounce
+    ? new THREE.Color(0xdfeaf7).lerp(SKY_HORIZON, 0.16)  // BRIGHT, faintly cool sky-bounce (airy high-key)
     : new THREE.Color(0xffe8c8).lerp(SKY_HORIZON, 0.25);
-  const ambientLight = new THREE.AmbientLight(ambColor, _rally ? 0.62 : 0.55);
+  const ambientLight = new THREE.AmbientLight(ambColor, _rally ? 0.92 : 0.55);
   scene.add(ambientLight);
 
   // Hemisphere light removed — simpler two-light setup
@@ -582,7 +582,7 @@ export function createScene(container) {
     // Exponential fog — color matches sky horizon so terrain fades into sky seamlessly.
     // Density 0.005: reads as atmosphere without aggressively culling near tiles.
     // Rally style: a touch denser (0.0075) so distance melts into a soft haze — the diorama depth.
-    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0075 : 0.005);
+    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0045 : 0.005);
   }
 
   // Physics world (cannon-es)

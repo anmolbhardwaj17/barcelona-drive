@@ -39,29 +39,33 @@ const ColorGradeShader = {
       vec3 c = col.rgb;
       float s = uGradeStrength;
 
-      // 1. Saturation — default RICHER streets (1.15); rally style MUTES toward a cohesive palette (0.84).
+      // 1. Saturation — RICHER streets (1.15); rally style is VIVID (art of rally is bright + saturated,
+      //    NOT muted — the earlier "cohesive muted palette" was exactly backwards).
       float l0 = luma(c);
-      float satAmt = mix(1.15, 0.84, uRally);
+      float satAmt = mix(1.15, 1.42, uRally);
       c = mix(c, mix(vec3(l0), c, satAmt), s);
 
-      // 2. Gentle contrast S-curve — softer in rally style (cleaner, less punchy).
+      // 2. Gentle contrast S-curve.
       const float pivot = 0.18;
-      float con = mix(1.06, 1.015, uRally);
+      float con = mix(1.06, 1.03, uRally);
       c = mix(c, (c - pivot) * con + pivot, s);
 
-      // 3. Split-tone: warm highlights, faintly cool shadows. Rally leans a touch warmer + softer.
+      // 3. Split-tone: warm highlights, faintly cool shadows (kept gentle in rally so it stays bright).
       float l1 = luma(c);
-      vec3 warm = mix(vec3(1.045, 1.01, 0.95), vec3(1.06, 1.015, 0.935), uRally);
-      vec3 cool = mix(vec3(0.98, 1.00, 1.03),  vec3(0.99, 1.005, 1.015), uRally);
+      vec3 warm = vec3(1.045, 1.01, 0.95);
+      vec3 cool = vec3(0.98, 1.00, 1.03);
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);
 
-      // 4. Lift blacks so shadows stay open/readable — a bit more lift in rally (airy, no crushed darks).
-      c = mix(c, c * 0.965 + mix(0.024, 0.034, uRally), s);
+      // 4. Lift blacks — rally lifts more for airy, open shadows (high-key, cheerful, no gloom).
+      c = mix(c, c * 0.965 + mix(0.024, 0.05, uRally), s);
 
-      // 5. Vignette — subtle by default; a touch stronger in rally for the diorama focus.
+      // 5. High-key brighten — art of rally reads bright/airy, not dim. Scale overall exposure up.
+      c *= mix(1.0, 1.14, uRally * s);
+
+      // 6. Vignette — subtle by default; rally keeps it minimal so the frame stays open + bright.
       float dist = length(vUv - vec2(0.5));
-      float vignette = 1.0 - smoothstep(0.36, 0.82, dist) * mix(0.15, 0.26, uRally) * s;
+      float vignette = 1.0 - smoothstep(0.36, 0.82, dist) * mix(0.15, 0.05, uRally) * s;
       c *= vignette;
 
       gl_FragColor = vec4(max(c, 0.0), col.a);
