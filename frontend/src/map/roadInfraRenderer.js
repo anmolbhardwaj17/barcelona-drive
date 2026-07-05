@@ -1372,8 +1372,8 @@ export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
   const _scale = new THREE.Vector3(1, 1, 1);
   const _axisY = new THREE.Vector3(0, 1, 0);
 
-  // 1. Speed limit signs (Indian-style yellow board with red circle)
-  const signInstances = groundInstances(generateSpeedSigns(roads, junctionPts, rng));
+  // 1. Speed limit signs REMOVED — read as floating/ugly poles. (Re-enable: restore generateSpeedSigns.)
+  const signInstances = [];
   const speedSignMeshes = buildSpeedSignMeshes(signInstances);
   meshes.push(...speedSignMeshes);
 
@@ -1474,12 +1474,12 @@ export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
   }
 
   // 4. Direction boards (Barcelona/Spanish white urban directional signs)
-  const boardInstances = generateDirectionBoards(intersections, roads, rng);
+  const boardInstances = []; // direction boards REMOVED — floating/ugly poles (restore generateDirectionBoards)
   const boardMeshes = buildDirectionBoardMeshes(boardInstances);
   meshes.push(...boardMeshes);
 
   // 5. Highway gantries (green boards with text + gray poles)
-  const gantryInstances = generateGantries(roads, intersections);
+  const gantryInstances = []; // highway gantries REMOVED — floating/ugly poles (restore generateGantries)
   const gantryMeshes = buildGantryMeshes(gantryInstances);
   meshes.push(...gantryMeshes);
 
