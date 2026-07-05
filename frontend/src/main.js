@@ -406,6 +406,8 @@ spawnTileReady.finally(() => {
     minimap          = createMinimap(spawnCenter);
     if (minimap?.setNightMode) onNightModeChange((isNight) => minimap.setNightMode(isNight));
     onNightModeChange((isNight) => carDriver?.setNight?.(isNight)); // day/night ambience swap
+    // Grade: at night, disable the black-lift + high-key brighten (they wash the dark to a grey veil).
+    onNightModeChange((isNight) => { colorGradePass.uniforms.uNight.value = isNight ? 1.0 : 0.0; });
     minimap?.setMarkerMode(!!carDriver);
     compassBar       = createCompassBar();
     performancePanel = createPerformancePanel(scene, renderer, tileManager, CONFIG.ENABLE_PERFORMANCE_PANEL);

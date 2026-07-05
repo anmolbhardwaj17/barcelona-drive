@@ -15,7 +15,8 @@ const ColorGradeShader = {
   uniforms: {
     tDiffuse:       { value: null },
     uGradeStrength: { value: 1.0 }, // 0=neutral, 1=default grade, scalable
-    uRally:         { value: 0.0 }, // 1 = art-of-rally muted palette (desaturate + warmer + softer)
+    uRally:         { value: 0.0 }, // 1 = art-of-rally vivid/bright grade
+    uNight:         { value: 0.0 }, // 1 = night: kill the black-lift + high-key brighten (they grey-wash the dark)
   },
 
   vertexShader: /* glsl */ `
@@ -30,6 +31,7 @@ const ColorGradeShader = {
     uniform sampler2D tDiffuse;
     uniform float uGradeStrength;
     uniform float uRally;
+    uniform float uNight;
     varying vec2 vUv;
 
     float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -57,11 +59,12 @@ const ColorGradeShader = {
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);
 
-      // 4. Lift blacks — rally lifts more for airy, open shadows (high-key, cheerful, no gloom).
-      c = mix(c, c * 0.965 + mix(0.024, 0.05, uRally), s);
+      // 4. Lift blacks — for airy DAY shadows. NOT at night: lifting darks to grey is exactly the washed
+      //    "grey filter" veil over the night, so fade it out as uNight rises.
+      c = mix(c, c * 0.965 + mix(0.024, 0.05, uRally) * (1.0 - uNight), s);
 
-      // 5. High-key brighten — art of rally reads bright/airy, not dim. Scale overall exposure up.
-      c *= mix(1.0, 1.14, uRally * s);
+      // 5. High-key brighten — bright/airy by DAY; at night it only greyed-out the deep shadows, so kill it.
+      c *= mix(1.0, 1.14, uRally * s * (1.0 - uNight));
 
       // 6. Vignette — subtle by default; rally keeps it minimal so the frame stays open + bright.
       float dist = length(vUv - vec2(0.5));
