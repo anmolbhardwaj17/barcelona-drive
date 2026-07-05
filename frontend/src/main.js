@@ -7,6 +7,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
@@ -74,6 +75,26 @@ renderer.info.autoReset = false;
 // ── Post-processing — radial blur on screen edges at speed ────────────────
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// Ambient occlusion (rally style) — GTAO grounds everything with soft contact shadows in crevices,
+// under cars, at building bases + curbs + tree trunks. THE key art-of-rally "baked diorama" ingredient.
+// Sits right after RenderPass so it darkens the beauty buffer before bloom/DOF/grade. Tunable live via
+// window._gtaoPass (.output, .blendIntensity) + window._gtaoTune(radius, scale).
+let gtaoPass = null;
+if (isRallyStyle()) {
+  gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+  gtaoPass.output = GTAOPass.OUTPUT.Default; // AO multiplied onto the rendered colour
+  gtaoPass.blendIntensity = 1.0;
+  // world-space radius in metres (1 unit = 1 m) — broad-ish so it reads as soft grounding, not tight grime
+  gtaoPass.updateGtaoMaterial({
+    radius: 2.2, distanceExponent: 1.0, thickness: 1.0,
+    scale: 1.35, samples: 8, distanceFallOff: 1.0, screenSpaceRadius: false, // 8 samples + denoise = smooth, perf-safe
+  });
+  gtaoPass.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 16 });
+  composer.addPass(gtaoPass);
+  window._gtaoPass = gtaoPass;
+  window._gtaoTune = (radius = 2.2, scale = 1.35) =>
+    gtaoPass.updateGtaoMaterial({ radius, distanceExponent: 1.0, thickness: 1.0, scale, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
+}
 // Depth-of-field (rally style only) — keep the car + foreground sharp, softly blur the far
 // background for that diorama look. Focus ~ chase-cam distance to the car. Tunable live via
 // window._bokehPass.uniforms.{focus,aperture,maxblur}.value.

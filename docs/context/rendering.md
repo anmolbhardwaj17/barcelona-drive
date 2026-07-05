@@ -153,12 +153,21 @@ No HDR environment map is used for IBL — lighting is entirely from the two dir
 ```
 RenderPass (scene, camera)
     ↓
+GTAOPass            (rally-only — soft contact AO; samples 8 + poisson denoise; world radius 2.2 m)
+    ↓
+BokehPass           (rally-only — depth-of-field; focus locked to car distance each frame)
+    ↓
 UnrealBloomPass (half-resolution)
     ↓
-RadialBlurPass (custom ShaderPass)
+RadialBlurPass (custom ShaderPass — speed-gated)
+    ↓
+ColorGradePass (custom ShaderPass — sat/contrast/split-tone/vignette; uRally + uNight uniforms)
     ↓
 OutputPass (gamma/color space conversion)
 ```
+
+The two rally-only passes (GTAO, Bokeh) are added only when `isRallyStyle()` (`?style=rally`). Live-tunable
+in DevTools via `window._gtaoPass` / `window._gtaoTune(radius, scale)`, `window._bokehPass`, `window._colorGradePass`.
 
 ### UnrealBloom
 ```js
