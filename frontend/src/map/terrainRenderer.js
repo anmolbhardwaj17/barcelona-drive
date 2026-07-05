@@ -515,36 +515,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       b = b * (1 - dirtStrength) + 0.30 * dirtStrength;
     }
 
-    // Dusty brown gradient near roads — strong Delhi roadside dirt strip
-    if (roadDistGrid) {
-      // Fast grid lookup instead of brute-force over all road segments
-      const gc = Math.floor((vx - rdgMinX) / rdgCellSize);
-      const gr = Math.floor((vz - rdgMinZ) / rdgCellSize);
-      const distSq = (gc >= 0 && gc < rdgCols && gr >= 0 && gr < rdgRows)
-        ? roadDistGrid[gr * rdgCols + gc]
-        : Infinity;
-      // Inner zone: 0–4m — heavy dark brown (packed dirt/dust right at road edge)
-      const INNER = 4, INNER_SQ = INNER * INNER;
-      // Outer zone: 4–15m — fading dusty gradient
-      const OUTER = 15, OUTER_SQ = OUTER * OUTER;
-      if (distSq < OUTER_SQ) {
-        const dist = Math.sqrt(distSq);
-        let strength;
-        if (dist < INNER) {
-          // 0–4m: strong 65% blend, slight noise variation
-          const dirtVar = terrainNoise(vx, vz, 0.15, 8.0) * 0.08;
-          strength = 0.65 + dirtVar;
-        } else {
-          // 4–15m: quadratic falloff from 45% to 0%
-          const t = 1 - (dist - INNER) / (OUTER - INNER);
-          strength = t * t * 0.45;
-        }
-        // Dark dusty brown — packed earth typical of Delhi roadsides
-        r = r * (1 - strength) + 0.50 * strength;
-        g = g * (1 - strength) + 0.44 * strength;
-        b = b * (1 - strength) + 0.32 * strength;
-      }
-    }
+    // Roadside dark-dirt strip REMOVED — it painted a dark-brown band (heaviest right at the edge)
+    // along every road, which read as an unwanted thin dark outline in Barcelona. Terrain now meets
+    // roads cleanly with no edge line. (The shader dark-tint amplify only fires on already-dark verts
+    // like tree shadows, so with no road-edge darkening there's nothing to amplify at road edges.)
 
     // Sandy/dusty shore near water bodies (12m band, smooth falloff)
     if (waterPolys.length > 0) {
