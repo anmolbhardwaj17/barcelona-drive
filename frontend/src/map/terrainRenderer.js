@@ -609,9 +609,11 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         float d = hash2f(i + vec2(1.0, 1.0));
         return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
       }
-      // 2-octave fractal noise, 0..1 range
+      // Fractal noise, 0..1 range. Rally uses ONE octave (half the ALU) — the ground is flat-shaded and
+      // clean in rally, so the 2nd-octave fine detail isn't visible; the biome-patch STRUCTURE (all 5
+      // layers below) is unchanged, just slightly smoother within each patch. Non-rally keeps 2 octaves.
       float terrainFBM(vec2 p) {
-        return smoothNoise2D(p) * 0.65 + smoothNoise2D(p * 2.3) * 0.35;
+        return ${isRallyStyle() ? 'smoothNoise2D(p)' : 'smoothNoise2D(p) * 0.65 + smoothNoise2D(p * 2.3) * 0.35'};
       }`
     );
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -661,10 +663,13 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.50;
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
-      // ── 7. Fiber texture micro-detail ── (rally style keeps the ground nearly flat/clean)
-      vec2 fiberUV = wPos * detailScale;
-      float fiber = texture2D(terrainDetailTex, fiberUV).r;
-      diffuseColor.rgb *= ${isRallyStyle() ? '0.92 + fiber * 0.12' : '0.70 + fiber * 0.52'};`
+      // ── 7. Fiber texture micro-detail ── (rally keeps the ground flat/clean, so skip the per-pixel
+      //    texture fetch entirely and use a constant dim ≈ the old average — saves a sample over all ground)
+      ${isRallyStyle()
+        ? 'diffuseColor.rgb *= 0.98;'
+        : `vec2 fiberUV = wPos * detailScale;
+           float fiber = texture2D(terrainDetailTex, fiberUV).r;
+           diffuseColor.rgb *= 0.70 + fiber * 0.52;`}`
     );
   };
   material.customProgramCacheKey = () => 'terrainDelhiProcedural' + (isRallyStyle() ? '_rally' : '');
