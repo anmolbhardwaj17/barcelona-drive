@@ -25,7 +25,7 @@ let _rockGeo = null;
 let _rockMat = null;
 function getRockGeometry() {
   if (_rockGeo) return _rockGeo;
-  _rockGeo = new THREE.IcosahedronGeometry(1, 1);
+  _rockGeo = new THREE.IcosahedronGeometry(1, 0); // 20 tris (was detail 1 = 80); the per-vertex distortion below still reads as an organic rock
   // Distort vertices for organic look
   const pos = _rockGeo.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {

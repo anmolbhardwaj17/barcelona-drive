@@ -54,7 +54,7 @@ const TREE_VARIANTS = [
   },
 ];
 
-const FOLIAGE_DETAIL = 0;          // dodecahedron detail level (0 = 20 tris)
+const FOLIAGE_DETAIL = 0;          // icosahedron detail level (0 = 20 tris; dodecahedron was actually 36)
 const TRUNK_RADIAL_SEGMENTS = 3;   // 3 sides sufficient at game scale
 // Mediterranean / Barcelona palettes — fresh street greens (plane trees line most avenues), kept
 // distinct between variants so a row of trees reads as varied rather than one flat green.
@@ -107,7 +107,7 @@ export function buildProceduralTreeGeometries() {
     const palette = FOLIAGE_COLORS[vi] ?? FOLIAGE_COLORS[0];
     for (let fi = 0; fi < variant.foliage.length; fi++) {
       const f = variant.foliage[fi];
-      const geo = new THREE.DodecahedronGeometry(f.radius, FOLIAGE_DETAIL);
+      const geo = new THREE.IcosahedronGeometry(f.radius, FOLIAGE_DETAIL); // 20 tris/lobe (was Dodecahedron = 36) — near-identical flat-shaded blob
 
       // Slight random scale variation per piece (0.85–1.15)
       const sv = 0.85 + (((fi * 7 + vi * 13) % 17) / 17) * 0.3;
