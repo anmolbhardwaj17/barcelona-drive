@@ -43,6 +43,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   el.innerHTML = `
     <div class="perf-row"><span class="perf-k">FPS</span><span class="perf-v" id="perf-fps">—</span></div>
     <div class="perf-row"><span class="perf-k">Capable</span><span class="perf-v" id="perf-capable">—</span></div>
+    <div class="perf-row"><span class="perf-k">CPU ms</span><span class="perf-v" id="perf-cpu">—</span></div>
     <div class="perf-row"><span class="perf-k">Draw calls</span><span class="perf-v" id="perf-calls">—</span></div>
     <div class="perf-row"><span class="perf-k">Triangles</span><span class="perf-v" id="perf-triangles">—</span></div>
     <div class="perf-row"><span class="perf-k">Geometries</span><span class="perf-v" id="perf-geometries">—</span></div>
@@ -92,6 +93,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
 
   const vFps = el.querySelector('#perf-fps');
   const vCapable = el.querySelector('#perf-capable');
+  const vCpu = el.querySelector('#perf-cpu');
   const vCalls = el.querySelector('#perf-calls');
   const vTriangles = el.querySelector('#perf-triangles');
   const vGeometries = el.querySelector('#perf-geometries');
@@ -132,6 +134,9 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
       const minFps = _worstMs > 0 ? Math.round(1000 / _worstMs) : fpsValue;
       vFps.textContent = `${fpsValue}  (min ${minFps}, worst ${_worstMs.toFixed(0)}ms)`;
       _worstMs = 0;
+
+      // CPU section breakdown (avg ms/frame this second) — must read frameCount BEFORE it's reset below.
+      if (context?.cpuTimer && vCpu) vCpu.textContent = context.cpuTimer.report(fpsValue) || '—';
       frameCount = 0;
 
       const info = renderer.info;
