@@ -914,3 +914,5 @@ State at time of analysis:
 - 2026-07-06 — Added GTAOPass ambient occlusion (rally-only, after RenderPass): soft contact AO grounding cars/buildings/curbs/trees for the art-of-rally diorama look. world radius 2.2 m, scale 1.35, 8 samples + poisson denoise (perf-safe). Tunable via window._gtaoPass / window._gtaoTune. Also traffic cars now use the merged tint-ready template with per-car body tint (dark glass/wheels), matching parked cars; liveried taxi/police/delivery keep their livery.
 
 - 2026-07-06 — Rally sky: added a warm sun-scatter glow to the gradient sky shader (tight sun disc + broad horizon wash toward the sun azimuth, fades above horizon so the zenith stays clean blue). Additive + rally-gated (uRally), does not touch the shared SKY_/fog/ambient palette; auto-hidden at night (sky dome invisible). Fed by sunDir via skyMat.uniforms.uSunDir.
+
+- 2026-07-06 — Rally player-car paint pop: saturate the body base colour (HSL s*1.25+0.06) and use a cleaner, stronger clear-coat (metalness 0.28, roughness 0.30, clearcoat 0.6) so the hero car stands out against the flat-shaded world. Rally-gated; non-rally paint unchanged.

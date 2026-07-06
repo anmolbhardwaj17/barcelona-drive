@@ -9,6 +9,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
 import { audio } from '../audio/audioManager.js';
+import { isRallyStyle } from '../rallyStyle.js';
 
 const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this so it matches the physics box
 // MUST match carPhysics CHASSIS_BOX_OFFSET_Y: the physics CoM/origin sits low and the collision box is
@@ -97,13 +98,22 @@ export async function createCarModel(scene) {
   let carPaintMat = null;
   if (carPaintMesh) {
     const _src = carPaintMesh.material;
+    const _rally = isRallyStyle();
+    // Hero paint — punch the base colour's saturation in rally mode so the player car pops as the focal
+    // point against the flat-shaded world (art-of-rally cars are vivid, clean-coated).
+    const _paint = _src.color ? _src.color.clone() : new THREE.Color(0xff5a2a);
+    if (_rally) {
+      const _hsl = { h: 0, s: 0, l: 0 };
+      _paint.getHSL(_hsl);
+      _paint.setHSL(_hsl.h, Math.min(1, _hsl.s * 1.25 + 0.06), Math.min(0.62, _hsl.l * 1.05));
+    }
     carPaintMat = new THREE.MeshPhysicalMaterial({
-      color: _src.color ? _src.color.clone() : new THREE.Color(0xff5a2a),
+      color: _paint,
       map: _src.map || null,
       normalMap: _src.normalMap || null,
-      metalness: 0.35,          // lower → keeps the paint colour instead of mirroring the bright sky to white
-      roughness: 0.36,
-      clearcoat: 0.4,           // subtle clear-lacquer sheen, not a mirror
+      metalness: _rally ? 0.28 : 0.35, // rally: keep more pure pigment (less sky-mirroring) so the colour reads bold
+      roughness: _rally ? 0.30 : 0.36, // slightly cleaner coat → crisper highlight
+      clearcoat: _rally ? 0.6 : 0.4,   // stronger clear-lacquer sheen for the hero look
       clearcoatRoughness: 0.2,
     });
     carPaintMesh.material = carPaintMat;
