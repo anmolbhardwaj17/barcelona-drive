@@ -114,7 +114,8 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     const curGear = physics.getCurrentGear();
     const downshifted = curGear > 0 && curGear < _prevGear;
     _prevGear = curGear > 0 ? curGear : _prevGear;
-    sound.update(physics.getCurrentRpm(), state.throttle, dt, downshifted, state.brake, physics.getSpeedKmh());
+    sound.update(physics.getCurrentRpm(), state.throttle, dt, downshifted, state.brake, physics.getSpeedKmh(),
+                 physics.getSkidLevel ? physics.getSkidLevel() : 0);
 
     // 5. Chase camera (pass speed for reverse camera flip)
     carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
@@ -176,5 +177,5 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
-  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.() };
+  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.() };
 }

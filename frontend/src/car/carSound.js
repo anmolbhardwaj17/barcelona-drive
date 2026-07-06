@@ -339,7 +339,7 @@ export function createCarSound() {
    * @param {number} throttle — 0 or 1
    * @param {number} dt — frame delta
    */
-  function update(rpm, throttle, dt, downshifted = false, brake = 0, speedKmh = 0) {
+  function update(rpm, throttle, dt, downshifted = false, brake = 0, speedKmh = 0, skidLevel = 0) {
     if (!_started || !_ctx) return;
 
     // Smooth inputs
@@ -366,14 +366,20 @@ export function createCarSound() {
       noiseGain.gain.setTargetAtTime(0.06 + _smoothThrottle * 0.08 + rpmNorm * 0.04, t, 0.08);
     }
 
-    // ── Tire screech on hard braking (sample if present, else synth squeal) ──
+    // ── Tire screech — hard braking OR skidding/sliding (handbrake drift, sideways slip). skidLevel
+    //    (physics.getSkidLevel) already folds in real sideways slide, handbrake and hard braking, so it's
+    //    the primary driver; the brake term keeps a floor for straight-line ABS-style lock-up squeal. ──
     const absSpd = Math.abs(speedKmh);
     const hardBraking = brake > 0.5 && absSpd > 15;
+    // Slide needs some speed to make tyre noise (a stationary handbrake spin shouldn't screech).
+    const slideAmt = absSpd > 7 ? Math.max(0, Math.min(1, skidLevel)) : 0;
+    const brakeAmt = hardBraking ? Math.min(1, (absSpd - 15) / 80) : 0;
+    const screech = Math.max(slideAmt, brakeAmt); // 0..1
+    const active = screech > 0.05;
     if (_sSkid) {
-      _sSkid.gain.gain.setTargetAtTime(hardBraking ? Math.min(0.55, (absSpd - 15) / 80 * 0.55) : 0, t, hardBraking ? 0.1 : 0.2);
+      _sSkid.gain.gain.setTargetAtTime(active ? Math.min(0.6, screech * 0.6) : 0, t, active ? 0.08 : 0.2);
     } else {
-      const screechVol = hardBraking ? Math.min(0.08, (absSpd - 15) / 80 * 0.08) : 0;
-      screechGain.gain.setTargetAtTime(screechVol, t, hardBraking ? 0.12 : 0.05);
+      screechGain.gain.setTargetAtTime(active ? Math.min(0.09, screech * 0.09) : 0, t, active ? 0.1 : 0.05);
       screechHP.frequency.setTargetAtTime(2800 + absSpd * 5, t, 0.1);
       screechBP.frequency.setTargetAtTime(5000 + absSpd * 6, t, 0.1);
     }

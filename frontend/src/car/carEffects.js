@@ -69,7 +69,8 @@ export function createCarEffects(scene, carModel, physics) {
     ctx.fillRect(0, 0, 32, 32);
     smokeTexture = new THREE.CanvasTexture(canvas);
 
-    // Rally kicks up warm tan dust; the default look keeps neutral grey tyre smoke.
+    // Rally kicks up warm tan dust; the default look keeps neutral grey tyre smoke. At night the dust
+    // catches far less light, so it should read much darker (setNight swaps to _puffNight).
     const puffColor = _rally ? 0xCFBB9C : 0xCCCCCC;
     smokeSprites = [];
     for (let i = 0; i < SMOKE_POOL_SIZE; i++) {
@@ -258,5 +259,15 @@ export function createCarEffects(scene, carModel, physics) {
     }
   }
 
-  return { update, dispose };
+  // Day/night dust colour. Night dust is much darker (keeps the warm hue but low value) so it doesn't
+  // glow lightly against the deep-blue night — matches how little light kicked-up dust catches at night.
+  const _puffDay = new THREE.Color(_rally ? 0xCFBB9C : 0xCCCCCC);
+  const _puffNight = new THREE.Color(_rally ? 0x4A4235 : 0x565656);
+  function setNight(isNight) {
+    if (!smokeSprites) return;
+    const c = isNight ? _puffNight : _puffDay;
+    for (const s of smokeSprites) s.sprite.material.color.copy(c);
+  }
+
+  return { update, dispose, setNight };
 }
