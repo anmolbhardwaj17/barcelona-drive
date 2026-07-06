@@ -566,6 +566,13 @@ function injectFogShader(mat) {
   };
 }
 
+// Facade + roof are closed extruded prisms — their interior back faces are never legitimately seen, so
+// single-sided rendering ~halves their fragment shading. worldGroup.scale.x=-1 mirrors the scene and flips
+// triangle winding, so the exterior shows as BackSide (NOT FrontSide). If buildings render hollow/see-
+// through after this, flip this ONE constant to THREE.FrontSide. Thin details (rails/awnings) stay
+// DoubleSide — single-siding them would make them vanish edge-on.
+const BUILDING_SIDE = THREE.BackSide;
+
 /**
  * Create or retrieve a facade material by category and hex color.
  * Matches the logic in buildingRenderer.js getFacadeMaterial().
@@ -586,7 +593,7 @@ function getFacadeMaterial(hexColor, category) {
       specular: 0x8899AA,
       shininess: 60,
       reflectivity: 0.4,
-      side: THREE.DoubleSide,
+      side: BUILDING_SIDE,
     });
   } else if (isTemple) {
     mat = new THREE.MeshPhongMaterial({
@@ -595,14 +602,14 @@ function getFacadeMaterial(hexColor, category) {
       map: getWindowTexture(category),
       specular: 0x442211,
       shininess: 12,
-      side: THREE.DoubleSide,
+      side: BUILDING_SIDE,
     });
   } else {
     mat = new THREE.MeshLambertMaterial({
       color: hexColor,
       vertexColors: true,
       map: getWindowTexture(category),
-      side: THREE.DoubleSide,
+      side: BUILDING_SIDE,
     });
   }
 
@@ -617,7 +624,7 @@ function getFacadeMaterial(hexColor, category) {
 function getRoofMaterial(hexColor) {
   if (hexColor == null) hexColor = 0xD9CFC1;
   if (_roofMaterialCache.has(hexColor)) return _roofMaterialCache.get(hexColor);
-  const mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, side: THREE.DoubleSide });
+  const mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, side: BUILDING_SIDE });
   _roofMaterialCache.set(hexColor, mat);
   return mat;
 }
