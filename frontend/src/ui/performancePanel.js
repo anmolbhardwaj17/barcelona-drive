@@ -45,6 +45,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     <div class="perf-row"><span class="perf-k">Capable</span><span class="perf-v" id="perf-capable">—</span></div>
     <div class="perf-row"><span class="perf-k">CPU avg</span><span class="perf-v" id="perf-cpu">—</span></div>
     <div class="perf-row"><span class="perf-k">CPU worst</span><span class="perf-v" id="perf-cpu-worst">—</span></div>
+    <div class="perf-row"><span class="perf-k">Alloc MB/f</span><span class="perf-v" id="perf-alloc">—</span></div>
     <div class="perf-row"><span class="perf-k">Draw calls</span><span class="perf-v" id="perf-calls">—</span></div>
     <div class="perf-row"><span class="perf-k">Triangles</span><span class="perf-v" id="perf-triangles">—</span></div>
     <div class="perf-row"><span class="perf-k">Geometries</span><span class="perf-v" id="perf-geometries">—</span></div>
@@ -96,6 +97,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   const vCapable = el.querySelector('#perf-capable');
   const vCpu = el.querySelector('#perf-cpu');
   const vCpuWorst = el.querySelector('#perf-cpu-worst');
+  const vAlloc = el.querySelector('#perf-alloc');
   const vCalls = el.querySelector('#perf-calls');
   const vTriangles = el.querySelector('#perf-triangles');
   const vGeometries = el.querySelector('#perf-geometries');
@@ -142,6 +144,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
         const cpu = context.cpuTimer.report();
         vCpu.textContent = cpu.avg;
         if (vCpuWorst) vCpuWorst.textContent = cpu.worst;
+        if (vAlloc) vAlloc.textContent = cpu.heap; // MB/frame allocated per section — finds the garbage source
       }
       frameCount = 0;
 

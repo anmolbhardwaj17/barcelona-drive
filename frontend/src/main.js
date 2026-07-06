@@ -615,6 +615,7 @@ function animate(time = 0) {
       ms: +(frameDt * 1000).toFixed(2),        // total frame time (incl. GC/browser gaps not in cpu sections)
       gpu: gpuTimer.getMs() != null ? +gpuTimer.getMs().toFixed(2) : null,
       cpu: cpuTimer.snapshot(),                 // { phys, ent, tiles, ui, rend } — sum vs ms gap = GC/present stall
+      halloc: cpuTimer.heapSnapshot(),          // MB allocated per section this frame — the garbage source
       draws: renderer.info.render.calls,
       tris: renderer.info.render.triangles,
       heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
