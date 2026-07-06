@@ -42,6 +42,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   el.id = 'performance-panel';
   el.innerHTML = `
     <div class="perf-row"><span class="perf-k">FPS</span><span class="perf-v" id="perf-fps">—</span></div>
+    <div class="perf-row"><span class="perf-k">Capable</span><span class="perf-v" id="perf-capable">—</span></div>
     <div class="perf-row"><span class="perf-k">Draw calls</span><span class="perf-v" id="perf-calls">—</span></div>
     <div class="perf-row"><span class="perf-k">Triangles</span><span class="perf-v" id="perf-triangles">—</span></div>
     <div class="perf-row"><span class="perf-k">Geometries</span><span class="perf-v" id="perf-geometries">—</span></div>
@@ -90,6 +91,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   document.body.appendChild(el);
 
   const vFps = el.querySelector('#perf-fps');
+  const vCapable = el.querySelector('#perf-capable');
   const vCalls = el.querySelector('#perf-calls');
   const vTriangles = el.querySelector('#perf-triangles');
   const vGeometries = el.querySelector('#perf-geometries');
@@ -169,6 +171,15 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
 
       const rs = context?.renderScale;
       if (typeof rs === 'number') vRenderScale.textContent = rs.toFixed(2) + '×';
+
+      // "Capable" = uncapped FPS the GPU could sustain (1000 / true GPU frame time). On a 60 Hz monitor the
+      // FPS row is pinned at 60 by vsync; this shows the real headroom (e.g. "60 → 140 capable" = lots of room).
+      const gpuMs = context?.gpuMs;
+      if (typeof gpuMs === 'number' && gpuMs > 0) {
+        vCapable.textContent = `~${Math.round(1000 / gpuMs)} fps (${gpuMs.toFixed(1)}ms GPU)`;
+      } else if (vCapable.textContent === '—') {
+        vCapable.textContent = 'n/a'; // extension unsupported or not yet resolved
+      }
 
       if (typeof performance !== 'undefined' && performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
         vHeap.textContent = (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + ' MB';

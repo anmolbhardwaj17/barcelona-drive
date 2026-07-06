@@ -29,6 +29,7 @@ import { isRallyStyle } from './rallyStyle.js';
 import { createMinimap } from './ui/minimap.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
+import { createGpuTimer } from './ui/gpuTimer.js';
 import { createEscMenu } from './ui/escMenu.js';
 import { worldToLatLon, latLonToWorld, latLonToTile, tileToBBox, TILE_ZOOM } from './projection.js';
 import { getActiveSpawn, START_LAT, START_LON } from './spawnConfig.js';
@@ -73,6 +74,8 @@ renderer.info.autoReset = false;
 // ── Post-processing — radial blur on screen edges at speed ────────────────
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// True GPU frame-time meter — powers the panel's "capable FPS" so a 60 Hz vsync cap doesn't hide headroom.
+const gpuTimer = createGpuTimer(renderer);
 // NOTE: GTAO (ambient occlusion) and Bokeh (depth-of-field) were removed — each re-renders the ENTIRE
 // scene for its depth/normal buffers (GTAO: depth + normals = 2 extra full passes; Bokeh: depth = 1),
 // which tripled effective triangle throughput on the 4M-tri streamed city (→ ~10M tris, ~33 FPS) and
@@ -588,12 +591,15 @@ function animate(time = 0) {
   radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 40) / 80));
   radialBlurPass.enabled = blurSpd > 42;
   renderer.info.reset();
+  gpuTimer.poll();       // read back a previously-issued GPU timer query (async, resolves a few frames later)
+  gpuTimer.begin();      // time the actual GPU work this frame → "capable FPS" even when vsync caps display at 60
   composer.render();
+  gpuTimer.end();
   // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is
   // cleared before the next frame; we don't set preserveDrawingBuffer, so reading here is the reliable path).
   if (_captureRequested) { _captureRequested = false; captureScreenshot(); }
   adaptiveRes.tick(frameDt);
-  performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale() });
+  performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale(), gpuMs: gpuTimer.getMs() });
 }
 
 window.addEventListener('resize', () => {
