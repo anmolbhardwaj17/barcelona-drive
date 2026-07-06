@@ -566,12 +566,11 @@ function injectFogShader(mat) {
   };
 }
 
-// Facade + roof are closed extruded prisms — their interior back faces are never legitimately seen, so
-// single-sided rendering ~halves their fragment shading. Empirically FrontSide is correct (matches the
-// terrain material in the same worldGroup.scale.x=-1 mirrored space; BackSide rendered buildings
-// hollow/inside-out). Thin details (rails/awnings) stay DoubleSide — single-siding them would make them
-// vanish edge-on.
-const BUILDING_SIDE = THREE.FrontSide;
+// Building winding is INCONSISTENT across the worker's geometry (some facades/roofs are wound CW, some
+// CCW), so NO single side renders every building correctly — FrontSide left some buildings inside-out
+// (a giant flat plane where a near wall was culled), BackSide made others hollow. DoubleSide is the only
+// reliable choice; backface culling here would need the worker to emit consistent winding first (deferred).
+const BUILDING_SIDE = THREE.DoubleSide;
 
 /**
  * Create or retrieve a facade material by category and hex color.
