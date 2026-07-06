@@ -896,6 +896,27 @@ export function makeBoxGeom(ax, az, bx, bz, nrx, nrz, thick, y0, h) {
   return { positions, normals, uvs, indices };
 }
 
+/**
+ * Flat vertical quad (4 verts / 2 tris) facing outward along (nrx, nrz) — a cheap stand-in for a thin
+ * box (makeBoxGeom is 8 verts / 12 tris). Used for balcony balusters, which are sub-pixel-thin and read
+ * identically face-on from the street; details render DoubleSide so the quad shows from both sides.
+ * Spans the edge (ax,az)→(bx,bz) horizontally and y0→y0+h vertically.
+ */
+export function makeQuadGeom(ax, az, bx, bz, nrx, nrz, y0, h) {
+  const positions = new Float32Array([
+    ax, y0,     az,
+    bx, y0,     bz,
+    bx, y0 + h, bz,
+    ax, y0 + h, az,
+  ]);
+  const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+  const BRICK_TILE = 2.0;
+  const uLen = Math.hypot(bx - ax, bz - az) / BRICK_TILE, vH = h / BRICK_TILE;
+  const uvs = new Float32Array([0, 0, uLen, 0, uLen, vH, 0, vH]);
+  const normals = new Float32Array([nrx, 0, nrz, nrx, 0, nrz, nrx, 0, nrz, nrx, 0, nrz]);
+  return { positions, normals, uvs, indices };
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ────────────────────────────────────────────────────────────────────────────

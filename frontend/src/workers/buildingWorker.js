@@ -17,6 +17,7 @@ import {
   createTorus,
   createSphere,
   makeBoxGeom,
+  makeQuadGeom,
   mergeBufferSets,
   applyTranslation,
   applyRotationX,
@@ -1022,8 +1023,10 @@ export function processBuildingsInWorker(data, config) {
               const bpx = sx0 + (sx1 - sx0) * bt + nx * d;
               const bpz = sz0 + (sz1 - sz0) * bt + nz * d;
               const bhw = RAIL_BAR_W / 2;
-              balconyRailGeoms.push(makeBoxGeom(bpx - ex * bhw, bpz - ez * bhw, bpx + ex * bhw, bpz + ez * bhw, nx, nz, bhw * 2, railBaseY, RAIL_H));
-              balconyRailVerts += 8;
+              // Flat quad per baluster (2 tris) instead of a solid box (12 tris) — 6x fewer triangles on a
+              // major building sink; thin bars read identically face-on and details render DoubleSide.
+              balconyRailGeoms.push(makeQuadGeom(bpx - ex * bhw, bpz - ez * bhw, bpx + ex * bhw, bpz + ez * bhw, nx, nz, railBaseY, RAIL_H));
+              balconyRailVerts += 4;
             }
           }
         }
