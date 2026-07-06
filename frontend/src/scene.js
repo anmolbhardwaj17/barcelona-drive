@@ -609,13 +609,13 @@ export function createScene(container) {
   // corrupts SAP axis sorting, causing tree/scenery collisions to be missed.
   world.broadphase = new CANNON.NaiveBroadphase(world);
   world.allowSleep = true;
-  world.defaultContactMaterial.friction = 0.3;
+  world.defaultContactMaterial.friction = 0.12;
   // Car-vs-building/wall collisions use THIS default material (building bodies have no material of
-  // their own). restitution 0 made head-on hits feel like slamming a brick wall (dead stop) — much
-  // more rigid than side scrapes, which carry less normal speed. A little give + softer contact makes
-  // a frontal impact recoil slightly instead of stopping dead, and (being velocity-dependent) it eases
-  // fast head-on hits far more than slow side scrapes. Road/terrain use the stiff road material, so
-  // driving grip is unaffected.
+  // their own). LOW friction (0.3→0.12) so the chassis SLIDES along a wall instead of gripping it and
+  // stopping dead — friction 0.3 made glancing hits feel "stuck"/glued. restitution gives a little recoil
+  // so head-on hits recoil slightly instead of slamming (velocity-dependent → eases fast frontal hits far
+  // more than slow side scrapes). Wheels use RaycastVehicle frictionSlip, not this — so driving grip is
+  // unaffected; this only governs how the body scrapes against walls/props.
   world.defaultContactMaterial.restitution = 0.18;
   world.defaultContactMaterial.contactEquationStiffness = 6e6;   // was default 1e7 — a touch of squish
   world.defaultContactMaterial.contactEquationRelaxation = 3.5;
