@@ -897,10 +897,15 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
       }
     }
 
-    // Add all instances + collect positions for distance sorting
+    // Add all instances + collect positions for distance sorting. Parallel typed arrays instead of an
+    // array of { id, x, z } objects — the object array was ~4300 short-lived allocations PER TILE (heavy
+    // GC pressure on the streaming hot path); typed arrays are ~6x smaller and far cheaper for the GC.
     const _m = new THREE.Matrix4();
     const _color = new THREE.Color();
-    const instanceData = []; // { id, x, z }
+    const _ids = new Int32Array(totalInstances);
+    const _xs = new Float32Array(totalInstances);
+    const _zs = new Float32Array(totalInstances);
+    let _di = 0;
 
     let _added = 0;
     for (const variant of variants) {
@@ -917,21 +922,20 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
           _color.fromArray(colors, i * 3);
           bm.setColorAt(instanceId, _color);
         }
-        instanceData.push({ id: instanceId, x: matrices[off + 12], z: matrices[off + 14] });
+        _ids[_di] = instanceId; _xs[_di] = matrices[off + 12]; _zs[_di] = matrices[off + 14]; _di++;
         if (yieldFn && (++_added % YIELD_EVERY) === 0) await yieldFn();
       }
     }
 
-    // Sort instances by distance from centroid (≈ tile center) for LOD
+    // Sort instance IDs by distance from centroid (≈ tile center) for LOD — sort an index array in place.
     let cx = 0, cz = 0;
-    for (const d of instanceData) { cx += d.x; cz += d.z; }
-    cx /= instanceData.length; cz /= instanceData.length;
-    instanceData.sort((a, b) => {
-      const da = (a.x - cx) ** 2 + (a.z - cz) ** 2;
-      const db = (b.x - cx) ** 2 + (b.z - cz) ** 2;
-      return da - db;
-    });
-    const sortedIds = new Int32Array(instanceData.map(d => d.id));
+    for (let i = 0; i < _di; i++) { cx += _xs[i]; cz += _zs[i]; }
+    cx /= (_di || 1); cz /= (_di || 1);
+    const order = new Int32Array(_di);
+    for (let i = 0; i < _di; i++) order[i] = i;
+    order.sort((a, b) => ((_xs[a] - cx) ** 2 + (_zs[a] - cz) ** 2) - ((_xs[b] - cx) ** 2 + (_zs[b] - cz) ** 2));
+    const sortedIds = new Int32Array(_di);
+    for (let i = 0; i < _di; i++) sortedIds[i] = _ids[order[i]];
 
     bm.frustumCulled = false;
     // Trees do NOT cast real shadow-map shadows — the blob shadow planes (shadowMesh below) already
