@@ -59,23 +59,25 @@ const DRIFT_YAW_ASSIST  = 13000;  // N·m·(unit steer) — handbrake yaw torque
 const YAW_SPIN_DAMP     = 2600;   // N·m per (rad/s)² — quadratic anti-spin. Negligible in normal turns, firm on a
                                   // fishtail/spin. OFF during handbrake so deliberate drift stays free. Raise to tame oversteer more.
 const ROLL_INFLUENCE    = 0.08;   // weight transfer in turns — higher = more lean/flip risk; keep low.
-const BASE_ENGINE_FORCE = 6000;   // N — drive force (lowered from 9000: was overpowering → wheelies). Tune for ~4s 0–100.
+const BASE_ENGINE_FORCE = 4800;   // N — drive force. Softened 6000→4800 for a city-car feel (~5.5s 0–100 vs supercar ~4s) so you DWELL in the 40-90 range instead of teleporting past it.
 const BRAKE_FORCE       = 420;    // N — per-wheel braking (was 600: overshot → stoppie/rear-lift). Nose dips, rear stays planted.
 const MAX_STEER         = 0.38;   // rad (~22°) — max steer angle at low speed.
 const MIN_STEER         = 0.10;   // rad (~6°) — min steer angle at high speed (speed-sensitive).
 const MAX_PITCH_ROLL_VEL = 1.5;   // rad/s — clamp pitch/roll rate to prevent wheelies/flips.
 
 // ── Transmission ────────────────────────────────────────────────────────────
-// BMW M3 — 6-speed, higher top speed, punchier ratios
+// City-car feel — 6-speed, top ~150 km/h. Gears compressed so 40-90 (everyday city speed) spans gears
+// 2-3 where torque is strongest → those speeds feel meaty and fast, and 100-150 is a genuine high-end you
+// have to work for (was a 280 km/h M3 where 120 was trivial low-third and 50 got skipped in 1 second).
 const GEAR_RATIOS = [0, 3.2, 2.2, 1.55, 1.18, 0.94, 0.78];
 const NUM_GEARS = 6;
-const REDLINE_RPM = 6500;          // M3 S58 engine
+const REDLINE_RPM = 6500;
 const IDLE_RPM = 850;
 const SHIFT_DOWN_RPM = 2000;       // shift down here
 const MAX_RPM = 7000;              // hard rev limiter
 const SHIFT_COOLDOWN = 0.30;       // seconds — quick DCT shifts
-// Top speed per gear (km/h) — BMW M3, tops ~280 km/h
-const GEAR_TOP_SPEEDS = [0, 55, 95, 145, 195, 245, 280];
+// Top speed per gear (km/h) — tops ~150 km/h (city-car), compressed so mid-range is the meaty zone
+const GEAR_TOP_SPEEDS = [0, 40, 70, 100, 125, 140, 150];
 
 export function createCarPhysics(world, spawnPos, spawnHeading) {
   const { roadMaterial, carMaterial } = getCarContactMaterials(world);

@@ -25,7 +25,8 @@ const MAX_H_DIST          = 9.3;   // horizontal clamp — MUST stay above BASE_
 const LERP_POSITION       = 0.16;
 const LERP_LOOK           = 0.22;
 const BASE_FOV            = 70;
-const MAX_FOV_BOOST       = 14;
+const MAX_FOV_BOOST       = 17;   // was 14 — a bit more speed-warp at the top
+const FOV_PEAK_KMH        = 85;   // speed at which the FOV boost maxes (was 120) — so 40-90 city speeds actually FEEL fast
 
 // Mouse orbit config
 const MOUSE_SENSITIVITY_X = 0.004;  // radians per pixel
@@ -222,7 +223,7 @@ export function createCarCamera(camera, domElement) {
     camera.lookAt(_smoothLookAt);
 
     // FOV boost
-    const fovTarget = BASE_FOV + MAX_FOV_BOOST * Math.min(1, speed / 120);
+    const fovTarget = BASE_FOV + MAX_FOV_BOOST * Math.min(1, speed / FOV_PEAK_KMH);
     camera.fov += (fovTarget - camera.fov) * 0.05;
     camera.updateProjectionMatrix();
   }

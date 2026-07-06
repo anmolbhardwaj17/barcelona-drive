@@ -599,8 +599,10 @@ function animate(time = 0) {
 
   // Radial edge blur scales with speed — skip the full-screen pass entirely below 40 km/h (a free frame)
   const blurSpd = Math.abs(speedKmh || 0);
-  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 40) / 80));
-  radialBlurPass.enabled = blurSpd > 42;
+  // Edge speed-blur starts earlier now (37 vs 42) and ramps over a shorter range — with top speed at 150,
+  // the cue should live in the 37-110 city range so 40-90 reads as fast.
+  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 35) / 75));
+  radialBlurPass.enabled = blurSpd > 37;
   renderer.info.reset();
   gpuTimer.poll();       // read back a previously-issued GPU timer query (async, resolves a few frames later)
   gpuTimer.begin();      // time the actual GPU work this frame → "capable FPS" even when vsync caps display at 60
