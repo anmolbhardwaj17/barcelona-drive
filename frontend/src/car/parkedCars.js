@@ -68,7 +68,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
       const im = new THREE.InstancedMesh(t.geometry, t.material, CAPACITY_PER);
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       im.frustumCulled = false;
-      im.castShadow = true;
+      im.castShadow = false; // parked cars don't cast shadow-map shadows (pedestrians.js does the same — the shadow pass tanked FPS)
       im.count = 0;
       scene.add(im);
       return im;

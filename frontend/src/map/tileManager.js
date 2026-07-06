@@ -2540,7 +2540,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // mode loads detail at greater distances. Ground driving (cameraY ≤ 5m) → multiplier = 1,
     // preserving existing behaviour exactly. Clamped at 4× to prevent runaway at extreme altitude.
     const _cameraY = camera?.position.y ?? 0;
-    const altMult = Math.max(1.25, Math.min(5, 1.25 + (_cameraY - 5) / 35));
+    const altMult = Math.max(1.0, Math.min(5, 1.0 + (_cameraY - 5) / 35));
 
     for (const [key, entry] of tileCache.entries()) {
       // Use cached tile center (set during tile creation) to avoid split+map+trig per frame
@@ -2758,7 +2758,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // ── Physics body add/remove by distance ────────────────────────────
       // Actually remove far bodies from the world to reduce NaiveBroadphase
       // O(n²) cost. Use a flag instead of world.bodies.includes() (O(n)).
-      const physActive = nearEdgeDist <= 200; // just beyond fog visibility
+      const physActive = nearEdgeDist <= 120; // colliders only near the car (was 200); 120 m from tile edge is ~6 s ahead at speed
       const bodies = [
         entry.heightfieldBody, entry.trimeshBody, entry.terrainTrimeshBody,
         entry.barrierBody, entry.crashBarrierBody, entry.guardRailBody,

@@ -559,7 +559,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   const terrainDetailTex = getTerrainDetailTexture();
   const material = new THREE.MeshLambertMaterial({
     vertexColors: true,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide, // terrain is viewed from above — cull the rear-facing half (was DoubleSide, doubled fragment cost)
     depthWrite: true,
     fog: true,
     flatShading: isRallyStyle(), // rally: faceted low-poly hills (each DEM triangle a distinct shade)

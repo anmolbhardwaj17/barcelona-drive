@@ -304,8 +304,9 @@ function addMoon(scene, spawnX, spawnZ) {
 
 /** Show/hide moon for day/night toggle. */
 export function setMoonNightMode(isNight) {
-  if (_moonSprite) _moonSprite.material.opacity = isNight ? 1.0 : 0;
-  if (_moonGlowSprite) _moonGlowSprite.material.opacity = isNight ? 0.6 : 0;
+  // Toggle .visible too so these sprites are skipped entirely in daylight (were drawn every frame at opacity 0).
+  if (_moonSprite) { _moonSprite.material.opacity = isNight ? 1.0 : 0; _moonSprite.visible = isNight; }
+  if (_moonGlowSprite) { _moonGlowSprite.material.opacity = isNight ? 0.6 : 0; _moonGlowSprite.visible = isNight; }
 }
 
 /** Move moon to follow camera (parallax — barely moves). */
@@ -372,7 +373,7 @@ function addStars(scene) {
 
 /** Show/hide stars for day/night toggle. */
 export function setStarsNightMode(isNight) {
-  if (_starsMesh) _starsMesh.material.opacity = isNight ? 0.8 : 0;
+  if (_starsMesh) { _starsMesh.material.opacity = isNight ? 0.8 : 0; _starsMesh.visible = isNight; }
 }
 
 /** Move stars to follow camera so they stay overhead. */
@@ -472,7 +473,9 @@ export function createScene(container) {
   camera.position.set(spawnX, 60, spawnZ + 120);
   camera.lookAt(spawnX, 0, spawnZ);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  // antialias:false — the scene renders into the EffectComposer's non-MSAA HalfFloat targets, so the
+  // MSAA backbuffer AA never applied anyway; asking for it just wasted a VRAM/bandwidth backbuffer.
+  const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap: DPR 2 = 4× the fragments everywhere
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -492,7 +495,7 @@ export function createScene(container) {
   // Sky colors are exported so fog, ambient, and car env sphere stay in sync.
   // If you change these values, fog + ambient + car env update automatically.
   // ---------------------------------------------------------------------------
-  const skyGeo = new THREE.IcosahedronGeometry(40000, 4);
+  const skyGeo = new THREE.IcosahedronGeometry(40000, 2); // detail 2 not 4 (~5,120→~320 tris) — gradient is per-fragment, vertex density is irrelevant
   const skyMat = new THREE.ShaderMaterial({
     uniforms: {
       uHorizon: { value: new THREE.Color(SKY_HORIZON) },

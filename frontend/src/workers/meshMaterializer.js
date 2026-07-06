@@ -799,6 +799,10 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     const mesh = materializeGroup(group, material, shadowsOn && !!(def && def.shadows));
     if (mesh) {
       if (group.type === 'mallSign') mesh.userData.isMallSign = true;
+      // Flag building detail (balconies, rails, parapets, pillars, AC units, awnings) so the tileManager
+      // LOD cull hides it past bldgDetailDist (120 m) instead of the full bldgMaxDist (180 m) — it's
+      // sub-pixel under fog at that range. Signs are kept visible to the full distance (no flag).
+      else mesh.userData.isBuildingDetail = true;
       meshes.push(mesh);
     }
     if (yieldFn && (i + 1) % 4 === 0) await yieldFn();
@@ -924,7 +928,10 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
     const sortedIds = new Int32Array(instanceData.map(d => d.id));
 
     bm.frustumCulled = false;
-    bm.castShadow = !!CONFIG.ENABLE_SHADOWS;
+    // Trees do NOT cast real shadow-map shadows — the blob shadow planes (shadowMesh below) already
+    // ground them, and pushing ~128k trees through the directional shadow depth pass every frame was the
+    // single biggest tree GPU cost (the dead InstancedMesh path warned this "tanked the shadow pass").
+    bm.castShadow = false;
     bm.receiveShadow = true;
     bm.userData = {
       sharedGeometry: true,
