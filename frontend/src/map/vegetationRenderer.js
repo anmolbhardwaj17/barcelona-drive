@@ -81,10 +81,11 @@ export function buildProceduralTreeGeometries() {
     const variant = TREE_VARIANTS[vi];
     const parts = [];
 
-    // Trunk — tapered cylinder (toNonIndexed to match DodecahedronGeometry for merge)
+    // Trunk — tapered cylinder (toNonIndexed to match the non-indexed foliage Icosahedron for merge).
+    // 1 height segment (was 2) — halves the trunk side tris; a straight taper needs no mid ring.
     let trunk = new THREE.CylinderGeometry(
       variant.trunkRadius, variant.trunkRadius * 1.4,
-      variant.trunkHeight, TRUNK_RADIAL_SEGMENTS, 2, true
+      variant.trunkHeight, TRUNK_RADIAL_SEGMENTS, 1, true
     );
     trunk.translate(0, variant.trunkHeight / 2, 0);
     trunk = trunk.toNonIndexed();
