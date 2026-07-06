@@ -45,6 +45,8 @@ export function createCpuTimer() {
       frame[name] = (frame[name] || 0) + (now - t);
       t = now;
     },
+    /** The CURRENT frame's per-section ms so far (for per-frame logging). Call after the last lap. */
+    snapshot() { return { ...frame }; },
     /** { avg: "rend 3.6 · phys 3.3 …", worst: "22.0ms → tiles 18.4 · phys 3.1 …" } and resets the window. */
     report() {
       const avgObj = {};

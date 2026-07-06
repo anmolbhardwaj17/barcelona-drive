@@ -31,6 +31,7 @@ import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
 import { createGpuTimer } from './ui/gpuTimer.js';
 import { createCpuTimer } from './ui/cpuTimer.js';
+import { createPerfLogger } from './ui/perfLogger.js';
 import { createEscMenu } from './ui/escMenu.js';
 import { worldToLatLon, latLonToWorld, latLonToTile, tileToBBox, TILE_ZOOM } from './projection.js';
 import { getActiveSpawn, START_LAT, START_LON } from './spawnConfig.js';
@@ -79,6 +80,8 @@ composer.addPass(new RenderPass(scene, camera));
 const gpuTimer = createGpuTimer(renderer);
 // Main-thread section timer — splits the JS frame (phys/ent/tiles/ui/rend) to find the CPU bottleneck.
 const cpuTimer = createCpuTimer();
+// Perf logger — "● REC PERF" button (bottom-left) records per-frame samples → downloads a JSON to analyze.
+const perfLogger = createPerfLogger();
 // NOTE: GTAO (ambient occlusion) and Bokeh (depth-of-field) were removed — each re-renders the ENTIRE
 // scene for its depth/normal buffers (GTAO: depth + normals = 2 extra full passes; Bokeh: depth = 1),
 // which tripled effective triangle throughput on the 4M-tri streamed city (→ ~10M tris, ~33 FPS) and
@@ -604,6 +607,21 @@ function animate(time = 0) {
   composer.render();
   gpuTimer.end();
   cpuTimer.lap('rend'); // CPU cost of submitting draws (not GPU exec — that's the gpuTimer)
+  if (perfLogger.recording) {
+    perfLogger.sample({
+      t: Math.round(time),
+      ms: +(frameDt * 1000).toFixed(2),        // total frame time (incl. GC/browser gaps not in cpu sections)
+      gpu: gpuTimer.getMs() != null ? +gpuTimer.getMs().toFixed(2) : null,
+      cpu: cpuTimer.snapshot(),                 // { phys, ent, tiles, ui, rend } — sum vs ms gap = GC/present stall
+      draws: renderer.info.render.calls,
+      tris: renderer.info.render.triangles,
+      heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
+      x: viewerWx != null ? +viewerWx.toFixed(1) : null,
+      z: viewerWz != null ? +viewerWz.toFixed(1) : null,
+      spd: speedKmh != null ? Math.round(speedKmh) : null,
+      hdg: headingDeg != null ? Math.round(headingDeg) : null,   // heading delta between frames = turning
+    });
+  }
   // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is
   // cleared before the next frame; we don't set preserveDrawingBuffer, so reading here is the reliable path).
   if (_captureRequested) { _captureRequested = false; captureScreenshot(); }
