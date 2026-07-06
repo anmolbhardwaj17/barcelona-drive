@@ -916,3 +916,5 @@ State at time of analysis:
 - 2026-07-06 — Rally sky: added a warm sun-scatter glow to the gradient sky shader (tight sun disc + broad horizon wash toward the sun azimuth, fades above horizon so the zenith stays clean blue). Additive + rally-gated (uRally), does not touch the shared SKY_/fog/ambient palette; auto-hidden at night (sky dome invisible). Fed by sunDir via skyMat.uniforms.uSunDir.
 
 - 2026-07-06 — Rally player-car paint pop: saturate the body base colour (HSL s*1.25+0.06) and use a cleaner, stronger clear-coat (metalness 0.28, roughness 0.30, clearcoat 0.6) so the hero car stands out against the flat-shaded world. Rally-gated; non-rally paint unchanged.
+
+- 2026-07-06 — Rally tire dust: enable the tyre-smoke pool in rally (even when CONFIG.ENABLE_TIRE_SMOKE is off), warm tan puff colour + soft radial-gradient texture, and a new speed-dust emitter — light low-opacity dust flung backward behind the rear wheels above ~43 km/h (no drift needed), opacity scaling with speed and capped subtle. Pool 50→ 90 so drift smoke + dust do not starve. Default (non-rally) smoke path unchanged.

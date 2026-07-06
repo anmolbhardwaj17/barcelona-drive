@@ -3,11 +3,16 @@
  */
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
+import { isRallyStyle } from '../rallyStyle.js';
 
 const SKID_POOL_SIZE = 200;
-const SMOKE_POOL_SIZE = 50;
+const SMOKE_POOL_SIZE = 90; // shared by drift smoke + rally speed-dust; bigger so neither starves the other
 
 export function createCarEffects(scene, carModel, physics) {
+  // Art-of-rally dust: warm tan puffs kicked up behind the wheels, and dust trailing at speed (not just
+  // on drift). The smoke pool is enabled in rally even when CONFIG.ENABLE_TIRE_SMOKE is off.
+  const _rally = isRallyStyle();
+  const _smokeEnabled = CONFIG.ENABLE_TIRE_SMOKE || _rally;
   // ── Brake lights ──────────────────────────────────────────────────────────
   const tlMatL = carModel.taillightMeshL.material;
   const tlMatR = carModel.taillightMeshR.material;
@@ -50,23 +55,27 @@ export function createCarEffects(scene, carModel, physics) {
   let smokeIndex = 0;
   let smokeTexture = null;
 
-  if (CONFIG.ENABLE_TIRE_SMOKE) {
-    // Generate a simple circle texture
+  if (_smokeEnabled) {
+    // Soft radial puff texture (bright centre → transparent edge) so puffs read as billowing dust, not discs.
     const canvas = document.createElement('canvas');
     canvas.width = 32;
     canvas.height = 32;
     const ctx = canvas.getContext('2d');
-    ctx.beginPath();
-    ctx.arc(16, 16, 14, 0, Math.PI * 2);
-    ctx.fillStyle = 'white';
-    ctx.fill();
+    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.65)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 32, 32);
     smokeTexture = new THREE.CanvasTexture(canvas);
 
+    // Rally kicks up warm tan dust; the default look keeps neutral grey tyre smoke.
+    const puffColor = _rally ? 0xCFBB9C : 0xCCCCCC;
     smokeSprites = [];
     for (let i = 0; i < SMOKE_POOL_SIZE; i++) {
       const mat = new THREE.SpriteMaterial({
         map: smokeTexture, transparent: true, opacity: 0,
-        color: 0xCCCCCC, depthWrite: false,
+        color: puffColor, depthWrite: false,
       });
       const sprite = new THREE.Sprite(mat);
       sprite.visible = false;
@@ -85,6 +94,7 @@ export function createCarEffects(scene, carModel, physics) {
   // ── Pre-allocated ─────────────────────────────────────────────────────────
   const _euler = new THREE.Euler();
   const _quat = new THREE.Quaternion();
+  let dustTimer = 0;
 
   function update(dt, controlState) {
     const braking = physics.isBraking();
@@ -165,6 +175,7 @@ export function createCarEffects(scene, carModel, physics) {
         const s = smokeSprites[smokeIndex % SMOKE_POOL_SIZE];
         smokeIndex++;
         s.life = 0;
+        s.maxLife = 0.8;
         s.startOpacity = 0.3;
         s.vx = (Math.random() - 0.5) * 2;
         s.vy = 1.5 + Math.random();
@@ -173,6 +184,41 @@ export function createCarEffects(scene, carModel, physics) {
         s.sprite.visible = true;
         s.sprite.material.opacity = s.startOpacity;
         s.sprite.scale.setScalar(0.5);
+      }
+    }
+
+    // Rally speed-dust — light warm dust kicked up behind the rear wheels while driving fast, even with
+    // no drift. Reads as motion, not a dust storm: low opacity that scales with speed, short-lived, and
+    // flung BACKWARD (opposite travel) + slightly out. Skipped when reversing or on the drift smoke above.
+    if (_rally && smokeSprites && driftFactor <= 0.5 && !reversing) {
+      const vel = physics.chassisBody.velocity;
+      const spd = Math.hypot(vel.x, vel.z); // m/s
+      if (spd > 12) { // ~43 km/h
+        dustTimer += dt;
+        if (dustTimer >= 0.045) {
+          dustTimer -= 0.045;
+          const inv = 1 / (spd || 1);
+          const bx = -vel.x * inv, bz = -vel.z * inv; // unit vector opposite travel
+          const op = Math.min(0.16, 0.05 + (spd - 12) * 0.006); // fade in with speed, capped subtle
+          for (const wi of [2, 3]) {
+            const hit = physics.vehicle.wheelInfos[wi].raycastResult?.hitPointWorld;
+            if (!hit) continue;
+            const s = smokeSprites[smokeIndex % SMOKE_POOL_SIZE];
+            smokeIndex++;
+            s.life = 0;
+            s.maxLife = 0.55;
+            s.startOpacity = op;
+            s.vx = bx * (2.5 + Math.random() * 1.5) + (Math.random() - 0.5);
+            s.vy = 0.5 + Math.random() * 0.5; // low rise — hugs the ground
+            s.vz = bz * (2.5 + Math.random() * 1.5) + (Math.random() - 0.5);
+            s.sprite.position.set(hit.x, hit.y + 0.06, hit.z);
+            s.sprite.visible = true;
+            s.sprite.material.opacity = op;
+            s.sprite.scale.setScalar(0.4);
+          }
+        }
+      } else {
+        dustTimer = 0;
       }
     }
 
