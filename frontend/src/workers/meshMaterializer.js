@@ -567,11 +567,11 @@ function injectFogShader(mat) {
 }
 
 // Facade + roof are closed extruded prisms — their interior back faces are never legitimately seen, so
-// single-sided rendering ~halves their fragment shading. worldGroup.scale.x=-1 mirrors the scene and flips
-// triangle winding, so the exterior shows as BackSide (NOT FrontSide). If buildings render hollow/see-
-// through after this, flip this ONE constant to THREE.FrontSide. Thin details (rails/awnings) stay
-// DoubleSide — single-siding them would make them vanish edge-on.
-const BUILDING_SIDE = THREE.BackSide;
+// single-sided rendering ~halves their fragment shading. Empirically FrontSide is correct (matches the
+// terrain material in the same worldGroup.scale.x=-1 mirrored space; BackSide rendered buildings
+// hollow/inside-out). Thin details (rails/awnings) stay DoubleSide — single-siding them would make them
+// vanish edge-on.
+const BUILDING_SIDE = THREE.FrontSide;
 
 /**
  * Create or retrieve a facade material by category and hex color.
