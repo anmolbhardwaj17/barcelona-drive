@@ -130,8 +130,21 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
       let acc = (seed % 5) / 5 * SPACING;
 
       let totalLen = 0;
-      for (let s = 0; s < pts.length - 1; s++) totalLen += Math.hypot(pts[s + 1].x - pts[s].x, pts[s + 1].y - pts[s].y);
+      let minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
+      for (let s = 0; s < pts.length; s++) {
+        if (s < pts.length - 1) totalLen += Math.hypot(pts[s + 1].x - pts[s].x, pts[s + 1].y - pts[s].y);
+        const px = pts[s].x, py = pts[s].y;
+        if (px < minWx) minWx = px; if (px > maxWx) maxWx = px;
+        if (py < minWy) minWy = py; if (py > maxWy) maxWy = py;
+      }
       if (totalLen < JUNCTION_GAP * 2 + SPACING) continue;
+      // Segment-level cull: skip the whole road unless the player is within RANGE of its bbox. Without this
+      // the rebuild walks ALL ~4000 segments (the per-car RANGE test is inside the walk) → an 18 ms hitch
+      // every REBUILD_DIST metres. Player world-frame = (origin.x - playerPx, playerPz + origin.z).
+      const pwx = origin.x - playerPx, pwy = playerPz + origin.z;
+      const ddx = Math.max(minWx - pwx, 0, pwx - maxWx);
+      const ddy = Math.max(minWy - pwy, 0, pwy - maxWy);
+      if (ddx * ddx + ddy * ddy > rangeSq) continue;
       let roadDistBase = 0;
 
       for (let s = 0; s < pts.length - 1; s++) {

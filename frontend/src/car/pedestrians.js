@@ -100,6 +100,11 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       if (!WALKABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) continue;
       const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
       const off = halfW + SIDEWALK_PAD;
+      // Whole-segment bbox cull (physics frame) — skip far roads before the inner walk + getGroundY calls.
+      let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
+      for (const p of seg.points) { const x = -(p.x - origin.x), z = p.y - origin.z; if (x < mnX) mnX = x; if (x > mxX) mxX = x; if (z < mnZ) mnZ = z; if (z > mxZ) mxZ = z; }
+      const cddx = Math.max(mnX - playerPx, 0, playerPx - mxX), cddz = Math.max(mnZ - playerPz, 0, playerPz - mxZ);
+      if (cddx * cddx + cddz * cddz > R2) continue;
       for (let s = 0; s < seg.points.length - 1; s++) {
         const ax = -(seg.points[s].x - origin.x), az = seg.points[s].y - origin.z;
         const bx = -(seg.points[s + 1].x - origin.x), bz = seg.points[s + 1].y - origin.z;
