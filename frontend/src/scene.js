@@ -498,6 +498,10 @@ export function createScene(container) {
       uHorizon: { value: new THREE.Color(SKY_HORIZON) },
       uMid:     { value: new THREE.Color(SKY_MID)     },
       uZenith:  { value: new THREE.Color(SKY_ZENITH)  },
+      // Rally-only warm sun scatter (set from sunDir below) — the art-of-rally golden horizon glow.
+      uSunDir:  { value: new THREE.Vector3(0, 0.5, 1) },
+      uSunGlow: { value: new THREE.Color(0xffcf9e)    },
+      uRally:   { value: isRallyStyle() ? 1.0 : 0.0   },
     },
     vertexShader: `
       varying vec3 vWorldPosition;
@@ -511,15 +515,24 @@ export function createScene(container) {
       uniform vec3 uHorizon;
       uniform vec3 uMid;
       uniform vec3 uZenith;
+      uniform vec3 uSunDir;
+      uniform vec3 uSunGlow;
+      uniform float uRally;
       varying vec3 vWorldPosition;
       void main() {
-        float h = normalize(vWorldPosition).y;
+        vec3 dir = normalize(vWorldPosition);
+        float h = dir.y;
         // Smooth gradient: horizon band extends below eye level for seamless ground blend
         float t = smoothstep(-0.05, 0.45, h);
         // Two-stage blend: horizon→mid then mid→zenith
         vec3 color = mix(uHorizon, uMid, smoothstep(0.0, 0.3, t));
         color = mix(color, uZenith, smoothstep(0.25, 1.0, t));
-        gl_FragColor = vec4(color, 1.0);
+        // Art-of-rally warm sun scatter: a tight glow around the sun + a broad wash along the horizon
+        // near the sun azimuth. Fades out above the horizon so the zenith stays clean blue.
+        float sun = max(dot(dir, normalize(uSunDir)), 0.0);
+        float horizonFade = 1.0 - smoothstep(0.0, 0.5, h);
+        vec3 glow = uSunGlow * (pow(sun, 9.0) * 0.55 + pow(sun, 2.5) * 0.22 * horizonFade) * uRally;
+        gl_FragColor = vec4(color + glow, 1.0);
       }
     `,
     side: THREE.BackSide,
@@ -533,6 +546,7 @@ export function createScene(container) {
   const phi   = THREE.MathUtils.degToRad(90 - 35); // elevation 35° (late afternoon)
   const theta = THREE.MathUtils.degToRad(200);       // azimuth SW
   sunDir.setFromSphericalCoords(1, phi, theta);
+  skyMat.uniforms.uSunDir.value.copy(sunDir); // feed the sun scatter glow (rally sky)
 
   // Stylized cloud layer — billboarded sprite blobs
   addClouds(scene, spawnX, spawnZ);
