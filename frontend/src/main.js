@@ -6,8 +6,6 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
@@ -75,40 +73,12 @@ renderer.info.autoReset = false;
 // ── Post-processing — radial blur on screen edges at speed ────────────────
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-// Ambient occlusion (rally style) — GTAO grounds everything with soft contact shadows in crevices,
-// under cars, at building bases + curbs + tree trunks. THE key art-of-rally "baked diorama" ingredient.
-// Sits right after RenderPass so it darkens the beauty buffer before bloom/DOF/grade. Tunable live via
-// window._gtaoPass (.output, .blendIntensity) + window._gtaoTune(radius, scale).
-let gtaoPass = null;
-if (isRallyStyle()) {
-  gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-  gtaoPass.output = GTAOPass.OUTPUT.Default; // AO multiplied onto the rendered colour
-  gtaoPass.blendIntensity = 1.0;
-  // world-space radius in metres (1 unit = 1 m) — broad-ish so it reads as soft grounding, not tight grime
-  gtaoPass.updateGtaoMaterial({
-    radius: 2.2, distanceExponent: 1.0, thickness: 1.0,
-    scale: 1.35, samples: 8, distanceFallOff: 1.0, screenSpaceRadius: false, // 8 samples + denoise = smooth, perf-safe
-  });
-  gtaoPass.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 16 });
-  composer.addPass(gtaoPass);
-  window._gtaoPass = gtaoPass;
-  window._gtaoTune = (radius = 2.2, scale = 1.35) =>
-    gtaoPass.updateGtaoMaterial({ radius, distanceExponent: 1.0, thickness: 1.0, scale, samples: 16, distanceFallOff: 1.0, screenSpaceRadius: false });
-}
-// Depth-of-field (rally style only) — keep the car + foreground sharp, softly blur the far
-// background for that diorama look. Focus ~ chase-cam distance to the car. Tunable live via
-// window._bokehPass.uniforms.{focus,aperture,maxblur}.value.
-let bokehPass = null;
-if (isRallyStyle()) {
-  bokehPass = new BokehPass(scene, camera, {
-    focus: 12,          // metres — starting focus; the render loop locks it to the actual car distance
-    aperture: 0.000035, // VERY small → wide sharp zone: car + near/mid stay crisp, only the FAR distance softens
-    maxblur: 0.003,     // gentle max blur
-    width: window.innerWidth, height: window.innerHeight,
-  });
-  composer.addPass(bokehPass);
-  window._bokehPass = bokehPass; // DevTools tuning
-}
+// NOTE: GTAO (ambient occlusion) and Bokeh (depth-of-field) were removed — each re-renders the ENTIRE
+// scene for its depth/normal buffers (GTAO: depth + normals = 2 extra full passes; Bokeh: depth = 1),
+// which tripled effective triangle throughput on the 4M-tri streamed city (→ ~10M tris, ~33 FPS) and
+// GTAO's screen-space AO smeared a dark blob behind the near-camera hero car. Grounding now comes from
+// the dir-light shadow map + fake contact shadows instead. Do NOT re-add a full-screen depth-prepass
+// effect here without a triangle-budget plan.
 // Bloom — makes lights, tail lights, headlights, streetlights glow
 // Bloom at half resolution for performance — still looks great
 const bloomPass = new UnrealBloomPass(
@@ -617,12 +587,6 @@ function animate(time = 0) {
   const blurSpd = Math.abs(speedKmh || 0);
   radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 40) / 80));
   radialBlurPass.enabled = blurSpd > 42;
-  // DOF (rally): lock focus to the car so it's ALWAYS tack-sharp; only the far background softens.
-  if (bokehPass && carDriver) {
-    const lp = carDriver.getLocalPosition();
-    const fdx = camera.position.x - lp.lx, fdz = camera.position.z - lp.lz;
-    bokehPass.uniforms['focus'].value = Math.max(6, Math.hypot(fdx, fdz));
-  }
   renderer.info.reset();
   composer.render();
   // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is

@@ -153,10 +153,6 @@ No HDR environment map is used for IBL — lighting is entirely from the two dir
 ```
 RenderPass (scene, camera)
     ↓
-GTAOPass            (rally-only — soft contact AO; samples 8 + poisson denoise; world radius 2.2 m)
-    ↓
-BokehPass           (rally-only — depth-of-field; focus locked to car distance each frame)
-    ↓
 UnrealBloomPass (half-resolution)
     ↓
 RadialBlurPass (custom ShaderPass — speed-gated)
@@ -166,8 +162,14 @@ ColorGradePass (custom ShaderPass — sat/contrast/split-tone/vignette; uRally +
 OutputPass (gamma/color space conversion)
 ```
 
-The two rally-only passes (GTAO, Bokeh) are added only when `isRallyStyle()` (`?style=rally`). Live-tunable
-in DevTools via `window._gtaoPass` / `window._gtaoTune(radius, scale)`, `window._bokehPass`, `window._colorGradePass`.
+**Removed — GTAO (AO) and Bokeh (DOF):** both were tried for the art-of-rally look but each re-renders the
+ENTIRE scene into depth/normal buffers (GTAO: depth + normals = 2 extra full passes; Bokeh: depth = 1).
+On the ~4M-tri streamed city that tripled effective triangle throughput (→ ~10M tris, ~33 FPS). GTAO also
+smeared a dark blob behind the near-camera hero car and turned distant cloud/sprite quads into black
+rectangles (their alpha cutout is ignored in the normal prepass, so the full quad reads as an occluder).
+Grounding comes from the dir-light shadow map + fake contact shadows instead. **Do not re-add a
+full-screen depth-prepass effect without a triangle budget** — screen-space AO in particular fights the
+near-camera chase framing.
 
 ### UnrealBloom
 ```js
