@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLLISION_GROUP_WORLD, COLLISION_GROUP_VEHICLE } from '../collisionGroups.js';
-import { loadCityCarTemplates, addCarLights } from './carModels.js';
+import { loadCityCarTemplates } from './carModels.js';
 import { audio } from '../audio/audioManager.js';
 
 // Per-car body tint (multiplies the white-based Kenney texture → body takes this colour, while the dark
@@ -55,14 +55,64 @@ const HIT_RADIUS  = 3.2;  // m — player this close + fast → shove the car as
 const HIT_MIN_KMH = 12;   // don't shove when crawling
 const YAXIS = new CANNON.Vec3(0, 1, 0);
 
+const YAXIS3 = new THREE.Vector3(0, 1, 0);
+
 export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments, getOrigin, contactShadows }) {
   const cars = [];
   let _enabled = true;
   let _templates = [];
 
+  // Shared per-(template,tint) materials — avoids cloning + disposing a material every spawn/despawn
+  // (that churn fed the GC). Keyed by tint hex (or -1 for liveried = untinted). Created once, reused.
+  const _matCache = [];
+  function getCarMaterial(tplIdx, tpl) {
+    if (!_matCache[tplIdx]) _matCache[tplIdx] = new Map();
+    const cache = _matCache[tplIdx];
+    const tintHex = LIVERIED.has(tpl.name) ? -1 : CAR_TINTS[(Math.random() * CAR_TINTS.length) | 0];
+    let m = cache.get(tintHex);
+    if (!m) { m = tpl.material.clone(); if (tintHex >= 0) m.color.setHex(tintHex); cache.set(tintHex, m); }
+    return m;
+  }
+
+  // Head/tail lights as TWO shared InstancedMeshes (was 4 loose child meshes per car ≈ 112 draws → 2).
+  // Rebuilt each frame from every car's current pose. Big draw-call cut → less per-frame Three.js churn.
+  const LIGHT_CAP = MAX_CARS * 2 + 4;
+  let headIM = null, tailIM = null, lightLocals = [];
+  const _carM = new THREE.Matrix4(), _carP = new THREE.Vector3(), _carQ = new THREE.Quaternion();
+  const _one = new THREE.Vector3(1, 1, 1), _lm = new THREE.Matrix4();
+
   loadCityCarTemplates('/models/cars/', 3.9)
-    .then((t) => { _templates = t; })
+    .then((t) => {
+      _templates = t;
+      const lightGeo = new THREE.PlaneGeometry(0.28, 0.14);
+      const headMat = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });
+      const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a12, side: THREE.DoubleSide, fog: true });
+      headIM = new THREE.InstancedMesh(lightGeo, headMat, LIGHT_CAP); headIM.frustumCulled = false; headIM.castShadow = false; headIM.count = 0; scene.add(headIM);
+      tailIM = new THREE.InstancedMesh(lightGeo, tailMat, LIGHT_CAP); tailIM.frustumCulled = false; tailIM.castShadow = false; tailIM.count = 0; scene.add(tailIM);
+      const _tq = new THREE.Quaternion();
+      lightLocals = t.map((tpl) => {
+        const w = tpl.dims.w, h = tpl.dims.h, l = tpl.dims.l, y = h * 0.42;
+        const mk = (x, z, ry) => { const m = new THREE.Matrix4(); _tq.setFromAxisAngle(YAXIS3, ry); m.compose(new THREE.Vector3(x, y, z), _tq, _one); return m; };
+        return { head: [mk(-w * 0.30, l * 0.49, 0), mk(w * 0.30, l * 0.49, 0)], tail: [mk(-w * 0.30, -l * 0.49, Math.PI), mk(w * 0.30, -l * 0.49, Math.PI)] };
+      });
+    })
     .catch((e) => console.warn('[traffic] car models load failed:', e?.message || e));
+
+  // Rebuild the shared light InstancedMeshes from every car's current pose (called once per update).
+  function updateLights() {
+    if (!headIM || !tailIM) return;
+    let hc = 0, tc = 0;
+    for (const car of cars) {
+      const L = lightLocals[car.tplIdx];
+      if (!L) continue;
+      _carQ.setFromAxisAngle(YAXIS3, car.mesh.rotation.y);
+      _carM.compose(_carP.copy(car.mesh.position), _carQ, _one);
+      for (const lm of L.head) { if (hc < LIGHT_CAP) { _lm.multiplyMatrices(_carM, lm); headIM.setMatrixAt(hc++, _lm); } }
+      for (const lm of L.tail) { if (tc < LIGHT_CAP) { _lm.multiplyMatrices(_carM, lm); tailIM.setMatrixAt(tc++, _lm); } }
+    }
+    headIM.count = hc; tailIM.count = tc;
+    headIM.instanceMatrix.needsUpdate = true; tailIM.instanceMatrix.needsUpdate = true;
+  }
 
   function groundY(wx, wz) {
     const y = getGroundY ? getGroundY(wx, wz) : 0;
@@ -158,15 +208,12 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       }
       if (startIdx < 0 || startIdx >= path.pts.length - 1) continue;
 
-      const tpl = _templates[(Math.random() * _templates.length) | 0];
-      // Merged tint-ready template (white body base + Kenney texture: windows dark in-texture, wheels
-      // black via baked vertex colours). Clone the material so we can give THIS car its own body colour —
-      // only the body picks up the tint; glass + wheels stay dark. Liveried models keep white (livery shows).
-      const mat = tpl.material.clone();
-      if (!LIVERIED.has(tpl.name)) mat.color.setHex(CAR_TINTS[(Math.random() * CAR_TINTS.length) | 0]);
-      const mesh = new THREE.Mesh(tpl.geometry, mat);
+      const tplIdx = (Math.random() * _templates.length) | 0;
+      const tpl = _templates[tplIdx];
+      // Shared per-(template,tint) material (no per-car clone). Lights are the shared head/tail IMs,
+      // rebuilt each frame in updateLights() — not per-car child meshes.
+      const mesh = new THREE.Mesh(tpl.geometry, getCarMaterial(tplIdx, tpl));
       mesh.castShadow = false; // grounded by the fake contact shadow instead
-      addCarLights(mesh, tpl.dims); // glowing head/tail lights so traffic reads at night
       scene.add(mesh);
 
       const hw = tpl.dims.w / 2, hh = tpl.dims.h / 2, hl = tpl.dims.l / 2;
@@ -177,7 +224,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       body.collisionFilterMask = COLLISION_GROUP_VEHICLE;
       world.addBody(body);
 
-      cars.push({ mesh, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl });
+      cars.push({ mesh, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl, tplIdx });
       return true;
     }
     return false;
@@ -185,7 +232,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
 
   function removeCar(car) {
     scene.remove(car.mesh);
-    car.mesh.material?.dispose(); // per-car cloned tint material — dispose it (geometry is shared, keep it)
+    // material is a SHARED per-(template,tint) singleton now — do NOT dispose it (other cars reuse it).
     world.removeBody(car.body);
   }
 
@@ -324,11 +371,16 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         if (!spawnCar(playerPx, playerPz, origin)) break;
       }
     }
+
+    updateLights(); // rebuild the 2 shared head/tail InstancedMeshes from all cars' current poses
   }
 
   function setEnabled(on) {
     _enabled = on;
-    if (!on) { for (const car of cars) removeCar(car); cars.length = 0; }
+    if (!on) {
+      for (const car of cars) removeCar(car); cars.length = 0;
+      if (headIM) headIM.count = 0; if (tailIM) tailIM.count = 0; // clear shared lights (no cars left)
+    }
   }
   function getCount() { return cars.length; }
   function dispose() { for (const car of cars) removeCar(car); cars.length = 0; }

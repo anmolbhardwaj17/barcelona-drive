@@ -468,7 +468,7 @@ let _cachedNearestRoad = null;
 const ROAD_QUERY_THRESHOLD_SQ = 10 * 10; // re-query every 10m of movement
 
 let _lastShadowX = -Infinity, _lastShadowZ = -Infinity;
-const SHADOW_UPDATE_THRESHOLD_SQ = 5 * 5; // update shadow camera every 5m
+const SHADOW_UPDATE_THRESHOLD_SQ = 12 * 12; // update shadow camera every 12m (was 5) — fewer full shadow re-renders (less per-frame Three.js churn + GPU); imperceptible for a 200m-radius directional shadow
 
 function animate(time = 0) {
   requestAnimationFrame(animate);
