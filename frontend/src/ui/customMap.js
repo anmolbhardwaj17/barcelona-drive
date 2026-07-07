@@ -74,13 +74,13 @@ const STYLE = {
   // Watch Dogs 2 reference: cool grey urban blocks, muted green nature, bright blue water, white streets
   // and YELLOW highways.
   day: {
-    ground:    '#e7e9e6',   // bright light grey urban base (lightened again — still read too dark)
+    ground:    '#edefeb',   // very light grey urban base
     park:      '#aacd90',   // muted green
-    water:     '#4d9fd6',   // bright blue
-    building:  '#f1f3f0',   // near-white grey blocks
-    buildingEdge: '#dcded9',
-    casing:    '#d0d2ce',   // light casing — just enough to define the white roads on the light land
-    road: { major: '#ffc61e', mid: '#ffffff', minor: '#f6f6f5', path: '#e8e8e6' },  // vivid gold highways, white streets
+    water:     '#66b3e6',   // lighter bright blue
+    building:  '#f7f8f5',   // near-white blocks
+    buildingEdge: '#e1e3de',
+    casing:    '#d7d9d4',   // light casing — just enough to define the white roads on the light land
+    road: { major: '#ffd21f', mid: '#ffffff', minor: '#f8f8f6', path: '#ececea' },  // brighter gold highways, white streets
     label:     '#43494a', labelHalo: 'rgba(226,228,227,0.92)',
     street:    '#565c5d', streetHalo: 'rgba(255,255,255,0.9)',
     seaLabel:  '#eef5fb', seaHalo: 'rgba(20,70,110,0.55)',
