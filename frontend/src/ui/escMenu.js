@@ -49,7 +49,7 @@ const CSS = `
 .dd-esc-left { flex:1 1 54%; overflow-y:auto; overflow-x:hidden; padding-right:10px; min-width:0; }
 .dd-esc-page { width:100%; max-width:660px; }
 /* Right column — the live 3D car turntable resting directly on the light menu background (NO box) */
-.dd-esc-showcase { flex:1 1 46%; position:relative; min-width:0; align-self:stretch; }
+.dd-esc-showcase { flex:1 1 46%; position:relative; min-width:0; align-self:stretch; overflow:hidden; }
 .dd-esc-showcase::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:10px; text-align:center;
   font-size:12px; letter-spacing:3px; color:rgba(255,255,255,0.4); pointer-events:none; }
 .dd-esc-showcase canvas { position:absolute; inset:0; }

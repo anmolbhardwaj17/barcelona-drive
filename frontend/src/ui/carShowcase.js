@@ -66,7 +66,7 @@ export function createCarShowcase() {
     pivot.add(car);
   }, undefined, (e) => console.warn('[carShowcase] car load failed', e?.message || e));
 
-  const RADIUS = 6.4;
+  const RADIUS = 7.4;
   let angle = Math.PI * 0.75, autoVel = 0.0045, dragging = false, lastX = 0, running = false, w = 1, h = 1;
 
   function frame() {
