@@ -16,13 +16,12 @@ import { latLonToWorld } from '../projection.js';
 // Barcelona neighbourhoods/districts → bold overview labels (GTA-style), shown when zoomed out. Approx
 // centres; drawn wherever they fall, even over not-yet-loaded tiles, so the overview map reads as a city.
 const DISTRICTS = [
-  ['EIXAMPLE', 41.3916, 2.1649], ['GRÀCIA', 41.4035, 2.1560], ['EL RAVAL', 41.3790, 2.1687],
-  ['BARRI GÒTIC', 41.3830, 2.1770], ['LA BARCELONETA', 41.3800, 2.1900], ['EL BORN', 41.3850, 2.1820],
-  ['SANT ANTONI', 41.3790, 2.1590], ['POBLE-SEC', 41.3720, 2.1600], ['SANTS', 41.3750, 2.1370],
-  ['LES CORTS', 41.3870, 2.1300], ['SARRIÀ', 41.3990, 2.1200], ['SANT GERVASI', 41.4010, 2.1400],
-  ['POBLENOU', 41.4030, 2.2000], ['EL CLOT', 41.4110, 2.1870], ['SAGRADA FAMÍLIA', 41.4036, 2.1744],
-  ['HORTA', 41.4290, 2.1620], ['NOU BARRIS', 41.4420, 2.1770], ['SANT ANDREU', 41.4360, 2.1900],
-  ['MONTJUÏC', 41.3630, 2.1650],
+  ['EIXAMPLE', 41.3916, 2.1649], ['GRÀCIA', 41.4035, 2.1560], ['CIUTAT VELLA', 41.3810, 2.1740],
+  ['LA BARCELONETA', 41.3800, 2.1900], ['SANT ANTONI', 41.3775, 2.1560], ['POBLE-SEC', 41.3705, 2.1600],
+  ['SANTS', 41.3750, 2.1370], ['LES CORTS', 41.3870, 2.1300], ['SARRIÀ', 41.3990, 2.1200],
+  ['SANT GERVASI', 41.4010, 2.1400], ['POBLENOU', 41.4030, 2.2000], ['EL CLOT', 41.4110, 2.1870],
+  ['SAGRADA FAMÍLIA', 41.4036, 2.1744], ['HORTA', 41.4290, 2.1620], ['NOU BARRIS', 41.4420, 2.1770],
+  ['SANT ANDREU', 41.4360, 2.1900], ['MONTJUÏC', 41.3630, 2.1650],
 ];
 // Lazily projected to world coords ({name, x, y}) on first draw (projection origin is ready by then).
 let _districts = null;
@@ -213,25 +212,38 @@ export function createCustomMap() {
       ctx.fillText(str, x, y);
     };
 
+    // A label must render in EVERY tile it overlaps (not just its anchor tile) or long names get clipped
+    // at the tile seam. Text is centred on the same world anchor in each tile, so the halves line up.
+    const spans = (ax, ay, halfWm, halfHm) =>
+      ax + halfWm >= wMinX && ax - halfWm <= wMaxX && ay + halfHm >= wMinZ && ay - halfHm <= wMaxZ;
+
     // 4a. district names — broad overview (drawn even where tiles aren't loaded)
     if (showDistricts) {
       const fs = z <= 14 ? 13 : 15;
+      const font = `700 ${fs}px system-ui, sans-serif`;
+      ctx.font = font;
+      const halfHm = (fs * 0.8) / kz;
       for (const d of districts()) {
-        if (!inTile(d.x, d.y)) continue;
-        text(d.name, sx(d.x), sy(d.y), `700 ${fs}px system-ui, sans-serif`, S.label, S.labelHalo);
+        const halfWm = (ctx.measureText(d.name).width / 2 + 5) / kx;
+        if (!spans(d.x, d.y, halfWm, halfHm)) continue;
+        text(d.name, sx(d.x), sy(d.y), font, S.label, S.labelHalo);
       }
     }
 
     // 4b. street names — super zoomed-in detail (major roads, one label at the road's midpoint)
     if (showStreets) {
+      const font = `600 11px system-ui, sans-serif`;
+      ctx.font = font;
+      const halfHm = 9 / kz;
       const seen = new Set();
       for (const t of store.values()) {
         for (const r of t.roads) {
           if (r.tier !== 'major' || !r.name || seen.has(r.name)) continue;
           const mid = r.pts[r.pts.length >> 1];
-          if (!inTile(mid.x, mid.y)) continue;
+          const halfWm = (ctx.measureText(r.name).width / 2 + 4) / kx;
+          if (!spans(mid.x, mid.y, halfWm, halfHm)) continue;
           seen.add(r.name);
-          text(r.name, sx(mid.x), sy(mid.y), `600 11px system-ui, sans-serif`, S.street, S.streetHalo);
+          text(r.name, sx(mid.x), sy(mid.y), font, S.street, S.streetHalo);
         }
       }
     }
