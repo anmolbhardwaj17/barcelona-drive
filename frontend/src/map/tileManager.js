@@ -413,7 +413,7 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
         groundY = (getElevationAt(lat, lon) ?? 0) * vertExag;
       }
       // Clean footprint (drop closing dup + consecutive dups) for the convex test.
-      const clean = [];
+      let clean = [];
       for (const p of pfp) {
         const last = clean[clean.length - 1];
         if (!last || Math.abs(last.x - p.x) > 1e-3 || Math.abs(last.z - p.z) > 1e-3) clean.push(p);
@@ -422,6 +422,9 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
         const f0 = clean[0], fl = clean[clean.length - 1];
         if (Math.abs(f0.x - fl.x) < 1e-3 && Math.abs(f0.z - fl.z) < 1e-3) clean.pop();
       }
+      // Collapse near-collinear vertices up front — benefits BOTH the convex-prism path (fewer verts →
+      // cheaper cannon-es ConvexPolyhedron) and the perimeter-wall path (fewer boxes). #1 GC allocator.
+      clean = mergeCollinearRing(clean, COLLINEAR_MERGE_RAD);
       // Non-rectangular convex footprint (chamfered corner, angled block) → exact convex prism so the
       // collider hugs the real wall line and the corner sidewalk stays drivable. Rectangles use the cheap box.
       let prism = null;
