@@ -76,12 +76,15 @@ const CSS = `
 .dd-esc-chip:hover { border-color:#ffd23f; color:#fff; }
 .dd-esc-chip:active { transform:translateY(5px); box-shadow:0 1px 0 #171d26; }
 .dd-esc-chip.sel { border-color:#ffd23f; color:#fff; box-shadow:0 0 0 3px rgba(255,210,63,0.4), 0 5px 0 #171d26, 0 8px 12px rgba(0,0,0,0.35); }
-.dd-esc-toggle { width:80px; height:40px; border-radius:22px; background:#5a4a8a; border:3px solid rgba(0,0,0,0.2);
-  position:relative; cursor:pointer; box-shadow:inset 0 3px 6px rgba(0,0,0,0.35); transition:.15s; }
-.dd-esc-toggle .k { position:absolute; top:3px; left:3px; width:32px; height:30px; border-radius:18px; background:#fff; box-shadow:0 3px 5px rgba(0,0,0,0.35); transition:.15s; }
+.dd-esc-toggle { width:52px; height:28px; border-radius:16px; background:#5a4a8a; border:3px solid rgba(0,0,0,0.2);
+  position:relative; cursor:pointer; box-shadow:inset 0 2px 5px rgba(0,0,0,0.35); transition:.15s; flex:0 0 auto; }
+.dd-esc-toggle .k { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:12px; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.35); transition:.15s; }
 .dd-esc-toggle.on { background:linear-gradient(#84e56f,#54c247); border-color:rgba(0,0,0,0.16); }
-.dd-esc-toggle.on .k { left:42px; }
-.dd-esc-tlabel { font-size:20px; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,0.28); }
+.dd-esc-toggle.on .k { left:26px; }
+.dd-esc-tlabel { font-size:16px; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,0.28); }
+/* Compact toggle grid — several per row to save vertical space */
+.dd-esc-checkrow { display:flex; flex-wrap:wrap; gap:6px 26px; margin:8px 0 4px; }
+.dd-esc-checkrow .dd-esc-line { margin:5px 0; gap:10px; }
 .dd-esc-key { display:flex; align-items:center; justify-content:space-between; padding:11px 4px; }
 .dd-esc-key .d { font-size:19px; color:rgba(255,255,255,0.88); text-shadow:0 2px 0 rgba(0,0,0,0.25); }
 .dd-esc-key .k { background:linear-gradient(#ffe07a,#f5b32a); color:#3a2a00; border:3px solid rgba(0,0,0,0.15);
@@ -206,15 +209,16 @@ export function createEscMenu(refs = {}) {
 
   // ── Display toggles (day/night stays in the top-right pill, not here) ──
   page.appendChild(sec('Display'));
+  const dispRow = el('div', 'dd-esc-checkrow'); page.appendChild(dispRow);
   const metricsEls = (refs.metricsElements || []).filter(Boolean);
   let metricsOn = ls('dd_showMetrics', 'true') !== 'false';
   const applyMetrics = () => { for (const e of metricsEls) e.style.display = metricsOn ? '' : 'none'; };
   applyMetrics();
-  page.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
+  dispRow.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
   // Fly mode (free camera vs driving) — reloads to switch. Reflect the RESOLVED mode (a URL ?mode param
   // outranks dd_flyMode), and strip any mode param from the URL on reload so the toggle isn't a dead no-op.
   const flyInitial = refs.carMode != null ? !refs.carMode : (ls('dd_flyMode', 'false') === 'true');
-  page.appendChild(check('Fly mode', flyInitial, (v) => {
+  dispRow.appendChild(check('Fly mode', flyInitial, (v) => {
     ss('dd_flyMode', v ? 'true' : 'false');
     setTimeout(() => {
       try {
@@ -225,7 +229,7 @@ export function createEscMenu(refs = {}) {
     }, 120);
   }));
   // Collision wireframes — debug overlay of every collider near the car (also toggles with the K key).
-  page.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v), isCollisionDebugActive, syncers));
+  dispRow.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v), isCollisionDebugActive, syncers));
 
   // ── Sound ──
   page.appendChild(sec('Sound'));
