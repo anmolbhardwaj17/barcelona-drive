@@ -367,9 +367,29 @@ function addPerimeterWalls(body, ptsRaw, groundY, h) {
   }
 }
 
-function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertExag) {
+const REACHABLE_DIST_SQ = 20 * 20; // m² — a building whose footprint is entirely farther than this from
+                                   // ANY road can't be touched by the car (which stays on roads), so its
+                                   // collider is pure waste. Skipping it cuts cannon-es Box garbage (the #1
+                                   // GC source) at BOTH creation and per-frame collision. 20m = safe margin.
+function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertExag, roads) {
   const bodies = [];
   if (!buildings || buildings.length === 0) return bodies;
+  // Flat road-point list (world frame) for the reachability cull. Conservative: ALL roads (even footways)
+  // count as reachable, so we only ever skip buildings that are far from EVERYTHING — never a real wall.
+  const roadPts = [];
+  for (const road of roads || []) { const p = road.points; if (p) for (let i = 0; i < p.length; i++) roadPts.push(p[i].x, p[i].y); }
+  const nRoadPts = roadPts.length;
+  function nearAnyRoad(fp) {
+    if (!nRoadPts) return true; // no road data → keep collider (safe)
+    for (let vi = 0; vi < fp.length; vi++) {
+      const vx = fp[vi].x, vy = fp[vi].y;
+      for (let r = 0; r < nRoadPts; r += 2) {
+        const dx = vx - roadPts[r], dy = vy - roadPts[r + 1];
+        if (dx * dx + dy * dy < REACHABLE_DIST_SQ) return true;
+      }
+    }
+    return false;
+  }
   const BATCH = 40;
   for (let start = 0; start < buildings.length; start += BATCH) {
     const end = Math.min(start + BATCH, buildings.length);
@@ -379,6 +399,7 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
       const b = buildings[bi];
       const fp = b.footprint;
       if (!fp || fp.length < 3) continue;
+      if (!nearAnyRoad(fp)) continue; // unreachable interior building → no collider (car can't touch it)
       // ORIENTED bounding box (matches angled buildings — e.g. along Avinguda Diagonal — instead of
       // an AABB whose corners stick out into the roadway as an invisible wall). Work in the PHYSICS
       // frame directly so the box rotation is unambiguous under the X-mirror.
@@ -2211,7 +2232,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (aborted()) return entry;
       // Building colliders — solid shapes so the car can't drive through buildings.
       entry.buildingBodies = (CONFIG.ENABLE_BUILDINGS && filteredTileData.buildings?.length)
-        ? buildBuildingColliders(filteredTileData.buildings, physicsOrigin, getElevationAt, vertExag) : [];
+        ? buildBuildingColliders(filteredTileData.buildings, physicsOrigin, getElevationAt, vertExag, filteredTileData.roads) : [];
       await yieldToMain();
       if (aborted()) return entry;
       for (let i = 0; i < entry.buildingBodies.length; i++) {
