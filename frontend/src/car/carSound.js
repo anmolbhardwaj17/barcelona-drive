@@ -431,24 +431,53 @@ export function createCarSound() {
   // Mute + volume now live on the shared audioManager master (Settings controls it).
   function setMuted(muted) { audio.setMuted(muted); }
   function isMuted() { return audio.isMuted(); }
-  function horn() {
+  // ── Horn — press-and-HOLD (sustained), not a per-keydown one-shot. Key auto-repeat used to restart the
+  //    sample every ~30ms → stutter + the OS repeat delay felt like lag. Now: start on first press, hold a
+  //    continuous voice, stop on release. Routed to the SFX bus. ──
+  let _hornVoice = null;
+  function hornStart() {
+    if (_hornVoice) return;                       // already honking — ignore key auto-repeat
+    const c = audio.ctx(); if (!c || audio.isMuted()) return;
+    const dest = audio.sfxBus() || master;
+    const t = c.currentTime;
     const h = audio.get('horn');
-    if (h) { audio.oneShot(h, { gain: 0.6 }); return; }
-    // No horn sample on disk → synth fallback (two detuned saws = a car-horn "beep"), so H is never silent.
-    if (!_ctx || !master) return;
-    const t = _ctx.currentTime;
-    const g = _ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.5, t + 0.03);
-    g.gain.setValueAtTime(0.5, t + 0.33);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-    g.connect(master);
-    for (const f of [415, 466]) {
-      const o = _ctx.createOscillator();
-      o.type = 'sawtooth'; o.frequency.value = f;
-      o.connect(g); o.start(t); o.stop(t + 0.52);
+    if (h) { // loop the sample continuously while held
+      const v = audio.loop(h, { gain: 0.0001, dest });
+      if (v) {
+        v.gain.gain.setValueAtTime(0.0001, t);
+        v.gain.gain.exponentialRampToValueAtTime(0.6, t + 0.02);  // fast attack → no perceived delay
+        _hornVoice = { sample: v };
+        return;
+      }
     }
+    // No sample → sustained dual-tone saw (classic car-horn), held until release.
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
+    g.connect(dest);
+    const oscs = [];
+    for (const f of [415, 466]) {
+      const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+      o.connect(g); o.start(t); oscs.push(o);
+    }
+    _hornVoice = { g, oscs };
   }
+  function hornStop() {
+    const v = _hornVoice; _hornVoice = null;
+    if (!v) return;
+    const c = audio.ctx(); if (!c) return;
+    const t = c.currentTime;
+    const gainNode = v.sample ? v.sample.gain.gain : (v.g ? v.g.gain : null);
+    if (gainNode) {
+      gainNode.cancelScheduledValues(t);
+      gainNode.setValueAtTime(Math.max(0.0001, gainNode.value), t);
+      gainNode.exponentialRampToValueAtTime(0.0001, t + 0.05);   // quick release
+    }
+    const srcs = v.sample ? [v.sample.src] : (v.oscs || []);
+    for (const s of srcs) { try { s.stop(t + 0.08); } catch {} }
+  }
+  // Back-compat: a momentary tap = start + auto-stop after a short beep.
+  function horn() { hornStart(); const c = audio.ctx(); if (c) setTimeout(hornStop, 350); }
 
-  return { ensureStarted, update, dispose, setMuted, isMuted, horn, setNight };
+  return { ensureStarted, update, dispose, setMuted, isMuted, horn, hornStart, hornStop, setNight };
 }

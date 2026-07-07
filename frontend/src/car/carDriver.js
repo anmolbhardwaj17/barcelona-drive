@@ -66,9 +66,13 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   window.addEventListener('keydown', _startAudio);
   window.addEventListener('click', _startAudio);
 
-  // Horn (H) — plays the horn sample if present (no-op otherwise)
-  const _onHorn = (e) => { if (e.code === 'KeyH' && !isInputBlocked() && !isTypingTarget()) sound.horn?.(); };
-  window.addEventListener('keydown', _onHorn);
+  // Horn (H) — press-and-HOLD: start on first press (ignore key auto-repeat), stop on release.
+  const _onHornDown = (e) => { if (e.code === 'KeyH' && !e.repeat && !isInputBlocked() && !isTypingTarget()) sound.hornStart?.(); };
+  const _onHornUp = (e) => { if (e.code === 'KeyH') sound.hornStop?.(); };
+  const _hornBlur = () => sound.hornStop?.();   // window lost focus mid-honk → don't stick on
+  window.addEventListener('keydown', _onHornDown);
+  window.addEventListener('keyup', _onHornUp);
+  window.addEventListener('blur', _hornBlur);
 
   // ── Diagnostics ───────────────────────────────────────────────────────────
   let _logTimer = 0;
@@ -165,6 +169,10 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   }
 
   function dispose() {
+    window.removeEventListener('keydown', _onHornDown);
+    window.removeEventListener('keyup', _onHornUp);
+    window.removeEventListener('blur', _hornBlur);
+    sound.hornStop?.();
     physics.dispose();
     controls.dispose();
     model.dispose();

@@ -388,7 +388,7 @@ spawnTileReady.finally(() => {
         controlsStrip.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;' +
           'font:500 13px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.8);' +
           'pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.4px;';
-        controlsStrip.innerHTML = 'WASD-DRIVE &nbsp;·&nbsp; SPACE-DRIFT &nbsp;·&nbsp; H-HORN &nbsp;·&nbsp; R-RECOVER &nbsp;·&nbsp; M-MAP &nbsp;·&nbsp; ESC-MENU';
+        controlsStrip.innerHTML = 'WASD-DRIVE &nbsp;·&nbsp; SPACE-DRIFT &nbsp;·&nbsp; H-HORN &nbsp;·&nbsp; L-LIGHTS &nbsp;·&nbsp; R-RECOVER &nbsp;·&nbsp; M-MAP &nbsp;·&nbsp; ESC-MENU';
         document.body.appendChild(controlsStrip);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);

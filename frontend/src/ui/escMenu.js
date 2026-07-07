@@ -240,7 +240,7 @@ export function createEscMenu(refs = {}) {
 
   // ── Controls ──
   page.appendChild(sec('Controls'));
-  const keys = [['W / ↑', 'Accelerate'], ['S / ↓', 'Brake · Reverse'], ['A / D', 'Steer'], ['Space', 'Handbrake · Drift'], ['H', 'Horn'], ['Esc', 'Menu']];
+  const keys = [['W / ↑', 'Accelerate'], ['S / ↓', 'Brake · Reverse'], ['A / D', 'Steer'], ['Space', 'Handbrake · Drift'], ['H', 'Horn'], ['L', 'Headlights'], ['R', 'Recover'], ['M', 'Map'], ['Esc', 'Menu']];
   for (const [k, d] of keys) {
     const row = el('div', 'dd-esc-key');
     row.appendChild(el('span', 'd', d));
