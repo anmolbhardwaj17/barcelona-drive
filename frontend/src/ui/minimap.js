@@ -194,14 +194,14 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     z-index: 1000;
   `;
   const mc = markerSize / 2;
-  // Orange "you-are-here" pin with a heading wedge (matches the expanded-map marker). Points UP =
+  // Blue "you-are-here" pin with a heading wedge (matches the expanded-map marker). Points UP =
   // forward, since the map itself rotates heading-up.
   const CAR_MARKER_SVG = `
     <svg viewBox="0 0 ${markerSize} ${markerSize}" width="${markerSize}" height="${markerSize}">
-      <circle cx="${mc}" cy="${mc}" r="24" fill="#f5a623" opacity="0.14"/>
+      <circle cx="${mc}" cy="${mc}" r="24" fill="#2a7fff" opacity="0.14"/>
       <polygon points="${mc},3 ${mc + 10},${mc - 4} ${mc},${mc - 9} ${mc - 10},${mc - 4}"
-               fill="#f5a623" stroke="#ffffff" stroke-width="1.5"/>
-      <circle cx="${mc}" cy="${mc}" r="10.5" fill="#f5a623" stroke="#ffffff" stroke-width="3.5"/>
+               fill="#2a7fff" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="${mc}" cy="${mc}" r="10.5" fill="#2a7fff" stroke="#ffffff" stroke-width="3.5"/>
       <circle cx="${mc}" cy="${mc}" r="4.3" fill="#ffffff" opacity="0.9"/>
     </svg>
   `;
@@ -428,11 +428,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
             <svg id="loc-marker-svg" width="56" height="56" viewBox="0 0 56 56"
               style="position:absolute;transform:translate(-28px,-28px) rotate(${deg}deg);transform-origin:28px 28px;overflow:visible;">
               <!-- accuracy halo -->
-              <circle cx="28" cy="28" r="24" fill="#f5a623" opacity="0.14"/>
+              <circle cx="28" cy="28" r="24" fill="#2a7fff" opacity="0.14"/>
               <!-- heading wedge (points where you're facing) -->
-              <polygon points="28,1 37,22 28,17 19,22" fill="#f5a623" stroke="#ffffff" stroke-width="1.5"/>
+              <polygon points="28,1 37,22 28,17 19,22" fill="#2a7fff" stroke="#ffffff" stroke-width="1.5"/>
               <!-- you-are-here dot -->
-              <circle cx="28" cy="28" r="11" fill="#f5a623" stroke="#ffffff" stroke-width="3.5"/>
+              <circle cx="28" cy="28" r="11" fill="#2a7fff" stroke="#ffffff" stroke-width="3.5"/>
               <circle cx="28" cy="28" r="4.5" fill="#ffffff" opacity="0.85"/>
             </svg>
           </div>`;
