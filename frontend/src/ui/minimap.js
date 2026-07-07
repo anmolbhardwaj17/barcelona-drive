@@ -179,7 +179,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   // look — instead of fading it to transparent over the 3D scene (which ghosted / looked fake).
   const vignetteEl = document.createElement('div');
   vignetteEl.style.cssText = 'position:absolute; inset:0; pointer-events:none; z-index:6; display:none;' +
-    'border-radius:inherit; box-shadow: inset 0 0 140px 46px rgba(12,12,18,0.85);';
+    'border-radius:50%; box-shadow: inset 0 0 120px 24px rgba(46,50,58,0.55);';
   wrapper.appendChild(vignetteEl);
 
   // Kept as references for expand/collapse logic
@@ -443,10 +443,12 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.boxShadow = 'none';
       // Circular map whose edge is a smooth RADIAL feather — dissolves evenly into the frosted (backdrop-
       // blurred) scene behind. closest-side sizes the circle to the square; opaque to 78%, then feathers out.
-      const _radial = 'radial-gradient(circle closest-side at center, #000 78%, rgba(0,0,0,0.45) 90%, transparent 100%)';
+      const _radial = 'radial-gradient(circle closest-side at center, #000 66%, rgba(0,0,0,0.4) 85%, transparent 100%)';
       wrapper.style.webkitMaskImage = _radial; wrapper.style.maskImage = _radial;
       wrapper.style.webkitMaskComposite = ''; wrapper.style.maskComposite = '';
-      vignetteEl.style.display = 'none';
+      // Soft dark edge UNDER the feather → the light map dissolves through a dim ring into the blurred
+      // scene, instead of glowing white (which read as fake).
+      vignetteEl.style.display = 'block';
       zoomBtns.style.display = 'flex';
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
