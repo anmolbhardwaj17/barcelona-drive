@@ -347,7 +347,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     // Smooth, continuous zoom (no integer-step snapping) but FAST — low wheelPx = less scrolling per level.
     zoomSnap: 0,
     zoomDelta: 1,
-    wheelPxPerZoomLevel: 16,   // very responsive wheel (was 30 — too much scrolling to zoom out)
+    wheelPxPerZoomLevel: 55,   // gentle wheel — smooth over fast (buttons + slider handle quick zoom)
     wheelDebounceTime: 5,
     zoomAnimation: true,
   });
@@ -374,12 +374,14 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       },
     });
     // fade:false → tiles don't animate in (no flash); keepBuffer keeps neighbours ready while driving.
-    customLayer = new CustomTiles({ tileSize: 256, updateWhenZooming: false, keepBuffer: 4, fade: false });
+    customLayer = new CustomTiles({ tileSize: 256, updateWhenZooming: false, keepBuffer: 8, fade: false });
     customLayer.addTo(map);
     // Repaint IN PLACE (no tile recreate → no blink) when new baked data arrives. redraw() would destroy
     // and re-fade every tile, which flickered while driving.
     let _redrawTimer = null;
     const refreshInPlace = () => {
+      // Don't fight an in-progress zoom/pan animation — reschedule so the gesture stays smooth.
+      if (map && (map._animatingZoom || (map._panAnim && map._panAnim._inProgress))) { scheduleRedraw(); return; }
       const tiles = customLayer._tiles || {};
       for (const k in tiles) {
         const t = tiles[k]; const el = t && t.el; const co = t && t.coords;
@@ -387,9 +389,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
         try { customMap.drawTile(el.getContext('2d'), el.width, _wbOf(co), co.z); } catch (e) { /* skip */ }
       }
     };
+    // Longer throttle → far less redraw churn while the whole city streams in (the main source of zoom lag).
     const scheduleRedraw = () => {
       if (_redrawTimer) return;
-      _redrawTimer = setTimeout(() => { _redrawTimer = null; refreshInPlace(); }, 300);
+      _redrawTimer = setTimeout(() => { _redrawTimer = null; refreshInPlace(); }, 800);
     };
     customMap.setOnChange(scheduleRedraw);
     customLayer._ddRefresh = refreshInPlace;   // used on night-toggle / expand

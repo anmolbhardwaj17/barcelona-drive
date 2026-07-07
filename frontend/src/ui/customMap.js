@@ -80,7 +80,7 @@ const STYLE = {
     building:  '#f1f3f0',   // near-white grey blocks
     buildingEdge: '#dcded9',
     casing:    '#d0d2ce',   // light casing — just enough to define the white roads on the light land
-    road: { major: '#f0d35e', mid: '#ffffff', minor: '#f6f6f5', path: '#e8e8e6' },  // yellow highways, white streets
+    road: { major: '#ffc61e', mid: '#ffffff', minor: '#f6f6f5', path: '#e8e8e6' },  // vivid gold highways, white streets
     label:     '#43494a', labelHalo: 'rgba(226,228,227,0.92)',
     street:    '#565c5d', streetHalo: 'rgba(255,255,255,0.9)',
     seaLabel:  '#eef5fb', seaHalo: 'rgba(20,70,110,0.55)',
