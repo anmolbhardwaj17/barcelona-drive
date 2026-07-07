@@ -242,11 +242,7 @@ export function createEscMenu(refs = {}) {
     page.appendChild(row);
   }
 
-  // Bottom
-  const bottom = el('div', 'dd-esc-bottom');
-  const back = el('div', 'dd-esc-back', '◄ BACK');
-  back.addEventListener('click', () => setOpen(false)); bottom.appendChild(back);
-  wrap.appendChild(bottom);
+  // (No BACK button — the ✕ top-right and Esc both close the menu.)
 
   document.body.appendChild(overlay);
   const fab = el('div', 'dd-esc-fab', '☰'); fab.title = 'Settings (Esc)';

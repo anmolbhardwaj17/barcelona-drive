@@ -37,7 +37,7 @@ export function createCarShowcase() {
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
   const shadow = new THREE.Mesh(
-    new THREE.PlaneGeometry(7, 4.2).rotateX(-Math.PI / 2), // wider-than-deep oval reads as a car footprint
+    new THREE.PlaneGeometry(4.2, 2.5).rotateX(-Math.PI / 2), // tight oval footprint right under the car (not full-width)
     new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }),
   );
   shadow.position.y = 0.01; scene.add(shadow);
