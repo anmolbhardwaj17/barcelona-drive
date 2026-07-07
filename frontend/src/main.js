@@ -455,6 +455,11 @@ spawnTileReady.finally(() => {
 setTimeout(() => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); } }, 20000);
 
 let lastTime = 0;
+// FPS cap (default 60). Override with ?fpscap=N (e.g. ?fpscap=0 uncapped, ?fpscap=72). Cuts per-second
+// engine garbage + evens frame pacing on high-refresh displays. Small 0.5ms slack so we don't miss the cap.
+const _fpsCapVal = (() => { const p = new URLSearchParams(location.search).get('fpscap'); return p == null ? 60 : Math.max(0, parseInt(p, 10) || 0); })();
+const _fpsCapMs = _fpsCapVal > 0 ? (1000 / _fpsCapVal) - 0.5 : 0;
+let _lastRenderT = 0;
 const _camDir = new THREE.Vector3();
 
 // ── Throttle caches for per-frame lookups ────────────────────────────────
@@ -467,6 +472,12 @@ const SHADOW_UPDATE_THRESHOLD_SQ = 5 * 5; // update shadow camera every 5m
 
 function animate(time = 0) {
   requestAnimationFrame(animate);
+  // FPS cap: on a high-refresh display (120 Hz) the game ran ~80 fps, and the per-frame engine allocation
+  // (Three.js + cannon-es, ~1 MB/frame) is what feeds the GC pauses that cause stutter. Capping to a steady
+  // 60 both cuts garbage/sec (~25% fewer frames → fewer GC pauses) AND gives even frame pacing (a big
+  // perceived-smoothness win). Skipped refreshes do zero work → zero allocation. ?fpscap=0 disables it.
+  if (_fpsCapMs > 0 && time - _lastRenderT < _fpsCapMs) return;
+  _lastRenderT = time;
   const deltaTimeRaw = lastTime === 0 ? 16 : time - lastTime;
   const deltaTimeSeconds = Math.min(0.05, deltaTimeRaw / 1000);
   const frameDt = lastTime === 0 ? 0.016 : deltaTimeSeconds;
