@@ -229,7 +229,9 @@ export function createEscMenu(refs = {}) {
 
   // ── Sound ──
   page.appendChild(sec('Sound'));
-  page.appendChild(slider('Volume', Math.round(audio.getVolume() * 100), (n) => `${n}%`, (n) => audio.setVolume(n / 100)));
+  page.appendChild(slider('Master', Math.round(audio.getVolume() * 100), (n) => `${n}%`, (n) => audio.setVolume(n / 100)));
+  page.appendChild(slider('Car', Math.round(audio.getCarVolume() * 100), (n) => `${n}%`, (n) => audio.setCarVolume(n / 100)));
+  page.appendChild(slider('SFX', Math.round(audio.getSfxVolume() * 100), (n) => `${n}%`, (n) => audio.setSfxVolume(n / 100)));
   page.appendChild(check('Sound on', !audio.isMuted(), (v) => audio.setMuted(!v)));
 
   // ── Controls ──

@@ -8,7 +8,7 @@ import { audio } from '../audio/audioManager.js';
 // one short enveloped oscillator note → shared master
 function note(freq, dur, { type = 'triangle', gain = 0.16, slideTo = null, delay = 0 } = {}) {
   if (audio.isMuted()) return;
-  const c = audio.ctx(); const master = audio.master(); if (!c || !master) return;
+  const c = audio.ctx(); const master = audio.sfxBus(); if (!c || !master) return; // UI blips → SFX bus
   const t = c.currentTime + delay;
   const o = c.createOscillator(), g = c.createGain();
   o.type = type;

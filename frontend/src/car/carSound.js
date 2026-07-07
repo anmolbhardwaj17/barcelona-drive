@@ -73,11 +73,11 @@ export function createCarSound() {
         preGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);  // silence synth engine + exhaust
         noiseGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.15);
       }
-      const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0 });
+      const sk = audio.get('skid'); if (sk) _sSkid = audio.loop(sk, { gain: 0, dest: audio.carBus() });
       const am = audio.get('ambience'), amN = audio.get('ambience_night');
       if (am || amN) {
-        _sAmb = am && audio.loop(am, { gain: 0.6 });        // louder city bed (day default)
-        _sAmbNight = amN && audio.loop(amN, { gain: 0 });
+        _sAmb = am && audio.loop(am, { gain: 0.6, dest: audio.sfxBus() });   // city bed → SFX bus (env, not car)
+        _sAmbNight = amN && audio.loop(amN, { gain: 0, dest: audio.sfxBus() });
         ambGain?.gain.setTargetAtTime(0.0001, _ctx.currentTime, 0.2); // silence synth bed
         setNight(_isNight); // apply correct day/night levels immediately
       }
@@ -119,7 +119,7 @@ export function createCarSound() {
     // Car submix → shared master (Settings volume + mute live on audioManager's master).
     master = _ctx.createGain();
     master.gain.value = MASTER_VOLUME;
-    master.connect(audio.master());
+    master.connect(audio.carBus()); // engine (sample + synth) → Car volume bus
 
     // ── Engine tone (two detuned sawtooths for thickness) ──────────────
     preGain = _ctx.createGain();

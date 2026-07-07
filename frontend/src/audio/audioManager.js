@@ -17,11 +17,16 @@ export const MANIFEST = {
 
 let _ctx = null;
 let _master = null;
+let _carBus = null, _sfxBus = null;          // category sub-buses (car engine/skid vs everything else) → master
 let _volume = 0.8;
+let _carVol = 1.0, _sfxVol = 1.0;            // per-category multipliers (0..1), on top of master
 let _muted = false;
 let _whooshLast = 0, _whooshActive = 0;      // pass-by whoosh rate/voice cap
 const WHOOSH_MIN_GAP = 0.06, WHOOSH_MAX = 4;
-try { const v = parseFloat(localStorage.getItem('dd_soundVolume')); if (Number.isFinite(v)) _volume = v; } catch {}
+const _readVol = (k, d) => { try { const v = parseFloat(localStorage.getItem(k)); return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d; } catch { return d; } };
+_volume = _readVol('dd_soundVolume', 0.8);
+_carVol = _readVol('dd_volCar', 1.0);
+_sfxVol = _readVol('dd_volSfx', 1.0);
 try { _muted = localStorage.getItem('dd_soundMuted') === 'true'; } catch {}
 
 const _buffers = new Map();      // name -> AudioBuffer | null (null = confirmed missing)
@@ -29,6 +34,8 @@ const _loading = new Map();      // name -> Promise
 
 function _applyGain() {
   if (_master && _ctx) _master.gain.setTargetAtTime(_muted ? 0 : _volume, _ctx.currentTime, 0.04);
+  if (_carBus && _ctx) _carBus.gain.setTargetAtTime(_carVol, _ctx.currentTime, 0.04);
+  if (_sfxBus && _ctx) _sfxBus.gain.setTargetAtTime(_sfxVol, _ctx.currentTime, 0.04);
 }
 
 let _bgSuspended = false;   // suspended because the tab is hidden (don't auto-resume until it's visible)
@@ -39,6 +46,9 @@ function ctx() {
       _master = _ctx.createGain();
       _master.gain.value = _muted ? 0 : _volume;
       _master.connect(_ctx.destination);
+      // Category sub-buses → master. Car = engine/skid; SFX = UI, impacts, whoosh, horn, ambience, peds.
+      _carBus = _ctx.createGain(); _carBus.gain.value = _carVol; _carBus.connect(_master);
+      _sfxBus = _ctx.createGain(); _sfxBus.gain.value = _sfxVol; _sfxBus.connect(_master);
     } catch { return null; }
   }
   if (_ctx.state === 'suspended' && !_bgSuspended) _ctx.resume();
@@ -77,6 +87,8 @@ async function load(name, urls) {
 export const audio = {
   ctx,
   master() { ctx(); return _master; },
+  carBus() { ctx(); return _carBus; },   // route car engine/skid here
+  sfxBus() { ctx(); return _sfxBus; },   // route UI/impact/ambience/etc here
 
   /** Load every manifest entry; resolves to a { name: boolean } readiness map. */
   async preload() {
@@ -89,6 +101,10 @@ export const audio = {
 
   setVolume(v) { _volume = Math.max(0, Math.min(1, v)); try { localStorage.setItem('dd_soundVolume', String(_volume)); } catch {} _applyGain(); },
   getVolume() { return _volume; },
+  setCarVolume(v) { _carVol = Math.max(0, Math.min(1, v)); try { localStorage.setItem('dd_volCar', String(_carVol)); } catch {} _applyGain(); },
+  getCarVolume() { return _carVol; },
+  setSfxVolume(v) { _sfxVol = Math.max(0, Math.min(1, v)); try { localStorage.setItem('dd_volSfx', String(_sfxVol)); } catch {} _applyGain(); },
+  getSfxVolume() { return _sfxVol; },
   setMuted(m) { _muted = !!m; try { localStorage.setItem('dd_soundMuted', _muted ? 'true' : 'false'); } catch {} _applyGain(); },
   isMuted() { return _muted; },
 
@@ -106,7 +122,7 @@ export const audio = {
     const c = ctx(); if (!c || !buffer) return;
     const src = c.createBufferSource(); src.buffer = buffer; src.playbackRate.value = rate;
     const g = c.createGain(); g.gain.value = gain;
-    src.connect(g); g.connect(_master); src.start();
+    src.connect(g); g.connect(_sfxBus); src.start();
   },
 
   /** Panned pass-by "whoosh" for a car passing the player. Uses the car_pass sample, else a synth sweep. */
@@ -120,12 +136,12 @@ export const audio = {
     pan = Math.max(-1, Math.min(1, pan));
     const panner = c.createStereoPanner ? c.createStereoPanner() : null;
     if (panner) panner.pan.value = pan;
-    const out = panner || _master;
+    const out = panner || _sfxBus;
     const sample = _buffers.get('car_pass');
     if (sample) {
       const src = c.createBufferSource(); src.buffer = sample; src.playbackRate.value = 0.9 + Math.random() * 0.3;
       const g = c.createGain(); g.gain.value = 0.35 * intensity;
-      src.connect(g); g.connect(out); if (panner) panner.connect(_master); src.start();
+      src.connect(g); g.connect(out); if (panner) panner.connect(_sfxBus); src.start();
       return;
     }
     // synth fallback: band-passed noise sweeping up then down = a doppler-ish "vroom"
@@ -139,7 +155,7 @@ export const audio = {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(0.16 * intensity, t + dur * 0.4);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(bp); bp.connect(g); g.connect(out); if (panner) panner.connect(_master);
+    src.connect(bp); bp.connect(g); g.connect(out); if (panner) panner.connect(_sfxBus);
     src.start(t); src.stop(t + dur + 0.05);
   },
 
@@ -157,14 +173,14 @@ export const audio = {
     const og = c.createGain();
     og.gain.setValueAtTime(level, t);
     og.gain.exponentialRampToValueAtTime(0.0001, t + 0.20 + k * 0.12);
-    osc.connect(og); og.connect(_master); osc.start(t); osc.stop(t + 0.36);
+    osc.connect(og); og.connect(_sfxBus); osc.start(t); osc.stop(t + 0.36);
     // Crunch — a short low-passed noise transient (panel/scrape), brighter on harder hits.
     const src = c.createBufferSource(); src.buffer = _noise(c);
     const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320 + k * 1100; lp.Q.value = 0.7;
     const ng = c.createGain();
     ng.gain.setValueAtTime(level * 0.75, t);
     ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.07 + k * 0.05);
-    src.connect(lp); lp.connect(ng); ng.connect(_master); src.start(t); src.stop(t + 0.16);
+    src.connect(lp); lp.connect(ng); ng.connect(_sfxBus); src.start(t); src.stop(t + 0.16);
   },
 };
 
