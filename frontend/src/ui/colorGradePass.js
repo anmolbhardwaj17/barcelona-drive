@@ -59,10 +59,10 @@ const ColorGradeShader = {
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);
 
-      // 4. Lift blacks — MINIMAL by day so shadows stay deep (a big lift reads as grey haze), but at NIGHT
-      //    we WANT a stronger lift so the shaded street between buildings is drivable, not crushed black.
-      float lift = mix(mix(0.024, 0.018, uRally), 0.055, uNight);
-      c = mix(c, c * 0.985 + lift, s);
+      // 4. Lift blacks — keep MINIMAL so shadows stay deep. A bigger lift (even 0.055 at night) reads as a
+      //    flat grey haze layer over the whole frame — never do that. Brightness comes from real light
+      //    (ambient/hemi), not a global additive. None at night.
+      c = mix(c, c * 0.985 + mix(0.024, 0.018, uRally) * (1.0 - uNight), s);
 
       // 5. High-key brighten — bright/airy by DAY; at night it only greyed-out the deep shadows, so kill it.
       c *= mix(1.0, 1.14, uRally * s * (1.0 - uNight));
