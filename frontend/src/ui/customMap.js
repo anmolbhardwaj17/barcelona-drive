@@ -31,6 +31,25 @@ function districts() {
   return _districts;
 }
 
+// Mediterranean coastline (NE→SW, [lat,lon]). The baked data only has port/marina water polygons — no
+// open sea — so we fill the sea ourselves: trace the shore, then extend far offshore (SE) to close a big
+// polygon. Canvas clips it per tile, so it only paints the seaward side of the coast.
+const SEA_COAST = [
+  [41.4210, 2.2300], [41.3960, 2.2050], [41.3860, 2.1955], [41.3775, 2.1918],
+  [41.3700, 2.1810], [41.3540, 2.1640], [41.3350, 2.1470], [41.3180, 2.1320],
+];
+let _sea = null, _seaBbox = null;
+function seaPolygon() {
+  if (_sea) return _sea;
+  const pts = SEA_COAST.map(([lat, lon]) => { const w = latLonToWorld(lat, lon); return { x: w.x, y: w.z }; });
+  const OFF = 30000; // metres far offshore (east +X, south −Z) so the fill covers the whole visible sea
+  const sw = pts[pts.length - 1], ne = pts[0];
+  _sea = [...pts, { x: sw.x + OFF, y: sw.y - OFF }, { x: ne.x + OFF, y: ne.y - OFF }];
+  _seaBbox = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const p of _sea) { if (p.x < _seaBbox[0]) _seaBbox[0] = p.x; if (p.y < _seaBbox[1]) _seaBbox[1] = p.y; if (p.x > _seaBbox[2]) _seaBbox[2] = p.x; if (p.y > _seaBbox[3]) _seaBbox[3] = p.y; }
+  return _sea;
+}
+
 // Road class → { width fallback (m), tier }. Thickness uses the real road.width when present.
 const ROAD_CLASS = {
   motorway: 'major', motorway_link: 'major', trunk: 'major', trunk_link: 'major',
@@ -104,7 +123,14 @@ export function createCustomMap() {
     for (const f of tileData.greens || []) { const pts = f.polygon; if (pts && pts.length >= 3) parks.push({ pts, bbox: bboxOf(pts) }); }
     const builds = [];
     if (!lite) for (const b of tileData.buildings || []) { const pts = b.footprint; if (pts && pts.length >= 3) builds.push({ pts, bbox: bboxOf(pts) }); }
-    store.set(key, { roads, water, parks, builds, lite });
+    // Tile-level bbox (union of everything) → drawTile can skip a whole tile in one check instead of
+    // testing every feature. Critical once the entire city (426 tiles) is loaded.
+    const tbb = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const f of [...roads, ...water, ...parks, ...builds]) {
+      if (f.bbox[0] < tbb[0]) tbb[0] = f.bbox[0]; if (f.bbox[1] < tbb[1]) tbb[1] = f.bbox[1];
+      if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
+    }
+    store.set(key, { roads, water, parks, builds, lite, tbb });
     _onChange?.();
   }
 
@@ -145,6 +171,12 @@ export function createCustomMap() {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
+    // Only iterate store tiles whose overall bbox overlaps THIS map tile. With the whole city (426 tiles)
+    // loaded, this is the difference between a few tiles and thousands of feature checks per draw → the
+    // real fix for laggy zoom.
+    const vis = [];
+    for (const t of store.values()) if (t.tbb && hit(t.tbb)) vis.push(t);
+
     const tierOn = { major: true, mid: showMid, minor: showMinor, path: showPath };
 
     const fillPoly = (list, color) => {
@@ -160,9 +192,20 @@ export function createCustomMap() {
       }
     };
 
+    // 0. sea — fill the Mediterranean ourselves (baked data only has port polygons). Under everything.
+    const sea = seaPolygon();
+    if (hit(_seaBbox)) {
+      ctx.fillStyle = S.water;
+      ctx.beginPath();
+      ctx.moveTo(sx(sea[0].x), sy(sea[0].y));
+      for (let i = 1; i < sea.length; i++) ctx.lineTo(sx(sea[i].x), sy(sea[i].y));
+      ctx.closePath();
+      ctx.fill();
+    }
+
     // 1. parks + water fills (under the roads)
-    for (const t of store.values()) fillPoly(t.parks, S.park);
-    for (const t of store.values()) fillPoly(t.water, S.water);
+    for (const t of vis) fillPoly(t.parks, S.park);
+    for (const t of vis) fillPoly(t.water, S.water);
 
     // 2. roads — casing pass then fill pass; thickest (major) drawn last so junctions read cleanly
     const order = ['path', 'minor', 'mid', 'major'];
@@ -170,7 +213,7 @@ export function createCustomMap() {
     const strokeRoads = (widthFn, colorFn) => {
       for (const tier of order) {
         if (!tierOn[tier]) continue;
-        for (const t of store.values()) {
+        for (const t of vis) {
           for (const r of t.roads) {
             if (r.tier !== tier || !hit(r.bbox)) continue;
             ctx.strokeStyle = colorFn(r);
@@ -191,7 +234,7 @@ export function createCustomMap() {
       ctx.strokeStyle = S.buildingEdge;
       ctx.lineWidth = 0.6;
       ctx.fillStyle = S.building;
-      for (const t of store.values()) {
+      for (const t of vis) {
         for (const b of t.builds) {
           if (!hit(b.bbox)) continue;
           ctx.beginPath();
@@ -242,7 +285,7 @@ export function createCustomMap() {
       ctx.font = font;
       const halfHm = 9 / kz;
       const seen = new Set();
-      for (const t of store.values()) {
+      for (const t of vis) {
         for (const r of t.roads) {
           if (r.tier !== 'major' || !r.name || seen.has(r.name)) continue;
           const mid = r.pts[r.pts.length >> 1];
