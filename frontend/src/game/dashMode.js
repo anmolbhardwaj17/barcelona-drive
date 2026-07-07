@@ -20,6 +20,10 @@ const RING_R = 5.0;
 
 const COL_NEXT = 0x35e0ff;   // active gate — cyan
 const COL_AFTER = 0xffc233;  // the one after — gold
+// Wide carriageways where a 10m checkpoint ring fits centred (no clipping into buildings). Fallback set
+// widens to all drivable roads when a location doesn't have enough big roads nearby.
+const WIDE_ROADS = new Set(['primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'trunk', 'trunk_link']);
+const DRIVABLE_ROADS = new Set([...WIDE_ROADS, 'residential', 'living_street', 'unclassified']);
 
 export function createDashMode({ scene, camera, getMinimap, getRoadSegments, getGroundY, getOrigin, audio }) {
   let state = 'idle';               // idle | running | finished
@@ -152,8 +156,21 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   // ── build the route from loaded roads (robust: relax the forward bias if a step stalls) ────────
   function buildRoute(carPx, carPz) {
     const segs = getRoadSegments ? getRoadSegments() : [];
-    const cand = [];
-    for (const s of segs) { const pts = s.points || []; for (let i = 0; i < pts.length; i += 2) cand.push({ wx: pts[i].x, wz: pts[i].y }); }
+    // Prefer WIDE roads so the 10 m ring sits centred on the carriageway instead of clipping into buildings
+    // on narrow streets. Fall back to all drivable roads if a spot doesn't have enough wide ones nearby.
+    let cand = [];
+    const collect = (allow, minW) => {
+      cand = [];
+      for (const s of segs) {
+        if (allow && !allow.has(s.highwayType)) continue;
+        if (minW && s.width && s.width < minW) continue;
+        const pts = s.points || [];
+        for (let i = 0; i < pts.length; i += 2) cand.push({ wx: pts[i].x, wz: pts[i].y });
+      }
+    };
+    collect(WIDE_ROADS, 9);
+    if (cand.length < N_CHECKPOINTS * 3) collect(DRIVABLE_ROADS, 0); // not enough wide roads here → relax
+    if (cand.length < 2) collect(null, 0);                           // last resort: any road
     if (cand.length < 2) return { route: [], candCount: cand.length };
 
     const start = worldFromScene(carPx, carPz);
