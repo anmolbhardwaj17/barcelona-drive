@@ -51,8 +51,8 @@ const SPAWN_GAP   = 16;   // m — don't spawn within this of another car (avoid
 const STOP_DIST = 7;      // m — brake if something is this close ahead in-lane
 const LANE_HALF = 2.0;    // m — lateral tolerance for "in my lane"
 const DEADLOCK_T = 5;     // s stuck at ~0 speed before we despawn a jammed car
-const HIT_RADIUS  = 3.2;  // m — player this close + fast → shove the car aside
-const HIT_MIN_KMH = 12;   // don't shove when crawling
+const HIT_RADIUS  = 3.4;  // m — player this close + moving → shove the car aside
+const HIT_MIN_KMH = 4;    // shove kicks in at low speed too (was 12 → cars felt like immovable walls on a bump)
 const YAXIS = new CANNON.Vec3(0, 1, 0);
 
 const YAXIS3 = new THREE.Vector3(0, 1, 0);
@@ -353,8 +353,11 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         const mps = Math.min(Math.abs(carSpeedKmh) / 3.6, 25);
         car.shoved = true; car.shoveT = 0;
         car._sx = x; car._sy = y; car._sz = z; car.syaw = yaw;
-        car.svx = (dx / dl) * (mps * 0.6 + 3); car.svz = (dz / dl) * (mps * 0.6 + 3);
-        car.sspin = (Math.random() - 0.5) * 4;
+        // Shove scales with impact speed (gentle bump → gentle nudge, fast hit → big shove) instead of a
+        // fixed kick, so low-speed contact pushes the car a little rather than dead-stopping the player.
+        const push = mps * 0.8 + 1.3;
+        car.svx = (dx / dl) * push; car.svz = (dz / dl) * push;
+        car.sspin = (Math.random() - 0.5) * Math.min(4, mps * 0.9);
         car.body.collisionResponse = false; // player plows through it rather than dead-stopping
         continue;
       }

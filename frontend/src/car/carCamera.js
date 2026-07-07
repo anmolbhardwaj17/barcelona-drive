@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { isInTunnelZone } from '../tunnelZones.js';
 import { isInputBlocked } from '../inputGate.js';
 
-const BASE_CAM_DISTANCE   = 8.2;   // follow distance behind car (was 6.5; pulled back further per user feedback — camera felt too close at spawn)
+const BASE_CAM_DISTANCE   = 7.3;   // follow distance behind car (8.2→7.3: felt too far in fullscreen on Mac)
 const SPEED_DISTANCE_BOOST = 0.6;
 const BASE_CAM_HEIGHT     = 2.1;   // camera height above car (raised with the pull-back to keep the look-down angle)
 const SPEED_HEIGHT_DROP   = 0.25;
