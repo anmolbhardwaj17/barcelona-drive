@@ -41,18 +41,18 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x424c74,  // softer, LESS-saturated deep blue (pure indigo read too blue + cold)
-  ambientIntensity: 0.9,       // brighter than 0.72 — was too dark to see; still moody with grade-veil gone
-  hemiSkyColor:     0x364066,  // softer blue sky fill
-  hemiGroundColor:  0x1a1626,  // faint warm-ish ground bounce to break the all-blue cast
-  hemiIntensity:    0.24,
-  dirIntensity:     0.55,      // moonlight — form on the tops
+  ambientColor:     0x6a7398,  // lighter blue-grey fill (was 0x424c74 — too dark a colour kept night dim even at high intensity)
+  ambientIntensity: 1.25,      // lifted hard — night kept reading too dark to enjoy (0.72→0.9→1.25)
+  hemiSkyColor:     0x515c85,  // brighter blue sky fill
+  hemiGroundColor:  0x2a2438,  // lifted warm-ish ground bounce
+  hemiIntensity:    0.5,       // note: only takes effect if a hemi light exists; ambient carries the fill
+  dirIntensity:     0.85,      // moonlight — more form on the tops
   dirColor:         0xcdd6f0,  // near-neutral cool moonlight (less blue)
   fogColor:         0x121a34,
   fogDensity:       0.0045,     // thin night haze so the distance keeps depth, not grey murk
   skyVisible:       false,
   bgColor:          0x0e1730,  // deeper blue night sky (was too washed/grey)
-  toneMappingExposure: 1.02,   // was 0.92 (too dark to see) — lifted; grade black-lift is off at night so no grey wash
+  toneMappingExposure: 1.18,   // global exposure lift (0.92→1.02→1.18) — clean brighten, no grey veil
   lampEmissive:     8.5,       // hotter streetlamp glow → warm pops punch through the deep blue
   poolOpacity:      1.0,
   bloomStrength:    0.95,      // stronger glow at night
