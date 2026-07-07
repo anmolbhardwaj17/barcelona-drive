@@ -64,10 +64,10 @@ const FOLIAGE_COLORS = [
   [0x33602A, 0x3E6E30, 0x4C7A38],  // Cypress/pine — deep rich green
   [0x5E8E3D, 0x6E9E48, 0x8AA850],  // Jacaranda/mixed — warm varied green
 ];
-const TRUNK_COLOR = 0x877662;      // mottled plane-bark grey-brown
+const TRUNK_COLOR = 0x7A7158;      // London-plane bark: muted grey-olive-brown (was 0x877662 — too pale/orange, read fake)
 const DUST_COLOR = 0x9B8B6E;
 const DUST_BLEND_MAX = 0.12;       // Barcelona isn't dusty — keep foliage clean green (was 0.35, Delhi)
-const WHITE_BAND_COLOR = 0xE8E0D0;  // off-white lime wash
+const WHITE_BAND_COLOR = 0xC7BEA4;  // pale olive-cream mottle patch (plane bark flakes to a soft cream, not stark white)
 const WHITE_BAND_HEIGHT = 1.2;      // metres from ground
 
 let proceduralGeometries = null;

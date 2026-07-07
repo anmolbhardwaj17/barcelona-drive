@@ -119,12 +119,13 @@ export function createDayNight(scene, sceneCenter) {
     ambientLight.intensity = ambInt;
     ambientLight.color.copy(ambColor);
 
-    // Hemisphere fades at night, full during day
-    // Night keeps a hemisphere floor (0.22) for sky/ground fill so shaded streets between buildings read.
+    // Hemisphere carries the night fill: it's normal-based (keeps form, unlike flat ambient) and isn't
+    // occluded by geometry, so it lights the shaded street BETWEEN buildings — the fix for "too dark in
+    // shadow" without a grey post veil. Kept high at night on purpose.
     const hemiIntensity = t >= 7 && t <= 17 ? 0.45
-      : (t >= 5 && t < 7)  ? THREE.MathUtils.lerp(0.32, 0.45, (t - 5) / 2)
-      : (t > 17 && t <= 19) ? THREE.MathUtils.lerp(0.45, 0.32, (t - 17) / 2)
-      : 0.32;
+      : (t >= 5 && t < 7)  ? THREE.MathUtils.lerp(0.55, 0.45, (t - 5) / 2)
+      : (t > 17 && t <= 19) ? THREE.MathUtils.lerp(0.45, 0.55, (t - 17) / 2)
+      : 0.55;
     hemiLight.intensity = hemiIntensity;
 
     scene.background.copy(getSkyColor(t));

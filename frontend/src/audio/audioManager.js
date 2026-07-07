@@ -12,7 +12,7 @@ const V = (n) => [`/audio/${n}.ogg`, `/audio/${n}.mp3`, `/audio/${n}.wav`]; // p
 export const MANIFEST = {
   engine_idle: V('engine_idle'), engine_mid: V('engine_mid'), engine_high: V('engine_high'),
   skid: V('skid'), ambience: V('ambience'), ambience_night: V('ambience_night'),
-  horn: V('horn'), car_pass: V('car_pass'), shout: V('shout'),
+  horn: V('horn'), car_pass: V('car_pass'),
 };
 
 let _ctx = null;
@@ -22,7 +22,6 @@ let _volume = 0.8;
 let _carVol = 1.0, _sfxVol = 1.0;            // per-category multipliers (0..1), on top of master
 let _muted = false;
 let _whooshLast = 0, _whooshActive = 0;      // pass-by whoosh rate/voice cap
-let _shoutLast = 0;                          // pedestrian-hit shout throttle
 const WHOOSH_MIN_GAP = 0.06, WHOOSH_MAX = 4;
 const _readVol = (k, d) => { try { const v = parseFloat(localStorage.getItem(k)); return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d; } catch { return d; } };
 _volume = _readVol('dd_soundVolume', 0.8);
@@ -182,40 +181,6 @@ export const audio = {
     ng.gain.setValueAtTime(level * 0.75, t);
     ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.07 + k * 0.05);
     src.connect(lp); lp.connect(ng); ng.connect(_sfxBus); src.start(t); src.stop(t + 0.16);
-  },
-
-  /** Short synthesized human shout/yelp — played when a pedestrian is hit. Formant-filtered sawtooth
-   *  (glottal source → two vowel formants) with a quick pitch bend + vibrato. Randomised fundamental so
-   *  voices vary. Self-throttled (~180ms) so a struck crowd doesn't stack into a wall of noise. */
-  shout() {
-    if (_muted || _volume <= 0) return;
-    const c = ctx(); if (!c) return;
-    const t = c.currentTime;
-    if (t - _shoutLast < 0.18) return;
-    _shoutLast = t;
-    // Prefer a real sample if one was dropped in /public/audio/ (shout.ogg/mp3/wav); else synth below.
-    const sample = _buffers.get('shout');
-    if (sample) { this.oneShot(sample, { gain: 0.9, rate: 0.9 + Math.random() * 0.3 }); return; }
-    const f0 = 165 + Math.random() * 165;                 // 165–330 Hz fundamental (male↔higher voices)
-    const dur = 0.26 + Math.random() * 0.12;
-    // Glottal source: a sawtooth with a rising-then-falling pitch ("hey!"/"oi!") + a little vibrato.
-    const src = c.createOscillator(); src.type = 'sawtooth';
-    src.frequency.setValueAtTime(f0 * 0.92, t);
-    src.frequency.exponentialRampToValueAtTime(f0 * 1.28, t + 0.05);
-    src.frequency.exponentialRampToValueAtTime(f0 * 0.82, t + dur);
-    const vib = c.createOscillator(); vib.type = 'sine'; vib.frequency.value = 6.5;
-    const vibG = c.createGain(); vibG.gain.value = f0 * 0.03;
-    vib.connect(vibG); vibG.connect(src.frequency);
-    // Two vowel formants (~"eh/ah") to make the buzz read as a voice.
-    const f1 = c.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 720; f1.Q.value = 6;
-    const f2 = c.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 8;
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.5, t + 0.012);   // fast vocal onset
-    g.gain.setValueAtTime(0.5, t + dur * 0.5);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f1); src.connect(f2); f1.connect(g); f2.connect(g); g.connect(_sfxBus);
-    src.start(t); vib.start(t); src.stop(t + dur + 0.02); vib.stop(t + dur + 0.02);
   },
 };
 
