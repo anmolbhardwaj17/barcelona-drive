@@ -26,17 +26,18 @@ export function createCarShowcase() {
   const fill = new THREE.DirectionalLight(0xbcd4ff, 0.7); fill.position.set(-5, 3, -4); scene.add(fill);
   const rim = new THREE.DirectionalLight(0xffffff, 0.6); rim.position.set(0, 2, -6); scene.add(rim);
 
-  // ── Soft contact shadow under the car (radial-gradient sprite laid flat) ──
+  // ── Soft LIGHT glow-platform under the car (a dark shadow would be invisible on the dark menu bg, so we
+  //    use a light radial glow that grounds the car and reads as a clean showroom base) ──
   const shadowTex = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const ctx = c.getContext('2d');
     const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(0,0,0,0.38)'); g.addColorStop(0.6, 'rgba(0,0,0,0.16)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, 'rgba(226,235,248,0.42)'); g.addColorStop(0.5, 'rgba(200,214,236,0.18)'); g.addColorStop(1, 'rgba(200,214,236,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
   const shadow = new THREE.Mesh(
-    new THREE.PlaneGeometry(6, 6).rotateX(-Math.PI / 2),
+    new THREE.PlaneGeometry(7, 4.2).rotateX(-Math.PI / 2), // wider-than-deep oval reads as a car footprint
     new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }),
   );
   shadow.position.y = 0.01; scene.add(shadow);
@@ -65,7 +66,7 @@ export function createCarShowcase() {
     pivot.add(car);
   }, undefined, (e) => console.warn('[carShowcase] car load failed', e?.message || e));
 
-  const RADIUS = 7.8;
+  const RADIUS = 6.4;
   let angle = Math.PI * 0.75, autoVel = 0.0045, dragging = false, lastX = 0, running = false, w = 1, h = 1;
 
   function frame() {
@@ -73,8 +74,9 @@ export function createCarShowcase() {
     requestAnimationFrame(frame);
     if (!dragging) angle += autoVel;
     pivot.rotation.y = angle;
-    camera.position.set(0, carCenterY + 0.55, RADIUS); // near-flat, eye-level side view; the CAR rotates via pivot
-    camera.lookAt(0, carCenterY, 0);
+    // Closer + a small downward tilt so the contact shadow reads and the car looks GROUNDED, not floating.
+    camera.position.set(0, carCenterY + 1.05, RADIUS);
+    camera.lookAt(0, carCenterY - 0.15, 0);
     renderer.render(scene, camera);
   }
 
