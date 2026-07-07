@@ -319,8 +319,31 @@ function buildConvexPrism(pts, groundY, h) {
  * `pts` are cleaned physics-frame points {x,z}. Adds shapes to `body`.
  */
 const PERIMETER_WALL_THICK = 2.0;   // thick → resists fast-car tunneling; offset fully INSIDE the footprint
-function addPerimeterWalls(body, pts, groundY, h) {
+const COLLINEAR_MERGE_RAD = 0.16;   // ~9° — merge consecutive wall edges flatter than this into one box
+
+// Collapse near-collinear consecutive vertices of a closed ring, keeping only real corners. OSM footprints
+// carry many near-collinear points; without this, addPerimeterWalls emits a CANNON.Box per tiny edge, and
+// every Box recomputes its ConvexPolyhedron edges/normals — the #1 runtime allocator (~79% of GC garbage).
+// Fewer corners → far fewer boxes → far less allocation, with a collider that's geometrically ~identical.
+function mergeCollinearRing(pts, maxTurn) {
+  const n = pts.length;
+  if (n < 4) return pts;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[(i - 1 + n) % n], c = pts[i], q = pts[(i + 1) % n];
+    const ax = c.x - p.x, az = c.z - p.z, bx = q.x - c.x, bz = q.z - c.z;
+    const la = Math.hypot(ax, az), lb = Math.hypot(bx, bz);
+    if (la < 1e-4 || lb < 1e-4) continue; // duplicate point → drop
+    const dot = (ax * bx + az * bz) / (la * lb);
+    const turn = Math.acos(Math.max(-1, Math.min(1, dot)));
+    if (turn > maxTurn) out.push(c); // keep only significant corners; collinear runs collapse into a span
+  }
+  return out.length >= 3 ? out : pts;
+}
+
+function addPerimeterWalls(body, ptsRaw, groundY, h) {
   const YAX = new CANNON.Vec3(0, 1, 0);
+  const pts = mergeCollinearRing(ptsRaw, COLLINEAR_MERGE_RAD);
   const n = pts.length;
   // centroid, to push each wall inward so its OUTER face lands exactly on the real wall line
   let ccx = 0, ccz = 0;
