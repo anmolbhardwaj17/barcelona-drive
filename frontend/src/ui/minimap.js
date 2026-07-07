@@ -298,6 +298,21 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   wrapper.appendChild(gateMarkerEl);
 
   frame.appendChild(wrapper);
+
+  // Zoom +/- buttons — shown only on the expanded map (top-left, like a real map). Easy one-click zoom.
+  const zoomBtns = document.createElement('div');
+  zoomBtns.style.cssText = 'position:absolute; top:18px; left:18px; z-index:13; display:none; flex-direction:column; gap:8px; pointer-events:auto;';
+  const _mkZoom = (label, delta) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'width:42px; height:42px; border:none; border-radius:10px; background:rgba(255,255,255,0.94); color:#2a2f2a; font:700 24px system-ui,sans-serif; line-height:1; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,0.35); pointer-events:auto;';
+    b.addEventListener('click', (e) => { e.stopPropagation(); if (map) map.setZoom(map.getZoom() + delta, { animate: true }); });
+    zoomBtns.appendChild(b);
+  };
+  _mkZoom('+', 1);
+  _mkZoom('−', -1);   // minus sign
+  frame.appendChild(zoomBtns);
+
   document.body.appendChild(frame);
 
   map = L.map('minimap-map', {
@@ -315,9 +330,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     maxZoom: 19,
     // Smooth, continuous zoom (no integer-step snapping) but FAST — low wheelPx = less scrolling per level.
     zoomSnap: 0,
-    zoomDelta: 0.8,
-    wheelPxPerZoomLevel: 30,
-    wheelDebounceTime: 8,
+    zoomDelta: 1,
+    wheelPxPerZoomLevel: 16,   // very responsive wheel (was 30 — too much scrolling to zoom out)
+    wheelDebounceTime: 5,
     zoomAnimation: true,
   });
 
@@ -414,6 +429,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.webkitMaskImage = 'none'; wrapper.style.maskImage = 'none';
       wrapper.style.boxShadow = '0 24px 80px rgba(0,0,0,0.6)';
       vignetteEl.style.display = 'block';
+      zoomBtns.style.display = 'flex';
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
@@ -487,6 +503,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.borderRadius = '50%';
       wrapper.style.boxShadow = 'none';
       vignetteEl.style.display = 'none';
+      zoomBtns.style.display = 'none';
       wrapper.style.cursor = 'pointer';
       wrapper.classList.remove('minimap-expanded');
       const innerSize = MINIMAP_SIZE * 1.5;

@@ -71,19 +71,19 @@ const ROAD_CLASS = {
 const STYLE = {
   // GTA-V-style day map: light beige land, green parks, blue water, subtle grey blocks; roads read as
   // pale surfaces DEFINED by a medium-grey casing (the casing is the "darker" edge, not a dark fill).
-  // Vibrant art-of-rally: warm saturated sand, vivid sage parks, teal sea, CORAL major arteries. Cohesive
-  // with the 3D world's painterly look — playful, not a real street map.
+  // GTA/Watch-Dogs reference: grey urban blocks, green nature, bold blue water, white streets with pale
+  // tan highways. High-contrast and clean.
   day: {
-    ground:    '#e9d3a0',   // warm sand
-    park:      '#8fbf6a',   // vivid sage
-    water:     '#4bb3c4',   // vivid teal
-    building:  '#ddc088',   // saturated sand blocks
-    buildingEdge: '#c9a862',
-    casing:    '#c98a52',   // warm terracotta road outline
-    road: { major: '#ff8a5b', mid: '#fbeaca', minor: '#fdf3da', path: '#e6cf9a' },  // coral arteries
-    label:     '#4a2f1a', labelHalo: 'rgba(240,224,188,0.92)',   // espresso brown
-    street:    '#6a4526', streetHalo: 'rgba(250,240,214,0.88)',
-    seaLabel:  '#0f5d6b', seaHalo: 'rgba(190,232,238,0.8)',
+    ground:    '#c9cbc4',   // urban grey base
+    park:      '#8fb96b',   // natural green (parks/hills)
+    water:     '#2f80b8',   // bold blue
+    building:  '#d6d8d1',   // light grey blocks (slightly above the base → block texture)
+    buildingEdge: '#bcbeb5',
+    casing:    '#b7b9b0',   // subtle grey road casing
+    road: { major: '#ecdca6', mid: '#ffffff', minor: '#f8f8f4', path: '#e6e6e0' },  // tan highways, white streets
+    label:     '#3a3f3a', labelHalo: 'rgba(224,226,220,0.92)',
+    street:    '#565b54', streetHalo: 'rgba(255,255,255,0.9)',
+    seaLabel:  '#eaf2f8', seaHalo: 'rgba(16,54,84,0.55)',
   },
   night: {
     ground:    '#141b2f',
