@@ -71,23 +71,23 @@ const ROAD_CLASS = {
 const STYLE = {
   // GTA-V-style day map: light beige land, green parks, blue water, subtle grey blocks; roads read as
   // pale surfaces DEFINED by a medium-grey casing (the casing is the "darker" edge, not a dark fill).
-  // GTA/Watch-Dogs reference: grey urban blocks, green nature, bold blue water, white streets with pale
-  // tan highways. High-contrast and clean.
+  // Watch Dogs 2 reference: cool grey urban blocks, muted green nature, bright blue water, white streets
+  // and YELLOW highways.
   day: {
-    ground:    '#c9cbc4',   // urban grey base
-    park:      '#8fb96b',   // natural green (parks/hills)
-    water:     '#2f80b8',   // bold blue
-    building:  '#d6d8d1',   // light grey blocks (slightly above the base → block texture)
-    buildingEdge: '#bcbeb5',
-    casing:    '#b7b9b0',   // subtle grey road casing
-    road: { major: '#ecdca6', mid: '#ffffff', minor: '#f8f8f4', path: '#e6e6e0' },  // tan highways, white streets
-    label:     '#3a3f3a', labelHalo: 'rgba(224,226,220,0.92)',
-    street:    '#565b54', streetHalo: 'rgba(255,255,255,0.9)',
-    seaLabel:  '#eaf2f8', seaHalo: 'rgba(16,54,84,0.55)',
+    ground:    '#dadcda',   // light clean grey urban base (was #cbcdcc — read too dark/dull)
+    park:      '#a8cb8e',   // muted green
+    water:     '#4d9fd6',   // bright blue
+    building:  '#e4e6e3',   // brighter grey blocks
+    buildingEdge: '#cdcfcc',
+    casing:    '#bcbebd',   // subtle grey road casing
+    road: { major: '#f0d35e', mid: '#ffffff', minor: '#f6f6f5', path: '#e8e8e6' },  // yellow highways, white streets
+    label:     '#43494a', labelHalo: 'rgba(226,228,227,0.92)',
+    street:    '#565c5d', streetHalo: 'rgba(255,255,255,0.9)',
+    seaLabel:  '#eef5fb', seaHalo: 'rgba(20,70,110,0.55)',
   },
   night: {
-    ground:    '#141b2f',
-    park:      '#2b472e',
+    ground:    '#212a40',   // lighter night land (was #141b2f — too dark)
+    park:      '#33543a',
     water:     '#2b5378',   // lighter night sea (was #1d3555)
     seaLabel:  '#9fc4e4', seaHalo: 'rgba(10,20,38,0.85)',
     building:  '#28304a',

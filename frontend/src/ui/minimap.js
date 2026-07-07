@@ -313,6 +313,14 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   _mkZoom('−', -1);   // minus sign
   frame.appendChild(zoomBtns);
 
+  // Zoom slider along the bottom of the expanded map — easy zoom for trackpads.
+  const zoomSlider = document.createElement('input');
+  zoomSlider.type = 'range'; zoomSlider.min = '13'; zoomSlider.max = '19'; zoomSlider.step = '0.05';
+  zoomSlider.style.cssText = 'position:absolute; bottom:22px; left:50%; transform:translateX(-50%); width:min(48vw,540px); height:20px; z-index:13; display:none; pointer-events:auto; cursor:pointer; accent-color:#4d9fd6;';
+  zoomSlider.addEventListener('input', (e) => { e.stopPropagation(); if (map) map.setZoom(parseFloat(zoomSlider.value), { animate: false }); });
+  zoomSlider.addEventListener('click', (e) => e.stopPropagation());
+  frame.appendChild(zoomSlider);
+
   document.body.appendChild(frame);
 
   map = L.map('minimap-map', {
@@ -382,6 +390,8 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   const { lat, lon } = worldToLatLon(spawnCenter.x, spawnCenter.z);
   lastCarLatLon = [lat, lon];
   map.setView([lat, lon], MINIMAP_ZOOM, { animate: false });
+  // Keep the zoom slider in sync when zooming via wheel or +/- buttons.
+  map.on('zoom', () => { if (expanded) zoomSlider.value = String(map.getZoom()); });
 
   function setExpanded(isExpanded) {
     if (expanded === isExpanded) return;
@@ -394,7 +404,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
         backdropEl.style.cssText = `
           position: fixed;
           inset: 0;
-          background: rgba(0,0,0,0.4);
+          background: rgba(10,12,18,0.5);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
           z-index: 9;
           pointer-events: auto;
         `;
@@ -405,10 +417,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       frame.style.left = '50%';
       frame.style.right = 'auto';
       frame.style.bottom = 'auto';
-      frame.style.width = '88vw';
-      frame.style.height = '86vh';
+      frame.style.width = '80vw';
+      frame.style.height = '82vh';
       frame.style.maxWidth = '1200px';
-      frame.style.maxHeight = '1000px';
+      frame.style.maxHeight = '1050px';
       frame.style.borderRadius = '0';
       frame.style.transform = 'translate(-50%, -50%)';
       frame.style.zIndex = '11';
@@ -423,13 +435,19 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '14px';
+      wrapper.style.borderRadius = '0';
       wrapper.style.cursor = 'default';
-      // Opaque map + soft dark vignette edge (no transparent fade → no scene ghosting). Natural spotlit look.
-      wrapper.style.webkitMaskImage = 'none'; wrapper.style.maskImage = 'none';
-      wrapper.style.boxShadow = '0 24px 80px rgba(0,0,0,0.6)';
-      vignetteEl.style.display = 'block';
+      wrapper.style.boxShadow = 'none';
+      // Seamless soft feather — the map edges dissolve into the FROSTED (backdrop-blurred) scene behind, so
+      // it reads as a high-quality blurred transition, not a hard cut or a ghosted see-through fade.
+      const _fade = (dir) => `linear-gradient(to ${dir}, transparent 0%, rgba(0,0,0,0.6) 5%, #000 12%, #000 88%, rgba(0,0,0,0.6) 95%, transparent 100%)`;
+      const _h = _fade('right'), _v = _fade('bottom');
+      wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
+      wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
+      vignetteEl.style.display = 'none';
       zoomBtns.style.display = 'flex';
+      zoomSlider.style.display = 'block';
+      zoomSlider.value = String(map.getZoom());
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
@@ -504,6 +522,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.boxShadow = 'none';
       vignetteEl.style.display = 'none';
       zoomBtns.style.display = 'none';
+      zoomSlider.style.display = 'none';
       wrapper.style.cursor = 'pointer';
       wrapper.classList.remove('minimap-expanded');
       const innerSize = MINIMAP_SIZE * 1.5;
