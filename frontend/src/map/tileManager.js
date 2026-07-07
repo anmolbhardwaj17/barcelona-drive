@@ -341,6 +341,27 @@ function mergeCollinearRing(pts, maxTurn) {
   return out.length >= 3 ? out : pts;
 }
 
+// A box built as a ConvexPolyhedron directly, reusing the size-INDEPENDENT parts. Every CANNON.Box
+// recomputes its convex representation (updateConvexPolyhedronRepresentation 27% + computeNormals 14% of
+// all GC garbage) — but a box's faces, face-normals and axes are identical for ALL boxes; only the 8
+// vertices scale. So we share those read-only templates and PROVIDE the normals (skips computeNormals),
+// allocating only the per-box vertices. SAFE (each box has its own vertices → its own worldVertices cache,
+// unlike the earlier shared-shape attempt). Geometry copied EXACTLY from cannon-es Box (dist line 3085).
+const _V3 = CANNON.Vec3;
+const _BOX_FACES = [[3, 2, 1, 0], [4, 5, 6, 7], [5, 4, 0, 1], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]];
+const _BOX_NORMALS = [new _V3(0, 0, -1), new _V3(0, 0, 1), new _V3(0, -1, 0), new _V3(0, 1, 0), new _V3(-1, 0, 0), new _V3(1, 0, 0)];
+const _BOX_AXES = [new _V3(0, 0, 1), new _V3(0, 1, 0), new _V3(1, 0, 0)];
+function makeCheapBox(hx, hy, hz) {
+  const vertices = [
+    new _V3(-hx, -hy, -hz), new _V3(hx, -hy, -hz), new _V3(hx, hy, -hz), new _V3(-hx, hy, -hz),
+    new _V3(-hx, -hy, hz), new _V3(hx, -hy, hz), new _V3(hx, hy, hz), new _V3(-hx, hy, hz),
+  ];
+  return new CANNON.ConvexPolyhedron({
+    vertices, faces: _BOX_FACES, normals: _BOX_NORMALS, axes: _BOX_AXES,
+    boundingSphereRadius: Math.sqrt(hx * hx + hy * hy + hz * hz),
+  });
+}
+
 function addPerimeterWalls(body, ptsRaw, groundY, h) {
   const YAX = new CANNON.Vec3(0, 1, 0);
   const pts = mergeCollinearRing(ptsRaw, COLLINEAR_MERGE_RAD);
@@ -360,7 +381,7 @@ function addPerimeterWalls(body, ptsRaw, groundY, h) {
     let nx = -dz / len, nz = dx / len;
     if (nx * (ccx - mx) + nz * (ccz - mz) < 0) { nx = -nx; nz = -nz; }
     const theta = Math.atan2(dz, dx);              // edge direction in XZ (physics frame)
-    const box = new CANNON.Box(new CANNON.Vec3(len / 2, h / 2, half));
+    const box = makeCheapBox(len / 2, h / 2, half);
     const quat = new CANNON.Quaternion();
     quat.setFromAxisAngle(YAX, -theta);            // box local X → along this edge
     body.addShape(box, new CANNON.Vec3(mx + nx * half, groundY + h / 2, mz + nz * half), quat);
@@ -458,7 +479,7 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
         addPerimeterWalls(body, clean, groundY, h);
       } else {
         // Triangle / quad (rectangles) → cheap tight oriented box (shared cache).
-        const box = new CANNON.Box(new CANNON.Vec3(hu, h / 2, hv));
+        const box = makeCheapBox(hu, h / 2, hv);
         const quat = new CANNON.Quaternion();
         quat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -phi); // box local X → footprint's dominant edge
         body.addShape(box, new CANNON.Vec3(px, groundY + h / 2, pz), quat);
