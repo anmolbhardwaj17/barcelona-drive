@@ -33,9 +33,10 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   const gates = [];                 // parallel to route: gate group or null once cleared
 
   // ── shared geometry ────────────────────────────────────────────────────────
-  const ringGeo = new THREE.TorusGeometry(RING_R, 0.45, 8, 28);          // upright ring you drive through
-  const groundRingGeo = new THREE.RingGeometry(RING_R * 0.9, RING_R * 1.25, 32); // flat glow on the road
-  const beamGeo = new THREE.CylinderGeometry(RING_R * 0.55, RING_R * 0.9, 90, 18, 1, true);
+  const ringGeo = new THREE.TorusGeometry(RING_R, 0.36, 12, 44);         // solid ring you drive through
+  const haloGeo = new THREE.TorusGeometry(RING_R, 1.15, 8, 44);          // soft additive bloom hugging the ring
+  const groundRingGeo = new THREE.RingGeometry(RING_R * 0.3, RING_R * 1.4, 48); // light pooled on the road, centres the gate
+  const beamGeo = new THREE.CylinderGeometry(RING_R * 0.5, RING_R * 0.82, 90, 20, 1, true);
 
   const _up = new THREE.Vector3(0, 1, 0);
 
@@ -205,27 +206,34 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   function makeGate(world, dirScene) {
     const group = new THREE.Group();
     const ringMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.98, fog: false });
+    const haloMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
     const beamMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    const glowMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, fog: false });
+    const glowMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
 
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dirScene.clone().normalize());
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
     ringMesh.quaternion.copy(q);
     ringMesh.position.y = RING_R + 0.4;
     group.add(ringMesh);
 
+    const haloMesh = new THREE.Mesh(haloGeo, haloMat); // soft bloom behind the crisp ring
+    haloMesh.quaternion.copy(q);
+    haloMesh.position.y = RING_R + 0.4;
+    group.add(haloMesh);
+
     const beamMesh = new THREE.Mesh(beamGeo, beamMat); beamMesh.position.y = 45; group.add(beamMesh);
-    const groundGlow = new THREE.Mesh(groundRingGeo, glowMat); groundGlow.rotation.x = -Math.PI / 2; groundGlow.position.y = 0.15; group.add(groundGlow);
+    const groundGlow = new THREE.Mesh(groundRingGeo, glowMat); groundGlow.rotation.x = -Math.PI / 2; groundGlow.position.y = 0.12; group.add(groundGlow);
 
     const gy = getGroundY ? (getGroundY(world.wx, world.wz) || 0) : 0;
     group.position.set(sceneX(world.wx), gy, sceneZ(world.wz));
-    group.userData = { ringMat, beamMat, glowMat, ringMesh, world };
+    group.userData = { ringMat, haloMat, beamMat, glowMat, ringMesh, haloMesh, world };
     scene.add(group);
     return group;
   }
 
   function setGateColor(g, hex, active) {
     g.userData.ringMat.color.setHex(hex);
+    g.userData.haloMat.color.setHex(hex); g.userData.haloMat.opacity = active ? 0.34 : 0.16;
     g.userData.beamMat.color.setHex(hex); g.userData.beamMat.opacity = active ? 0.18 : 0.09;
     g.userData.glowMat.color.setHex(hex); g.userData.glowMat.opacity = active ? 0.6 : 0.3;
   }
@@ -239,7 +247,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     const t = route[activeIdx];
     getMinimap?.()?.setObjectiveMarker?.(t ? t.wx : null, t ? t.wz : null);
   }
-  function clearGates() { for (const g of gates) if (g) { scene.remove(g); const u = g.userData; u.ringMat.dispose(); u.beamMat.dispose(); u.glowMat.dispose(); } gates.length = 0; }
+  function clearGates() { for (const g of gates) if (g) { scene.remove(g); const u = g.userData; u.ringMat.dispose(); u.haloMat.dispose(); u.beamMat.dispose(); u.glowMat.dispose(); } gates.length = 0; }
 
   function ding(freq) {
     try {
@@ -351,7 +359,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
 
     // pulse/spin the active gate
     const g = gates[activeIdx];
-    if (g) { const s = 1 + Math.sin(_t * 4) * 0.07; g.userData.ringMesh.scale.set(s, s, s); g.userData.ringMesh.rotateZ(dt * 1.4); }
+    if (g) { const s = 1 + Math.sin(_t * 4) * 0.07; g.userData.ringMesh.scale.set(s, s, s); g.userData.ringMesh.rotateZ(dt * 1.4); g.userData.haloMesh.scale.set(s, s, s); }
 
     // hit test
     const target = route[activeIdx];
@@ -384,7 +392,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   return {
     name: 'Checkpoint Dash', icon: '🏁',
     update, start, stop,
-    dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); againBtn.remove(); cdStyle.remove(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
+    dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); againBtn.remove(); cdStyle.remove(); ringGeo.dispose(); haloGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
     isRunning: () => state === 'running' || state === 'countdown',
   };
 }
