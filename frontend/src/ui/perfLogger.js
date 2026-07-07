@@ -74,7 +74,8 @@ export function createPerfLogger() {
   }
 
   btn.addEventListener('click', () => (recording ? stop() : start()));
-  document.body.appendChild(btn);
+  // Hidden by default now the perf investigation is done — add ?perflog to the URL to show the button again.
+  if (new URLSearchParams(location.search).has('perflog')) document.body.appendChild(btn);
 
   return {
     get recording() { return recording; },
