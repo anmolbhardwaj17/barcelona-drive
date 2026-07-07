@@ -5,7 +5,7 @@
  */
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { worldToLatLon } from '../projection.js';
+import { worldToLatLon, tileToBBox, latLonToWorld } from '../projection.js';
 import { uiSound } from './uiSound.js';
 
 const MINIMAP_SIZE = 170;
@@ -17,8 +17,9 @@ const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
 // OSM standard is colourful + detailed (green parks, blue water, coloured roads). Light touch: punch it
 // a little by day, flip to a deep navy by night. (CARTO CDN proved unreliable on some networks.)
-const FILTER_DAY = 'saturate(1.15) contrast(1.05) brightness(1.0)';
-const FILTER_NIGHT = 'invert(0.93) hue-rotate(190deg) saturate(0.9) brightness(0.7) contrast(1.12)';
+// The custom map tiles bake their own day/night palette, so no CSS filter tinting is needed.
+const FILTER_DAY = 'none';
+const FILTER_NIGHT = 'none';
 let _isNight = false;
 
 let map = null;
@@ -38,7 +39,7 @@ let locationMarkerArrow = null; // inner SVG element — updated each frame for 
  * @param {{ x: number, z: number }} spawnCenter
  * @returns {{ update: (worldX: number, worldZ: number, headingDeg: number) => void }}
  */
-export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
+export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   const TOTAL_SIZE = MINIMAP_SIZE + BORDER_WIDTH * 2 + COMPASS_RING_WIDTH * 2;
   const INNER_OFFSET = COMPASS_RING_WIDTH + BORDER_WIDTH;
 
@@ -305,11 +306,35 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
     attributionControl: false,
   });
 
-  // OpenStreetMap standard — colourful + detailed (parks, water, roads, buildings) and reliably reachable
-  // (CARTO's CDN timed out on this network). Tinted lightly below to sit with the game.
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, subdomains: 'abc',
-  }).addTo(map);
+  // Custom vector tiles drawn from the baked v7 world data (roads/buildings/water/parks) — no OSM, no
+  // network. One canvas per slippy tile; each tile's world bounds come from its lat/lon corners so the
+  // features line up with Leaflet's own tile placement (both Web Mercator). Falls back to a blank ground
+  // fill if no customMap was provided.
+  let customLayer = null;
+  if (customMap) {
+    const CustomTiles = L.GridLayer.extend({
+      createTile(coords) {
+        const c = document.createElement('canvas');
+        const size = this.getTileSize();
+        c.width = size.x; c.height = size.y;
+        const bb = tileToBBox(coords.x, coords.y, coords.z);
+        const sw = latLonToWorld(bb.south, bb.west);
+        const ne = latLonToWorld(bb.north, bb.east);
+        const wb = [Math.min(sw.x, ne.x), Math.min(sw.z, ne.z), Math.max(sw.x, ne.x), Math.max(sw.z, ne.z)];
+        try { customMap.drawTile(c.getContext('2d'), size.x, wb); } catch (e) { /* keep a blank tile */ }
+        return c;
+      },
+    });
+    customLayer = new CustomTiles({ tileSize: 256, updateWhenZooming: false, keepBuffer: 4 });
+    customLayer.addTo(map);
+    // Redraw visible tiles (throttled) when the loaded set of baked tiles changes.
+    let _redrawTimer = null;
+    const scheduleRedraw = () => {
+      if (_redrawTimer) return;
+      _redrawTimer = setTimeout(() => { _redrawTimer = null; customLayer.redraw(); }, 250);
+    };
+    customMap.setOnChange(scheduleRedraw);
+  }
 
   const { lat, lon } = worldToLatLon(spawnCenter.x, spawnCenter.z);
   lastCarLatLon = [lat, lon];
@@ -537,9 +562,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }) {
   function setNightMode(isNight) {
     _isNight = isNight;
     _markerNight = isNight;
-    if (!expanded) {
-      mapInner.style.filter = _isNight ? FILTER_NIGHT : FILTER_DAY;
-    }
+    if (customMap) { customMap.setNight(isNight); if (customLayer) customLayer.redraw(); }
     borderRing.style.background = _isNight ? '#2a2a2a' : '#ffffff';
     updateMarker();
   }

@@ -512,6 +512,12 @@ function countVertices(meshes) {
 const tileCache = new Map();
 /** Tile keys currently being loaded – avoid starting duplicate requests */
 const loadingKeys = new Set();
+
+// Custom minimap hooks — fired when a tile's 2D features become available / are unloaded, so a
+// self-drawn vector map can mirror exactly the tiles that are loaded. No-ops unless wired.
+let _onMapTileReady = null;    // (key, tileData)
+let _onMapTileRemoved = null;  // (key)
+export function setMapTileCallbacks(onReady, onRemoved) { _onMapTileReady = onReady; _onMapTileRemoved = onRemoved; }
 /** Max concurrent tile requests to avoid Overpass 429 rate limit */
 const MAX_CONCURRENT_TILE_LOADS = 3;  // fetch is async; the shared per-frame build budget still caps CPU work
 
@@ -1803,6 +1809,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Store in cache NOW so roads are usable immediately
     tileCache.set(key, entry);
+    if (_onMapTileReady) { try { _onMapTileReady(key, tileData); } catch (e) { /* minimap must never break tiles */ } }
     // Invalidate LOD cache so new tile gets correct visibility on next frame
     _lastLodX = -Infinity;
 
@@ -2563,6 +2570,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         // Phase B: queue GPU disposal for deferred processing
         _pendingDisposals.push({ meshes: allMeshes, decals: entry.decalMeshes || null, entry });
         tileCache.delete(key);
+        if (_onMapTileRemoved) { try { _onMapTileRemoved(key); } catch (e) { /* minimap must never break tiles */ } }
       }
     }
 

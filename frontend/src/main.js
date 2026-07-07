@@ -10,7 +10,7 @@ import { createRadialBlurPass } from './ui/radialBlurPass.js';
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
-import { createTileManager } from './map/tileManager.js';
+import { createTileManager, setMapTileCallbacks } from './map/tileManager.js';
 import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
 import { setLampEmissiveIntensity, setPoolOpacity } from './map/streetlightRenderer.js';
@@ -27,6 +27,7 @@ import { createMetricsPanel } from './ui/metricsPanel.js';
 import { isInputBlocked, isTypingTarget } from './inputGate.js';
 import { isRallyStyle } from './rallyStyle.js';
 import { createMinimap } from './ui/minimap.js';
+import { createCustomMap } from './ui/customMap.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
 import { createGpuTimer } from './ui/gpuTimer.js';
@@ -185,6 +186,7 @@ let speedDisplay;
 let speedLines;
 let metricsPanel;
 let minimap;
+let customMap;
 let compassBar;
 let performancePanel;
 let escMenu = null;
@@ -278,6 +280,11 @@ spawnTileReady.finally(() => {
     world,
     groundBody
   );
+
+  // Custom minimap data store — wired to tile load/unload BEFORE the spawn tile is injected so it
+  // captures every tile (incl. spawn). Drawn by the minimap's custom GridLayer; no OSM/network.
+  customMap = createCustomMap();
+  setMapTileCallbacks(customMap.ingestTile, customMap.removeTile);
 
   const injectPromise = spawnTileData && tileManager.injectSpawnTile
     ? tileManager.injectSpawnTile(tileKey(spawnTx, spawnTy), spawnTx, spawnTy, spawnTileData)
@@ -403,7 +410,7 @@ spawnTileReady.finally(() => {
     speedDisplay     = createSpeedDisplay();
     speedLines       = createSpeedLines();
     metricsPanel     = createMetricsPanel();
-    minimap          = createMinimap(spawnCenter);
+    minimap          = createMinimap(spawnCenter, customMap);
     if (minimap?.setNightMode) onNightModeChange((isNight) => minimap.setNightMode(isNight));
     onNightModeChange((isNight) => carDriver?.setNight?.(isNight)); // day/night ambience swap
     // Grade: at night, disable the black-lift + high-key brighten (they wash the dark to a grey veil).
