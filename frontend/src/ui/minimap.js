@@ -428,10 +428,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       frame.style.left = '50%';
       frame.style.right = 'auto';
       frame.style.bottom = 'auto';
-      frame.style.width = '80vw';
-      frame.style.height = '82vh';
-      frame.style.maxWidth = '1200px';
-      frame.style.maxHeight = '1050px';
+      frame.style.width = 'min(88vw, 88vh)';
+      frame.style.height = 'min(88vw, 88vh)';
+      frame.style.maxWidth = '1080px';
+      frame.style.maxHeight = '1080px';
       frame.style.borderRadius = '0';
       frame.style.transform = 'translate(-50%, -50%)';
       frame.style.zIndex = '11';
@@ -446,15 +446,14 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '0';
+      wrapper.style.borderRadius = '50%';
       wrapper.style.cursor = 'default';
       wrapper.style.boxShadow = 'none';
-      // Seamless soft feather — the map edges dissolve into the FROSTED (backdrop-blurred) scene behind, so
-      // it reads as a high-quality blurred transition, not a hard cut or a ghosted see-through fade.
-      const _fade = (dir) => `linear-gradient(to ${dir}, transparent 0%, rgba(0,0,0,0.6) 5%, #000 12%, #000 88%, rgba(0,0,0,0.6) 95%, transparent 100%)`;
-      const _h = _fade('right'), _v = _fade('bottom');
-      wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
-      wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
+      // Circular map with a smooth RADIAL feather — no corners to go blotchy; the edge dissolves evenly
+      // into the frosted (backdrop-blurred) scene behind. Clean, seamless.
+      const _radial = 'radial-gradient(circle at center, #000 62%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0.18) 92%, transparent 99%)';
+      wrapper.style.webkitMaskImage = _radial; wrapper.style.maskImage = _radial;
+      wrapper.style.webkitMaskComposite = ''; wrapper.style.maskComposite = '';
       vignetteEl.style.display = 'none';
       zoomBtns.style.display = 'flex';
       zoomSlider.style.display = 'block';
