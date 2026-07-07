@@ -3,8 +3,12 @@
  * Tiles are produced by worldBuilder/buildRegion.js.
  */
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { readTile, getTilePath, readBinaryTile } from './tileBake.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4041;
 
@@ -50,6 +54,33 @@ app.get('/api/tiles/:tileId', (req, res) => {
     return res.status(404).json({ error: 'Tile not found', tileId, region });
   }
   return res.json(data);
+});
+
+/**
+ * GET /api/tile-manifest?region=barcelona&zoom=16
+ * Lists every baked tile id (z_x_y) for the region — used by the custom minimap to background-load the
+ * whole city's 2D data. Reads tiles/{region}/{zoom}/{x}/{y}.bin off disk.
+ */
+app.get('/api/tile-manifest', (req, res) => {
+  const region = (req.query.region && safeTileId(req.query.region)) || process.env.REGION || 'delhi';
+  const zoom = safeTileId(String(req.query.zoom || '16')) || '16';
+  const base = path.join(__dirname, 'tiles', region, zoom);
+  try {
+    const tiles = [];
+    for (const xdir of fs.readdirSync(base)) {
+      const xpath = path.join(base, xdir);
+      let st; try { st = fs.statSync(xpath); } catch { continue; }
+      if (!st.isDirectory()) continue;
+      for (const yfile of fs.readdirSync(xpath)) {
+        const m = yfile.match(/^(\d+)\.bin$/);
+        if (m) tiles.push(`${zoom}_${xdir}_${m[1]}`);
+      }
+    }
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.json({ region, zoom, count: tiles.length, tiles });
+  } catch (e) {
+    return res.status(404).json({ error: 'No tiles for region', region, zoom });
+  }
 });
 
 app.listen(PORT, () => {

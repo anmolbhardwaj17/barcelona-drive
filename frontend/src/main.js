@@ -28,6 +28,7 @@ import { isInputBlocked, isTypingTarget } from './inputGate.js';
 import { isRallyStyle } from './rallyStyle.js';
 import { createMinimap } from './ui/minimap.js';
 import { createCustomMap } from './ui/customMap.js';
+import { loadCityMap } from './ui/cityMapLoader.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
 import { createGpuTimer } from './ui/gpuTimer.js';
@@ -411,6 +412,9 @@ spawnTileReady.finally(() => {
     speedLines       = createSpeedLines();
     metricsPanel     = createMetricsPanel();
     minimap          = createMinimap(spawnCenter, customMap);
+    // Background-load the whole city's 2D map data (roads/water/parks) a few seconds after spawn, so the
+    // zoomed-out minimap shows all of Barcelona — not just tiles driven through. Low-priority, yields.
+    setTimeout(() => { loadCityMap(customMap).catch(() => {}); }, 5000);
     if (minimap?.setNightMode) onNightModeChange((isNight) => minimap.setNightMode(isNight));
     onNightModeChange((isNight) => carDriver?.setNight?.(isNight)); // day/night ambience swap
     // Grade: at night, disable the black-lift + high-key brighten (they wash the dark to a grey veil).

@@ -52,8 +52,8 @@ const STYLE = {
     buildingEdge: '#c3baa2',
     casing:    '#9a927b',
     road: { major: '#ffffff', mid: '#fbf7ee', minor: '#f3eee1', path: '#e6d9bf' },
-    label:     '#4a4636', labelHalo: 'rgba(233,227,210,0.9)',
-    street:    '#5a5243', streetHalo: 'rgba(255,255,255,0.85)',
+    label:     '#2f3742', labelHalo: 'rgba(244,240,231,0.95)',   // crisp dark slate on a bright cream halo
+    street:    '#4a5260', streetHalo: 'rgba(255,255,255,0.9)',
   },
   night: {
     ground:    '#141b2f',
@@ -84,8 +84,12 @@ export function createCustomMap() {
   // key -> { roads:[{pts,w,tier,bbox}], water:[{pts,bbox}], parks:[{pts,bbox}], builds:[{pts,bbox}] }
   const store = new Map();
 
-  function ingestTile(key, tileData) {
-    if (!tileData || store.has(key)) return;
+  // lite=true → skip building footprints (used by the city-wide background load to save memory; far
+  // buildings never render anyway). A full ingest (near the car) UPGRADES an existing lite entry.
+  function ingestTile(key, tileData, lite = false) {
+    if (!tileData) return;
+    const existing = store.get(key);
+    if (existing && !(existing.lite && !lite)) return;   // skip unless upgrading lite → full
     const roads = [];
     for (const r of tileData.roads || []) {
       const pts = r.points;
@@ -99,8 +103,8 @@ export function createCustomMap() {
     const parks = [];
     for (const f of tileData.greens || []) { const pts = f.polygon; if (pts && pts.length >= 3) parks.push({ pts, bbox: bboxOf(pts) }); }
     const builds = [];
-    for (const b of tileData.buildings || []) { const pts = b.footprint; if (pts && pts.length >= 3) builds.push({ pts, bbox: bboxOf(pts) }); }
-    store.set(key, { roads, water, parks, builds });
+    if (!lite) for (const b of tileData.buildings || []) { const pts = b.footprint; if (pts && pts.length >= 3) builds.push({ pts, bbox: bboxOf(pts) }); }
+    store.set(key, { roads, water, parks, builds, lite });
     _onChange?.();
   }
 
@@ -221,13 +225,15 @@ export function createCustomMap() {
     if (showDistricts) {
       const fs = z <= 14 ? 13 : 15;
       const font = `700 ${fs}px system-ui, sans-serif`;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '1.5px';   // GTA-style tracking
       ctx.font = font;
       const halfHm = (fs * 0.8) / kz;
       for (const d of districts()) {
-        const halfWm = (ctx.measureText(d.name).width / 2 + 5) / kx;
+        const halfWm = (ctx.measureText(d.name).width / 2 + 6) / kx;
         if (!spans(d.x, d.y, halfWm, halfHm)) continue;
         text(d.name, sx(d.x), sy(d.y), font, S.label, S.labelHalo);
       }
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     }
 
     // 4b. street names — super zoomed-in detail (major roads, one label at the road's midpoint)
@@ -249,5 +255,7 @@ export function createCustomMap() {
     }
   }
 
-  return { ingestTile, removeTile, clear, setNight, setOnChange, drawTile, get tileCount() { return store.size; } };
+  function hasTile(key) { return store.has(key); }
+
+  return { ingestTile, removeTile, hasTile, clear, setNight, setOnChange, drawTile, get tileCount() { return store.size; } };
 }
