@@ -437,12 +437,13 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '50%';
+      wrapper.style.borderRadius = '0';
+      wrapper.style.overflow = 'visible';   // let the radial mask feather softly (overflow:hidden hard-clips it)
       wrapper.style.cursor = 'default';
       wrapper.style.boxShadow = 'none';
-      // Circular map with a smooth RADIAL feather — no corners to go blotchy; the edge dissolves evenly
-      // into the frosted (backdrop-blurred) scene behind. Clean, seamless.
-      const _radial = 'radial-gradient(circle at center, #000 62%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0.18) 92%, transparent 99%)';
+      // Circular map whose edge is a smooth RADIAL feather — dissolves evenly into the frosted (backdrop-
+      // blurred) scene behind. closest-side sizes the circle to the square; opaque to 78%, then feathers out.
+      const _radial = 'radial-gradient(circle closest-side at center, #000 78%, rgba(0,0,0,0.45) 90%, transparent 100%)';
       wrapper.style.webkitMaskImage = _radial; wrapper.style.maskImage = _radial;
       wrapper.style.webkitMaskComposite = ''; wrapper.style.maskComposite = '';
       vignetteEl.style.display = 'none';
@@ -518,6 +519,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.width = `${MINIMAP_SIZE}px`;
       wrapper.style.height = `${MINIMAP_SIZE}px`;
       wrapper.style.borderRadius = '50%';
+      wrapper.style.overflow = 'hidden';   // crisp circular clip for the small minimap
       wrapper.style.boxShadow = 'none';
       vignetteEl.style.display = 'none';
       zoomBtns.style.display = 'none';
