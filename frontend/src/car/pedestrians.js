@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import { loadPeopleWalkTemplates } from './carModels.js';
+import { audio } from '../audio/audioManager.js';
 
 const WALKABLE = new Set([
   'residential', 'living_street', 'unclassified', 'pedestrian', 'footway',
@@ -225,6 +226,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         const dx = x - playerPx, dz = z - playerPz, dl = Math.hypot(dx, dz) || 1;
         const mps = Math.min(Math.abs(carSpeedKmh) / 3.6, 22);
         p.thrown = true; p.age = 0; p.landed = false;
+        if (Math.random() < 0.45) audio.shout();  // only some yelp — random so it isn't every hit (also self-throttled)
         p.x = x; p.y = y; p.z = z; p.gy = y;
         p.vx = (dx / dl) * (mps * 0.55 + 2); p.vz = (dz / dl) * (mps * 0.55 + 2); p.vy = 3 + mps * 0.22;
         p.axis = new THREE.Vector3(Math.random() - 0.5, 0.25, Math.random() - 0.5).normalize();

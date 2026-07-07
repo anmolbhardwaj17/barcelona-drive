@@ -276,8 +276,10 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
     fall.translate(-(fb.min.x + fb.max.x) / 2, -fb.min.y, -(fb.min.z + fb.max.z) / 2);
   }
 
-  // Subtle emissive floor so pedestrians never fall into a dark/underexposed silhouette in shadow.
-  const pedMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: new THREE.Color(0x343434) }); // a bit more self-fill so peds read at night without going flat
+  // Small emissive floor so peds never fall to a black silhouette in shadow — kept LOW because a big flat
+  // gray fill (was 0x343434) washed them into pale, desaturated ghosts in BOTH day and night, flattening
+  // contrast. Now that night ambient is raised, a light floor is enough; real light does the lifting.
+  const pedMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: new THREE.Color(0x111111) });
   return { frames, idle, fall, material: pedMat };
 }
 

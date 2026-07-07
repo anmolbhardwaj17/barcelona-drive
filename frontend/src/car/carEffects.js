@@ -124,9 +124,9 @@ export function createCarEffects(scene, carModel, physics) {
 
     // Main tail lights — use bright pinkish-red so luminance exceeds bloom threshold
     tlMatL.emissive.setHex(braking ? 0xFF3333 : 0xFF0000);
-    tlMatL.emissiveIntensity = braking ? 8.0 : 0.4;
+    tlMatL.emissiveIntensity = braking ? 3.6 : 0.4;   // 8.0 bloomed into a bright red pool at night
     tlMatR.emissive.setHex(braking ? 0xFF3333 : 0xFF0000);
-    tlMatR.emissiveIntensity = braking ? 8.0 : 0.4;
+    tlMatR.emissiveIntensity = braking ? 3.6 : 0.4;
 
     // Indicator/reverse sections — outer strip
     // Priority: reverse (white) > indicator (orange blink) > off
@@ -137,9 +137,9 @@ export function createCarEffects(scene, carModel, physics) {
       indMatR.emissiveIntensity = 2.5;
     } else {
       indMatL.emissive.setHex(blinkLeft && blinkOn ? 0xFF8800 : 0xFF0000);
-      indMatL.emissiveIntensity = blinkLeft && blinkOn ? 8.0 : (braking ? 5.0 : 0.4);
+      indMatL.emissiveIntensity = blinkLeft && blinkOn ? 6.0 : (braking ? 3.0 : 0.4);
       indMatR.emissive.setHex(blinkRight && blinkOn ? 0xFF8800 : 0xFF0000);
-      indMatR.emissiveIntensity = blinkRight && blinkOn ? 8.0 : (braking ? 5.0 : 0.4);
+      indMatR.emissiveIntensity = blinkRight && blinkOn ? 6.0 : (braking ? 3.0 : 0.4);
     }
 
     // Skid marks
