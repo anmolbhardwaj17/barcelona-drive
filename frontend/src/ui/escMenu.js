@@ -48,14 +48,12 @@ const CSS = `
 .dd-esc-body { flex:1; display:flex; gap:34px; min-height:0; padding:12px 0; }
 .dd-esc-left { flex:1 1 54%; overflow-y:auto; overflow-x:hidden; padding-right:10px; min-width:0; }
 .dd-esc-page { width:100%; max-width:660px; }
-/* Right column — the live 3D car turntable, art-of-rally showroom vibe */
-.dd-esc-showcase { flex:1 1 46%; position:relative; border-radius:26px; min-width:0; align-self:stretch; overflow:hidden;
-  background:linear-gradient(165deg, #cdd9ea 0%, #aab8cf 42%, #8b97b0 100%);
-  border:3px solid rgba(255,255,255,0.14); box-shadow:inset 0 2px 24px rgba(255,255,255,0.25), 0 14px 40px rgba(0,0,0,0.45); }
-.dd-esc-showcase::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:16px; text-align:center;
-  font-size:13px; letter-spacing:3px; color:rgba(20,28,44,0.55); text-shadow:0 1px 0 rgba(255,255,255,0.4); pointer-events:none; }
+/* Right column — the live 3D car turntable resting directly on the light menu background (NO box) */
+.dd-esc-showcase { flex:1 1 46%; position:relative; min-width:0; align-self:stretch; }
+.dd-esc-showcase::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:10px; text-align:center;
+  font-size:12px; letter-spacing:3px; color:rgba(255,255,255,0.4); pointer-events:none; }
 .dd-esc-showcase canvas { position:absolute; inset:0; }
-@media (max-width:900px){ .dd-esc-body{ flex-direction:column; } .dd-esc-showcase{ min-height:280px; flex:0 0 280px; } }
+@media (max-width:900px){ .dd-esc-body{ flex-direction:column; } .dd-esc-showcase{ min-height:260px; flex:0 0 260px; } }
 .dd-esc-sec { display:flex; align-items:center; gap:14px; margin:24px 0 13px; font-size:19px; letter-spacing:1.5px;
   text-transform:uppercase; color:#ffd23f; text-shadow:0 2px 0 rgba(0,0,0,0.3); }
 .dd-esc-sec::after { content:''; flex:1; height:3px; border-radius:2px; background:rgba(255,210,63,0.2); }

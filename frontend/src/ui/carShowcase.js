@@ -46,10 +46,17 @@ export function createCarShowcase() {
   let carCenterY = 0.6;
   new GLTFLoader().load('/models/bmw_m3.glb', (gltf) => {
     const car = gltf.scene;
-    car.traverse((c) => { if (c.isMesh) { c.castShadow = false; if (c.material && 'metalness' in c.material) { c.material.metalness = 0.3; c.material.roughness = 0.35; } } });
+    car.traverse((c) => {
+      if (!c.isMesh) return;
+      c.castShadow = false;
+      if (c.material && 'metalness' in c.material) { c.material.metalness = 0.35; c.material.roughness = 0.32; }
+      // Light-coloured body paint (bright silver-white) for the showroom. Separate GLB instance → doesn't
+      // affect the in-game car. Body_CarPaint_0 is the paint mesh (see carModel.js).
+      if (c.name === 'Body_CarPaint_0' && c.material && c.material.color) { c.material.color.setHex(0xEDF0F4); if ('clearcoat' in c.material) c.material.clearcoat = 0.6; }
+    });
     const bb = new THREE.Box3().setFromObject(car);
     const size = bb.getSize(new THREE.Vector3());
-    const s = 3.6 / Math.max(size.x, size.z, 0.001); // fit ~3.6 units
+    const s = 2.7 / Math.max(size.x, size.z, 0.001); // fit ~2.7 units — smaller, sits calmly on the side
     car.scale.setScalar(s);
     const bb2 = new THREE.Box3().setFromObject(car);
     const cen = bb2.getCenter(new THREE.Vector3());
@@ -58,7 +65,7 @@ export function createCarShowcase() {
     pivot.add(car);
   }, undefined, (e) => console.warn('[carShowcase] car load failed', e?.message || e));
 
-  const RADIUS = 6.4;
+  const RADIUS = 7.8;
   let angle = Math.PI * 0.75, autoVel = 0.0045, dragging = false, lastX = 0, running = false, w = 1, h = 1;
 
   function frame() {
@@ -66,7 +73,7 @@ export function createCarShowcase() {
     requestAnimationFrame(frame);
     if (!dragging) angle += autoVel;
     pivot.rotation.y = angle;
-    camera.position.set(Math.sin(0) * RADIUS, 2.4, Math.cos(0) * RADIUS); // fixed cam; the CAR rotates via pivot
+    camera.position.set(0, carCenterY + 0.55, RADIUS); // near-flat, eye-level side view; the CAR rotates via pivot
     camera.lookAt(0, carCenterY, 0);
     renderer.render(scene, camera);
   }
