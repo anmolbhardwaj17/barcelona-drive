@@ -388,6 +388,13 @@ export async function createCarModel(scene) {
     { x:  0.78, z: -1.43 }, // RR
   ];
 
+  // Wheels ride the terrain HEIGHTFIELD, but the visual road slab is drawn
+  // ROAD_VISUAL_ABOVE_TERRAIN (~0.05m, more on curved/hill cells) above it, so the
+  // tyres look sunk into the asphalt. Lift the whole car (body + wheels + shadow) by
+  // this to sit it on the slab, preserving ride height. Keep in sync with
+  // roadRenderer.ROAD_VISUAL_ABOVE_TERRAIN. See roadRenderer.js:24 / ADR D-16.
+  const CAR_VISUAL_LIFT = 0.06;
+
   // ── Per-frame sync ──────────────────────────────────────────────────────
   const _chassisQ = new THREE.Quaternion();
   const _rollQ = new THREE.Quaternion();
@@ -411,7 +418,7 @@ export async function createCarModel(scene) {
     const p = (ip && (ip.x !== 0 || ip.y !== 0 || ip.z !== 0)) ? ip : chassisBody.position;
     const q = (iq && (iq.x !== 0 || iq.y !== 0 || iq.z !== 0 || iq.w !== 1)) ? iq : chassisBody.quaternion;
 
-    bodyGroup.position.set(p.x, p.y, p.z);
+    bodyGroup.position.set(p.x, p.y + CAR_VISUAL_LIFT, p.z);
     bodyGroup.quaternion.set(q.x, q.y, q.z, q.w);
 
     // Visual body lean
@@ -427,7 +434,7 @@ export async function createCarModel(scene) {
     bodyGroup.quaternion.premultiply(_rollQ);
 
     // Shadow
-    carShadowMesh.position.set(p.x, p.y - 0.25, p.z);
+    carShadowMesh.position.set(p.x, p.y - 0.25 + CAR_VISUAL_LIFT, p.z);
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
     carShadowMesh.rotation.y = yaw;
     _chassisQ.set(q.x, q.y, q.z, q.w);
@@ -451,7 +458,7 @@ export async function createCarModel(scene) {
       _v.set(wl.x, 0, wl.z).applyQuaternion(_chassisQ);
       wheelPivots[i].position.set(
         p.x + _v.x,
-        t.position.y,  // physics Y for suspension bounce
+        t.position.y + CAR_VISUAL_LIFT,  // physics Y for suspension bounce, + slab lift (D-16)
         p.z + _v.z,
       );
       // Start from physics quaternion (has steering angle for front wheels)
