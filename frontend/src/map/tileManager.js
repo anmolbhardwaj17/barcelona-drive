@@ -436,7 +436,7 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
         // Trace the real outline with thin perimeter walls so the collider matches the visible building.
         addPerimeterWalls(body, clean, groundY, h);
       } else {
-        // Triangle / quad (rectangles) → cheap tight oriented box.
+        // Triangle / quad (rectangles) → cheap tight oriented box (shared cache).
         const box = new CANNON.Box(new CANNON.Vec3(hu, h / 2, hv));
         const quat = new CANNON.Quaternion();
         quat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -phi); // box local X → footprint's dominant edge
