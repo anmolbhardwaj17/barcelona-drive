@@ -194,17 +194,15 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     z-index: 1000;
   `;
   const mc = markerSize / 2;
+  // Orange "you-are-here" pin with a heading wedge (matches the expanded-map marker). Points UP =
+  // forward, since the map itself rotates heading-up.
   const CAR_MARKER_SVG = `
     <svg viewBox="0 0 ${markerSize} ${markerSize}" width="${markerSize}" height="${markerSize}">
-      <defs>
-        <radialGradient id="fov-grad" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#4285F4" stop-opacity="0.35"/>
-          <stop offset="100%" stop-color="#4285F4" stop-opacity="0"/>
-        </radialGradient>
-      </defs>
-      <path d="M${mc},${mc} L${mc - 18},${mc - 28} A30,30 0 0,1 ${mc + 18},${mc - 28} Z"
-            fill="url(#fov-grad)"/>
-      <circle cx="${mc}" cy="${mc}" r="${playerDotR}" fill="#4285F4" stroke="#ffffff" stroke-width="2.5"/>
+      <circle cx="${mc}" cy="${mc}" r="24" fill="#f5a623" opacity="0.14"/>
+      <polygon points="${mc},3 ${mc + 10},${mc - 4} ${mc},${mc - 9} ${mc - 10},${mc - 4}"
+               fill="#f5a623" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="${mc}" cy="${mc}" r="10.5" fill="#f5a623" stroke="#ffffff" stroke-width="3.5"/>
+      <circle cx="${mc}" cy="${mc}" r="4.3" fill="#ffffff" opacity="0.9"/>
     </svg>
   `;
   // Low-poly Batman flying top-down — arms forward, cape flowing, dark colours
@@ -304,6 +302,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     boxZoom: false,
     keyboard: false,
     attributionControl: false,
+    // Don't let the expanded map zoom out past where the city fills the frame (we only have Barcelona's
+    // data — zooming further just shows a tiny city island in blank beige). 19 = close street detail.
+    minZoom: 13,
+    maxZoom: 19,
   });
 
   // Custom vector tiles drawn from the baked v7 world data (roads/buildings/water/parks) — no OSM, no
@@ -395,9 +397,9 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.height = 'auto';
       wrapper.style.borderRadius = '0';
       wrapper.style.cursor = 'default';
-      // Fade ALL FOUR edges evenly (two intersecting linear gradients) so the map blends into the scene.
-      const _h = 'linear-gradient(to right, transparent 0, #000 11%, #000 89%, transparent 100%)';
-      const _v = 'linear-gradient(to bottom, transparent 0, #000 11%, #000 89%, transparent 100%)';
+      // Thin feather on all four edges — big fades read as a fake blur, so keep it to a subtle 3%.
+      const _h = 'linear-gradient(to right, transparent 0, #000 3%, #000 97%, transparent 100%)';
+      const _v = 'linear-gradient(to bottom, transparent 0, #000 3%, #000 97%, transparent 100%)';
       wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
       wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
       wrapper.classList.add('minimap-expanded');

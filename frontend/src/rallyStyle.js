@@ -1,11 +1,11 @@
 /**
- * Art-of-rally style toggle — an opt-in flat/hazy/muted art direction for A/B evaluation.
+ * Art-of-rally art direction — now the DEFAULT look of the game (bright/airy high-key grade, warm-key/
+ * cool-shadow lighting, tire smoke, restrained bloom). Consulted by building/terrain/fog/lighting/post/car
+ * code to swap surface treatment without changing geometry.
  *
- * Enable with ?style=rally (read once at load). When off, the game renders in its normal style.
- * The flag is consulted by the building/terrain/fog/lighting/post code to swap surface treatment
- * without changing any geometry.
+ * Escape hatch: ?style=normal (or ?style=off) reverts to the old plain look for A/B debugging.
  */
-let _rally = false;
-try { _rally = new URLSearchParams(window.location.search).get('style') === 'rally'; } catch {}
+let _rally = true;
+try { const s = new URLSearchParams(window.location.search).get('style'); if (s === 'normal' || s === 'off') _rally = false; } catch {}
 
 export function isRallyStyle() { return _rally; }
