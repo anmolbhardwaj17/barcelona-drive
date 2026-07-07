@@ -401,13 +401,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '0';
+      wrapper.style.borderRadius = '10px';
       wrapper.style.cursor = 'default';
-      // Thin feather on all four edges — big fades read as a fake blur, so keep it to a subtle 3%.
-      const _h = 'linear-gradient(to right, transparent 0, #000 3%, #000 97%, transparent 100%)';
-      const _v = 'linear-gradient(to bottom, transparent 0, #000 3%, #000 97%, transparent 100%)';
-      wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
-      wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
+      // Clean panel edge — no feather (the fade read as a fake blur). Crisp rounded rectangle + shadow.
+      wrapper.style.webkitMaskImage = 'none'; wrapper.style.maskImage = 'none';
+      wrapper.style.boxShadow = '0 18px 60px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.9)';
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
@@ -479,6 +477,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.width = `${MINIMAP_SIZE}px`;
       wrapper.style.height = `${MINIMAP_SIZE}px`;
       wrapper.style.borderRadius = '50%';
+      wrapper.style.boxShadow = 'none';
       wrapper.style.cursor = 'pointer';
       wrapper.classList.remove('minimap-expanded');
       const innerSize = MINIMAP_SIZE * 1.5;

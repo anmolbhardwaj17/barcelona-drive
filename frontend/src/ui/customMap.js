@@ -38,6 +38,14 @@ const SEA_COAST = [
   [41.4210, 2.2300], [41.3960, 2.2050], [41.3860, 2.1955], [41.3775, 2.1918],
   [41.3700, 2.1810], [41.3540, 2.1640], [41.3350, 2.1470], [41.3180, 2.1320],
 ];
+// Sea name label, placed out in the open water (SE of the city).
+const SEA_LABEL = { text: 'MAR MEDITERRÀNIA', lat: 41.352, lon: 2.212 };
+let _seaLabelPos = null;
+function seaLabelPos() {
+  if (!_seaLabelPos) { const w = latLonToWorld(SEA_LABEL.lat, SEA_LABEL.lon); _seaLabelPos = { x: w.x, y: w.z }; }
+  return _seaLabelPos;
+}
+
 let _sea = null, _seaBbox = null;
 function seaPolygon() {
   if (_sea) return _sea;
@@ -66,18 +74,20 @@ const STYLE = {
   day: {
     ground:    '#e5ddc9',
     park:      '#a8c488',
-    water:     '#3f83a6',
+    water:     '#7fb4dc',   // lighter Mediterranean blue
     building:  '#d6cfbc',
     buildingEdge: '#c3baa2',
     casing:    '#9a927b',
     road: { major: '#ffffff', mid: '#fbf7ee', minor: '#f3eee1', path: '#e6d9bf' },
     label:     '#2f3742', labelHalo: 'rgba(244,240,231,0.95)',   // crisp dark slate on a bright cream halo
     street:    '#4a5260', streetHalo: 'rgba(255,255,255,0.9)',
+    seaLabel:  '#2a5f86', seaHalo: 'rgba(190,222,244,0.85)',
   },
   night: {
     ground:    '#141b2f',
     park:      '#2b472e',
-    water:     '#1d3555',
+    water:     '#2b5378',   // lighter night sea (was #1d3555)
+    seaLabel:  '#9fc4e4', seaHalo: 'rgba(10,20,38,0.85)',
     building:  '#28304a',
     buildingEdge: '#1b2236',
     casing:    '#0e1325',
@@ -276,6 +286,16 @@ export function createCustomMap() {
         if (!spans(d.x, d.y, halfWm, halfHm)) continue;
         text(d.name, sx(d.x), sy(d.y), font, S.label, S.labelHalo);
       }
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+
+      // Sea name — italic label out in the open water
+      const sp = seaLabelPos();
+      const fsS = z <= 14 ? 15 : 17;
+      const fontS = `italic 600 ${fsS}px Georgia, serif`;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
+      ctx.font = fontS;
+      const hwS = (ctx.measureText(SEA_LABEL.text).width / 2 + 6) / kx;
+      if (spans(sp.x, sp.y, hwS, (fsS * 0.8) / kz)) text(SEA_LABEL.text, sx(sp.x), sy(sp.y), fontS, S.seaLabel, S.seaHalo);
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     }
 
