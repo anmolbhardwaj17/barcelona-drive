@@ -176,7 +176,7 @@ export function createCustomMap() {
     const showMid = z >= 15, showMinor = z >= 16, showPath = z >= 17;
     const showBuildings = z >= 16;
     const showDistricts = z <= 16;      // broad overview
-    const showStreets = z >= 18;        // super zoomed-in detail
+    const showStreets = z >= 18;        // street names once zoomed in (keeps the small z17 circle clean)
 
     ctx.fillStyle = S.ground;
     ctx.fillRect(0, 0, size, size);
@@ -301,20 +301,31 @@ export function createCustomMap() {
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     }
 
-    // 4b. street names — super zoomed-in detail (major roads, one label at the road's midpoint)
+    // 4b. street names — written ALONG the road (rotated to the road angle), major+mid at z17, minor at z18+.
     if (showStreets) {
-      const font = `600 11px system-ui, sans-serif`;
-      ctx.font = font;
-      const halfHm = 9 / kz;
+      const allowMinor = z >= 19;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
       const seen = new Set();
       for (const t of vis) {
         for (const r of t.roads) {
-          if (r.tier !== 'major' || !r.name || seen.has(r.name)) continue;
-          const mid = r.pts[r.pts.length >> 1];
-          const halfWm = (ctx.measureText(r.name).width / 2 + 4) / kx;
-          if (!spans(mid.x, mid.y, halfWm, halfHm)) continue;
+          if (!r.name || r.tier === 'path' || seen.has(r.name)) continue;
+          if (r.tier === 'minor' && !allowMinor) continue;
+          const n = r.pts.length, mi = n >> 1;
+          const a = r.pts[Math.max(0, mi - 1)], b = r.pts[Math.min(n - 1, mi + 1)];
+          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          if (!inTile(mx, my)) continue;   // label once, in the tile holding the road's midpoint
           seen.add(r.name);
-          text(r.name, sx(mid.x), sy(mid.y), font, S.street, S.streetHalo);
+          // Road angle in SCREEN space (sy flips Z). Keep text upright (never upside-down).
+          let ang = Math.atan2(-(b.y - a.y) * kz, (b.x - a.x) * kx);
+          if (ang > Math.PI / 2) ang -= Math.PI; else if (ang < -Math.PI / 2) ang += Math.PI;
+          const fs = r.tier === 'major' ? 12 : 11;
+          ctx.save();
+          ctx.translate(sx(mx), sy(my));
+          ctx.rotate(ang);
+          ctx.font = `600 ${fs}px system-ui, sans-serif`;
+          ctx.strokeStyle = S.streetHalo; ctx.lineWidth = 3; ctx.strokeText(r.name, 0, 0);
+          ctx.fillStyle = S.street; ctx.fillText(r.name, 0, 0);
+          ctx.restore();
         }
       }
     }
