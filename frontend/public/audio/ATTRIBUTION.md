@@ -9,6 +9,7 @@ Sound files bundled here and their licenses.
 | `horn.wav` | ["Car Horn.wav"](https://commons.wikimedia.org/wiki/File:Car_Horn.wav) — Wikimedia Commons | 15HPanska_Ruttner_Jan | **CC0** (public domain) |
 | `skid.wav` | ["Car Tire Squeal Skid Loop"](https://opengameart.org/content/car-tire-squeal-skid-loop) — OpenGameArt | audible-edge (Tom Haigh), via qubodup | **CC-BY 3.0** |
 | `ambience_night.mp3` | Derived from `ambience.ogg` (low-pass + attenuated = muffled night city) | — | **Public Domain** (same as source) |
+| `shout.mp3` | ["UncleSigmund - ahhh"](https://commons.wikimedia.org/wiki/File:UncleSigmund_-_ahhh_(cc0)_(freesound).mp3) — Wikimedia Commons (via freesound), trimmed to ~1.3s + faded, mono | UncleSigmund | **CC0** (public domain) |
 
 Most audio is public-domain / CC0. `skid.wav` is **CC-BY 3.0** and requires the attribution above.
 
