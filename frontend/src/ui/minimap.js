@@ -299,18 +299,26 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
 
   frame.appendChild(wrapper);
 
-  // Zoom +/- buttons — shown only on the expanded map (top-left, like a real map). Easy one-click zoom.
+  // Zoom +/- — a clean segmented pill (top-left of the expanded map) with crisp icons + hover states.
   const zoomBtns = document.createElement('div');
-  zoomBtns.style.cssText = 'position:absolute; top:18px; left:18px; z-index:13; display:none; flex-direction:column; gap:8px; pointer-events:auto;';
-  const _mkZoom = (label, delta) => {
+  zoomBtns.style.cssText = 'position:absolute; top:20px; left:20px; z-index:13; display:none; flex-direction:column;' +
+    'background:rgba(255,255,255,0.96); border-radius:13px; box-shadow:0 6px 20px rgba(0,0,0,0.22); overflow:hidden; pointer-events:auto;';
+  const _icon = (kind) => kind === 'plus'
+    ? '<svg width="17" height="17" viewBox="0 0 17 17"><path d="M8.5 2.5v11M2.5 8.5h11" stroke="#333" stroke-width="1.9" stroke-linecap="round"/></svg>'
+    : '<svg width="17" height="17" viewBox="0 0 17 17"><path d="M2.5 8.5h11" stroke="#333" stroke-width="1.9" stroke-linecap="round"/></svg>';
+  const _mkZoom = (kind, delta, divider) => {
     const b = document.createElement('button');
-    b.textContent = label;
-    b.style.cssText = 'width:42px; height:42px; border:none; border-radius:10px; background:rgba(255,255,255,0.94); color:#2a2f2a; font:700 24px system-ui,sans-serif; line-height:1; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,0.35); pointer-events:auto;';
+    b.innerHTML = _icon(kind);
+    b.style.cssText = 'width:44px; height:44px; border:none; background:transparent; cursor:pointer; padding:0;' +
+      'display:flex; align-items:center; justify-content:center; transition:background .12s;' +
+      (divider ? 'border-bottom:1px solid rgba(0,0,0,0.09);' : '');
+    b.addEventListener('mouseenter', () => { b.style.background = 'rgba(0,0,0,0.06)'; });
+    b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; });
     b.addEventListener('click', (e) => { e.stopPropagation(); if (map) map.setZoom(map.getZoom() + delta, { animate: true }); });
     zoomBtns.appendChild(b);
   };
-  _mkZoom('+', 1);
-  _mkZoom('−', -1);   // minus sign
+  _mkZoom('plus', 1, true);
+  _mkZoom('minus', -1, false);
   frame.appendChild(zoomBtns);
 
   // Zoom slider along the bottom of the expanded map — easy zoom for trackpads.
