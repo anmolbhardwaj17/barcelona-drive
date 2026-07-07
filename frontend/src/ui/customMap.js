@@ -11,6 +11,27 @@
  * unloads. draw() composites the loaded features around the car each frame (hard-culled by bbox).
  */
 
+import { latLonToWorld } from '../projection.js';
+
+// Barcelona neighbourhoods/districts → bold overview labels (GTA-style), shown when zoomed out. Approx
+// centres; drawn wherever they fall, even over not-yet-loaded tiles, so the overview map reads as a city.
+const DISTRICTS = [
+  ['EIXAMPLE', 41.3916, 2.1649], ['GRÀCIA', 41.4035, 2.1560], ['EL RAVAL', 41.3790, 2.1687],
+  ['BARRI GÒTIC', 41.3830, 2.1770], ['LA BARCELONETA', 41.3800, 2.1900], ['EL BORN', 41.3850, 2.1820],
+  ['SANT ANTONI', 41.3790, 2.1590], ['POBLE-SEC', 41.3720, 2.1600], ['SANTS', 41.3750, 2.1370],
+  ['LES CORTS', 41.3870, 2.1300], ['SARRIÀ', 41.3990, 2.1200], ['SANT GERVASI', 41.4010, 2.1400],
+  ['POBLENOU', 41.4030, 2.2000], ['EL CLOT', 41.4110, 2.1870], ['SAGRADA FAMÍLIA', 41.4036, 2.1744],
+  ['HORTA', 41.4290, 2.1620], ['NOU BARRIS', 41.4420, 2.1770], ['SANT ANDREU', 41.4360, 2.1900],
+  ['MONTJUÏC', 41.3630, 2.1650],
+];
+// Lazily projected to world coords ({name, x, y}) on first draw (projection origin is ready by then).
+let _districts = null;
+function districts() {
+  if (_districts) return _districts;
+  _districts = DISTRICTS.map(([name, lat, lon]) => { const w = latLonToWorld(lat, lon); return { name, x: w.x, y: w.z }; });
+  return _districts;
+}
+
 // Road class → { width fallback (m), tier }. Thickness uses the real road.width when present.
 const ROAD_CLASS = {
   motorway: 'major', motorway_link: 'major', trunk: 'major', trunk_link: 'major',
@@ -22,14 +43,18 @@ const ROAD_CLASS = {
 
 // Palette pulled toward the 3D world: warm ground, game green parks, game blue water, tan buildings.
 const STYLE = {
+  // GTA-V-style day map: light beige land, green parks, blue water, subtle grey blocks; roads read as
+  // pale surfaces DEFINED by a medium-grey casing (the casing is the "darker" edge, not a dark fill).
   day: {
-    ground:    '#d7d1c3',
-    park:      '#7ea24f',
-    water:     '#6d9ac4',
-    building:  '#c9c0a8',
-    buildingEdge: '#b0a68b',
-    casing:    '#b7ad95',
-    road: { major: '#ffffff', mid: '#f4efe3', minor: '#ece6d8', path: '#d8c8a8' },
+    ground:    '#e5ddc9',
+    park:      '#a8c488',
+    water:     '#3f83a6',
+    building:  '#d6cfbc',
+    buildingEdge: '#c3baa2',
+    casing:    '#9a927b',
+    road: { major: '#ffffff', mid: '#fbf7ee', minor: '#f3eee1', path: '#e6d9bf' },
+    label:     '#4a4636', labelHalo: 'rgba(233,227,210,0.9)',
+    street:    '#5a5243', streetHalo: 'rgba(255,255,255,0.85)',
   },
   night: {
     ground:    '#141b2f',
@@ -39,6 +64,8 @@ const STYLE = {
     buildingEdge: '#1b2236',
     casing:    '#0e1325',
     road: { major: '#8a94ad', mid: '#69738c', minor: '#4b5468', path: '#3a4260' },
+    label:     '#cdd6ec', labelHalo: 'rgba(10,15,32,0.85)',
+    street:    '#aeb6cc', streetHalo: 'rgba(10,15,32,0.8)',
   },
 };
 
@@ -66,7 +93,7 @@ export function createCustomMap() {
       if (!pts || pts.length < 2) continue;
       const tier = ROAD_CLASS[r.highwayType] || 'minor';
       const w = Number.isFinite(r.width) && r.width > 0 ? r.width : (tier === 'major' ? 12 : tier === 'mid' ? 8 : 5);
-      roads.push({ pts, w, tier, bbox: bboxOf(pts) });
+      roads.push({ pts, w, tier, name: r.name || '', bbox: bboxOf(pts) });
     }
     const water = [];
     for (const f of tileData.water || []) { const pts = f.polygon; if (pts && pts.length >= 3) water.push({ pts, bbox: bboxOf(pts) }); }
@@ -89,10 +116,11 @@ export function createCustomMap() {
 
   /**
    * Draw one slippy map tile. `wb` = [wMinX, wMinZ, wMaxX, wMaxZ] world bounds of this tile (world Z
-   * north). Linear world→pixel is exact enough within one small tile (Mercator is locally linear), and
-   * matches Leaflet's own tile placement so features align with markers/pan. north (max Z) → top.
+   * north). `z` = slippy zoom → level-of-detail: zoomed OUT shows a broad idea (major roads + district
+   * names); zoomed IN adds minor roads, buildings, then street names. Linear world→pixel is exact enough
+   * within one small tile (Mercator is locally linear) and matches Leaflet's placement. north (max Z) → top.
    */
-  function drawTile(ctx, size, wb, marginM = 30) {
+  function drawTile(ctx, size, wb, z = 17, marginM = 30) {
     const S = _night ? STYLE.night : STYLE.day;
     const [wMinX, wMinZ, wMaxX, wMaxZ] = wb;
     const spanX = wMaxX - wMinX, spanZ = wMaxZ - wMinZ;
@@ -100,13 +128,21 @@ export function createCustomMap() {
     const pxPerM = kx;
     const sx = (x) => (x - wMinX) * kx;
     const sy = (y) => (wMaxZ - y) * kz;                 // north at top
-    // Feature overlaps this tile (+margin so wide strokes/edges near the seam still draw)
     const hit = (bb) => bb[2] >= wMinX - marginM && bb[0] <= wMaxX + marginM && bb[3] >= wMinZ - marginM && bb[1] <= wMaxZ + marginM;
+    const inTile = (x, y) => x >= wMinX && x < wMaxX && y >= wMinZ && y < wMaxZ;
+
+    // Level-of-detail gates by zoom
+    const showMid = z >= 15, showMinor = z >= 16, showPath = z >= 17;
+    const showBuildings = z >= 16;
+    const showDistricts = z <= 16;      // broad overview
+    const showStreets = z >= 18;        // super zoomed-in detail
 
     ctx.fillStyle = S.ground;
     ctx.fillRect(0, 0, size, size);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+
+    const tierOn = { major: true, mid: showMid, minor: showMinor, path: showPath };
 
     const fillPoly = (list, color) => {
       ctx.fillStyle = color;
@@ -130,6 +166,7 @@ export function createCustomMap() {
     const roadPx = (r) => Math.max(MIN_PX[r.tier], r.w * pxPerM);
     const strokeRoads = (widthFn, colorFn) => {
       for (const tier of order) {
+        if (!tierOn[tier]) continue;
         for (const t of store.values()) {
           for (const r of t.roads) {
             if (r.tier !== tier || !hit(r.bbox)) continue;
@@ -146,19 +183,56 @@ export function createCustomMap() {
     strokeRoads((r) => roadPx(r) + 2.0, () => S.casing);        // casing
     strokeRoads((r) => roadPx(r), (r) => S.road[r.tier]);       // fill
 
-    // 3. building footprints on top (light fill + subtle edge)
-    ctx.strokeStyle = S.buildingEdge;
-    ctx.lineWidth = 0.6;
-    ctx.fillStyle = S.building;
-    for (const t of store.values()) {
-      for (const b of t.builds) {
-        if (!hit(b.bbox)) continue;
-        ctx.beginPath();
-        ctx.moveTo(sx(b.pts[0].x), sy(b.pts[0].y));
-        for (let i = 1; i < b.pts.length; i++) ctx.lineTo(sx(b.pts[i].x), sy(b.pts[i].y));
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+    // 3. building footprints (only when zoomed in enough to matter)
+    if (showBuildings) {
+      ctx.strokeStyle = S.buildingEdge;
+      ctx.lineWidth = 0.6;
+      ctx.fillStyle = S.building;
+      for (const t of store.values()) {
+        for (const b of t.builds) {
+          if (!hit(b.bbox)) continue;
+          ctx.beginPath();
+          ctx.moveTo(sx(b.pts[0].x), sy(b.pts[0].y));
+          for (let i = 1; i < b.pts.length; i++) ctx.lineTo(sx(b.pts[i].x), sy(b.pts[i].y));
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 4. labels — halo'd text. Only one copy per label: draw it in the tile that contains its anchor.
+    const text = (str, x, y, font, color, halo) => {
+      ctx.font = font;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = halo; ctx.lineWidth = 3;
+      ctx.strokeText(str, x, y);
+      ctx.fillStyle = color;
+      ctx.fillText(str, x, y);
+    };
+
+    // 4a. district names — broad overview (drawn even where tiles aren't loaded)
+    if (showDistricts) {
+      const fs = z <= 14 ? 13 : 15;
+      for (const d of districts()) {
+        if (!inTile(d.x, d.y)) continue;
+        text(d.name, sx(d.x), sy(d.y), `700 ${fs}px system-ui, sans-serif`, S.label, S.labelHalo);
+      }
+    }
+
+    // 4b. street names — super zoomed-in detail (major roads, one label at the road's midpoint)
+    if (showStreets) {
+      const seen = new Set();
+      for (const t of store.values()) {
+        for (const r of t.roads) {
+          if (r.tier !== 'major' || !r.name || seen.has(r.name)) continue;
+          const mid = r.pts[r.pts.length >> 1];
+          if (!inTile(mid.x, mid.y)) continue;
+          seen.add(r.name);
+          text(r.name, sx(mid.x), sy(mid.y), `600 11px system-ui, sans-serif`, S.street, S.streetHalo);
+        }
       }
     }
   }

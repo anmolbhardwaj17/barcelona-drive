@@ -311,29 +311,42 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   // features line up with Leaflet's own tile placement (both Web Mercator). Falls back to a blank ground
   // fill if no customMap was provided.
   let customLayer = null;
+  const _wbOf = (coords) => {
+    const bb = tileToBBox(coords.x, coords.y, coords.z);
+    const sw = latLonToWorld(bb.south, bb.west);
+    const ne = latLonToWorld(bb.north, bb.east);
+    return [Math.min(sw.x, ne.x), Math.min(sw.z, ne.z), Math.max(sw.x, ne.x), Math.max(sw.z, ne.z)];
+  };
   if (customMap) {
     const CustomTiles = L.GridLayer.extend({
       createTile(coords) {
         const c = document.createElement('canvas');
         const size = this.getTileSize();
         c.width = size.x; c.height = size.y;
-        const bb = tileToBBox(coords.x, coords.y, coords.z);
-        const sw = latLonToWorld(bb.south, bb.west);
-        const ne = latLonToWorld(bb.north, bb.east);
-        const wb = [Math.min(sw.x, ne.x), Math.min(sw.z, ne.z), Math.max(sw.x, ne.x), Math.max(sw.z, ne.z)];
-        try { customMap.drawTile(c.getContext('2d'), size.x, wb); } catch (e) { /* keep a blank tile */ }
+        try { customMap.drawTile(c.getContext('2d'), size.x, _wbOf(coords), coords.z); } catch (e) { /* blank */ }
         return c;
       },
     });
-    customLayer = new CustomTiles({ tileSize: 256, updateWhenZooming: false, keepBuffer: 4 });
+    // fade:false → tiles don't animate in (no flash); keepBuffer keeps neighbours ready while driving.
+    customLayer = new CustomTiles({ tileSize: 256, updateWhenZooming: false, keepBuffer: 4, fade: false });
     customLayer.addTo(map);
-    // Redraw visible tiles (throttled) when the loaded set of baked tiles changes.
+    // Repaint IN PLACE (no tile recreate → no blink) when new baked data arrives. redraw() would destroy
+    // and re-fade every tile, which flickered while driving.
     let _redrawTimer = null;
+    const refreshInPlace = () => {
+      const tiles = customLayer._tiles || {};
+      for (const k in tiles) {
+        const t = tiles[k]; const el = t && t.el; const co = t && t.coords;
+        if (!el || !co || !el.getContext) continue;
+        try { customMap.drawTile(el.getContext('2d'), el.width, _wbOf(co), co.z); } catch (e) { /* skip */ }
+      }
+    };
     const scheduleRedraw = () => {
       if (_redrawTimer) return;
-      _redrawTimer = setTimeout(() => { _redrawTimer = null; customLayer.redraw(); }, 250);
+      _redrawTimer = setTimeout(() => { _redrawTimer = null; refreshInPlace(); }, 300);
     };
     customMap.setOnChange(scheduleRedraw);
+    customLayer._ddRefresh = refreshInPlace;   // used on night-toggle / expand
   }
 
   const { lat, lon } = worldToLatLon(spawnCenter.x, spawnCenter.z);
@@ -401,6 +414,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       map.scrollWheelZoom.enable();
       map.doubleClickZoom.enable();
       map.invalidateSize();
+      if (customLayer) customLayer._ddRefresh?.();   // repaint existing tiles into the resized viewport
       // Place a Leaflet marker at the player's current position with heading arrow
       if (lastCarLatLon) {
         const deg = currentRotationDeg;
@@ -562,7 +576,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   function setNightMode(isNight) {
     _isNight = isNight;
     _markerNight = isNight;
-    if (customMap) { customMap.setNight(isNight); if (customLayer) customLayer.redraw(); }
+    if (customMap) { customMap.setNight(isNight); if (customLayer) customLayer._ddRefresh?.(); }
     borderRing.style.background = _isNight ? '#2a2a2a' : '#ffffff';
     updateMarker();
   }
