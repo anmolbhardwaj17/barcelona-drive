@@ -71,17 +71,19 @@ const ROAD_CLASS = {
 const STYLE = {
   // GTA-V-style day map: light beige land, green parks, blue water, subtle grey blocks; roads read as
   // pale surfaces DEFINED by a medium-grey casing (the casing is the "darker" edge, not a dark fill).
+  // Custom "game map" look (not generic Apple/Google): warm parchment land, olive-sage parks, muted teal
+  // water, and GOLD major arteries so the main roads (Diagonal, Meridiana, Gran Via) read at a glance.
   day: {
-    ground:    '#e5ddc9',
-    park:      '#a8c488',
-    water:     '#7fb4dc',   // lighter Mediterranean blue
-    building:  '#d6cfbc',
-    buildingEdge: '#c3baa2',
-    casing:    '#9a927b',
-    road: { major: '#ffffff', mid: '#fbf7ee', minor: '#f3eee1', path: '#e6d9bf' },
-    label:     '#2f3742', labelHalo: 'rgba(244,240,231,0.95)',   // crisp dark slate on a bright cream halo
-    street:    '#4a5260', streetHalo: 'rgba(255,255,255,0.9)',
-    seaLabel:  '#2a5f86', seaHalo: 'rgba(190,222,244,0.85)',
+    ground:    '#e8d9b6',   // warm parchment sand
+    park:      '#a7c07c',   // soft olive-sage
+    water:     '#8ec6d3',   // muted teal (distinct from map-app blue)
+    building:  '#dccaa2',   // warm tan blocks
+    buildingEdge: '#c9b585',
+    casing:    '#b1904f',   // warm sandy-brown road casing (defines the roads)
+    road: { major: '#f6cf72', mid: '#fbf1d6', minor: '#fdf7e8', path: '#e7d5ad' },  // gold arteries
+    label:     '#453820', labelHalo: 'rgba(240,229,202,0.92)',
+    street:    '#5a4a2e', streetHalo: 'rgba(250,244,228,0.88)',
+    seaLabel:  '#356c82', seaHalo: 'rgba(205,230,238,0.82)',
   },
   night: {
     ground:    '#141b2f',

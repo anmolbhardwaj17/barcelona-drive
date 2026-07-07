@@ -401,11 +401,15 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '10px';
+      wrapper.style.borderRadius = '0';
       wrapper.style.cursor = 'default';
-      // Clean panel edge — no feather (the fade read as a fake blur). Crisp rounded rectangle + shadow.
-      wrapper.style.webkitMaskImage = 'none'; wrapper.style.maskImage = 'none';
-      wrapper.style.boxShadow = '0 18px 60px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.9)';
+      wrapper.style.boxShadow = 'none';
+      // Soft, NATURAL edge feather — a gradual multi-stop falloff so the map melts into the scene, rather
+      // than a hard cut or the earlier heavy/fake fade.
+      const _fade = (dir) => `linear-gradient(to ${dir}, transparent 0%, rgba(0,0,0,0.5) 4%, #000 9%, #000 91%, rgba(0,0,0,0.5) 96%, transparent 100%)`;
+      const _h = _fade('right'), _v = _fade('bottom');
+      wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
+      wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
