@@ -392,7 +392,7 @@ const REACHABLE_DIST_SQ = 20 * 20; // m² — a building whose footprint is enti
                                    // ANY road can't be touched by the car (which stays on roads), so its
                                    // collider is pure waste. Skipping it cuts cannon-es Box garbage (the #1
                                    // GC source) at BOTH creation and per-frame collision. 20m = safe margin.
-function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertExag, roads) {
+async function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertExag, roads, yieldFn) {
   const bodies = [];
   if (!buildings || buildings.length === 0) return bodies;
   // Flat road-point list (world frame) for the reachability cull. Conservative: ALL roads (even footways)
@@ -491,6 +491,10 @@ function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, vertEx
       body.collisionFilterMask  = COLLISION_GROUP_VEHICLE;
       bodies.push(body);
     }
+    // Yield between batches so a dense tile's collider creation spreads over a few frames instead of one
+    // big synchronous burst (the "stutter when driving into a dense area"). The tile loads ahead of the
+    // car, so the colliders still exist well before it arrives — no drive-through risk.
+    if (yieldFn) await yieldFn();
   }
   return bodies;
 }
@@ -2253,7 +2257,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (aborted()) return entry;
       // Building colliders — solid shapes so the car can't drive through buildings.
       entry.buildingBodies = (CONFIG.ENABLE_BUILDINGS && filteredTileData.buildings?.length)
-        ? buildBuildingColliders(filteredTileData.buildings, physicsOrigin, getElevationAt, vertExag, filteredTileData.roads) : [];
+        ? await buildBuildingColliders(filteredTileData.buildings, physicsOrigin, getElevationAt, vertExag, filteredTileData.roads, yieldToMain) : [];
       await yieldToMain();
       if (aborted()) return entry;
       for (let i = 0; i < entry.buildingBodies.length; i++) {
