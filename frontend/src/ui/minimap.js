@@ -175,6 +175,13 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   mapInner.appendChild(mapDiv);
   wrapper.appendChild(mapInner);
 
+  // Soft dark vignette over the map edges (expanded mode only). Keeps the map fully OPAQUE — a spotlit-map
+  // look — instead of fading it to transparent over the 3D scene (which ghosted / looked fake).
+  const vignetteEl = document.createElement('div');
+  vignetteEl.style.cssText = 'position:absolute; inset:0; pointer-events:none; z-index:6; display:none;' +
+    'border-radius:inherit; box-shadow: inset 0 0 140px 46px rgba(12,12,18,0.85);';
+  wrapper.appendChild(vignetteEl);
+
   // Kept as references for expand/collapse logic
   const innerShadow = { style: { display: '' } };
   const highlight = { style: { display: '' } };
@@ -401,15 +408,12 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.bottom = '0';
       wrapper.style.width = 'auto';
       wrapper.style.height = 'auto';
-      wrapper.style.borderRadius = '0';
+      wrapper.style.borderRadius = '14px';
       wrapper.style.cursor = 'default';
-      wrapper.style.boxShadow = 'none';
-      // Soft, NATURAL edge feather — a gradual multi-stop falloff so the map melts into the scene, rather
-      // than a hard cut or the earlier heavy/fake fade.
-      const _fade = (dir) => `linear-gradient(to ${dir}, transparent 0%, rgba(0,0,0,0.5) 4%, #000 9%, #000 91%, rgba(0,0,0,0.5) 96%, transparent 100%)`;
-      const _h = _fade('right'), _v = _fade('bottom');
-      wrapper.style.webkitMaskImage = `${_h}, ${_v}`; wrapper.style.maskImage = `${_h}, ${_v}`;
-      wrapper.style.webkitMaskComposite = 'source-in'; wrapper.style.maskComposite = 'intersect';
+      // Opaque map + soft dark vignette edge (no transparent fade → no scene ghosting). Natural spotlit look.
+      wrapper.style.webkitMaskImage = 'none'; wrapper.style.maskImage = 'none';
+      wrapper.style.boxShadow = '0 24px 80px rgba(0,0,0,0.6)';
+      vignetteEl.style.display = 'block';
       wrapper.classList.add('minimap-expanded');
       mapInner.style.width = '100%';
       mapInner.style.height = '100%';
@@ -482,6 +486,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       wrapper.style.height = `${MINIMAP_SIZE}px`;
       wrapper.style.borderRadius = '50%';
       wrapper.style.boxShadow = 'none';
+      vignetteEl.style.display = 'none';
       wrapper.style.cursor = 'pointer';
       wrapper.classList.remove('minimap-expanded');
       const innerSize = MINIMAP_SIZE * 1.5;

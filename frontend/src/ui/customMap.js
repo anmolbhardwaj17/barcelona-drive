@@ -71,19 +71,19 @@ const ROAD_CLASS = {
 const STYLE = {
   // GTA-V-style day map: light beige land, green parks, blue water, subtle grey blocks; roads read as
   // pale surfaces DEFINED by a medium-grey casing (the casing is the "darker" edge, not a dark fill).
-  // Custom "game map" look (not generic Apple/Google): warm parchment land, olive-sage parks, muted teal
-  // water, and GOLD major arteries so the main roads (Diagonal, Meridiana, Gran Via) read at a glance.
+  // Vibrant art-of-rally: warm saturated sand, vivid sage parks, teal sea, CORAL major arteries. Cohesive
+  // with the 3D world's painterly look — playful, not a real street map.
   day: {
-    ground:    '#e8d9b6',   // warm parchment sand
-    park:      '#a7c07c',   // soft olive-sage
-    water:     '#8ec6d3',   // muted teal (distinct from map-app blue)
-    building:  '#dccaa2',   // warm tan blocks
-    buildingEdge: '#c9b585',
-    casing:    '#b1904f',   // warm sandy-brown road casing (defines the roads)
-    road: { major: '#f6cf72', mid: '#fbf1d6', minor: '#fdf7e8', path: '#e7d5ad' },  // gold arteries
-    label:     '#453820', labelHalo: 'rgba(240,229,202,0.92)',
-    street:    '#5a4a2e', streetHalo: 'rgba(250,244,228,0.88)',
-    seaLabel:  '#356c82', seaHalo: 'rgba(205,230,238,0.82)',
+    ground:    '#e9d3a0',   // warm sand
+    park:      '#8fbf6a',   // vivid sage
+    water:     '#4bb3c4',   // vivid teal
+    building:  '#ddc088',   // saturated sand blocks
+    buildingEdge: '#c9a862',
+    casing:    '#c98a52',   // warm terracotta road outline
+    road: { major: '#ff8a5b', mid: '#fbeaca', minor: '#fdf3da', path: '#e6cf9a' },  // coral arteries
+    label:     '#4a2f1a', labelHalo: 'rgba(240,224,188,0.92)',   // espresso brown
+    street:    '#6a4526', streetHalo: 'rgba(250,240,214,0.88)',
+    seaLabel:  '#0f5d6b', seaHalo: 'rgba(190,232,238,0.8)',
   },
   night: {
     ground:    '#141b2f',
