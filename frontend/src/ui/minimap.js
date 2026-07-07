@@ -291,6 +291,24 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   wrapper.appendChild(gateMarkerEl);
 
   frame.appendChild(wrapper);
+
+  // Cardinal-direction overlay for the EXPANDED map (which is north-up, no rotation) — N top, E right, etc.
+  const dirOverlay = document.createElement('div');
+  dirOverlay.id = 'minimap-compass';
+  dirOverlay.style.cssText = 'position:absolute; inset:0; pointer-events:none; z-index:12; display:none;';
+  const _mkDir = (label, css, color = '#ffffff') => {
+    const d = document.createElement('div');
+    d.textContent = label;
+    d.style.cssText = 'position:absolute; font:800 20px system-ui,sans-serif; letter-spacing:2px;' +
+      `color:${color}; text-shadow:0 1px 5px rgba(0,0,0,0.75);` + css;
+    dirOverlay.appendChild(d);
+  };
+  _mkDir('N', 'top:16px; left:50%; transform:translateX(-50%);', '#ff5a5a');
+  _mkDir('E', 'right:20px; top:50%; transform:translateY(-50%);');
+  _mkDir('S', 'bottom:16px; left:50%; transform:translateX(-50%);');
+  _mkDir('W', 'left:20px; top:50%; transform:translateY(-50%);');
+  frame.appendChild(dirOverlay);
+
   document.body.appendChild(frame);
 
   map = L.map('minimap-map', {
@@ -306,6 +324,12 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     // data — zooming further just shows a tiny city island in blank beige). 19 = close street detail.
     minZoom: 13,
     maxZoom: 19,
+    // Smooth, continuous zoom (no integer-step snapping) but FAST — low wheelPx = less scrolling per level.
+    zoomSnap: 0,
+    zoomDelta: 0.6,
+    wheelPxPerZoomLevel: 45,
+    wheelDebounceTime: 10,
+    zoomAnimation: true,
   });
 
   // Custom vector tiles drawn from the baked v7 world data (roads/buildings/water/parks) — no OSM, no
@@ -409,6 +433,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       mapInner.style.left = '0';
       mapInner.style.top = '0';
       mapInner.style.filter = _isNight ? FILTER_NIGHT : FILTER_DAY;   // keep the game tint in the big map too
+      dirOverlay.style.display = 'block';
       innerShadow.style.display = 'none';
       highlight.style.display = 'none';
       markerEl.style.display = 'none';
@@ -482,6 +507,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       mapInner.style.top = '50%';
       mapInner.style.transform = `translate(-50%, -50%) rotate(${-currentRotationDeg}deg)`;
       mapInner.style.filter = (_isNight ? FILTER_NIGHT : FILTER_DAY);
+      dirOverlay.style.display = 'none';
       innerShadow.style.display = '';
       highlight.style.display = '';
       markerEl.style.display = '';
