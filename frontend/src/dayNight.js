@@ -22,7 +22,7 @@ const SUN_COLOR_SUNSET = 0xffaa66;
 const SUN_COLOR_NIGHT = 0x4444aa;
 
 const AMBIENT_DAY = 0.45;
-const AMBIENT_NIGHT = 0.24;  // 0.12 read as near-pitch-black on street level — lifted so the road is legible at night
+const AMBIENT_NIGHT = 0.36;  // lifted repeatedly (0.12→0.24→0.36) — street between buildings was still too dark to enjoy
 const AMBIENT_SUNSET = 0.4;
 
 const SUN_INTENSITY_DAY = 3;
@@ -120,11 +120,11 @@ export function createDayNight(scene, sceneCenter) {
     ambientLight.color.copy(ambColor);
 
     // Hemisphere fades at night, full during day
-    // Night keeps a small hemisphere floor (0.13) for sky/ground fill so it isn't pitch black.
+    // Night keeps a hemisphere floor (0.22) for sky/ground fill so shaded streets between buildings read.
     const hemiIntensity = t >= 7 && t <= 17 ? 0.45
-      : (t >= 5 && t < 7)  ? THREE.MathUtils.lerp(0.13, 0.45, (t - 5) / 2)
-      : (t > 17 && t <= 19) ? THREE.MathUtils.lerp(0.45, 0.13, (t - 17) / 2)
-      : 0.13;
+      : (t >= 5 && t < 7)  ? THREE.MathUtils.lerp(0.22, 0.45, (t - 5) / 2)
+      : (t > 17 && t <= 19) ? THREE.MathUtils.lerp(0.45, 0.22, (t - 17) / 2)
+      : 0.22;
     hemiLight.intensity = hemiIntensity;
 
     scene.background.copy(getSkyColor(t));
