@@ -513,11 +513,17 @@ export async function createCarModel(scene) {
     { hex: '#f0c020', name: 'Yellow' },
     { hex: '#f06020', name: 'Orange' },
   ];
+  const _savedColor = (() => { try { return (localStorage.getItem('dd_carColor') || '').toLowerCase(); } catch { return ''; } })();
   for (const preset of CAR_PRESETS) {
     const btn = document.createElement('div');
     btn.title = preset.name;
     btn.style.cssText = `width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,0.4);background:${preset.hex};`;
-    btn.addEventListener('click', () => setCarColor(preset.hex));
+    if (preset.hex.toLowerCase() === _savedColor) btn.classList.add('sel'); // prefill: mark the saved colour selected
+    btn.addEventListener('click', () => {
+      setCarColor(preset.hex);
+      for (const s of colorPanel.querySelectorAll('div')) s.classList.remove('sel');
+      btn.classList.add('sel');
+    });
     colorPanel.appendChild(btn);
   }
 
