@@ -17,7 +17,6 @@ const LOGO_URL = '/logo-barcelona-drive.png';
 
 import { uiSound } from './uiSound.js';
 import { audio } from '../audio/audioManager.js';
-import { setCollisionDebugActive, isCollisionDebugActive } from '../collisionDebug.js';
 import { setInputBlocked } from '../inputGate.js';
 import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
@@ -234,8 +233,6 @@ export function createEscMenu(refs = {}) {
       } catch { location.reload(); }
     }, 120);
   }));
-  // Collision wireframes — debug overlay of every collider near the car (also toggles with the K key).
-  dispRow.appendChild(check('Collision wireframes', isCollisionDebugActive(), (v) => setCollisionDebugActive(v), isCollisionDebugActive, syncers));
 
   // ── Sound ──
   page.appendChild(sec('Sound'));

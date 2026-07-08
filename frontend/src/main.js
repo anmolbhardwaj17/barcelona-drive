@@ -447,8 +447,12 @@ spawnTileReady.finally(() => {
       carMode: ENABLE_CAR,   // resolved mode (URL ?mode outranks dd_flyMode) — for an honest Fly-mode toggle
       gameModes: carDriver ? [dashMode, taxiMode, deliveryMode, policeMode] : [],   // in-game mode switcher (empty in fly mode)
     });
-    initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
-    initCollisionDebug(); // reads ?debug=collision; no-op when absent
+    // Debug overlays are DEV-ONLY: never wire the ?debug= query params or the K-key toggle in a production
+    // build (no debug entry points / info exposure in the shipped game).
+    if (import.meta.env.DEV) {
+      initTunnelDebug();    // reads ?debug=tunnel
+      initCollisionDebug(); // reads ?debug=collision + registers the K-key toggle
+    }
     // (animate() already started earlier, before this async block — see the render-loop note above.)
     // Hold the loading screen until the spawn-area tiles are actually built (not just the first frame),
     // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.

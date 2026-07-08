@@ -1,209 +1,87 @@
 /**
- * Top-right performance debug panel: FPS, draw calls, triangles, geometries, active tiles, active lights.
- * Updates every 1 second only. No per-frame DOM or traverse.
+ * "Stats for nerds" — a compact, clean performance overlay (top-right). Shows only what's actually useful at
+ * a glance: framerate + stutter, GPU headroom, CPU frame cost, draw calls, triangles, memory. Updates once a
+ * second; no per-frame DOM and no scene traversal (the old 27-row version walked 2500+ meshes every 4s).
  */
-import { CONFIG } from '../config.js';
-
 const PANEL_UPDATE_INTERVAL_MS = 1000;
 
-/**
- * Traverse scene once and count children, meshes, lights, instanced meshes, and shadow-casting lights.
- * @param {THREE.Object3D} obj
- * @param {{ meshes: number, lights: number, instanced: number, lightsShadow: number }} counts
- */
-function traverseCounts(obj, counts) {
-  if (obj.isMesh) {
-    counts.meshes += 1;
-    if (obj.isInstancedMesh) counts.instanced += 1;
-  }
-  if (obj.isLight) {
-    counts.lights += 1;
-    if (obj.castShadow) counts.lightsShadow += 1;
-  }
-  for (let i = 0; i < obj.children.length; i++) {
-    traverseCounts(obj.children[i], counts);
-  }
+function fmt(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'K';
+  return String(n);
 }
 
 /**
- * Create performance panel and mount to body. If enabled is false, returns no-op tick and does not mount.
- * @param {THREE.Scene} scene
+ * @param {THREE.Scene} scene              (unused — kept for signature compatibility)
  * @param {THREE.WebGLRenderer} renderer
- * @param {{ getDebugMetrics: () => { activeTiles: number, buildingsCount: number, treesCount: number } }} tileManager
+ * @param {object} tileManager             (unused)
  * @param {boolean} [enabled=true]
- * @returns {{ element: HTMLElement|null, tick: (time: number, frameDt: number) => void }}
+ * @returns {{ element: HTMLElement|null, tick: (time:number, frameDt:number, ctx:object)=>void }}
  */
 export function createPerformancePanel(scene, renderer, tileManager, enabled = true) {
-  if (!enabled) {
-    return { element: null, tick() {} };
-  }
+  if (!enabled) return { element: null, tick() {} };
 
   const el = document.createElement('div');
   el.id = 'performance-panel';
   el.innerHTML = `
+    <div class="perf-hd">STATS</div>
     <div class="perf-row"><span class="perf-k">FPS</span><span class="perf-v" id="perf-fps">—</span></div>
-    <div class="perf-row"><span class="perf-k">Capable</span><span class="perf-v" id="perf-capable">—</span></div>
-    <div class="perf-row"><span class="perf-k">CPU avg</span><span class="perf-v" id="perf-cpu">—</span></div>
-    <div class="perf-row"><span class="perf-k">CPU worst</span><span class="perf-v" id="perf-cpu-worst">—</span></div>
-    <div class="perf-row"><span class="perf-k">Alloc MB/f</span><span class="perf-v" id="perf-alloc">—</span></div>
+    <div class="perf-row"><span class="perf-k">GPU</span><span class="perf-v" id="perf-gpu">—</span></div>
+    <div class="perf-row"><span class="perf-k">CPU</span><span class="perf-v" id="perf-cpu">—</span></div>
     <div class="perf-row"><span class="perf-k">Draw calls</span><span class="perf-v" id="perf-calls">—</span></div>
-    <div class="perf-row"><span class="perf-k">Triangles</span><span class="perf-v" id="perf-triangles">—</span></div>
-    <div class="perf-row"><span class="perf-k">Geometries</span><span class="perf-v" id="perf-geometries">—</span></div>
-    <div class="perf-row"><span class="perf-k">Textures</span><span class="perf-v" id="perf-textures">—</span></div>
-    <div class="perf-row"><span class="perf-k">Scene children</span><span class="perf-v" id="perf-children">—</span></div>
-    <div class="perf-row"><span class="perf-k">Meshes</span><span class="perf-v" id="perf-meshes">—</span></div>
-    <div class="perf-row"><span class="perf-k">Lights</span><span class="perf-v" id="perf-lights">—</span></div>
-    <div class="perf-row"><span class="perf-k">Instanced</span><span class="perf-v" id="perf-instanced">—</span></div>
-    <div class="perf-row"><span class="perf-k">Tiles</span><span class="perf-v" id="perf-tiles">—</span></div>
-    <div class="perf-row"><span class="perf-k">Roads (total)</span><span class="perf-v" id="perf-roads-total">—</span></div>
-    <div class="perf-row"><span class="perf-k">Road meshes</span><span class="perf-v" id="perf-road-meshes">—</span></div>
-    <div class="perf-row"><span class="perf-k">Buildings</span><span class="perf-v" id="perf-buildings">—</span></div>
-    <div class="perf-row"><span class="perf-k">Building objs</span><span class="perf-v" id="perf-building-objs">—</span></div>
-    <div class="perf-row"><span class="perf-k">Trees</span><span class="perf-v" id="perf-trees">—</span></div>
-    <div class="perf-row"><span class="perf-k">Vegetation meshes</span><span class="perf-v" id="perf-veg-meshes">—</span></div>
-    <div class="perf-row"><span class="perf-k">Road infra</span><span class="perf-v" id="perf-road-infra">—</span></div>
-    <div class="perf-row"><span class="perf-k">Streetlights</span><span class="perf-v" id="perf-streetlights">—</span></div>
-    <div class="perf-row"><span class="perf-k">Physics bodies</span><span class="perf-v" id="perf-physics">—</span></div>
-    <div class="perf-row"><span class="perf-k">Heap (MB)</span><span class="perf-v" id="perf-heap">—</span></div>
-    <div class="perf-row"><span class="perf-k">Render scale</span><span class="perf-v" id="perf-render-scale">—</span></div>
-    <div class="perf-row"><span class="perf-k">Camera Y</span><span class="perf-v" id="perf-camera-y">—</span></div>
+    <div class="perf-row"><span class="perf-k">Triangles</span><span class="perf-v" id="perf-tris">—</span></div>
+    <div class="perf-row"><span class="perf-k">Memory</span><span class="perf-v" id="perf-mem">—</span></div>
   `;
   el.style.cssText = `
-    position: fixed;
-    top: 260px;
-    right: 24px;
-    padding: 10px 14px;
-    background: rgba(0,0,0,0.65);
-    color: #eee;
-    font-family: monospace;
-    font-size: 11px;
-    border-radius: 8px;
-    z-index: 10;
-    pointer-events: none;
-    line-height: 1.4;
-    min-width: 160px;
+    position: fixed; top: 260px; right: 24px; z-index: 10; pointer-events: none;
+    padding: 9px 12px 10px; min-width: 168px;
+    background: rgba(10,14,22,0.72); backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #e8ecf2;
   `;
-  el.querySelectorAll('.perf-row').forEach((row) => {
-    row.style.display = 'flex';
-    row.style.justifyContent = 'space-between';
-    row.style.gap = '12px';
-  });
-  el.querySelectorAll('.perf-k').forEach((k) => {
-    k.style.color = 'rgba(255,255,255,0.7)';
-  });
+  el.querySelector('.perf-hd').style.cssText = 'font:700 10px/1 system-ui,sans-serif;letter-spacing:2px;color:#ffd23f;margin-bottom:8px;';
+  el.querySelectorAll('.perf-row').forEach((r) => { r.style.cssText = 'display:flex;justify-content:space-between;gap:16px;padding:2px 0;'; });
+  el.querySelectorAll('.perf-k').forEach((k) => { k.style.color = 'rgba(255,255,255,0.55)'; });
+  el.querySelectorAll('.perf-v').forEach((v) => { v.style.cssText = 'font-variant-numeric:tabular-nums;font-weight:600;'; });
   document.body.appendChild(el);
 
   const vFps = el.querySelector('#perf-fps');
-  const vCapable = el.querySelector('#perf-capable');
+  const vGpu = el.querySelector('#perf-gpu');
   const vCpu = el.querySelector('#perf-cpu');
-  const vCpuWorst = el.querySelector('#perf-cpu-worst');
-  const vAlloc = el.querySelector('#perf-alloc');
   const vCalls = el.querySelector('#perf-calls');
-  const vTriangles = el.querySelector('#perf-triangles');
-  const vGeometries = el.querySelector('#perf-geometries');
-  const vTextures = el.querySelector('#perf-textures');
-  const vChildren = el.querySelector('#perf-children');
-  const vMeshes = el.querySelector('#perf-meshes');
-  const vLights = el.querySelector('#perf-lights');
-  const vInstanced = el.querySelector('#perf-instanced');
-  const vTiles = el.querySelector('#perf-tiles');
-  const vRoadsTotal = el.querySelector('#perf-roads-total');
-  const vRoadMeshes = el.querySelector('#perf-road-meshes');
-  const vBuildings = el.querySelector('#perf-buildings');
-  const vBuildingObjs = el.querySelector('#perf-building-objs');
-  const vTrees = el.querySelector('#perf-trees');
-  const vVegMeshes = el.querySelector('#perf-veg-meshes');
-  const vRoadInfra = el.querySelector('#perf-road-infra');
-  const vStreetlights = el.querySelector('#perf-streetlights');
-  const vPhysics = el.querySelector('#perf-physics');
-  const vHeap = el.querySelector('#perf-heap');
-  const vRenderScale = el.querySelector('#perf-render-scale');
-  const vCameraY = el.querySelector('#perf-camera-y');
+  const vTris = el.querySelector('#perf-tris');
+  const vMem = el.querySelector('#perf-mem');
 
-  let frameCount = 0;
-  let lastPanelUpdate = 0;
-  let _heavyCount = 0;   // the scene-traverse + tile metrics are expensive — run them every ~4s, not every 1s
-  let _worstMs = 0;      // longest frame in the current second (min-FPS / stutter tracker)
-  const sceneCounts = { meshes: 0, lights: 0, instanced: 0, lightsShadow: 0 };
+  let frameCount = 0, lastUpdate = 0, worstMs = 0;
 
   function tick(time, frameDt, context) {
     frameCount += 1;
     const ms = (frameDt || 0) * 1000;
-    if (ms > _worstMs) _worstMs = ms;   // worst (longest) frame this second → min FPS = the stutter metric
-    const now = time;
+    if (ms > worstMs) worstMs = ms;
 
-    if (now - lastPanelUpdate >= PANEL_UPDATE_INTERVAL_MS) {
-      lastPanelUpdate = now;
-      const fpsValue = frameCount;
-      const minFps = _worstMs > 0 ? Math.round(1000 / _worstMs) : fpsValue;
-      vFps.textContent = `${fpsValue}  (min ${minFps}, worst ${_worstMs.toFixed(0)}ms)`;
-      _worstMs = 0;
+    if (time - lastUpdate < PANEL_UPDATE_INTERVAL_MS) return;
+    lastUpdate = time;
 
-      // CPU section breakdown — avg ms/frame + the single WORST frame's breakdown (diagnoses stutter).
-      if (context?.cpuTimer && vCpu) {
-        const cpu = context.cpuTimer.report();
-        vCpu.textContent = cpu.avg;
-        if (vCpuWorst) vCpuWorst.textContent = cpu.worst;
-        if (vAlloc) vAlloc.textContent = cpu.heap; // MB/frame allocated per section — finds the garbage source
-      }
-      frameCount = 0;
+    const fps = frameCount;
+    const minFps = worstMs > 0 ? Math.round(1000 / worstMs) : fps;
+    vFps.textContent = minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`;
+    // colour cue: green ≥55, amber ≥40, red below
+    vFps.style.color = fps >= 55 ? '#7dff9a' : fps >= 40 ? '#ffd23f' : '#ff6b6b';
+    frameCount = 0; worstMs = 0;
 
-      const info = renderer.info;
-      vCalls.textContent = String(info.render.calls);
-      vTriangles.textContent = String(info.render.triangles);
-      vGeometries.textContent = String(info.memory.geometries);
-      vTextures.textContent = String(info.memory.textures);
+    const gpuMs = context?.gpuMs;
+    vGpu.textContent = (typeof gpuMs === 'number' && gpuMs > 0) ? `~${Math.round(1000 / gpuMs)} fps · ${gpuMs.toFixed(1)}ms` : 'n/a';
 
-      // Heavy: walking 2500+ meshes + iterating every tile's roads/buildings — throttle to ~4s so it
-      // doesn't cause a rhythmic ~1Hz hitch. FPS/calls/triangles above stay at 1s.
-      if (++_heavyCount >= 4) {
-        _heavyCount = 0;
-        sceneCounts.meshes = 0;
-        sceneCounts.lights = 0;
-        sceneCounts.instanced = 0;
-        sceneCounts.lightsShadow = 0;
-        traverseCounts(scene, sceneCounts);
-        vChildren.textContent = String(scene.children.length);
-        vMeshes.textContent = String(sceneCounts.meshes);
-        vLights.textContent = `${sceneCounts.lights} / ${sceneCounts.lightsShadow}`;
-        vInstanced.textContent = String(sceneCounts.instanced);
+    if (context?.cpuTimer) { const c = context.cpuTimer.report(); vCpu.textContent = c.avg; }
 
-        const cameraY = context?.cameraY;
-        const metrics = tileManager.getDebugMetrics(cameraY != null ? { cameraY } : undefined);
-        vTiles.textContent = String(metrics.activeTiles);
-        vRoadsTotal.textContent = String(metrics.totalRoads ?? 0);
-        vRoadMeshes.textContent = String(metrics.totalRoadMeshes ?? 0);
-        vBuildings.textContent = String(metrics.buildingsCount ?? 0);
-        vBuildingObjs.textContent = String(metrics.totalBuildingObjects ?? 0);
-        vTrees.textContent = String(metrics.treesCount ?? 0);
-        vVegMeshes.textContent = String(metrics.vegetationMeshCount ?? 0);
-        vRoadInfra.textContent = String(metrics.roadInfraCount ?? 0);
-        vStreetlights.textContent = String(metrics.streetlightCount ?? 0);
-        vPhysics.textContent = String(metrics.physicsBodyCount ?? 0);
-        vCameraY.textContent = metrics.cameraY != null ? metrics.cameraY.toFixed(1) : '—';
-      }
+    const info = renderer.info;
+    vCalls.textContent = fmt(info.render.calls);
+    vTris.textContent = fmt(info.render.triangles);
 
-      const rs = context?.renderScale;
-      if (typeof rs === 'number') vRenderScale.textContent = rs.toFixed(2) + '×';
-
-      // "Capable" = uncapped FPS the GPU could sustain (1000 / true GPU frame time). On a 60 Hz monitor the
-      // FPS row is pinned at 60 by vsync; this shows the real headroom (e.g. "60 → 140 capable" = lots of room).
-      const gpuMs = context?.gpuMs;
-      if (typeof gpuMs === 'number' && gpuMs > 0) {
-        vCapable.textContent = `~${Math.round(1000 / gpuMs)} fps (${gpuMs.toFixed(1)}ms GPU)`;
-      } else if (vCapable.textContent === '—') {
-        vCapable.textContent = 'n/a'; // extension unsupported or not yet resolved
-      }
-
-      if (typeof performance !== 'undefined' && performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
-        vHeap.textContent = (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + ' MB';
-      } else {
-        vHeap.textContent = 'N/A';
-      }
-
-      const warnTri = CONFIG.PERF_WARN_TRIANGLES;
-      const warnFps = CONFIG.PERF_WARN_FPS;
-    }
+    vMem.textContent = (performance?.memory?.usedJSHeapSize)
+      ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)} MB`
+      : 'n/a';
   }
 
   return { element: el, tick };

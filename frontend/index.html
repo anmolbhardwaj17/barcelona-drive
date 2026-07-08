@@ -3,12 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Silence status/debug chatter (console.log/info/debug). Runs before the module bundle loads so it
-      // also catches import-time logs (e.g. WorkerPool init). console.warn/error stay so real problems show.
-      // Add ?verbose to the URL to restore all logs when debugging.
-      if (!location.search.includes('verbose')) {
-        console.log = console.info = console.debug = function () {};
-      }
+      // Silence status/debug chatter (console.log/info/debug) — unconditionally, before the module bundle
+      // loads (also catches import-time logs). No URL escape hatch: logs must never be re-enableable in a
+      // deployed build. console.warn/error stay so genuine problems still surface.
+      console.log = console.info = console.debug = function () {};
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
