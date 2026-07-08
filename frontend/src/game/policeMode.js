@@ -20,7 +20,9 @@ const BUST_DIST = 8;         // this close ⇒ busting
 const BUST_HOLD = 2.6;       // s within BUST_DIST ⇒ busted
 const ESCAPE_DIST = 135;     // every cop beyond this ⇒ escaping
 const ESCAPE_HOLD = 7;       // s all cops beyond ESCAPE_DIST ⇒ escaped
-const STANDOFF = 6.5;        // cops hold this gap around you (don't stack/ram into the car)
+const CATCH_GAP = 4.5;       // cops stop pushing once this close (tuck in behind — don't ram/stack)
+const SLOW_RANGE = 16;       // within this they ease off full speed down to a stop at CATCH_GAP
+const SEP_DIST = 7;          // min gap between two cops (separation so they don't merge)
 const SPAWN_BEHIND = 42, SPAWN_SPREAD = 14;
 
 export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, audio }) {
@@ -130,7 +132,6 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
       const cop = makeCop();
       cop.x = playerPx + back.x * SPAWN_BEHIND + side.x * off;
       cop.z = playerPz + back.z * SPAWN_BEHIND + side.z * off;
-      cop.fang = h + Math.PI + (i / N_COPS) * Math.PI * 2;   // evenly around the ring so they never merge
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
       cops.push(cop);
     }
@@ -175,17 +176,21 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
 
     let nearest = Infinity;
     for (const cop of cops) {
-      // Seek a slot on a ring AROUND the car (not the car itself) → they surround at STANDOFF instead of
-      // ramming/stacking. Slot drifts with a slow rotation so they weave rather than sit dead still.
-      cop.fang += dt * 0.35;
-      const tx = playerPx + Math.sin(cop.fang) * STANDOFF;
-      const tz = playerPz + Math.cos(cop.fang) * STANDOFF;
-      const dx = tx - cop.x, dz = tz - cop.z, dl = Math.hypot(dx, dz);
-      if (dl > 0.4) { const step = Math.min(COP_SPEED * dt, dl); cop.x += (dx / dl) * step; cop.z += (dz / dl) * step; }
+      // Chase the car directly; ease off as we close the gap so we tuck in behind at CATCH_GAP instead of
+      // ramming/orbiting. Separation from other cops keeps them from merging while they close in.
+      const dx = playerPx - cop.x, dz = playerPz - cop.z, dl = Math.hypot(dx, dz) || 1;
+      let sp = COP_SPEED;
+      if (dl < SLOW_RANGE) sp = COP_SPEED * Math.max(0, (dl - CATCH_GAP) / (SLOW_RANGE - CATCH_GAP));
+      let vx = (dx / dl) * sp, vz = (dz / dl) * sp;
+      for (const o of cops) {
+        if (o === cop) continue;
+        const ox = cop.x - o.x, oz = cop.z - o.z, od = Math.hypot(ox, oz);
+        if (od > 0.01 && od < SEP_DIST) { const push = (SEP_DIST - od) * 3.0; vx += (ox / od) * push; vz += (oz / od) * push; }
+      }
+      cop.x += vx * dt; cop.z += vz * dt;
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
-      cop.group.rotation.y = Math.atan2(playerPx - cop.x, playerPz - cop.z);   // face the car
-      const pd = Math.hypot(playerPx - cop.x, playerPz - cop.z);
-      if (pd < nearest) nearest = pd;
+      cop.group.rotation.y = Math.atan2(dx, dz);   // face the car it's chasing
+      if (dl < nearest) nearest = dl;
     }
     // Show cops on the minimap (red blips).
     getMinimap?.()?.setBlips?.(cops.map((cop) => { const w = worldFromScene(cop.x, cop.z); return { wx: w.wx, wz: w.wz, color: '#ff3b3b' }; }));
