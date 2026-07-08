@@ -60,10 +60,13 @@ const YAW_SPIN_DAMP     = 2600;   // N·m per (rad/s)² — quadratic anti-spin.
 // ── Arcade drift (Space) ── an AUTHORED slide: steer the velocity + yaw directly instead of via tyre friction,
 // so the drift is big, holdable and catchable (proper arcade feel, not finicky sim grip). See applyInputs().
 const DRIFT_MIN_KMH     = 14;     // below this a handbrake tap just slows; above it initiates a slide
-const DRIFT_YAW_RATE    = 2.7;    // rad/s at full steer — how fast steering rotates the car (tail-swing speed)
-const DRIFT_YAW_LERP    = 7;      // how quickly yaw follows the steering input (snappy tail-out / counter-steer)
-const DRIFT_GRIP        = 2.3;    // /s — how fast momentum chases the nose; LOWER = longer, deeper slides
-const DRIFT_SLIP_LIMIT  = 1.05;   // rad (~60°) — beyond this the slide self-corrects harder (natural anti-spin)
+const DRIFT_OVERSTEER   = 4.4;    // self-yaw per rad of slip — the rear "wants to come around". THIS makes it a
+                                  // drift not a slide; must exceed DRIFT_GRIP so an initiated slide self-sustains.
+const DRIFT_STEER_AUTH  = 3.2;    // rad/s — player steering authority in a drift (steer-in deepens, counter catches)
+const DRIFT_YAW_RATE    = 3.4;    // rad/s — hard clamp on drift yaw rate so a flick can't instantly spin
+const DRIFT_YAW_LERP    = 8;      // how quickly yaw follows the target (snappy tail-out / counter-steer response)
+const DRIFT_GRIP        = 2.1;    // /s — base rate momentum chases the nose; balances oversteer at the held angle
+const DRIFT_SLIP_LIMIT  = 0.95;   // rad (~54°) — the held drift angle band; grip ramps hard past it (anti-spin)
 const DRIFT_SCRUB       = 0.24;   // speed shed per rad-of-slip per second (drift feels weighty, not frictionless)
 const DRIFT_ACCEL       = 9;      // m/s² throttle adds to slide speed (brake subtracts) — player paces the drift
 const DRIFT_WHEEL_GRIP  = 1.1;    // tyre frictionSlip while drifting — low so wheels don't fight the authored slide
@@ -370,15 +373,24 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
       while (slip >  Math.PI) slip -= 2 * Math.PI;
       while (slip < -Math.PI) slip += 2 * Math.PI;
 
-      // 1) YAW — steering rotates the car directly (swings the tail out; also lets you counter-steer to hold).
-      const yawTarget = steer * DRIFT_YAW_RATE * Math.min(1, sp / 8);
+      // 1) YAW — this is what makes it a DRIFT, not a slide. The slide is UNSTABLE: once the rear is out, the
+      //    slip angle itself generates yaw that grows the slide (OVERSTEER — the rear keeps coming around). You
+      //    must actively COUNTER-STEER to hold it on the edge of a spin. Steering-in deepens it, counter-steer
+      //    catches it. A flick of steer initiates; oversteer then self-sustains the angle even hands-off.
+      const speedF = Math.min(1, sp / 8);
+      const oversteerYaw = slip * DRIFT_OVERSTEER;             // destabilizing: the drift wants to come around
+      const steerYaw     = steer * DRIFT_STEER_AUTH * speedF;  // player: steer-in deepens, counter-steer holds/exits
+      let yawTarget = oversteerYaw + steerYaw;
+      const maxYaw = DRIFT_YAW_RATE * speedF;                  // clamp so a hard flick can't instantly spin
+      if (yawTarget >  maxYaw) yawTarget =  maxYaw;
+      else if (yawTarget < -maxYaw) yawTarget = -maxYaw;
       const av2 = chassisBody.angularVelocity;
       av2.y += (yawTarget - av2.y) * Math.min(1, DRIFT_YAW_LERP * dt);
 
-      // 2) VELOCITY REDIRECT — momentum chases the nose. Grip recovery ramps up past the slip limit so a huge
-      //    angle self-corrects (natural anti-spin), while a moderate angle holds → you keep the slide open.
-      const over = Math.max(0, Math.abs(slip) / DRIFT_SLIP_LIMIT - 0.6);
-      const gripRate = DRIFT_GRIP * (1 + 2.2 * over);
+      // 2) VELOCITY REDIRECT — momentum chases the nose. Grip recovery RAMPS HARD past the slip limit: this is
+      //    the counter-force to oversteer, so the two balance at a big held angle instead of spinning out.
+      const over = Math.max(0, Math.abs(slip) / DRIFT_SLIP_LIMIT - 0.5);
+      const gripRate = DRIFT_GRIP * (1 + 4.0 * over);
       const newVelAng = velAng + slip * Math.min(1, gripRate * dt);
 
       // 3) SLIDE SPEED — scrub with slip angle; throttle adds, brake subtracts (player controls the pace).
