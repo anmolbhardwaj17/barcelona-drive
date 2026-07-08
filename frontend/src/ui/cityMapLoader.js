@@ -14,9 +14,25 @@ const REGION = import.meta.env.VITE_TILE_REGION || 'barcelona';
 
 let _started = false;
 
-export async function loadCityMap(customMap, { onProgress, yieldMs = 25 } = {}) {
+// Wait for the browser to be idle before doing the next tile — so the whole-city background load only runs
+// in spare time and never competes with a gameplay frame. Falls back to a short timeout on a busy thread.
+const idle = (timeout = 300) => new Promise((r) => {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => r(), { timeout });
+  else setTimeout(r, 40);
+});
+
+export async function loadCityMap(customMap, { onProgress } = {}) {
   if (_started || !customMap) return;
   _started = true;
+
+  // Respect data-saver / very slow connections — skip the ~426-tile pull; the map still fills where you drive.
+  try {
+    const conn = navigator.connection;
+    if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ''))) {
+      console.info('[cityMap] slow/data-saver connection — skipping full-city preload');
+      return;
+    }
+  } catch {}
 
   let tiles = [];
   try {
@@ -44,7 +60,7 @@ export async function loadCityMap(customMap, { onProgress, yieldMs = 25 } = {}) 
       }
     }
     onProgress?.(++done, tiles.length);
-    await new Promise((r) => setTimeout(r, yieldMs));   // let gameplay tile loads interleave
+    await idle();   // only continue when the main thread is idle → never steals a gameplay frame
   }
   console.log(`[cityMap] full city loaded (${done}/${tiles.length} tiles)`);
 }
