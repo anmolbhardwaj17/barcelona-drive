@@ -35,21 +35,23 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
   const bestKey = 'dd_policeBest';
   best = (() => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : 0; })();
 
-  // ── cop car resources ──
+  // ── cop car resources ── use the actual police.glb (its own livery — no tint).
   let _tpl = null;
-  const copMat = new THREE.MeshLambertMaterial({ color: 0x16233f });   // dark police blue
-  const barMat = new THREE.MeshBasicMaterial({ color: 0xff2233, fog: false });
-  loadCityCarTemplates().then((tpls) => { if (tpls && tpls.length) _tpl = tpls[(Math.random() * tpls.length) | 0]; }).catch(() => {});
+  const fallbackMat = new THREE.MeshLambertMaterial({ color: 0x2a3a6a });
+  const redLightMat = new THREE.MeshBasicMaterial({ color: 0xff2233, fog: false });
+  const blueLightMat = new THREE.MeshBasicMaterial({ color: 0x2a5cff, fog: false });
+  const barGeo = new THREE.BoxGeometry(0.24, 0.16, 0.3);
+  loadCityCarTemplates().then((tpls) => { _tpl = (tpls || []).find((t) => t.name === 'police') || (tpls || [])[0] || null; }).catch(() => {});
 
   function makeCop() {
     const g = new THREE.Group();
     const carH = _tpl ? _tpl.dims.h : 1.3;
-    const body = _tpl ? new THREE.Mesh(_tpl.geometry, copMat) : new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 4.3), copMat);
+    const body = _tpl ? new THREE.Mesh(_tpl.geometry, _tpl.material) : new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 4.3), fallbackMat);
     if (!_tpl) body.position.y = 0.6;
     body.castShadow = false; g.add(body);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.22, 0.32), barMat);
-    bar.position.set(0, carH + 0.12, 0);
-    g.add(bar);
+    // small flashing roof lights (red + blue) on top of the model's own bar
+    const rl = new THREE.Mesh(barGeo, redLightMat); rl.position.set(-0.24, carH + 0.08, 0); g.add(rl);
+    const bl = new THREE.Mesh(barGeo, blueLightMat); bl.position.set(0.24, carH + 0.08, 0); g.add(bl);
     g.frustumCulled = false;
     scene.add(g);
     return { group: g, x: 0, z: 0, yaw: 0 };
@@ -104,9 +106,10 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
   let _siren = null;
   function startSiren() {
     const c = audio?.ctx?.(); if (!c || _siren) return;
-    const osc = c.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 650;
+    const osc = c.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 650;   // soft, not a harsh saw
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7;
     const g = c.createGain(); g.gain.value = 0.0001;
-    osc.connect(g); g.connect(audio.sfxBus?.() || c.destination);
+    osc.connect(lp); lp.connect(g); g.connect(audio.sfxBus?.() || c.destination);
     try { osc.start(); } catch {}
     _siren = { osc, g };
   }
@@ -127,7 +130,7 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
       const cop = makeCop();
       cop.x = playerPx + back.x * SPAWN_BEHIND + side.x * off;
       cop.z = playerPz + back.z * SPAWN_BEHIND + side.z * off;
-      cop.fang = h + Math.PI + (i - (N_COPS - 1) / 2) * 0.9;   // stagger around the rear so they flank, not stack
+      cop.fang = h + Math.PI + (i / N_COPS) * Math.PI * 2;   // evenly around the ring so they never merge
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
       cops.push(cop);
     }
@@ -165,8 +168,10 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
     _t += dt; elapsed += dt;
     if (!cops.length) { if (_siren) { const c = audio.ctx(); _siren.g.gain.setTargetAtTime(0.015, c.currentTime, 0.2); } return; }
 
-    // flashing light bar (shared material → all cops blink together)
-    barMat.color.setHex(((_t * 5) | 0) % 2 ? 0xff2233 : 0x2a5cff);
+    // flashing roof lights (shared materials → all cops blink together)
+    const on = ((_t * 4) | 0) % 2;
+    redLightMat.color.setHex(on ? 0xff2233 : 0x3a0008);
+    blueLightMat.color.setHex(on ? 0x081038 : 0x2a5cff);
 
     let nearest = Infinity;
     for (const cop of cops) {
@@ -188,8 +193,8 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
     // siren — two-tone nee-naw, louder as the nearest cop closes in
     if (_siren) {
       const c = audio.ctx();
-      _siren.osc.frequency.setTargetAtTime(((_t * 1.4) | 0) % 2 ? 900 : 620, c.currentTime, 0.03);
-      _siren.g.gain.setTargetAtTime(0.035 + 0.07 * Math.max(0, 1 - nearest / 130), c.currentTime, 0.12);
+      _siren.osc.frequency.setTargetAtTime(((_t * 1.2) | 0) % 2 ? 820 : 600, c.currentTime, 0.06);   // gentle nee-naw
+      _siren.g.gain.setTargetAtTime(0.014 + 0.028 * Math.max(0, 1 - nearest / 130), c.currentTime, 0.15);  // quiet
     }
 
     // wanted rises while a cop is in heat range (faster the closer); slowly cools otherwise.
@@ -210,7 +215,7 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
   return {
     name: 'Heat', icon: '🚨', key: 'police',
     update, start, stop,
-    dispose() { stop(); hud.remove(); banner.remove(); copMat.dispose(); barMat.dispose(); },
+    dispose() { stop(); hud.remove(); banner.remove(); fallbackMat.dispose(); redLightMat.dispose(); blueLightMat.dispose(); barGeo.dispose(); },
     isRunning: () => state === 'chase',
   };
 }
