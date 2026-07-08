@@ -1,6 +1,8 @@
 /**
  * Barcelona driving simulator: scene, tile streaming, UI, day/night cycle.
  */
+import { initAnalytics } from './analytics.js';
+initAnalytics();   // Cloudflare Web Analytics — no-op unless VITE_CF_BEACON is set at build time.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
