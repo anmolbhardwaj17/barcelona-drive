@@ -105,12 +105,13 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     world.step(1 / 60, Math.min(dt, 0.035), 3);
 
     // 2. Read inputs → apply to vehicle. During a game-mode cinematic, ignore input and pin the car in
-    //    place (zero velocities) so it can't creep while the b-roll plays.
+    //    place (zero velocities) so it can't creep while the b-roll plays. (state stays function-scoped —
+    //    it's used by effects.update below.)
+    const state = controls.getState();
     if (cinematic) {
       physics.chassisBody.velocity.set(0, 0, 0);
       physics.chassisBody.angularVelocity.set(0, 0, 0);
     } else {
-      const state = controls.getState();
       physics.applyInputs(state, dt);
     }
 
