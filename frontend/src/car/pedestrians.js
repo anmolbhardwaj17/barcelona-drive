@@ -269,5 +269,18 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     variants = [];
   }
 
-  return { update, setEnabled, getCount, dispose };
+  // Nearby upright pedestrians (physics frame) within radius r — for the style system's near-miss check.
+  // Skips thrown/dead bodies (already hit → no "near miss"). Ped objects are identity-stable across frames.
+  function getNearby(px, pz, r) {
+    const out = [];
+    const r2 = r * r;
+    for (const p of peds) {
+      if (p.thrown || p.dead) continue;
+      const dx = p.x - px, dz = p.z - pz;
+      if (dx * dx + dz * dz <= r2) out.push(p);
+    }
+    return out;
+  }
+
+  return { update, setEnabled, getCount, getNearby, dispose };
 }
