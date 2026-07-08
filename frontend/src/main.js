@@ -506,7 +506,9 @@ function animate(time = 0) {
 
   if (carDriver) {
     // ── Car driving mode ──────────────────────────────────────────────────────
-    carDriver.update(frameDt);
+    // Skip the chase camera while the taxi mode is playing a pickup/drop-off cinematic (it drives the
+    // camera itself, in taxiMode.update below).
+    carDriver.update(frameDt, !!taxiMode?.isCinematic?.());
     cpuTimer.lap('phys');
 
     const lp = carDriver.getLocalPosition();
@@ -524,7 +526,7 @@ function animate(time = 0) {
     if (contactShadows) contactShadows.commit();
     cpuTimer.lap('ent');
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
-    if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt);
+    if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     // Flipped-over hint (press R)
     if (recoverHint) {
       const upDot = carDriver.getUpDot?.() ?? 1;

@@ -11,8 +11,11 @@
  */
 import * as THREE from 'three';
 import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
+import { loadPeopleWalkTemplates } from '../car/carModels.js';
 
 const HIT_RADIUS = 16;
+const STOP_SPEED = 6;                 // km/h — must be near-stopped at the marker to board/alight
+const BOARD_DUR = 2.9, ALIGHT_DUR = 2.9;   // cinematic length (s)
 const RING_R = 5.0;
 const PICKUP_MIN = 120, PICKUP_MAX = 340;   // metres from the car to the next pickup
 const TRIP_MIN = 180, TRIP_MAX = 520;       // pickup → dropoff distance range
@@ -49,6 +52,103 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     const gy = getGroundY ? (getGroundY(world.wx, world.wz) || 0) : 0;
     markerGroup.position.set(sceneX(world.wx), gy, sceneZ(world.wz));
     markerGroup.visible = true;
+  }
+
+  // ── Passenger character (walks to/from the car during the pickup / drop-off cinematics) ───────────────
+  //    One standalone walking mesh; geometry is swapped through the walk-cycle frames each update.
+  let _pax = null;   // { tpl, mesh, FRAMES, phase }
+  loadPeopleWalkTemplates().then((tpls) => {
+    if (!tpls || !tpls.length) return;
+    const tpl = tpls[(Math.random() * tpls.length) | 0];
+    const mesh = new THREE.Mesh(tpl.frames[0], tpl.material);
+    mesh.visible = false; mesh.frustumCulled = false; mesh.castShadow = false;
+    scene.add(mesh);
+    _pax = { tpl, mesh, FRAMES: tpl.frames.length, phase: 0 };
+  }).catch(() => {});
+
+  let cine = null;                 // active cinematic descriptor, or null
+  let _lastPx = 0, _lastPz = 0;    // last known car scene pos (for newPickup after alighting)
+  const _camTgt = new THREE.Vector3();
+
+  // Begin the pickup ('board') or drop-off ('alight') cinematic: car is stopped, a passenger walks
+  // curb↔door while the camera does a slow orbit b-roll.
+  function startCinematic(mode, carPx, carPz, headingDeg) {
+    const h = (headingDeg || 0) * Math.PI / 180;
+    const side = { x: Math.cos(h), z: -Math.sin(h) };   // perpendicular to car heading (a "door" side)
+    const fwd  = { x: Math.sin(h), z: Math.cos(h) };
+    const w = worldFromScene(carPx, carPz);
+    const carGY = getGroundY ? (getGroundY(w.wx, w.wz) || 0) : 0;
+    cine = {
+      mode, t: 0, dur: mode === 'board' ? BOARD_DUR : ALIGHT_DUR,
+      carX: carPx, carZ: carPz, carGY,
+      doorX: carPx + side.x * 2.0,               doorZ: carPz + side.z * 2.0,
+      curbX: carPx + side.x * 6.5 + fwd.x * 0.6, curbZ: carPz + side.z * 6.5 + fwd.z * 0.6,
+      baseAngle: h + Math.PI * 0.55,             // camera starts off to the side
+    };
+    state = mode === 'board' ? 'boarding' : 'alighting';
+    markerGroup.visible = false;
+    if (_pax) { _pax.mesh.visible = true; _pax.phase = 0; }
+    fxBanner(`<span style="font-size:24px;color:#8ef0b0">${mode === 'board' ? '🧍 Picking up…' : '🧍 Dropping off…'}</span>`, { duration: 1100, top: '28%' });
+  }
+
+  function updateCinematic(dt) {
+    const c = cine; c.t += dt;
+    // Passenger walk (curb→door for board, door→curb for alight), over the middle of the cinematic.
+    if (_pax) {
+      const a = c.mode === 'board' ? { x: c.curbX, z: c.curbZ } : { x: c.doorX, z: c.doorZ };
+      const b = c.mode === 'board' ? { x: c.doorX, z: c.doorZ } : { x: c.curbX, z: c.curbZ };
+      const wk = Math.min(1, Math.max(0, (c.t - 0.3) / (c.dur - 0.7)));
+      const hide = c.mode === 'board' ? wk >= 0.99 : c.t >= c.dur - 0.05;
+      _pax.mesh.visible = !hide;
+      if (!hide) {
+        _pax.mesh.position.set(a.x + (b.x - a.x) * wk, c.carGY, a.z + (b.z - a.z) * wk);
+        _pax.mesh.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+        _pax.phase = (_pax.phase + dt * 1.7) % 1;
+        _pax.mesh.geometry = _pax.tpl.frames[Math.min(_pax.FRAMES - 1, (_pax.phase * _pax.FRAMES) | 0)];
+      }
+    }
+    // Camera b-roll — slow orbit around the stopped car, framing car + passenger.
+    const ang = c.baseAngle + c.t * 0.28;
+    camera.position.set(c.carX + Math.sin(ang) * 8.5, c.carGY + 2.8, c.carZ + Math.cos(ang) * 8.5);
+    _camTgt.set(c.carX + (c.doorX - c.carX) * 0.4, c.carGY + 0.9, c.carZ + (c.doorZ - c.carZ) * 0.4);
+    camera.lookAt(_camTgt);
+
+    if (c.t >= c.dur) finishCinematic();
+  }
+
+  function finishCinematic() {
+    const mode = cine.mode; cine = null;
+    if (_pax) _pax.mesh.visible = false;
+    if (mode === 'board') {
+      // Passenger aboard → set the drop-off and START the fare timer (runs in state 'toDropoff').
+      const drop = pickRoad(target.wx, target.wz, TRIP_MIN, TRIP_MAX) || pickRoad(target.wx, target.wz, 80, 900);
+      if (drop) {
+        tripDist = Math.hypot(drop.wx - target.wx, drop.wz - target.wz);
+        fareBase = Math.round(3 + tripDist * 0.02);
+        expectT = Math.max(6, tripDist / 13); fareT = 0; tip = 0.6;
+        target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
+        getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(720);
+        fxBanner('<span style="font-size:34px;color:#8ef0b0">🧍 PASSENGER ABOARD</span>', { duration: 1400, top: '32%' });
+        fxConfetti(14, ['#2ee06a', '#8ef0b0', '#ffffff'], 0.4); fxFlash('rgba(46,224,106,.14)');
+      } else { state = 'toPickup'; }
+      renderHud();
+    } else {
+      // Delivered → pay out.
+      const payout = Math.round(fareBase * (1 + tip));
+      const gold = tip > 0.45;
+      total += payout; fares += 1;
+      fxBanner(`<div style="font-size:30px;color:#8ef0b0">${gold ? '⭐ FARE COMPLETE!' : '✅ DELIVERED!'}</div>` +
+               `<div style="font-size:50px;color:#ffd23f;margin-top:2px">+$${payout}</div>`, { duration: 1900, top: '32%' });
+      fxConfetti(gold ? 40 : 26, undefined, 0.4); fxFlash(gold ? 'rgba(255,210,63,.2)' : 'rgba(255,210,63,.13)');
+      ding(880); setTimeout(() => ding(1046), 110); if (gold) setTimeout(() => ding(1318), 220);
+      newPickup(_lastPx, _lastPz);
+    }
+  }
+
+  let _hintT = 0;
+  function hintSlow() {
+    if (_t - _hintT < 2.5) return; _hintT = _t;
+    flash(state === 'toPickup' ? 'Slow to a stop to pick up' : 'Slow to a stop to drop off');
   }
 
   // Start/Quit is driven by the shared game launcher (main.js).
@@ -179,6 +279,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   function stop() {
     if (fares > 0 || total > 0) { if (total > getBest()) { try { localStorage.setItem(bestKey, String(total)); } catch {} } state = 'ended'; setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 9000); }
     else state = 'idle';
+    cine = null; if (_pax) _pax.mesh.visible = false;   // abort any in-progress cinematic cleanly
     target = null; markerGroup.visible = false; getMinimap?.()?.setObjectiveMarker?.(null); renderHud();
   }
 
@@ -214,7 +315,12 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     } else tag.style.display = 'none';
   }
 
-  function update(carPx, carPz, dt) {
+  function update(carPx, carPz, dt, speedKmh, headingDeg) {
+    _lastPx = carPx; _lastPz = carPz;
+
+    // Cinematic in progress → drive it (camera + passenger) and skip the normal loop.
+    if (state === 'boarding' || state === 'alighting') { _t += dt; updateCinematic(dt); return; }
+
     if (state !== 'toPickup' && state !== 'toDropoff') return;
     if (_pending) { _pending = false; newPickup(carPx, carPz); if (state === 'idle') return; }
 
@@ -226,31 +332,9 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     if (target) {
       const gx = sceneX(target.wx), gz = sceneZ(target.wz);
       if (Math.hypot(carPx - gx, carPz - gz) < HIT_RADIUS) {
-        if (state === 'toPickup') {
-          // got the fare → set dropoff
-          const drop = pickRoad(target.wx, target.wz, TRIP_MIN, TRIP_MAX) || pickRoad(target.wx, target.wz, 80, 900);
-          if (drop) {
-            tripDist = Math.hypot(drop.wx - target.wx, drop.wz - target.wz);
-            fareBase = Math.round(3 + tripDist * 0.02);
-            expectT = Math.max(6, tripDist / 13); fareT = 0; tip = 0.6;
-            target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
-            getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(720);
-            fxBanner('<span style="font-size:34px;color:#8ef0b0">🧍 PASSENGER ABOARD</span>', { duration: 1400, top: '32%' });
-            fxConfetti(14, ['#2ee06a', '#8ef0b0', '#ffffff'], 0.4);
-            fxFlash('rgba(46,224,106,.14)');
-          }
-        } else {
-          // delivered → pay out (celebration)
-          const payout = Math.round(fareBase * (1 + tip));
-          const gold = tip > 0.45;   // fast delivery = big tip
-          total += payout; fares += 1;
-          fxBanner(`<div style="font-size:30px;color:#8ef0b0">${gold ? '⭐ FARE COMPLETE!' : '✅ DELIVERED!'}</div>` +
-                   `<div style="font-size:50px;color:#ffd23f;margin-top:2px">+$${payout}</div>`, { duration: 1900, top: '32%' });
-          fxConfetti(gold ? 40 : 26, undefined, 0.4);
-          fxFlash(gold ? 'rgba(255,210,63,.2)' : 'rgba(255,210,63,.13)');
-          ding(880); setTimeout(() => ding(1046), 110); if (gold) setTimeout(() => ding(1318), 220);
-          newPickup(carPx, carPz);
-        }
+        // Must be near-stopped to board / alight — otherwise nudge the player to slow down.
+        if ((speedKmh || 0) > STOP_SPEED) hintSlow();
+        else startCinematic(state === 'toPickup' ? 'board' : 'alight', carPx, carPz, headingDeg);
       }
     }
 
@@ -258,13 +342,15 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     updateLiveHud();
   }
 
+  function isCinematic() { return state === 'boarding' || state === 'alighting'; }
+
   function flash(msg) { showToast(msg); }
 
   renderHud();
   return {
     name: 'City Cab', icon: '🚕',
-    update, start, stop,
-    dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); toast.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
-    isRunning: () => state === 'toPickup' || state === 'toDropoff',
+    update, start, stop, isCinematic,
+    dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); toast.remove(); scene.remove(markerGroup); if (_pax) scene.remove(_pax.mesh); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    isRunning: () => state === 'toPickup' || state === 'toDropoff' || state === 'boarding' || state === 'alighting',
   };
 }

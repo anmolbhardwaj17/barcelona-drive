@@ -100,7 +100,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   window.addEventListener('keydown', _onRecoverKey);
 
   // ── Per-frame update ──────────────────────────────────────────────────────
-  function update(dt) {
+  function update(dt, skipCamera = false) {
     // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter)
     world.step(1 / 60, Math.min(dt, 0.035), 3);
 
@@ -121,8 +121,8 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     sound.update(physics.getCurrentRpm(), state.throttle, dt, downshifted, state.brake, physics.getSpeedKmh(),
                  physics.getSkidLevel ? physics.getSkidLevel() : 0);
 
-    // 5. Chase camera (pass speed for reverse camera flip)
-    carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
+    // 5. Chase camera (pass speed for reverse camera flip). Skipped while a game mode drives a cinematic.
+    if (!skipCamera) carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
 
     // 5b. Recovery breadcrumb: record pose when upright + ≥3 wheels grounded (every 2 s)
     _resetCooldown = Math.max(0, _resetCooldown - dt);
