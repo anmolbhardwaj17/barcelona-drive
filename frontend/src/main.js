@@ -385,7 +385,7 @@ spawnTileReady.finally(() => {
           audio,
         });
         deliveryMode = createDeliveryMode({
-          scene, getMinimap: () => minimap,
+          scene, camera, getMinimap: () => minimap,
           getRoadSegments: () => tileManager.getLoadedRoadSegments(),
           getGroundY: (wx, wz) => { const s = tileManager.getSurfaceHeightAt?.(wx, wz); return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : (tileManager.getTerrainHeightAt?.(wx, wz) ?? 0); },
           getOrigin: getOriginOffset,

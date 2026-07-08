@@ -21,7 +21,7 @@ const COL_DROP = 0xff8a33;   // orange drop-off
 const CRASH_DROP = 26;       // km/h lost in one frame ⇒ a hard hit (damages the parcel)
 const SPEED_FACTOR = 13;     // deadline seconds ≈ tripDist / this
 
-export function createDeliveryMode({ scene, getMinimap, getRoadSegments, getGroundY, getOrigin, audio }) {
+export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments, getGroundY, getOrigin, audio }) {
   let state = 'idle';           // idle | toPickup | toDropoff | ended
   let target = null;
   let streak = 0, best = 0, earned = 0, deliveries = 0;
@@ -53,13 +53,43 @@ export function createDeliveryMode({ scene, getMinimap, getRoadSegments, getGrou
     markerGroup.visible = true;
   }
 
-  // ── HUD (top-left card + big centre countdown) ──
+  // ── HUD (top-left card + big centre countdown + direction arrow) ──
   const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:64px;left:12px;z-index:1000;font:600 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:10px;display:none;min-width:160px;';
+  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:10px;display:none;min-width:160px;';
   document.body.appendChild(hud);
   const timerEl = document.createElement('div');
   timerEl.style.cssText = 'position:fixed;top:76px;left:50%;transform:translateX(-50%);z-index:1000;font:800 44px Poppins,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;';
   document.body.appendChild(timerEl);
+
+  // Direction arrow + distance (rotates in the camera's frame toward the objective).
+  const nav = document.createElement('div');
+  nav.style.cssText = 'position:fixed;top:150px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
+    'pointer-events:none;user-select:none;text-align:center;background:rgba(8,18,30,.72);border:2px solid #35b0ff;' +
+    'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
+  nav.innerHTML =
+    '<div class="d-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
+    'border-right:8px solid transparent;border-bottom:30px solid #35b0ff;filter:drop-shadow(0 0 5px #35b0ff);transition:transform .12s"></div>' +
+    '<div class="d-lbl" style="font:800 11px Poppins,sans-serif;letter-spacing:1px;color:#bfe4ff">PICK UP</div>' +
+    '<div class="d-dist" style="font-family:\'Lilita One\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
+  const navTri = nav.querySelector('.d-tri'), navLbl = nav.querySelector('.d-lbl'), navDist = nav.querySelector('.d-dist');
+  document.body.appendChild(nav);
+  const _v = new THREE.Vector3(), _camSpace = new THREE.Vector3(), _invQ = new THREE.Quaternion();
+  function updateNav(carPx, carPz) {
+    if (!target || (state !== 'toPickup' && state !== 'toDropoff')) { nav.style.display = 'none'; return; }
+    const isPick = state === 'toPickup';
+    const col = isPick ? '#35b0ff' : '#ff8a33';
+    nav.style.display = 'block';
+    nav.style.borderColor = col; navTri.style.borderBottomColor = col; navTri.style.filter = `drop-shadow(0 0 5px ${col})`;
+    navLbl.textContent = isPick ? 'PICK UP' : 'DELIVER'; navLbl.style.color = isPick ? '#bfe4ff' : '#ffd9b0';
+    const gx = sceneX(target.wx), gz = sceneZ(target.wz);
+    const dist = Math.hypot(carPx - gx, carPz - gz);
+    navDist.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+    if (camera) {
+      _invQ.copy(camera.quaternion).invert();
+      _camSpace.set(gx, camera.position.y, gz).sub(camera.position).applyQuaternion(_invQ);
+      navTri.style.transform = `rotate(${Math.atan2(_camSpace.x, -_camSpace.z)}rad)`;
+    }
+  }
   const bestKey = 'dd_deliveryBest';
   best = (() => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : 0; })();
 
@@ -118,7 +148,7 @@ export function createDeliveryMode({ scene, getMinimap, getRoadSegments, getGrou
   function stop() {
     if (deliveries > 0) { state = 'ended'; renderHud(); setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 8000); }
     else { state = 'idle'; renderHud(); }
-    target = null; markerGroup.visible = false; getMinimap?.()?.setObjectiveMarker?.(null);
+    target = null; markerGroup.visible = false; nav.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
   }
 
   function newPickup(carPx, carPz) {
@@ -182,13 +212,14 @@ export function createDeliveryMode({ scene, getMinimap, getRoadSegments, getGrou
       }
     }
     updateLiveHud();
+    updateNav(carPx, carPz);
   }
 
   renderHud();
   return {
     name: 'Rush Hour', icon: '📦', key: 'delivery',
     update, start, stop,
-    dispose() { stop(); hud.remove(); timerEl.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    dispose() { stop(); hud.remove(); timerEl.remove(); nav.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
     isRunning: () => state === 'toPickup' || state === 'toDropoff',
   };
 }
