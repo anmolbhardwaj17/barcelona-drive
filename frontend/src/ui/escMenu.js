@@ -20,6 +20,7 @@ import { audio } from '../audio/audioManager.js';
 import { setCollisionDebugActive, isCollisionDebugActive } from '../collisionDebug.js';
 import { setInputBlocked } from '../inputGate.js';
 import { createCarShowcase } from './carShowcase.js';
+import { wallet } from '../game/wallet.js';
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
@@ -190,21 +191,26 @@ export function createEscMenu(refs = {}) {
   for (const p of PRESETS) { const c = el('div', 'dd-esc-chip', p.name); c.addEventListener('click', () => { uiSound.click(); spawnAt(p.lat, p.lon); }); chips.appendChild(c); }
   page.appendChild(chips);
 
-  // ── Car colour (re-parented) ──
+  // ── Garage — global wallet balance + car-colour shop (re-parented) ──
+  page.appendChild(sec('Garage'));
+  const walletLine = el('div');
+  walletLine.style.cssText = 'font:800 22px "Lilita One",system-ui,sans-serif;color:#ffd23f;margin:2px 0 10px 2px;text-shadow:0 2px 0 rgba(0,0,0,0.35);';
+  const _updWallet = () => { walletLine.textContent = `💰 $${wallet.balance()}`; };
+  _updWallet();
+  wallet.onChange(_updWallet);
+  page.appendChild(walletLine);
+
   const colorPanel = refs.colorPanelElement || document.getElementById('dd-car-color-panel');
   if (colorPanel) {
-    page.appendChild(sec('Car'));
     Object.assign(colorPanel.style, { position: 'static', top: 'auto', left: 'auto', background: 'transparent', padding: '0', flexWrap: 'wrap' });
-    const holder = el('div'); holder.style.padding = '6px 0 6px 2px'; holder.appendChild(colorPanel); page.appendChild(holder);
-    // Highlight the active swatch (click + restore from saved colour).
-    const hexToRgb = (h) => { h = (h || '').replace('#', ''); if (h.length === 3) h = h.split('').map((c) => c + c).join(''); const n = parseInt(h, 16); return Number.isFinite(n) ? `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})` : ''; };
-    const savedRgb = hexToRgb(ls('dd_carColor', ''));
-    const swatches = colorPanel.querySelectorAll('div[style*="50%"]');
-    const markSel = (elm) => { swatches.forEach((s) => s.classList.remove('sel')); if (elm) elm.classList.add('sel'); };
-    swatches.forEach((s) => {
-      if (savedRgb && getComputedStyle(s).backgroundColor === savedRgb) markSel(s);
-      s.addEventListener('click', () => { uiSound.click(); markSel(s); });
-    });
+    const holder = el('div'); holder.style.padding = '2px 0 6px 2px'; holder.appendChild(colorPanel); page.appendChild(holder);
+    // Selection + buying are handled by the car model's swatches; just add the menu click blip here.
+    colorPanel.querySelectorAll('div[style*="50%"]').forEach((s) => s.addEventListener('click', () => uiSound.click()));
+  } else {
+    const hint = el('div');
+    hint.textContent = 'Start driving to paint your car — the money you earn is yours across every mode.';
+    hint.style.cssText = 'opacity:.6;font:13px system-ui,sans-serif;margin:0 0 6px 2px;line-height:1.4;';
+    page.appendChild(hint);
   }
 
   // ── Display toggles (day/night stays in the top-right pill, not here) ──

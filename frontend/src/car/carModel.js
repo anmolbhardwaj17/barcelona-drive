@@ -552,10 +552,13 @@ export async function createCarModel(scene) {
     btn.innerHTML = owned ? '' : '<span style="position:absolute;inset:-2px;display:flex;align-items:center;justify-content:center;font-size:10px;pointer-events:none">🔒</span>';
   };
 
-  // Buy-confirmation popup (one, reused)
+  // Buy-confirmation popup — a centered overlay appended to <body> so it works both in-game and inside the
+  // ESC menu (which would otherwise hide/clip a panel-child popup).
   const buyPop = document.createElement('div');
-  buyPop.style.cssText = 'position:absolute;top:calc(100% + 8px);left:0;background:#1b2230;color:#fff;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:10px 12px;box-shadow:0 8px 26px rgba(0,0,0,0.55);display:none;z-index:20;min-width:180px;';
-  colorPanel.appendChild(buyPop);
+  buyPop.id = 'dd-buy-pop';
+  buyPop.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1b2230;color:#fff;border:1px solid rgba(255,255,255,0.16);border-radius:12px;padding:16px 18px;box-shadow:0 14px 44px rgba(0,0,0,0.6);display:none;z-index:100000;min-width:210px;';
+  buyPop.addEventListener('click', (e) => e.stopPropagation());
+  document.body.appendChild(buyPop);
   const closeBuy = () => { buyPop.style.display = 'none'; };
   const openBuy = (p, btn) => {
     const afford = wallet.balance() >= p.price;
@@ -586,7 +589,7 @@ export async function createCarModel(scene) {
     colorPanel.appendChild(btn);
   }
   wallet.onChange(updateBalance);
-  document.addEventListener('click', (e) => { if (!colorPanel.contains(e.target)) closeBuy(); });
+  document.addEventListener('click', (e) => { if (!buyPop.contains(e.target) && !colorPanel.contains(e.target)) closeBuy(); });
 
   // Sound toggle button — single source of truth is audioManager (same as the ESC "Sound on" toggle),
   // so the two never desync and dd_soundMuted isn't written twice.
