@@ -12,11 +12,27 @@ import { readTile, getTilePath, readBinaryTile } from './tileBake.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4041;
+const IS_PROD = process.env.NODE_ENV === 'production';
+const DEFAULT_REGION = process.env.REGION || 'barcelona';
 
+// CORS: allowlist from ALLOWED_ORIGINS (comma-separated), or "*" for a fully public API. Defaults to the
+// dev frontend so local dev keeps working. Set ALLOWED_ORIGINS to your deployed origin(s) in production.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:4040').split(',').map((s) => s.trim()).filter(Boolean);
+const ALLOW_ANY = ALLOWED_ORIGINS.includes('*');
+
+// Tiles/citymap are immutable per bake → cache hard in production (returning players re-download nothing);
+// stay uncached in dev so a re-bake shows up immediately. Purge the CDN/edge cache after a re-bake.
+const STATIC_CACHE = IS_PROD ? 'public, max-age=31536000, immutable' : 'no-cache';
+
+app.disable('x-powered-by');   // don't advertise Express version
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:4040');
+  const origin = req.headers.origin;
+  if (ALLOW_ANY) res.setHeader('Access-Control-Allow-Origin', '*');
+  else if (origin && ALLOWED_ORIGINS.includes(origin)) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('X-Content-Type-Options', 'nosniff');   // no MIME sniffing
+  res.setHeader('Referrer-Policy', 'no-referrer');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -37,13 +53,13 @@ app.get('/api/tiles/:tileId', (req, res) => {
   if (!tileId) {
     return res.status(400).json({ error: 'Invalid tileId (use z_x_y e.g. 16_12345_9876)' });
   }
-  const region = (req.query.region && safeTileId(req.query.region)) || process.env.REGION || 'delhi';
+  const region = (req.query.region && safeTileId(req.query.region)) || DEFAULT_REGION;
 
   // Prefer binary v6 tile if available
   const binData = readBinaryTile(tileId, region);
   if (binData) {
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Cache-Control', STATIC_CACHE);
     return res.send(binData);
   }
 
@@ -63,7 +79,7 @@ app.get('/api/tiles/:tileId', (req, res) => {
  * whole city's 2D data. Reads tiles/{region}/{zoom}/{x}/{y}.bin off disk.
  */
 app.get('/api/tile-manifest', (req, res) => {
-  const region = (req.query.region && safeTileId(req.query.region)) || process.env.REGION || 'delhi';
+  const region = (req.query.region && safeTileId(req.query.region)) || DEFAULT_REGION;
   const zoom = safeTileId(String(req.query.zoom || '16')) || '16';
   const base = path.join(__dirname, 'tiles', region, zoom);
   try {
@@ -92,7 +108,7 @@ app.get('/api/tile-manifest', (req, res) => {
  */
 const _cityMapGz = new Map();   // region -> pre-gzipped buffer (built once, reused)
 app.get('/api/citymap', (req, res) => {
-  const region = (req.query.region && safeTileId(req.query.region)) || process.env.REGION || 'delhi';
+  const region = (req.query.region && safeTileId(req.query.region)) || DEFAULT_REGION;
   const file = path.join(__dirname, 'tiles', region, 'citymap.bin');
   let gz = _cityMapGz.get(region);
   if (!gz) {
@@ -101,7 +117,7 @@ app.get('/api/citymap', (req, res) => {
     _cityMapGz.set(region, gz);
   }
   res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('Cache-Control', STATIC_CACHE);
   if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
     res.setHeader('Content-Encoding', 'gzip');
     return res.end(gz);

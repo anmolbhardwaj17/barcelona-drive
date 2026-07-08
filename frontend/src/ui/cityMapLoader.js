@@ -10,6 +10,9 @@
  */
 const API_BASE = import.meta.env.VITE_MAP_API || 'http://localhost:4041';
 const REGION = import.meta.env.VITE_TILE_REGION || 'barcelona';
+const STATIC_TILES = import.meta.env.VITE_STATIC_TILES === '1' || import.meta.env.VITE_STATIC_TILES === 'true';
+// Static deploy → plain file; server deploy → the /api/citymap route (which gzips + sets cache headers).
+const CITYMAP_URL = STATIC_TILES ? `${API_BASE}/tiles/${REGION}/citymap.bin` : `${API_BASE}/api/citymap?region=${REGION}`;
 
 let _started = false;
 
@@ -24,7 +27,7 @@ export async function loadCityMap(customMap, { onProgress } = {}) {
 
   let buf;
   try {
-    const res = await fetch(`${API_BASE}/api/citymap?region=${REGION}`);
+    const res = await fetch(CITYMAP_URL);
     if (!res.ok) throw new Error(`citymap ${res.status}`);
     buf = await res.arrayBuffer();
   } catch (e) {

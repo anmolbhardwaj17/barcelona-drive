@@ -1,0 +1,14 @@
+{
+  "name": "Barcelona Drive",
+  "short_name": "BCN Drive",
+  "description": "Open-world 3D driving game set in a real-map Barcelona — free roam, taxi, deliveries and police chases.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0e15",
+  "theme_color": "#0b0e15",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "360x360", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

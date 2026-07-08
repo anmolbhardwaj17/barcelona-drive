@@ -8,6 +8,9 @@ import TileParserWorker from './tileParserWorker.js?worker';
 
 const API_BASE = import.meta.env.VITE_MAP_API || 'http://localhost:4041';
 const REGION = import.meta.env.VITE_TILE_REGION || 'barcelona';
+// VITE_STATIC_TILES=1 → fetch tiles as plain static files (/tiles/<region>/<z>/<x>/<y>.bin) instead of the
+// Express /api route. Lets the whole app deploy to a static CDN/object store with NO server. Default off.
+export const STATIC_TILES = import.meta.env.VITE_STATIC_TILES === '1' || import.meta.env.VITE_STATIC_TILES === 'true';
 const cache = new Map();  // only for placeholders (error cases)
 const inFlight = new Map();
 
@@ -78,11 +81,16 @@ export async function loadTile(tx, ty, direction, lite = false) {
 
   const promise = (async () => {
     const tileId = `${TILE_ZOOM}_${tx}_${ty}`;
-    const params = new URLSearchParams();
-    params.set('region', REGION);
-    if (direction && Number.isFinite(direction.vx)) params.set('vx', String(direction.vx));
-    if (direction && Number.isFinite(direction.vz)) params.set('vz', String(direction.vz));
-    const url = `${API_BASE}/api/tiles/${tileId}?${params.toString()}`;
+    let url;
+    if (STATIC_TILES) {
+      url = `${API_BASE}/tiles/${REGION}/${TILE_ZOOM}/${tx}/${ty}.bin`;   // plain static file (no server)
+    } else {
+      const params = new URLSearchParams();
+      params.set('region', REGION);
+      if (direction && Number.isFinite(direction.vx)) params.set('vx', String(direction.vx));
+      if (direction && Number.isFinite(direction.vz)) params.set('vz', String(direction.vz));
+      url = `${API_BASE}/api/tiles/${tileId}?${params.toString()}`;
+    }
 
     const origin = getOriginMercator();
     try {
