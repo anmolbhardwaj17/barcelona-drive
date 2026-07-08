@@ -90,7 +90,8 @@ export async function loadTile(tx, ty, direction, lite = false) {
       return result;
     } catch (err) {
       if (err.error === 'not_found') {
-        console.warn('[TileLoader] Tile not found — tileId:', tileId, 'status:', err.status);
+        // Expected at the edge of the baked region — the tile simply doesn't exist. Cache a placeholder
+        // and move on silently; this fires constantly near the boundary and isn't actionable.
         cache.set(key, PLACEHOLDER);
         return PLACEHOLDER;
       }

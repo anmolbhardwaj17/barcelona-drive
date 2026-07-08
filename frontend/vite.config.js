@@ -6,9 +6,8 @@ export default defineConfig({
   server: {
     port: 4040,
   },
-  // Strip all status/debug logging from the console (dev + build). console.log/info/debug are marked
-  // pure → esbuild drops them since their return value is unused. console.warn/error are kept so real
-  // problems still surface. Reversible: delete `pure` to bring the source logs back.
+  // Prod builds also drop console.log/info/debug (pure → removed during minification). The dev server
+  // isn't minified, so console silencing there is handled by the inline script in index.html. warn/error kept.
   esbuild: {
     pure: ['console.log', 'console.info', 'console.debug'],
   },
