@@ -42,7 +42,9 @@ export const CONFIG = {
   // remain off pending their own verification pass on the new terrain.
   ENABLE_BUILDINGS: true,
   ENABLE_SIDEWALKS: true,     // OSM-driven panot sidewalks (Phase 2 bake provides road.sidewalk)
-  ENABLE_TRAFFIC_LIGHTS: true,
+  ENABLE_TRAFFIC_LIGHTS: false, // OFF — this renderer draws featureless dark boxes on poles (no bulbs) that
+                                // read as random "floating things". Real bulbed traffic lights come from
+                                // roadInfraRenderer (ENABLE_ROAD_INFRA).
   ENABLE_TREES: true,
   ENABLE_ROAD_EDGE_DETAIL: true,
   ENABLE_PROCEDURAL_INFILL: false, // Delhi-era procedural building infill — keep off

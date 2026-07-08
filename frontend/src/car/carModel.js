@@ -556,20 +556,26 @@ export async function createCarModel(scene) {
   // ESC menu (which would otherwise hide/clip a panel-child popup).
   const buyPop = document.createElement('div');
   buyPop.id = 'dd-buy-pop';
-  buyPop.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1b2230;color:#fff;border:1px solid rgba(255,255,255,0.16);border-radius:12px;padding:16px 18px;box-shadow:0 14px 44px rgba(0,0,0,0.6);display:none;z-index:100000;min-width:210px;';
+  buyPop.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(#26314a,#161d2b);color:#fff;border:2px solid rgba(255,255,255,0.12);border-radius:18px;padding:0 0 20px;box-shadow:0 20px 60px rgba(0,0,0,0.7);display:none;z-index:100000;width:270px;text-align:center;overflow:hidden;';
   buyPop.addEventListener('click', (e) => e.stopPropagation());
   document.body.appendChild(buyPop);
   const closeBuy = () => { buyPop.style.display = 'none'; };
   const openBuy = (p, btn) => {
     const afford = wallet.balance() >= p.price;
     buyPop.innerHTML =
-      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font:12px system-ui">` +
-        `<span style="width:16px;height:16px;border-radius:50%;background:${p.hex};border:1px solid rgba(255,255,255,.4)"></span>` +
-        `<b>${p.name}</b><span style="opacity:.65">$${p.price}</span></div>` +
-      (afford
-        ? `<button class="dd-buy" style="background:#2ee06a;color:#0a1a0a;border:none;border-radius:7px;padding:6px 12px;font:700 12px system-ui;cursor:pointer">Unlock — $${p.price}</button>`
-        : `<div style="color:#ff8a8a;font:12px system-ui">Need $${p.price - wallet.balance()} more<br><span style="opacity:.6">Drive City Cab fares to earn</span></div>`) +
-      `<span class="dd-buy-x" style="opacity:.55;cursor:pointer;margin-left:10px;font:12px system-ui">✕</span>`;
+      // Branded header
+      `<div style="background:linear-gradient(#ffd23f,#f0b31a);padding:9px 0 8px;position:relative">` +
+        `<div style="font:800 13px 'Lilita One',system-ui;letter-spacing:2px;color:#3a2a00">🚗 BARCELONA DRIVE · GARAGE</div>` +
+        `<div class="dd-buy-x" style="position:absolute;top:6px;right:12px;cursor:pointer;font:700 15px system-ui;color:#5a4200">✕</div>` +
+      `</div>` +
+      `<div style="padding:18px 20px 0;display:flex;flex-direction:column;align-items:center;gap:9px">` +
+        `<div style="width:52px;height:52px;border-radius:50%;background:${p.hex};border:3px solid rgba(255,255,255,0.55);box-shadow:0 5px 0 rgba(0,0,0,0.4)"></div>` +
+        `<div style="font:800 23px 'Lilita One',system-ui;letter-spacing:.5px">${p.name.toUpperCase()}</div>` +
+        (afford
+          ? `<button class="dd-buy" style="margin-top:4px;background:linear-gradient(#5fe790,#2ec46a);color:#08240f;border:none;border-radius:13px;padding:12px 26px;font:800 18px 'Lilita One',system-ui;letter-spacing:.5px;cursor:pointer;box-shadow:0 5px 0 #1c8f47">UNLOCK &nbsp;🪙 ${p.price}</button>`
+          : `<div style="font:800 17px 'Lilita One',system-ui;color:#ff7d7d">NEED 🪙 ${p.price - wallet.balance()} MORE</div>` +
+            `<div style="opacity:.6;font:12px system-ui">Drive City Cab fares to earn</div>`) +
+      `</div>`;
     buyPop.style.display = 'block';
     buyPop.querySelector('.dd-buy-x')?.addEventListener('click', (e) => { e.stopPropagation(); closeBuy(); });
     buyPop.querySelector('.dd-buy')?.addEventListener('click', (e) => {
@@ -577,6 +583,8 @@ export async function createCarModel(scene) {
       if (wallet.spend(p.price)) { wallet.own(p.hex); renderSwatch(btn, p); selectColor(p.hex, btn); closeBuy(); }
     });
   };
+  // Close the popup on Escape (also the key that closes the ESC menu → no orphaned popup left behind).
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBuy(); });
 
   for (const preset of CAR_PRESETS) {
     const btn = document.createElement('div');
