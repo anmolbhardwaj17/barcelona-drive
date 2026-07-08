@@ -439,6 +439,16 @@ spawnTileReady.finally(() => {
     minimap?.setMarkerMode(!!carDriver);
     compassBar       = createCompassBar();
     performancePanel = createPerformancePanel(scene, renderer, tileManager, CONFIG.ENABLE_PERFORMANCE_PANEL);
+    // Stack the STATS panel just below the location panel (both are fixed top-right) so they never overlap,
+    // regardless of viewport. Re-measure on resize.
+    if (metricsPanel?.element && performancePanel?.element) {
+      const stackPanels = () => {
+        const b = metricsPanel.element.getBoundingClientRect();
+        if (b.height > 0) performancePanel.element.style.top = `${Math.round(b.bottom + 14)}px`;
+      };
+      requestAnimationFrame(stackPanels);
+      window.addEventListener('resize', stackPanels);
+    }
     // ESC menu — re-parents the car-colour panel + day/night toggle into a gamified overlay, adds
     // global place search (spawn anywhere in the baked area) and a HUD-metrics toggle.
     escMenu = createEscMenu({
