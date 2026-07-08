@@ -21,6 +21,52 @@ const MERCATOR_UNSTRETCH = Math.cos((41.350 * Math.PI) / 180);
 
 const textDecoder = new TextDecoder();
 
+// Pack an array of features' point rings into two transferable typed arrays: `coords` = interleaved x,y
+// (Float32), `offsets` = cumulative point counts (Uint32, length = nRings+1). Empty rings are dropped.
+function packRings(features, key) {
+  let total = 0, n = 0;
+  for (const f of features) { const p = f[key]; if (p && p.length) { total += p.length; n++; } }
+  const coords = new Float32Array(total * 2);
+  const offsets = new Uint32Array(n + 1);
+  let ci = 0, oi = 0;
+  for (const f of features) {
+    const p = f[key];
+    if (!p || !p.length) continue;
+    for (let i = 0; i < p.length; i++) { coords[ci++] = p[i].x; coords[ci++] = p[i].y; }
+    offsets[++oi] = ci >> 1;
+  }
+  return { coords, offsets };
+}
+
+// Pack the LITE (custom-map) features into transferable typed arrays. The whole-city background load ships
+// 426 of these; returning them as nested {x,y} object graphs made the main-thread structured-clone RECEIVE
+// (mapLoader `_worker.onmessage`) the #1 allocator (~64% of GC) AND a synchronous mid-frame burst that
+// stuttered driving. Typed arrays transfer zero-copy, so the receive costs nothing; ingestTile re-inflates
+// on the idle-paced side. Road width/type/name stay as plain arrays (few, string-interned → cheap to clone).
+function packLite(roads, water, greens) {
+  const road = packRings(roads, 'points');
+  const nR = road.offsets.length - 1;
+  const rWidth = new Float32Array(nR);
+  const rType = new Array(nR);
+  const rName = new Array(nR);
+  let k = 0;
+  for (const r of roads) {
+    if (!r.points || !r.points.length) continue;
+    rWidth[k] = Number.isFinite(r.width) && r.width > 0 ? r.width : -1;
+    rType[k] = r.highwayType || '';
+    rName[k] = r.name || '';
+    k++;
+  }
+  const wat = packRings(water, 'polygon');
+  const grn = packRings(greens, 'polygon');
+  return {
+    packed: true,
+    rCoords: road.coords, rOffsets: road.offsets, rWidth, rType, rName,
+    wCoords: wat.coords, wOffsets: wat.offsets,
+    pCoords: grn.coords, pOffsets: grn.offsets,
+  };
+}
+
 function parseBinaryTile(buffer, originX, originY, lite = false) {
   const headerView = new DataView(buffer, 0, 4);
   const headerLen = headerView.getUint32(0, true); // includes padding to 4-byte boundary
@@ -48,14 +94,7 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
 
   // LITE parse (custom-map background load): only the 2D features it draws. Skips buildings, the heavy
   // elevation grid (Array.from a Float32 grid — the #1 allocator), vegetation, terrain, and all POIs.
-  if (lite) {
-    return {
-      roads, water, greens, buildings: [], railways: [], vegetation: { trees: [], greenAreas: [] },
-      barriers: [], junctions: [], busStops: [], parking: [], urbanFeatures: [], elevation: null,
-      beaches: [], pedestrianAreas: [], marinas: [], trafficSignals: [], streetLamps: [], trees: [],
-      tourismPois: [], metroStations: [], healthcare: [], shops: [], bakedTerrain: null, bakedPhysicsTerrain: null,
-    };
-  }
+  if (lite) return packLite(roads, water, greens);
 
   const buildings = header.buildings
     ? readBuildings(header.buildings, buffer, binOffset)
@@ -848,6 +887,19 @@ function idbDel(key) {
   } catch { /* ignore */ }
 }
 
+// Post a parsed result, transferring the packed typed-array buffers (LITE map tiles) zero-copy so the main
+// thread never pays a structured-clone deserialize. Non-packed (gameplay) results post normally.
+function postResult(id, result) {
+  if (result && result.packed) {
+    self.postMessage({ id, result }, [
+      result.rCoords.buffer, result.rOffsets.buffer, result.rWidth.buffer,
+      result.wCoords.buffer, result.wOffsets.buffer, result.pCoords.buffer, result.pOffsets.buffer,
+    ]);
+  } else {
+    self.postMessage({ id, result });
+  }
+}
+
 // Open DB eagerly so it's ready by first tile request
 openIDB();
 
@@ -880,13 +932,13 @@ self.onmessage = async (e) => {
       try {
         if (cached.ct === 'binary') {
           const result = parseBinaryTile(cached.data, originX, originY, lite);
-          self.postMessage({ id, result });
+          postResult(id, result);
           return;
         } else if (cached.ct === 'json') {
           const data = JSON.parse(cached.data);
           if (data.version === tileVersion) {
             const result = parseJsonTile(data, originX, originY, lite);
-            self.postMessage({ id, result });
+            postResult(id, result);
             return;
           }
           // Version mismatch — re-fetch
@@ -913,7 +965,7 @@ self.onmessage = async (e) => {
       // Cache the raw ArrayBuffer
       idbPut(cacheKey, buffer.slice(0), 'binary');
       const result = parseBinaryTile(buffer, originX, originY, lite);
-      self.postMessage({ id, result });
+      postResult(id, result);
     } else {
       // ── JSON v5 fallback ────────────────────────────────────────────────
       const text = await res.text();
@@ -925,7 +977,7 @@ self.onmessage = async (e) => {
       // Cache the raw JSON string
       idbPut(cacheKey, text, 'json');
       const result = parseJsonTile(data, originX, originY, lite);
-      self.postMessage({ id, result });
+      postResult(id, result);
     }
   } catch (err) {
     self.postMessage({ id, error: 'fetch_failed', message: err.message });

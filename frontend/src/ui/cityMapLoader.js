@@ -52,8 +52,10 @@ export async function loadCityMap(customMap, { onProgress } = {}) {
       const key = `${tx}_${ty}`;
       if (!customMap.hasTile(key)) {
         try {
-          const data = await loadTile(tx, ty, undefined, true);   // lite: 2D features only (no elevation/buildings)
-          if (data && (data.roads?.length || data.water?.length || data.greens?.length)) {
+          const data = await loadTile(tx, ty, undefined, true);   // lite: 2D features only (packed typed arrays)
+          const hasData = data && data.packed &&
+            (data.rOffsets.length > 1 || data.wOffsets.length > 1 || data.pOffsets.length > 1);
+          if (hasData) {
             customMap.ingestTile(key, data, true);   // lite: roads/water/parks only
           }
         } catch { /* skip a bad tile */ }

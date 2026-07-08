@@ -121,6 +121,44 @@ export function createCustomMap() {
     if (!tileData) return;
     const existing = store.get(key);
     if (existing && !(existing.lite && !lite)) return;   // skip unless upgrading lite → full
+
+    // Packed LITE path: features arrive as transferable typed arrays (zero-copy receive — no mid-frame
+    // clone burst). Re-inflate here (idle-paced) into the exact {pts,w,tier,name,bbox} shape drawTile reads.
+    if (tileData.packed) {
+      const { rCoords, rOffsets, rWidth, rType, rName, wCoords, wOffsets, pCoords, pOffsets } = tileData;
+      const roads = [];
+      for (let i = 0; i < rOffsets.length - 1; i++) {
+        const s = rOffsets[i], e = rOffsets[i + 1];
+        if (e - s < 2) continue;
+        const pts = new Array(e - s);
+        for (let j = s; j < e; j++) pts[j - s] = { x: rCoords[j * 2], y: rCoords[j * 2 + 1] };
+        const tier = ROAD_CLASS[rType[i]] || 'minor';
+        const w = rWidth[i] > 0 ? rWidth[i] : (tier === 'major' ? 12 : tier === 'mid' ? 8 : 5);
+        roads.push({ pts, w, tier, name: rName[i] || '', bbox: bboxOf(pts) });
+      }
+      const unpackPolys = (coords, offsets) => {
+        const out = [];
+        for (let i = 0; i < offsets.length - 1; i++) {
+          const s = offsets[i], e = offsets[i + 1];
+          if (e - s < 3) continue;
+          const pts = new Array(e - s);
+          for (let j = s; j < e; j++) pts[j - s] = { x: coords[j * 2], y: coords[j * 2 + 1] };
+          out.push({ pts, bbox: bboxOf(pts) });
+        }
+        return out;
+      };
+      const water = unpackPolys(wCoords, wOffsets);
+      const parks = unpackPolys(pCoords, pOffsets);
+      const tbb = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const f of [...roads, ...water, ...parks]) {
+        if (f.bbox[0] < tbb[0]) tbb[0] = f.bbox[0]; if (f.bbox[1] < tbb[1]) tbb[1] = f.bbox[1];
+        if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
+      }
+      store.set(key, { roads, water, parks, builds: [], lite: true, tbb });
+      _onChange?.();
+      return;
+    }
+
     const roads = [];
     for (const r of tileData.roads || []) {
       const pts = r.points;
