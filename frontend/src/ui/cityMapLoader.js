@@ -8,7 +8,7 @@
  * uses, so a full tile (with buildings) cleanly upgrades the lite entry. Parsing is idle-paced so it never
  * steals a gameplay frame.
  */
-const API_BASE = import.meta.env.VITE_MAP_API || 'http://localhost:4041';
+const API_BASE = import.meta.env.VITE_MAP_API ?? 'http://localhost:4041';   // "" → same-origin (relative)
 const REGION = import.meta.env.VITE_TILE_REGION || 'barcelona';
 const STATIC_TILES = import.meta.env.VITE_STATIC_TILES === '1' || import.meta.env.VITE_STATIC_TILES === 'true';
 // Static deploy → plain file; server deploy → the /api/citymap route (which gzips + sets cache headers).

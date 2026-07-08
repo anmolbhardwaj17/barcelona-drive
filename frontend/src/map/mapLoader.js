@@ -6,7 +6,9 @@
 import { TILE_ZOOM, getOriginMercator } from '../projection.js';
 import TileParserWorker from './tileParserWorker.js?worker';
 
-const API_BASE = import.meta.env.VITE_MAP_API || 'http://localhost:4041';
+// `??` (not `||`) so VITE_MAP_API="" means "same origin" (relative URLs) — the cleanest static/CDN deploy,
+// no CORS. Only an UNSET var falls back to the dev server.
+const API_BASE = import.meta.env.VITE_MAP_API ?? 'http://localhost:4041';
 const REGION = import.meta.env.VITE_TILE_REGION || 'barcelona';
 // VITE_STATIC_TILES=1 → fetch tiles as plain static files (/tiles/<region>/<z>/<x>/<y>.bin) instead of the
 // Express /api route. Lets the whole app deploy to a static CDN/object store with NO server. Default off.

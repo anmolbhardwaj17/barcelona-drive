@@ -47,6 +47,56 @@ Upload:
 storage. Set the object store / CDN to serve `.bin` with a long, immutable `Cache-Control` and gzip/brotli on.
 **Purge the CDN cache after any re-bake** (tiles are cached as immutable).
 
+### AWS (S3 + CloudFront) — concrete steps
+
+Everything lives in **one S3 bucket** behind **one CloudFront distribution**, so the app and tiles are
+same-origin (no CORS). CloudFront's free tier is **1 TB egress + 10 M requests / month** — with the citymap
+fix, a player pulls ~60–100 MB, so that's ~10k+ players/month free.
+
+```bash
+BUCKET=barcelona-drive           # your bucket name
+REGION=barcelona
+
+# 1. Build for same-origin static (VITE_MAP_API="" → relative URLs)
+cd frontend
+VITE_MAP_API= VITE_TILE_REGION=$REGION VITE_STATIC_TILES=1 npm run build
+
+# 2. Regenerate the citymap, then gzip it (CloudFront won't auto-compress octet-stream)
+cd ../backend && node tools/buildCityMap.js $REGION 16
+gzip -9 -c tiles/$REGION/citymap.bin > /tmp/citymap.bin.gz
+
+# 3. Upload the app — hashed assets immutable, index.html always-revalidate
+cd ../frontend
+aws s3 sync dist/ s3://$BUCKET/ --exclude index.html --cache-control "public,max-age=31536000,immutable"
+aws s3 cp dist/index.html s3://$BUCKET/index.html --cache-control "no-cache"
+
+# 4. Upload tiles (immutable) + the pre-gzipped citymap
+aws s3 sync ../backend/tiles/$REGION/16/ s3://$BUCKET/tiles/$REGION/16/ \
+  --content-type application/octet-stream --cache-control "public,max-age=31536000,immutable"
+aws s3 cp /tmp/citymap.bin.gz s3://$BUCKET/tiles/$REGION/citymap.bin \
+  --content-type application/octet-stream --content-encoding gzip \
+  --cache-control "public,max-age=31536000,immutable"
+```
+
+CloudFront distribution settings:
+- **Origin:** the S3 bucket, locked down with **Origin Access Control** (keep the bucket private).
+- **Default root object:** `index.html`; **Viewer protocol policy:** redirect HTTP→HTTPS.
+- **Compress objects automatically:** on (compresses the JS/CSS; the pre-gzipped citymap already carries
+  `Content-Encoding: gzip`).
+- **HTTPS:** free ACM certificate (request it in **us-east-1** for CloudFront); point Route 53 at the distribution.
+- **After a redeploy or re-bake:** `aws cloudfront create-invalidation --distribution-id <ID> --paths "/index.html" "/tiles/*"`.
+
+> **Cost watch:** unlike Cloudflare, CloudFront egress isn't free past the 1 TB tier (~$0.085/GB after). The
+> citymap fix keeps per-player transfer small, so this only matters at real scale. S3 storage for ~580 MB is
+> ~$0.013/month.
+
+### Run the server on AWS instead (Option B)
+
+If you'd rather run `backend/server.js`: **AWS App Runner** or **Elastic Beanstalk** (Node) is simplest —
+push the `backend/` folder, set `NODE_ENV=production` + `ALLOWED_ORIGINS`, and bake the tiles into the image
+or mount them from EFS/S3. This costs more (always-on compute) and buys you nothing over the static path for a
+static app, so prefer S3 + CloudFront unless you specifically need the `/api` routes.
+
 ## Option B — Node server (`backend/server.js`)
 
 Runs the Express static-file server. Set env (see `backend/.env.example`):
