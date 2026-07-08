@@ -55,11 +55,11 @@ function getWorker() {
   return _worker;
 }
 
-function workerFetchTile(url, originX, originY) {
+function workerFetchTile(url, originX, originY, lite = false) {
   return new Promise((resolve, reject) => {
     const id = ++_msgId;
     _pending.set(id, { resolve, reject });
-    getWorker().postMessage({ url, originX, originY, tileVersion: TILE_VERSION, id });
+    getWorker().postMessage({ url, originX, originY, tileVersion: TILE_VERSION, id, lite });
   });
 }
 
@@ -67,11 +67,12 @@ function workerFetchTile(url, originX, originY) {
  * Load one tile. Returns { roads, buildings, vegetation } in world coordinates.
  * JSON parsing + coordinate conversion run in a Web Worker (no main-thread block).
  */
-export async function loadTile(tx, ty, direction) {
+export async function loadTile(tx, ty, direction, lite = false) {
   if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
     return PLACEHOLDER;
   }
-  const key = tileKey(tx, ty);
+  // Distinct key for lite (2D-only) requests so they never dedupe with a full gameplay load of the tile.
+  const key = tileKey(tx, ty) + (lite ? '_L' : '');
   if (cache.has(key)) return cache.get(key);
   if (inFlight.has(key)) return inFlight.get(key);
 
@@ -85,7 +86,7 @@ export async function loadTile(tx, ty, direction) {
 
     const origin = getOriginMercator();
     try {
-      const result = await workerFetchTile(url, origin.x, origin.y);
+      const result = await workerFetchTile(url, origin.x, origin.y, lite);
       return result;
     } catch (err) {
       if (err.error === 'not_found') {

@@ -21,7 +21,7 @@ const MERCATOR_UNSTRETCH = Math.cos((41.350 * Math.PI) / 180);
 
 const textDecoder = new TextDecoder();
 
-function parseBinaryTile(buffer, originX, originY) {
+function parseBinaryTile(buffer, originX, originY, lite = false) {
   const headerView = new DataView(buffer, 0, 4);
   const headerLen = headerView.getUint32(0, true); // includes padding to 4-byte boundary
   const headerBytes = new Uint8Array(buffer, 4, headerLen);
@@ -38,6 +38,25 @@ function parseBinaryTile(buffer, originX, originY) {
     ? readRoads(header.roads, buffer, binOffset, ox, oy)
     : [];
 
+  const water = header.water
+    ? readPolygonFeatures(header.water, buffer, binOffset, 'polygonOffset', 'polygonCount', ox, oy)
+    : [];
+
+  const greens = header.greens
+    ? readGreens(header.greens, buffer, binOffset)
+    : [];
+
+  // LITE parse (custom-map background load): only the 2D features it draws. Skips buildings, the heavy
+  // elevation grid (Array.from a Float32 grid — the #1 allocator), vegetation, terrain, and all POIs.
+  if (lite) {
+    return {
+      roads, water, greens, buildings: [], railways: [], vegetation: { trees: [], greenAreas: [] },
+      barriers: [], junctions: [], busStops: [], parking: [], urbanFeatures: [], elevation: null,
+      beaches: [], pedestrianAreas: [], marinas: [], trafficSignals: [], streetLamps: [], trees: [],
+      tourismPois: [], metroStations: [], healthcare: [], shops: [], bakedTerrain: null, bakedPhysicsTerrain: null,
+    };
+  }
+
   const buildings = header.buildings
     ? readBuildings(header.buildings, buffer, binOffset)
     : [];
@@ -46,14 +65,6 @@ function parseBinaryTile(buffer, originX, originY) {
   if (header.elevation) {
     elevation = readElevation(header.elevation, buffer, binOffset);
   }
-
-  const water = header.water
-    ? readPolygonFeatures(header.water, buffer, binOffset, 'polygonOffset', 'polygonCount', ox, oy)
-    : [];
-
-  const greens = header.greens
-    ? readGreens(header.greens, buffer, binOffset)
-    : [];
 
   const barriers = header.barriers
     ? readBarriers(header.barriers, buffer, binOffset)
@@ -739,7 +750,7 @@ function vegetationToWorld(vegetation, ox, oy) {
   return { trees, greenAreas };
 }
 
-function parseJsonTile(data, originX, originY) {
+function parseJsonTile(data, originX, originY, lite = false) {   // eslint-disable-line no-unused-vars (JSON is a rare fallback; lite optimization is on the binary path)
   const roads = (data.roads || []).map(r => roadToWorld(r, originX, originY));
   const buildings = (data.buildings || []).map(buildingV4ToRenderer);
   const railways = railwayToWorld(data.railways, originX, originY);
@@ -845,7 +856,7 @@ openIDB();
 // ═══════════════════════════════════════════════════════════════════════════════
 
 self.onmessage = async (e) => {
-  const { url, originX, originY, tileVersion, id } = e.data;
+  const { url, originX, originY, tileVersion, id, lite } = e.data;
 
   // Special message: clear the IndexedDB cache
   if (e.data.action === 'clearCache') {
@@ -868,13 +879,13 @@ self.onmessage = async (e) => {
     if (cached) {
       try {
         if (cached.ct === 'binary') {
-          const result = parseBinaryTile(cached.data, originX, originY);
+          const result = parseBinaryTile(cached.data, originX, originY, lite);
           self.postMessage({ id, result });
           return;
         } else if (cached.ct === 'json') {
           const data = JSON.parse(cached.data);
           if (data.version === tileVersion) {
-            const result = parseJsonTile(data, originX, originY);
+            const result = parseJsonTile(data, originX, originY, lite);
             self.postMessage({ id, result });
             return;
           }
@@ -901,7 +912,7 @@ self.onmessage = async (e) => {
       const buffer = await res.arrayBuffer();
       // Cache the raw ArrayBuffer
       idbPut(cacheKey, buffer.slice(0), 'binary');
-      const result = parseBinaryTile(buffer, originX, originY);
+      const result = parseBinaryTile(buffer, originX, originY, lite);
       self.postMessage({ id, result });
     } else {
       // ── JSON v5 fallback ────────────────────────────────────────────────
@@ -913,7 +924,7 @@ self.onmessage = async (e) => {
       }
       // Cache the raw JSON string
       idbPut(cacheKey, text, 'json');
-      const result = parseJsonTile(data, originX, originY);
+      const result = parseJsonTile(data, originX, originY, lite);
       self.postMessage({ id, result });
     }
   } catch (err) {

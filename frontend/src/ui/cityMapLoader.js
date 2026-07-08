@@ -52,7 +52,7 @@ export async function loadCityMap(customMap, { onProgress } = {}) {
       const key = `${tx}_${ty}`;
       if (!customMap.hasTile(key)) {
         try {
-          const data = await loadTile(tx, ty);
+          const data = await loadTile(tx, ty, undefined, true);   // lite: 2D features only (no elevation/buildings)
           if (data && (data.roads?.length || data.water?.length || data.greens?.length)) {
             customMap.ingestTile(key, data, true);   // lite: roads/water/parks only
           }
