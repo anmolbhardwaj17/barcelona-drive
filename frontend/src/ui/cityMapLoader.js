@@ -1,68 +1,74 @@
 /**
- * cityMapLoader — one-time background load of the WHOLE city's 2D data into the custom minimap store, so
- * the zoomed-out map shows the entire street network (not just tiles you've driven through). Fetches the
- * tile manifest from the backend, then streams each tile through the existing parser (mapLoader.loadTile)
- * and ingests roads/water/parks LITE (no building footprints — far buildings never render, saves memory).
+ * cityMapLoader — one-time load of the WHOLE city's 2D map into the custom minimap from a SINGLE compact
+ * file (backend/tiles/<region>/citymap.bin, ~0.5 MB gzipped), instead of streaming all ~426 full tiles
+ * (~525 MB). Generated offline by backend/tools/buildCityMap.js. Immutable + cached-forever, so returning
+ * players re-download nothing — and it works on weak connections.
  *
- * Runs sequentially with a small yield between tiles so it never starves the gameplay tile loader that
- * shares the same parse worker. Tiles already loaded near the car (full, with buildings) are skipped.
+ * The file is grouped by source tile; we ingest each under the same `${tx}_${ty}` key the near-car streamer
+ * uses, so a full tile (with buildings) cleanly upgrades the lite entry. Parsing is idle-paced so it never
+ * steals a gameplay frame.
  */
-import { loadTile } from '../map/mapLoader.js';
-
 const API_BASE = import.meta.env.VITE_MAP_API || 'http://localhost:4041';
 const REGION = import.meta.env.VITE_TILE_REGION || 'barcelona';
 
 let _started = false;
 
-// Wait for the browser to be idle before doing the next tile — so the whole-city background load only runs
-// in spare time and never competes with a gameplay frame. Falls back to a short timeout on a busy thread.
 const idle = (timeout = 300) => new Promise((r) => {
   if (typeof requestIdleCallback === 'function') requestIdleCallback(() => r(), { timeout });
-  else setTimeout(r, 40);
+  else setTimeout(r, 16);
 });
 
 export async function loadCityMap(customMap, { onProgress } = {}) {
   if (_started || !customMap) return;
   _started = true;
 
-  // Respect data-saver / very slow connections — skip the ~426-tile pull; the map still fills where you drive.
+  let buf;
   try {
-    const conn = navigator.connection;
-    if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ''))) {
-      console.info('[cityMap] slow/data-saver connection — skipping full-city preload');
-      return;
-    }
-  } catch {}
-
-  let tiles = [];
-  try {
-    const res = await fetch(`${API_BASE}/api/tile-manifest?region=${REGION}&zoom=16`);
-    if (!res.ok) throw new Error(`manifest ${res.status}`);
-    tiles = (await res.json())?.tiles || [];
+    const res = await fetch(`${API_BASE}/api/citymap?region=${REGION}`);
+    if (!res.ok) throw new Error(`citymap ${res.status}`);
+    buf = await res.arrayBuffer();
   } catch (e) {
-    console.warn('[cityMap] manifest fetch failed — map will only show driven areas:', e?.message || e);
+    console.warn('[cityMap] citymap fetch failed — map will only show driven areas:', e?.message || e);
     return;
   }
 
+  const dv = new DataView(buf);
+  let o = 0;
+  const hlen = dv.getUint32(o, true); o += 4;
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, o, hlen))); o += hlen;
+  const { quant, baseX, baseY, roadTypes, roadNames, tileCount } = header;
+
+  const rx = () => { const q = dv.getUint16(o, true); o += 2; return baseX + q * quant; };
+  const ry = () => { const q = dv.getUint16(o, true); o += 2; return baseY + q * quant; };
+  const readPts = (n) => { const pts = new Array(n); for (let i = 0; i < n; i++) pts[i] = { x: rx(), y: ry() }; return pts; };
+
   let done = 0;
-  for (const id of tiles) {
-    const m = /^\d+_(\d+)_(\d+)$/.exec(id);
-    if (m) {
-      const tx = +m[1], ty = +m[2];
-      const key = `${tx}_${ty}`;
-      if (!customMap.hasTile(key)) {
-        try {
-          const data = await loadTile(tx, ty, undefined, true);   // lite: 2D features only (packed typed arrays)
-          const hasData = data && data.packed &&
-            (data.rOffsets.length > 1 || data.wOffsets.length > 1 || data.pOffsets.length > 1);
-          if (hasData) {
-            customMap.ingestTile(key, data, true);   // lite: roads/water/parks only
-          }
-        } catch { /* skip a bad tile */ }
-      }
+  const CHUNK = 24;   // tiles per idle slice
+  for (let t = 0; t < tileCount; t++) {
+    const tx = dv.getUint32(o, true); o += 4;
+    const ty = dv.getUint32(o, true); o += 4;
+    const roadCount = dv.getUint16(o, true); o += 2;
+    const waterCount = dv.getUint16(o, true); o += 2;
+    const greenCount = dv.getUint16(o, true); o += 2;
+
+    const roads = new Array(roadCount);
+    for (let i = 0; i < roadCount; i++) {
+      const typeIdx = dv.getUint16(o, true); o += 2;
+      const nameIdx = dv.getUint32(o, true); o += 4;
+      const width = dv.getFloat32(o, true); o += 4;
+      const ptCount = dv.getUint16(o, true); o += 2;
+      roads[i] = { points: readPts(ptCount), highwayType: roadTypes[typeIdx] || '', width, name: roadNames[nameIdx] || '' };
     }
-    onProgress?.(++done, tiles.length);
-    await idle();   // only continue when the main thread is idle → never steals a gameplay frame
+    const water = new Array(waterCount);
+    for (let i = 0; i < waterCount; i++) { const n = dv.getUint16(o, true); o += 2; water[i] = { polygon: readPts(n) }; }
+    const greens = new Array(greenCount);
+    for (let i = 0; i < greenCount; i++) { const n = dv.getUint16(o, true); o += 2; greens[i] = { polygon: readPts(n) }; }
+
+    customMap.ingestTile(`${tx}_${ty}`, { roads, water, greens }, true, /* quiet */ true);
+
+    if ((++done % CHUNK) === 0) { customMap.refresh(); onProgress?.(done, tileCount); await idle(); }
   }
-  console.log(`[cityMap] full city loaded (${done}/${tiles.length} tiles)`);
+  customMap.refresh();
+  onProgress?.(done, tileCount);
+  console.log(`[cityMap] full city loaded from citymap.bin (${done} tiles)`);
 }

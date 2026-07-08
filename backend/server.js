@@ -5,6 +5,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 import { fileURLToPath } from 'url';
 import { readTile, getTilePath, readBinaryTile } from './tileBake.js';
 
@@ -81,6 +82,31 @@ app.get('/api/tile-manifest', (req, res) => {
   } catch (e) {
     return res.status(404).json({ error: 'No tiles for region', region, zoom });
   }
+});
+
+/**
+ * GET /api/citymap?region=barcelona
+ * The whole city's 2D vector map (roads/water/parks) as ONE compact file — replaces streaming all ~426 full
+ * tiles just to draw the minimap (~525 MB → ~0.5 MB gzipped). Immutable (regenerate with tools/buildCityMap.js
+ * after a re-bake). Served gzipped + cached-forever; the CDN/browser caches it so returning players re-fetch 0.
+ */
+const _cityMapGz = new Map();   // region -> pre-gzipped buffer (built once, reused)
+app.get('/api/citymap', (req, res) => {
+  const region = (req.query.region && safeTileId(req.query.region)) || process.env.REGION || 'delhi';
+  const file = path.join(__dirname, 'tiles', region, 'citymap.bin');
+  let gz = _cityMapGz.get(region);
+  if (!gz) {
+    let data; try { data = fs.readFileSync(file); } catch { return res.status(404).json({ error: 'No citymap — run tools/buildCityMap.js', region }); }
+    gz = zlib.gzipSync(data, { level: 9 });
+    _cityMapGz.set(region, gz);
+  }
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+    res.setHeader('Content-Encoding', 'gzip');
+    return res.end(gz);
+  }
+  return res.end(zlib.gunzipSync(gz));
 });
 
 app.listen(PORT, () => {

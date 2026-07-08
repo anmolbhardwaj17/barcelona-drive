@@ -117,7 +117,7 @@ export function createCustomMap() {
 
   // lite=true → skip building footprints (used by the city-wide background load to save memory; far
   // buildings never render anyway). A full ingest (near the car) UPGRADES an existing lite entry.
-  function ingestTile(key, tileData, lite = false) {
+  function ingestTile(key, tileData, lite = false, quiet = false) {
     if (!tileData) return;
     const existing = store.get(key);
     if (existing && !(existing.lite && !lite)) return;   // skip unless upgrading lite → full
@@ -155,7 +155,7 @@ export function createCustomMap() {
         if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
       }
       store.set(key, { roads, water, parks, builds: [], lite: true, tbb });
-      _onChange?.();
+      if (!quiet) _onChange?.();
       return;
     }
 
@@ -181,7 +181,7 @@ export function createCustomMap() {
       if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
     }
     store.set(key, { roads, water, parks, builds, lite, tbb });
-    _onChange?.();
+    if (!quiet) _onChange?.();
   }
 
   let _onChange = null;
@@ -371,5 +371,6 @@ export function createCustomMap() {
 
   function hasTile(key) { return store.has(key); }
 
-  return { ingestTile, removeTile, hasTile, clear, setNight, setOnChange, drawTile, get tileCount() { return store.size; } };
+  function refresh() { _onChange?.(); }   // fire one redraw after a bulk (quiet) ingest
+  return { ingestTile, refresh, removeTile, hasTile, clear, setNight, setOnChange, drawTile, get tileCount() { return store.size; } };
 }
