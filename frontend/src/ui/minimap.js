@@ -297,6 +297,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     'border:2px solid #fff;box-shadow:0 0 8px #35e0ff;transform:translate(-50%,-50%);display:none;z-index:5;pointer-events:none;';
   wrapper.appendChild(gateMarkerEl);
 
+  // Dynamic blips (e.g. police cars in Heat mode) — pooled dots, world coords, heading-up in the circle.
+  let _blips = [];
+  const _blipEls = [];
+  function setBlips(list) { _blips = list || []; }
+
   frame.appendChild(wrapper);
 
   // Zoom +/- — a clean segmented pill (top-left of the expanded map) with crisp icons + hover states.
@@ -597,6 +602,31 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       gateMarkerEl.style.display = 'none';
     }
 
+    // Dynamic blips (police etc.) — same heading-up bearing math as the objective dot.
+    if (!expanded && lastCarLatLon && _blips.length) {
+      const plat = lastCarLatLon[0], plon = lastCarLatLon[1];
+      const res = 156543.03392 * Math.cos(plat * Math.PI / 180) / Math.pow(2, MINIMAP_ZOOM);
+      const c = MINIMAP_SIZE / 2;
+      for (let i = 0; i < _blips.length; i++) {
+        let el = _blipEls[i];
+        if (!el) {
+          el = document.createElement('div');
+          el.style.cssText = 'position:absolute;width:11px;height:11px;border-radius:50%;border:2px solid #fff;transform:translate(-50%,-50%);z-index:5;pointer-events:none;box-shadow:0 0 6px rgba(0,0,0,.55)';
+          wrapper.appendChild(el); _blipEls[i] = el;
+        }
+        const ll = worldToLatLon(_blips[i].wx, _blips[i].wz);
+        const north = (ll.lat - plat) * 111320, east = (ll.lon - plon) * 111320 * Math.cos(plat * Math.PI / 180);
+        const a = Math.atan2(east, north) - currentRotationDeg * Math.PI / 180;
+        const r = Math.min(MINIMAP_SIZE / 2 - 8, Math.hypot(north, east) / res);
+        el.style.left = `${c + Math.sin(a) * r}px`; el.style.top = `${c - Math.cos(a) * r}px`;
+        el.style.background = _blips[i].color || '#ff3b3b';
+        el.style.display = 'block';
+      }
+      for (let i = _blips.length; i < _blipEls.length; i++) _blipEls[i].style.display = 'none';
+    } else {
+      for (const el of _blipEls) el.style.display = 'none';
+    }
+
     // Map tile panning is throttled (expensive Leaflet operation)
     const now = Date.now();
     if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return;
@@ -641,5 +671,5 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     _objTarget = worldToLatLon(wx, wz);
   }
 
-  return { update, setNightMode, setMarkerMode, setObjectiveMarker };
+  return { update, setNightMode, setMarkerMode, setObjectiveMarker, setBlips };
 }

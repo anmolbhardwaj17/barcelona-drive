@@ -20,9 +20,10 @@ const BUST_DIST = 8;         // this close ⇒ busting
 const BUST_HOLD = 2.6;       // s within BUST_DIST ⇒ busted
 const ESCAPE_DIST = 135;     // every cop beyond this ⇒ escaping
 const ESCAPE_HOLD = 7;       // s all cops beyond ESCAPE_DIST ⇒ escaped
+const STANDOFF = 6.5;        // cops hold this gap around you (don't stack/ram into the car)
 const SPAWN_BEHIND = 42, SPAWN_SPREAD = 14;
 
-export function createPoliceMode({ scene, getGroundY, getOrigin, audio }) {
+export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, audio }) {
   let state = 'idle';          // idle | chase | ended
   let cops = [];
   let wanted = 0, peakWanted = 0, elapsed = 0, escapeT = 0, bustT = 0;
@@ -99,6 +100,23 @@ export function createPoliceMode({ scene, getGroundY, getOrigin, audio }) {
     } catch {}
   }
 
+  // Looping two-tone siren (played the whole pursuit; gets louder as the nearest cop closes in).
+  let _siren = null;
+  function startSiren() {
+    const c = audio?.ctx?.(); if (!c || _siren) return;
+    const osc = c.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 650;
+    const g = c.createGain(); g.gain.value = 0.0001;
+    osc.connect(g); g.connect(audio.sfxBus?.() || c.destination);
+    try { osc.start(); } catch {}
+    _siren = { osc, g };
+  }
+  function stopSiren() {
+    const s = _siren; _siren = null; if (!s) return;
+    const c = audio?.ctx?.(); if (!c) return;
+    s.g.gain.cancelScheduledValues(c.currentTime); s.g.gain.setTargetAtTime(0.0001, c.currentTime, 0.12);
+    try { s.osc.stop(c.currentTime + 0.35); } catch {}
+  }
+
   function spawnCops(playerPx, playerPz, headingDeg) {
     clearCops();
     const h = (headingDeg || 0) * Math.PI / 180;
@@ -109,17 +127,18 @@ export function createPoliceMode({ scene, getGroundY, getOrigin, audio }) {
       const cop = makeCop();
       cop.x = playerPx + back.x * SPAWN_BEHIND + side.x * off;
       cop.z = playerPz + back.z * SPAWN_BEHIND + side.z * off;
+      cop.fang = h + Math.PI + (i - (N_COPS - 1) / 2) * 0.9;   // stagger around the rear so they flank, not stack
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
       cops.push(cop);
     }
   }
-  function clearCops() { for (const c of cops) scene.remove(c.group); cops = []; }
+  function clearCops() { for (const c of cops) scene.remove(c.group); cops = []; getMinimap?.()?.setBlips?.([]); }
 
-  function start() { _pending = true; state = 'chase'; wanted = 0; peakWanted = 0; elapsed = 0; escapeT = 0; bustT = 0; renderHud(); }
+  function start() { _pending = true; state = 'chase'; wanted = 0; peakWanted = 0; elapsed = 0; escapeT = 0; bustT = 0; startSiren(); renderHud(); }
   function stop() {
     if (state === 'chase' && elapsed > 3) { state = 'ended'; renderHud(); setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 7000); }
     else { state = 'idle'; renderHud(); }
-    clearCops(); banner.style.display = 'none';
+    clearCops(); stopSiren(); banner.style.display = 'none';
   }
 
   function escaped() {
@@ -144,21 +163,33 @@ export function createPoliceMode({ scene, getGroundY, getOrigin, audio }) {
     if (state !== 'chase') return;
     if (_pending) { _pending = false; spawnCops(playerPx, playerPz, headingDeg); fxBanner('<span style="font-size:30px;color:#ff5a5a">🚨 BUSTED? NOT YET — RUN!</span>', { duration: 1500, top: '30%' }); ding(440); }
     _t += dt; elapsed += dt;
-    if (!cops.length) return;
+    if (!cops.length) { if (_siren) { const c = audio.ctx(); _siren.g.gain.setTargetAtTime(0.015, c.currentTime, 0.2); } return; }
 
     // flashing light bar (shared material → all cops blink together)
     barMat.color.setHex(((_t * 5) | 0) % 2 ? 0xff2233 : 0x2a5cff);
 
     let nearest = Infinity;
     for (const cop of cops) {
-      const dx = playerPx - cop.x, dz = playerPz - cop.z;
-      const dl = Math.hypot(dx, dz) || 1;
-      cop.x += (dx / dl) * COP_SPEED * dt;
-      cop.z += (dz / dl) * COP_SPEED * dt;
-      cop.yaw = Math.atan2(dx, dz);
+      // Seek a slot on a ring AROUND the car (not the car itself) → they surround at STANDOFF instead of
+      // ramming/stacking. Slot drifts with a slow rotation so they weave rather than sit dead still.
+      cop.fang += dt * 0.35;
+      const tx = playerPx + Math.sin(cop.fang) * STANDOFF;
+      const tz = playerPz + Math.cos(cop.fang) * STANDOFF;
+      const dx = tx - cop.x, dz = tz - cop.z, dl = Math.hypot(dx, dz);
+      if (dl > 0.4) { const step = Math.min(COP_SPEED * dt, dl); cop.x += (dx / dl) * step; cop.z += (dz / dl) * step; }
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
-      cop.group.rotation.y = cop.yaw;
-      if (dl < nearest) nearest = dl;
+      cop.group.rotation.y = Math.atan2(playerPx - cop.x, playerPz - cop.z);   // face the car
+      const pd = Math.hypot(playerPx - cop.x, playerPz - cop.z);
+      if (pd < nearest) nearest = pd;
+    }
+    // Show cops on the minimap (red blips).
+    getMinimap?.()?.setBlips?.(cops.map((cop) => { const w = worldFromScene(cop.x, cop.z); return { wx: w.wx, wz: w.wz, color: '#ff3b3b' }; }));
+
+    // siren — two-tone nee-naw, louder as the nearest cop closes in
+    if (_siren) {
+      const c = audio.ctx();
+      _siren.osc.frequency.setTargetAtTime(((_t * 1.4) | 0) % 2 ? 900 : 620, c.currentTime, 0.03);
+      _siren.g.gain.setTargetAtTime(0.035 + 0.07 * Math.max(0, 1 - nearest / 130), c.currentTime, 0.12);
     }
 
     // wanted rises while a cop is in heat range (faster the closer); slowly cools otherwise.

@@ -394,7 +394,7 @@ spawnTileReady.finally(() => {
           audio,
         });
         policeMode = createPoliceMode({
-          scene,
+          scene, getMinimap: () => minimap,
           getGroundY: (wx, wz) => { const s = tileManager.getSurfaceHeightAt?.(wx, wz); return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : (tileManager.getTerrainHeightAt?.(wx, wz) ?? 0); },
           getOrigin: getOriginOffset,
           audio,
