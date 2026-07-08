@@ -351,12 +351,28 @@ const _V3 = CANNON.Vec3;
 const _BOX_FACES = [[3, 2, 1, 0], [4, 5, 6, 7], [5, 4, 0, 1], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]];
 const _BOX_NORMALS = [new _V3(0, 0, -1), new _V3(0, 0, 1), new _V3(0, -1, 0), new _V3(0, 1, 0), new _V3(-1, 0, 0), new _V3(1, 0, 0)];
 const _BOX_AXES = [new _V3(0, 0, 1), new _V3(0, 1, 0), new _V3(1, 0, 0)];
+// A box's uniqueEdges are ALWAYS these 6 directions. cannon-es computeEdges dedups WITHOUT a negation check
+// (a known quirk — the `almostEquals(edge) || almostEquals(edge)` line), so it keeps both signs: ±x, ±y, ±z.
+// Derived by hand from _BOX_FACES above and verified to match computeEdges()'s output order byte-for-byte.
+// uniqueEdges is read-only during simulation (SAT copies each edge into a scratch Vec3, never mutates it),
+// so ALL boxes safely share this ONE frozen template instead of each cloning 6 Vec3 at construction.
+const _BOX_EDGES = [
+  new _V3(-1, 0, 0), new _V3(0, 1, 0), new _V3(1, 0, 0),
+  new _V3(0, -1, 0), new _V3(0, 0, 1), new _V3(0, 0, -1),
+];
+// ConvexPolyhedron whose per-box edge computation is replaced by the shared template. The base constructor
+// ends with `this.computeEdges()` (dynamic dispatch → our override), so no per-box edge Vec3 are ever
+// allocated. Per-box vertices (its own worldVertices cache) are unchanged → collisions are byte-identical to
+// a plain box. Kills the cannon-es computeEdges allocator (~9% of runtime GC garbage).
+class CheapBox extends CANNON.ConvexPolyhedron {
+  computeEdges() { this.uniqueEdges = _BOX_EDGES; }
+}
 function makeCheapBox(hx, hy, hz) {
   const vertices = [
     new _V3(-hx, -hy, -hz), new _V3(hx, -hy, -hz), new _V3(hx, hy, -hz), new _V3(-hx, hy, -hz),
     new _V3(-hx, -hy, hz), new _V3(hx, -hy, hz), new _V3(hx, hy, hz), new _V3(-hx, hy, hz),
   ];
-  return new CANNON.ConvexPolyhedron({
+  return new CheapBox({
     vertices, faces: _BOX_FACES, normals: _BOX_NORMALS, axes: _BOX_AXES,
     boundingSphereRadius: Math.sqrt(hx * hx + hy * hy + hz * hz),
   });
