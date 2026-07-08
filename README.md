@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img alt="Three.js"   src="https://img.shields.io/badge/Three.js-r160-000000?logo=three.js&logoColor=white">
+  <img alt="Three.js"   src="https://img.shields.io/badge/Three.js-r183-000000?logo=three.js&logoColor=white">
   <img alt="cannon-es"  src="https://img.shields.io/badge/physics-cannon--es-1f6feb">
   <img alt="Vite"       src="https://img.shields.io/badge/build-Vite-646CFF?logo=vite&logoColor=white">
   <img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-vanilla-F7DF1E?logo=javascript&logoColor=black">
@@ -44,9 +44,18 @@ Built with **vanilla JavaScript + [Three.js](https://threejs.org/)** (no framewo
 - 🌗 **Day / night** toggle that re-lights the whole scene — streetlights, vehicle lights, warm ambience → cool moonlight — with a smooth transition.
 - 🎬 **Filmic colour grade** and post-processing.
 
+**Play**
+- 🆓 **Free roam** — just drive the whole city.
+- 🚕 **Taxi** — pick up fares with a cinematic pickup/drop-off (a passenger walks to the car), earn money.
+- 📦 **Rush Hour** — timed deliveries with a nav arrow, streak multiplier and cargo integrity.
+- 🚨 **Heat** — a police pursuit: lose the cops before they bust you, with sirens and on-map blips.
+- 🏁 **Checkpoint Dash** — chase gates against the clock.
+- 💰 **Economy** — a global wallet (saved locally) earned from jobs, spent on car-colour unlocks in the garage.
+
 **Shell & UX**
 - ▶️ **Title screen** with a grayscale → colour reveal, and a branded **loading screen** with rotating Barcelona facts.
 - ⚙️ **In-game settings** (ESC) — global place search + spawn, car colour, sound, fly-mode, stats overlay.
+- 🗺️ **Custom minimap** — a self-drawn vector map of the whole city (roads, water, parks, district + street labels), loaded from one compact pre-generated file.
 - 🛰️ **Free-fly camera** for exploring the map without the car.
 
 **Engine**
@@ -120,7 +129,7 @@ cd frontend && npm run dev
 
 Open **http://localhost:4040**.
 
-> **Port note:** the backend hard-codes `Access-Control-Allow-Origin: http://localhost:4040`, and Vite serves on `4040`. If you change one, change both (`backend/server.js` and the Vite config).
+> **Port note:** the backend's CORS allowlist defaults to `http://localhost:4040` (where Vite serves). Override it with the `ALLOWED_ORIGINS` env var — see [`backend/.env.example`](backend/.env.example).
 
 ---
 
@@ -133,6 +142,9 @@ Open **http://localhost:4040**.
 | **A** / ← , **D** / → | Steer |
 | **Space** | Handbrake — hold while turning to drift |
 | **H** | Horn |
+| **L** | Toggle headlights |
+| **M** | Expand / collapse the map |
+| **R** | Recover (flip upright / unstick) |
 | **Esc** | Settings (spawn search, car colour, sound, fly mode) |
 
 ### URL toggles
@@ -172,6 +184,24 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 After re-baking, clear the browser tile cache: run `window._clearTileCache()` in the dev console and hard-reload, or stale tiles will be served.
 
 > Re-baking is expensive and can invalidate runtime assumptions about baked elevation. Read [`docs/context/bake-pipeline.md`](docs/context/bake-pipeline.md) before changing the pipeline.
+
+---
+
+## 🚢 Deploying
+
+The whole app is **static** — a Vite-built frontend plus pre-baked tiles — so there's no database or per-user
+server state to run. Two paths:
+
+- **Pure static CDN (cheapest)** — build with `VITE_STATIC_TILES=1` and serve the frontend + tiles as plain
+  files from an object store / CDN, no server. On a zero-egress host (e.g. Cloudflare R2 + Pages) the cost is
+  ~pennies of storage even at scale.
+- **Node server** — run `backend/server.js` with `NODE_ENV=production` (immutable caching, env-driven CORS).
+
+The minimap loads the whole city from a single pre-generated file (`node backend/tools/buildCityMap.js`,
+~0.5 MB gzipped) rather than streaming the full tile set. Build-time config lives in
+[`frontend/.env.example`](frontend/.env.example) / [`backend/.env.example`](backend/.env.example).
+
+**Full steps, hosting options and the production checklist are in [`DEPLOY.md`](DEPLOY.md).**
 
 ---
 
