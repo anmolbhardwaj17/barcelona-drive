@@ -20,13 +20,14 @@ const COL_PICK = 0x35b0ff;   // blue depot
 const COL_DROP = 0xff8a33;   // orange drop-off
 const CRASH_DROP = 26;       // km/h lost in one frame ⇒ a hard hit (damages the parcel)
 const SPEED_FACTOR = 13;     // deadline seconds ≈ tripDist / this
+const STOP_SPEED = 6;        // km/h — slow to a near-stop at the marker to load/drop
 
 export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments, getGroundY, getOrigin, audio }) {
   let state = 'idle';           // idle | toPickup | toDropoff | ended
   let target = null;
   let streak = 0, best = 0, earned = 0, deliveries = 0;
   let deadline = 0, timeLeft = 0, integrity = 1, tripDist = 0, basePay = 0;
-  let lastSpeed = 0, _t = 0, _pending = false;
+  let lastSpeed = 0, _t = 0, _pending = false, _lastPx = 0, _lastPz = 0, _hintT = 0;
 
   const sceneX = (wx) => -(wx - getOrigin().x);
   const sceneZ = (wz) => wz - getOrigin().z;
@@ -148,6 +149,7 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
   function stop() {
     if (deliveries > 0) { state = 'ended'; renderHud(); setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 8000); }
     else { state = 'idle'; renderHud(); }
+    cine = null; parcelMesh.visible = false;
     target = null; markerGroup.visible = false; nav.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
   }
 
@@ -166,17 +168,86 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     newPickup(carPx, carPz);
   }
 
-  function update(carPx, carPz, dt, speedKmh) {
+  // ── Cinematic b-roll for parcel load / drop-off (car freezes, camera orbits, a parcel box lifts/sets) ──
+  const parcelGeo = new THREE.BoxGeometry(0.85, 0.72, 0.95);
+  const parcelMat = new THREE.MeshLambertMaterial({ color: 0xb98a4e });
+  const parcelMesh = new THREE.Mesh(parcelGeo, parcelMat);
+  parcelMesh.visible = false; parcelMesh.frustumCulled = false; parcelMesh.castShadow = false;
+  scene.add(parcelMesh);
+  let cine = null;
+  const _camTgt = new THREE.Vector3();
+
+  function startCine(mode, carPx, carPz, headingDeg) {
+    const h = (headingDeg || 0) * Math.PI / 180;
+    const side = { x: Math.cos(h), z: -Math.sin(h) };
+    const w = worldFromScene(carPx, carPz);
+    const carGY = getGroundY ? (getGroundY(w.wx, w.wz) || 0) : 0;
+    cine = { mode, t: 0, dur: 2.5, carX: carPx, carZ: carPz, carGY,
+             dropX: carPx + side.x * 2.4, dropZ: carPz + side.z * 2.4, baseAngle: h + Math.PI * 0.5 };
+    state = mode === 'load' ? 'loading' : 'unloading';
+    markerGroup.visible = false; nav.style.display = 'none'; parcelMesh.visible = true;
+    fxBanner(`<span style="font-size:26px;color:${mode === 'load' ? '#35b0ff' : '#ff8a33'}">📦 ${mode === 'load' ? 'Loading parcel…' : 'Delivering…'}</span>`, { duration: 1100, top: '28%' });
+  }
+  function updateCine(dt) {
+    const c = cine; c.t += dt;
+    const k = Math.min(1, c.t / c.dur);
+    if (c.mode === 'load') {   // parcel lifts from the kerb into the car, then hides (loaded)
+      parcelMesh.position.set(c.dropX + (c.carX - c.dropX) * k, c.carGY + 0.4 + k * 0.7, c.dropZ + (c.carZ - c.dropZ) * k);
+      parcelMesh.rotation.y = k * 3.2;
+      parcelMesh.visible = k < 0.88;
+    } else {                    // parcel set down at the kerb
+      parcelMesh.position.set(c.dropX, c.carGY + 0.36, c.dropZ);
+      parcelMesh.rotation.y = 0.3;
+    }
+    const ang = c.baseAngle + c.t * 0.3;
+    camera.position.set(c.carX + Math.sin(ang) * 8, c.carGY + 2.7, c.carZ + Math.cos(ang) * 8);
+    _camTgt.set(c.carX + (c.dropX - c.carX) * 0.4, c.carGY + 0.85, c.carZ + (c.dropZ - c.carZ) * 0.4);
+    camera.lookAt(_camTgt);
+    if (c.t >= c.dur) finishCine();
+  }
+  function finishCine() {
+    const mode = cine.mode; cine = null; parcelMesh.visible = false;
+    if (mode === 'load') beginDropoff(); else payoutDelivery();
+  }
+  function isCinematic() { return state === 'loading' || state === 'unloading'; }
+  function hintSlow() { if (_t - _hintT < 2.5) return; _hintT = _t; fxBanner('<span style="font-size:20px;color:#ffd23f">Slow to a stop</span>', { duration: 900, top: '30%' }); }
+
+  function beginDropoff() {
+    const drop = pickRoad(target.wx, target.wz, TRIP_MIN, TRIP_MAX) || pickRoad(target.wx, target.wz, 60, 900);
+    if (drop) {
+      tripDist = Math.hypot(drop.wx - target.wx, drop.wz - target.wz);
+      deadline = Math.max(10, tripDist / SPEED_FACTOR); timeLeft = deadline;
+      basePay = Math.round(5 + tripDist * 0.03); integrity = 1;
+      target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
+      getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(680);
+      fxBanner('<span style="font-size:30px;color:#35b0ff">📦 PARCEL LOADED — GO!</span>', { duration: 1300, top: '30%' });
+    } else { state = 'toPickup'; }
+    renderHud();
+  }
+  function payoutDelivery() {
+    const payout = Math.round(basePay * streakMult() * integrity);
+    earned += payout; deliveries += 1; streak += 1;
+    if (streak > best) { best = streak; try { localStorage.setItem(bestKey, String(best)); } catch {} }
+    wallet.add(payout);
+    const perfect = integrity > 0.95;
+    fxBanner(`<div style="font-size:28px;color:#8ef0b0">${perfect ? '✨ PERFECT DELIVERY' : '📦 DELIVERED'}</div>` +
+             `<div style="font-size:46px;color:#ffd23f;margin-top:2px">+$${payout}</div>` +
+             (streak > 1 ? `<div style="font-size:18px;color:#ff8a33">🔥 ${streak} streak ×${streakMult().toFixed(1)}</div>` : ''), { duration: 1700, top: '30%' });
+    fxConfetti(perfect ? 34 : 22, ['#ffd23f', '#8ef0b0', '#ffffff'], 0.4);
+    fxFlash('rgba(255,210,63,.14)'); ding(880); setTimeout(() => ding(1046), 100);
+    renderHud(); newPickup(_lastPx, _lastPz);
+  }
+
+  function update(carPx, carPz, dt, speedKmh, headingDeg) {
+    _lastPx = carPx; _lastPz = carPz;
+    if (state === 'loading' || state === 'unloading') { _t += dt; updateCine(dt); return; }
     if (state !== 'toPickup' && state !== 'toDropoff') return;
     if (_pending) { _pending = false; newPickup(carPx, carPz); if (state === 'idle') return; }
     _t += dt;
     if (markerGroup.visible) { const s = 1 + Math.sin(_t * 4) * 0.07; ringMesh.scale.set(s, s, s); ringMesh.rotateZ(dt * 1.4); }
 
     if (state === 'toDropoff') {
-      // Parcel damage from hard impacts (a big sudden speed loss = a crash).
-      if ((lastSpeed || 0) - (speedKmh || 0) > CRASH_DROP) {
-        integrity = Math.max(0.15, integrity - 0.2); ding(200); fxFlash('rgba(255,80,80,.14)');
-      }
+      if ((lastSpeed || 0) - (speedKmh || 0) > CRASH_DROP) { integrity = Math.max(0.15, integrity - 0.2); ding(200); fxFlash('rgba(255,80,80,.14)'); }
       timeLeft -= dt;
       if (timeLeft <= 0) { failDelivery(carPx, carPz); lastSpeed = speedKmh || 0; return; }
     }
@@ -185,30 +256,8 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     if (target) {
       const gx = sceneX(target.wx), gz = sceneZ(target.wz);
       if (Math.hypot(carPx - gx, carPz - gz) < HIT_RADIUS) {
-        if (state === 'toPickup') {
-          const drop = pickRoad(target.wx, target.wz, TRIP_MIN, TRIP_MAX) || pickRoad(target.wx, target.wz, 60, 900);
-          if (drop) {
-            tripDist = Math.hypot(drop.wx - target.wx, drop.wz - target.wz);
-            deadline = Math.max(10, tripDist / SPEED_FACTOR); timeLeft = deadline;
-            basePay = Math.round(5 + tripDist * 0.03); integrity = 1;
-            target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
-            getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(680);
-            fxBanner('<span style="font-size:30px;color:#35b0ff">📦 PARCEL LOADED — GO!</span>', { duration: 1300, top: '30%' });
-          }
-        } else {
-          // delivered on time
-          const payout = Math.round(basePay * streakMult() * integrity);
-          earned += payout; deliveries += 1; streak += 1;
-          if (streak > best) { best = streak; try { localStorage.setItem(bestKey, String(best)); } catch {} }
-          wallet.add(payout);
-          const perfect = integrity > 0.95;
-          fxBanner(`<div style="font-size:28px;color:#8ef0b0">${perfect ? '✨ PERFECT DELIVERY' : '📦 DELIVERED'}</div>` +
-                   `<div style="font-size:46px;color:#ffd23f;margin-top:2px">+$${payout}</div>` +
-                   (streak > 1 ? `<div style="font-size:18px;color:#ff8a33">🔥 ${streak} streak ×${streakMult().toFixed(1)}</div>` : ''), { duration: 1700, top: '30%' });
-          fxConfetti(perfect ? 34 : 22, ['#ffd23f', '#8ef0b0', '#ffffff'], 0.4);
-          fxFlash('rgba(255,210,63,.14)'); ding(880); setTimeout(() => ding(1046), 100);
-          newPickup(carPx, carPz);
-        }
+        if ((speedKmh || 0) > STOP_SPEED) hintSlow();
+        else startCine(state === 'toPickup' ? 'load' : 'unload', carPx, carPz, headingDeg);
       }
     }
     updateLiveHud();
@@ -218,8 +267,8 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
   renderHud();
   return {
     name: 'Rush Hour', icon: '📦', key: 'delivery',
-    update, start, stop,
-    dispose() { stop(); hud.remove(); timerEl.remove(); nav.remove(); scene.remove(markerGroup); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
-    isRunning: () => state === 'toPickup' || state === 'toDropoff',
+    update, start, stop, isCinematic,
+    dispose() { stop(); hud.remove(); timerEl.remove(); nav.remove(); scene.remove(markerGroup); scene.remove(parcelMesh); parcelGeo.dispose(); parcelMat.dispose(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    isRunning: () => state === 'toPickup' || state === 'toDropoff' || state === 'loading' || state === 'unloading',
   };
 }
