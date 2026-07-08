@@ -176,7 +176,7 @@ export function createCustomMap() {
     const showMid = z >= 15, showMinor = z >= 16, showPath = z >= 17;
     const showBuildings = z >= 16;
     const showDistricts = z <= 16;      // broad overview
-    const showStreets = z >= 18;        // street names once zoomed in (keeps the small z17 circle clean)
+    const showStreets = z >= 17;        // street names at default zoom+ (both the circle minimap and expanded)
 
     ctx.fillStyle = S.ground;
     ctx.fillRect(0, 0, size, size);
@@ -303,7 +303,7 @@ export function createCustomMap() {
 
     // 4b. street names — written ALONG the road (rotated to the road angle), major+mid at z17, minor at z18+.
     if (showStreets) {
-      const allowMinor = z >= 19;
+      const allowMinor = z >= 18;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
       const seen = new Set();
       for (const t of vis) {
