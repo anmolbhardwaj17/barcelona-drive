@@ -47,6 +47,37 @@ Upload:
 storage. Set the object store / CDN to serve `.bin` with a long, immutable `Cache-Control` and gzip/brotli on.
 **Purge the CDN cache after any re-bake** (tiles are cached as immutable).
 
+### Cloudflare (R2 + Pages) — concrete steps  ⭐ recommended
+
+Zero egress fees, so it stays free even at scale — the best fit for a bandwidth-heavy static app.
+
+1. **App → Cloudflare Pages.** Connect the GitHub repo. Build command `npm run build`, output dir
+   `frontend/dist`, and set build env vars: `VITE_TILE_REGION=barcelona`, `VITE_STATIC_TILES=1`, and
+   `VITE_MAP_API=https://tiles.yourgame.com` (your R2 custom domain from step 2). Pages gives you HTTPS + CDN.
+
+2. **Tiles → R2.** Create a bucket, attach a **custom domain** (e.g. `tiles.yourgame.com` — R2's `r2.dev` URL is
+   rate-limited, don't use it in prod), and upload with the S3-compatible API (R2 works with the `aws` CLI):
+
+   ```bash
+   R2=https://<account_id>.r2.cloudflarestorage.com     # your R2 S3 endpoint
+   B=barcelona-drive-tiles ; REGION=barcelona
+   cd backend && node tools/buildCityMap.js $REGION 16
+   gzip -9 -c tiles/$REGION/citymap.bin > /tmp/citymap.bin.gz
+
+   aws s3 sync tiles/$REGION/16/ s3://$B/tiles/$REGION/16/ --endpoint-url $R2 \
+     --content-type application/octet-stream --cache-control "public,max-age=31536000,immutable"
+   aws s3 cp /tmp/citymap.bin.gz s3://$B/tiles/$REGION/citymap.bin --endpoint-url $R2 \
+     --content-type application/octet-stream --content-encoding gzip \
+     --cache-control "public,max-age=31536000,immutable"
+   ```
+
+3. **R2 CORS** — allow the Pages origin so the browser can fetch tiles cross-subdomain. In the bucket's CORS
+   policy: `AllowedOrigins: ["https://yourgame.com"]`, `AllowedMethods: ["GET"]`. (Or serve app + tiles from the
+   same domain via a Pages Function with an R2 binding for zero CORS.) **Purge the cache after any re-bake.**
+
+Cost: R2 storage for ~580 MB is well under the 10 GB free tier; egress is free; Pages bandwidth is free. So
+this is effectively **$0/month** at any realistic scale.
+
 ### AWS (S3 + CloudFront) — concrete steps
 
 Everything lives in **one S3 bucket** behind **one CloudFront distribution**, so the app and tiles are
