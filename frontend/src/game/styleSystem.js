@@ -39,8 +39,6 @@ const SPEED_RATE     = 22;
 
 const WRECK_DROP_KMH = 25;    // single-frame speed loss this big = a wreck (wall hit, not braking)
 
-const MAX_SHAKE_M    = 0.28;  // camera shake at full trauma
-const TRAUMA_DECAY   = 1.9;   // trauma units per second
 
 // ── Drift chain — hold/link a slide to climb tiers; longer = exponentially more points ("keep it lit"). ──
 const DRIFT_GRACE    = 1.25;  // s the chain survives a brief straighten → link corners without losing it
@@ -136,7 +134,6 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
   const dc = { active: false, time: 0, points: 0, tier: 0, grace: 0 };
   let airT = 0;             // current airborne time
   let prevSpeed = 0;
-  let trauma = 0;
   let runXp = 0;            // style XP earned this session
   const tracked = new Map(); // entity -> min distance seen while in the near-miss zone
   const _nmHere = new Set(); // reused each near-miss scan (no per-frame Set alloc)
@@ -165,7 +162,10 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
   const sfxLevel = () => { blip(523, 523, 0.10, 0.16, 'sine'); blip(659, 659, 0.10, 0.16, 'sine'); blip(784, 784, 0.26, 0.17, 'sine'); }; // C-E-G rise
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
-  function addTrauma(a) { trauma = Math.min(1, trauma + a); }
+  // No-op: camera shake is owned by carCamera (smooth sine-noise, cancelled before its lerp). Adding an
+  // external offset to camera.position here fed back into that lerp and caused stutter — so we don't. Kept as
+  // a stub so the "punchy moment" call-sites read intent; wire to a carCamera.addShake() later if desired.
+  function addTrauma(_a) { /* intentionally empty — see note above */ }
   function fmt(n) { return Math.round(n).toLocaleString(); }
 
   function popup(label, pts, cls) {
@@ -340,15 +340,6 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
       elDPts.textContent = fmt(dc.points);
       const frac = next ? Math.max(0, Math.min(1, (dc.time - T.t) / (next.t - T.t))) : 1;
       elDBar.style.transform = `scaleX(${frac})`;
-    }
-
-    // Screen shake — offset the camera AFTER carCam has positioned it this frame.
-    if (trauma > 0 && camera) {
-      const s = trauma * trauma * MAX_SHAKE_M;
-      camera.position.x += (Math.random() * 2 - 1) * s;
-      camera.position.y += (Math.random() * 2 - 1) * s * 0.7;
-      camera.position.z += (Math.random() * 2 - 1) * s;
-      trauma = Math.max(0, trauma - TRAUMA_DECAY * dt);
     }
   }
 
