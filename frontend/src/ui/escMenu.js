@@ -170,7 +170,7 @@ export function createEscMenu(refs = {}) {
         uiSound.click();
         gameModes.forEach((m) => { if (m !== e.mode) m.stop && m.stop(); });  // one at a time
         if (e.mode && e.mode.start) e.mode.start();
-        try { sessionStorage.setItem('dd_mode', e.mode ? (e.mode === gameModes[0] ? 'dash' : 'taxi') : 'free'); } catch {}
+        try { sessionStorage.setItem('dd_mode', e.mode ? (e.mode.key || 'free') : 'free'); } catch {}
         repaint();
         setOpen(false);  // drop back into the game to play the chosen mode
       });

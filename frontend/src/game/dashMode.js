@@ -390,7 +390,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
 
   renderHud();
   return {
-    name: 'Checkpoint Dash', icon: '🏁',
+    name: 'Checkpoint Dash', icon: '🏁', key: 'dash',
     update, start, stop,
     dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); againBtn.remove(); cdStyle.remove(); ringGeo.dispose(); haloGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
     isRunning: () => state === 'running' || state === 'countdown',

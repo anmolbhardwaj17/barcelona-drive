@@ -350,7 +350,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
 
   renderHud();
   return {
-    name: 'City Cab', icon: '🚕',
+    name: 'City Cab', icon: '🚕', key: 'taxi',
     update, start, stop, isCinematic,
     dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); toast.remove(); scene.remove(markerGroup); if (_pax) scene.remove(_pax.mesh); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
     isRunning: () => state === 'toPickup' || state === 'toDropoff' || state === 'boarding' || state === 'alighting',
