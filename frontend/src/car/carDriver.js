@@ -100,13 +100,19 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   window.addEventListener('keydown', _onRecoverKey);
 
   // ── Per-frame update ──────────────────────────────────────────────────────
-  function update(dt, skipCamera = false) {
+  function update(dt, cinematic = false) {
     // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter)
     world.step(1 / 60, Math.min(dt, 0.035), 3);
 
-    // 2. Read inputs → apply to vehicle
-    const state = controls.getState();
-    physics.applyInputs(state, dt);
+    // 2. Read inputs → apply to vehicle. During a game-mode cinematic, ignore input and pin the car in
+    //    place (zero velocities) so it can't creep while the b-roll plays.
+    if (cinematic) {
+      physics.chassisBody.velocity.set(0, 0, 0);
+      physics.chassisBody.angularVelocity.set(0, 0, 0);
+    } else {
+      const state = controls.getState();
+      physics.applyInputs(state, dt);
+    }
 
     // 3. Sync visual to chassis (pass dt, steer, speed for visual body lean)
     model.update(physics.chassisBody, physics.vehicle, dt, physics.getCurrentSteer(), physics.getSpeedKmh());
@@ -122,7 +128,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
                  physics.getSkidLevel ? physics.getSkidLevel() : 0);
 
     // 5. Chase camera (pass speed for reverse camera flip). Skipped while a game mode drives a cinematic.
-    if (!skipCamera) carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
+    if (!cinematic) carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
 
     // 5b. Recovery breadcrumb: record pose when upright + ≥3 wheels grounded (every 2 s)
     _resetCooldown = Math.max(0, _resetCooldown - dt);
