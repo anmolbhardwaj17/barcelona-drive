@@ -2,14 +2,17 @@
  * styleSystem — arcade "style" scoring that runs continuously while driving (all car modes, free-roam too).
  * Rewards the moment-to-moment fun a gamer wants: DRIFT, BIG AIR, NEAR MISS, and sustained SPEED build a
  * live combo multiplier with floating popups, screen shake, and sfx. When you ease off (or wreck), the combo
- * BANKS: style points convert to cash into the global wallet. Turns the whole city into a playground.
+ * BANKS: style points convert to driver XP (and can trigger a LEVEL UP). Turns the whole city into a playground.
  *
  * Decoupled by design: reads car state (drift/skid/wheels/speed) via params, queries traffic & pedestrians
- * through injected getNearby() accessors, and pays out via the shared wallet. No physics/render coupling.
+ * through injected getNearby() accessors, and awards XP via the xp singleton. No physics/render coupling.
  *
- *   const style = createStyleSystem({ camera, wallet, audio, getTraffic, getPedestrians });
+ *   const style = createStyleSystem({ camera, audio, getTraffic, getPedestrians });
  *   style.update(px, pz, dt, speedKmh, { drift, skid, wheels });   // every frame in car mode (skip cinematics)
+ *
+ * Tricks pay XP (driver progression), NOT money — cash stays tied to actual jobs (taxi/delivery/police).
  */
+import { xp } from './xp.js';
 
 // ── Tuning ──────────────────────────────────────────────────────────────────
 const COMBO_WINDOW   = 3.2;   // s of no events before the combo banks
@@ -36,12 +39,10 @@ const SPEED_RATE     = 22;
 
 const WRECK_DROP_KMH = 25;    // single-frame speed loss this big = a wreck (wall hit, not braking)
 
-const STYLE_TO_CASH  = 0.03;  // banked style points → dollars (keeps it a supplement, not a money printer)
-
 const MAX_SHAKE_M    = 0.28;  // camera shake at full trauma
 const TRAUMA_DECAY   = 1.9;   // trauma units per second
 
-export function createStyleSystem({ camera, wallet, audio, getTraffic, getPedestrians }) {
+export function createStyleSystem({ camera, audio, getTraffic, getPedestrians }) {
   // ── HUD ────────────────────────────────────────────────────────────────────
   if (!document.getElementById('dd-style-css')) {
     const st = document.createElement('style');
@@ -72,7 +73,7 @@ export function createStyleSystem({ camera, wallet, audio, getTraffic, getPedest
         opacity: 0; text-shadow: 0 3px 16px rgba(0,0,0,.6); }
       #dd-style-bank.show { animation: ddBank 1.4s ease forwards; }
       #dd-style-bank .big { font-size: 46px; color: #ffd21f; letter-spacing: 1px; }
-      #dd-style-bank .cash { font-size: 26px; color: #7dff9a; font-family: 'Poppins',sans-serif; font-weight:800; }
+      #dd-style-bank .cash { font-size: 26px; color: #c9a3ff; font-family: 'Poppins',sans-serif; font-weight:800; }
       @keyframes ddMultBump { 0%{transform:scale(1)} 40%{transform:scale(1.28)} 100%{transform:scale(1)} }
       @keyframes ddPop { 0%{opacity:0; transform:translateY(14px) scale(.8)} 15%{opacity:1; transform:translateY(0) scale(1.05)}
         30%{transform:scale(1)} 100%{opacity:0; transform:translateY(-40px) scale(1)} }
@@ -98,7 +99,7 @@ export function createStyleSystem({ camera, wallet, audio, getTraffic, getPedest
   let airT = 0;             // current airborne time
   let prevSpeed = 0;
   let trauma = 0;
-  let runCash = 0;          // cash earned this session (for possible HUD/debug)
+  let runXp = 0;            // style XP earned this session
   const tracked = new Map(); // entity -> min distance seen while in the near-miss zone
 
   // ── SFX (tiny synths on the sfx bus) ─────────────────────────────────────────
@@ -121,6 +122,7 @@ export function createStyleSystem({ camera, wallet, audio, getTraffic, getPedest
   const sfxCombo = () => blip(300 + mult * 42, 640 + mult * 60, 0.12, 0.13, 'triangle');
   const sfxBank  = () => { blip(660, 660, 0.10, 0.15, 'sine'); blip(988, 990, 0.22, 0.16, 'sine'); };
   const sfxWreck = () => blip(230, 55, 0.42, 0.18, 'sawtooth');
+  const sfxLevel = () => { blip(523, 523, 0.10, 0.16, 'sine'); blip(659, 659, 0.10, 0.16, 'sine'); blip(784, 784, 0.26, 0.17, 'sine'); }; // C-E-G rise
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   function addTrauma(a) { trauma = Math.min(1, trauma + a); }
@@ -156,12 +158,13 @@ export function createStyleSystem({ camera, wallet, audio, getTraffic, getPedest
       return;
     }
     const styled = Math.round(pool * mult);
-    const cash = Math.max(1, Math.round(styled * STYLE_TO_CASH));
-    wallet?.add?.(cash);
-    runCash += cash;
-    bank.innerHTML = `<div class="big">${fmt(styled)} STYLE</div><div class="cash">+ $${fmt(cash)}</div>`;
+    const res = xp.add(styled);        // tricks award XP (driver progression) — never cash
+    runXp += styled;
+    bank.innerHTML = res.leveledUp
+      ? `<div class="big">LEVEL UP</div><div class="cash">Lv ${res.level} · +${fmt(styled)} XP</div>`
+      : `<div class="big">+${fmt(styled)} XP</div><div class="cash">Lv ${res.level}</div>`;
     bank.classList.remove('show'); void bank.offsetWidth; bank.classList.add('show');
-    sfxBank();
+    if (res.leveledUp) { sfxLevel(); addTrauma(0.5); } else sfxBank();
     reset();
   }
 
@@ -272,5 +275,5 @@ export function createStyleSystem({ camera, wallet, audio, getTraffic, getPedest
     tracked.clear();
   }
 
-  return { update, dispose, addTrauma, getRunCash: () => runCash };
+  return { update, dispose, addTrauma, getRunXp: () => runXp };
 }

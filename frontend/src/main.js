@@ -55,7 +55,6 @@ import { createTaxiMode } from './game/taxiMode.js';
 import { createDeliveryMode } from './game/deliveryMode.js';
 import { createPoliceMode } from './game/policeMode.js';
 import { createStyleSystem } from './game/styleSystem.js';
-import { wallet } from './game/wallet.js';
 import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
@@ -402,9 +401,10 @@ spawnTileReady.finally(() => {
           getOrigin: getOriginOffset,
           audio,
         });
-        // Style & combo scoring — runs continuously in car mode (all game modes + free-roam), pays the wallet.
+        // Style & combo scoring — runs continuously in car mode (all game modes + free-roam). Awards XP
+        // (driver progression), NOT money — cash stays tied to jobs (taxi/delivery/police).
         styleSystem = createStyleSystem({
-          camera, wallet, audio,
+          camera, audio,
           getTraffic: () => trafficSystem,
           getPedestrians: () => pedestrians,
         });
@@ -557,7 +557,7 @@ function animate(time = 0) {
     if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (deliveryMode) deliveryMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (policeMode) policeMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
-    // Style scoring (drift / air / near-miss / speed → combo → wallet). Skip during pickup/drop cinematics.
+    // Style scoring (drift / air / near-miss / speed → combo → XP). Skip during pickup/drop cinematics.
     if (styleSystem && !(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.())) {
       styleSystem.update(lp.lx, lp.lz, frameDt, speedKmh, {
         drift: carDriver.getDriftFactor?.() || 0,
