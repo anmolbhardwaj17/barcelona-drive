@@ -23,6 +23,8 @@ const ESCAPE_HOLD = 7;       // s all cops beyond ESCAPE_DIST ⇒ escaped
 const CATCH_GAP = 4.5;       // cops stop pushing once this close (tuck in behind — don't ram/stack)
 const SLOW_RANGE = 16;       // within this they ease off full speed down to a stop at CATCH_GAP
 const SEP_DIST = 7;          // min gap between two cops (separation so they don't merge)
+const TURN_RATE = 2.6;       // rad/s max steering — cops can only drive FORWARD + turn (no sideways slide)
+const ACCEL = 3.0;           // how fast a cop's speed eases to its target
 const SPAWN_BEHIND = 42, SPAWN_SPREAD = 14;
 
 export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, audio }) {
@@ -56,7 +58,7 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
     const bl = new THREE.Mesh(barGeo, blueLightMat); bl.position.set(0.24, carH + 0.08, 0); g.add(bl);
     g.frustumCulled = false;
     scene.add(g);
-    return { group: g, x: 0, z: 0, yaw: 0 };
+    return { group: g, x: 0, z: 0, yaw: 0, speed: 0 };
   }
 
   // ── HUD ──
@@ -132,7 +134,10 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
       const cop = makeCop();
       cop.x = playerPx + back.x * SPAWN_BEHIND + side.x * off;
       cop.z = playerPz + back.z * SPAWN_BEHIND + side.z * off;
+      cop.yaw = Math.atan2(playerPx - cop.x, playerPz - cop.z);   // face the target
+      cop.speed = COP_SPEED * 0.6;
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
+      cop.group.rotation.y = cop.yaw;
       cops.push(cop);
     }
   }
@@ -176,20 +181,29 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
 
     let nearest = Infinity;
     for (const cop of cops) {
-      // Chase the car directly; ease off as we close the gap so we tuck in behind at CATCH_GAP instead of
-      // ramming/orbiting. Separation from other cops keeps them from merging while they close in.
       const dx = playerPx - cop.x, dz = playerPz - cop.z, dl = Math.hypot(dx, dz) || 1;
-      let sp = COP_SPEED;
-      if (dl < SLOW_RANGE) sp = COP_SPEED * Math.max(0, (dl - CATCH_GAP) / (SLOW_RANGE - CATCH_GAP));
-      let vx = (dx / dl) * sp, vz = (dz / dl) * sp;
+      // desired direction = toward the car + separation from nearby cops (so they spread, not merge)
+      let tgx = dx / dl, tgz = dz / dl;
       for (const o of cops) {
         if (o === cop) continue;
         const ox = cop.x - o.x, oz = cop.z - o.z, od = Math.hypot(ox, oz);
-        if (od > 0.01 && od < SEP_DIST) { const push = (SEP_DIST - od) * 3.0; vx += (ox / od) * push; vz += (oz / od) * push; }
+        if (od > 0.01 && od < SEP_DIST) { const w = (SEP_DIST - od) / SEP_DIST * 1.3; tgx += (ox / od) * w; tgz += (oz / od) * w; }
       }
-      cop.x += vx * dt; cop.z += vz * dt;
+      // steer the heading toward the desired direction at a limited rate (a car can't snap sideways)
+      const want = Math.atan2(tgx, tgz);
+      let da = want - cop.yaw; da = ((da + Math.PI) % (Math.PI * 2)) - Math.PI; if (da < -Math.PI) da += Math.PI * 2;
+      const maxTurn = TURN_RATE * dt;
+      cop.yaw += Math.max(-maxTurn, Math.min(maxTurn, da));
+      // target speed: full when far, ease to a stop as we tuck in behind; also back off when facing away
+      let tsp = COP_SPEED;
+      if (dl < SLOW_RANGE) tsp *= Math.max(0, (dl - CATCH_GAP) / (SLOW_RANGE - CATCH_GAP));
+      tsp *= Math.max(0.25, Math.cos(da));   // slow through hard turns instead of drifting sideways
+      cop.speed += (tsp - cop.speed) * Math.min(1, ACCEL * dt);
+      // drive FORWARD along the heading
+      cop.x += Math.sin(cop.yaw) * cop.speed * dt;
+      cop.z += Math.cos(cop.yaw) * cop.speed * dt;
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
-      cop.group.rotation.y = Math.atan2(dx, dz);   // face the car it's chasing
+      cop.group.rotation.y = cop.yaw;
       if (dl < nearest) nearest = dl;
     }
     // Show cops on the minimap (red blips).
