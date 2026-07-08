@@ -101,7 +101,9 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     _m.compose(_p, _q, _s);
     const idx = counts[variant]++;
     meshes[variant].setMatrixAt(idx, _m);
-    meshes[variant].setColorAt(idx, _col.setHex(colorHex));
+    // No per-car tint: the Kenney atlas already colours the body. Instance colour stays white so the texture
+    // shows through instead of being multiplied into a muddy over-tint. (colorHex kept for signature compat.)
+    meshes[variant].setColorAt(idx, _col.setHex(0xffffff));
 
     // Glowing lights, transformed by this car's matrix (_m still holds it).
     const L = lightLocals[variant];

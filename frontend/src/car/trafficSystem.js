@@ -62,16 +62,11 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
   let _enabled = true;
   let _templates = [];
 
-  // Shared per-(template,tint) materials — avoids cloning + disposing a material every spawn/despawn
-  // (that churn fed the GC). Keyed by tint hex (or -1 for liveried = untinted). Created once, reused.
-  const _matCache = [];
-  function getCarMaterial(tplIdx, tpl) {
-    if (!_matCache[tplIdx]) _matCache[tplIdx] = new Map();
-    const cache = _matCache[tplIdx];
-    const tintHex = LIVERIED.has(tpl.name) ? -1 : CAR_TINTS[(Math.random() * CAR_TINTS.length) | 0];
-    let m = cache.get(tintHex);
-    if (!m) { m = tpl.material.clone(); if (tintHex >= 0) m.color.setHex(tintHex); cache.set(tintHex, m); }
-    return m;
+  // Use the model's OWN textured material — the Kenney atlas already paints each car. We used to multiply a
+  // random tint on top, but the full-detail models aren't white-bodied (that assumption was wrong), so the
+  // tint over-tinted the already-coloured bodies into muddy shades. Shared per template (never disposed).
+  function getCarMaterial(_tplIdx, tpl) {
+    return tpl.material;
   }
 
   // Head/tail lights as TWO shared InstancedMeshes (was 4 loose child meshes per car ≈ 112 draws → 2).
@@ -232,7 +227,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
 
   function removeCar(car) {
     scene.remove(car.mesh);
-    // material is a SHARED per-(template,tint) singleton now — do NOT dispose it (other cars reuse it).
+    // material is the SHARED template material (tpl.material) — do NOT dispose it (other cars reuse it).
     world.removeBody(car.body);
   }
 
