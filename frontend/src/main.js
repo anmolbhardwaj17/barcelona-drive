@@ -53,6 +53,7 @@ import { createPedestrians } from './car/pedestrians.js';
 import { createDashMode } from './game/dashMode.js';
 import { createTaxiMode } from './game/taxiMode.js';
 import { createDeliveryMode } from './game/deliveryMode.js';
+import { createPoliceMode } from './game/policeMode.js';
 import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
@@ -177,6 +178,7 @@ let carDriver = null;
 let dashMode = null;
 let taxiMode = null;
 let deliveryMode = null;
+let policeMode = null;
 let recoverHint = null;
 let _flipT = 0;
 let _captureRequested = false;   // Photo Mode capture: read the canvas next render (declared early — animate() may run before the Photo Mode block)
@@ -391,6 +393,12 @@ spawnTileReady.finally(() => {
           getOrigin: getOriginOffset,
           audio,
         });
+        policeMode = createPoliceMode({
+          scene,
+          getGroundY: (wx, wz) => { const s = tileManager.getSurfaceHeightAt?.(wx, wz); return (s && Number.isFinite(s.surfaceY)) ? s.surfaceY : (tileManager.getTerrainHeightAt?.(wx, wz) ?? 0); },
+          getOrigin: getOriginOffset,
+          audio,
+        });
         // Mode is chosen on the title screen (dd_mode) and switchable from the ESC menu — no on-screen column.
         // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
         recoverHint = document.createElement('div');
@@ -437,7 +445,7 @@ spawnTileReady.finally(() => {
       colorPanelElement: document.getElementById('dd-car-color-panel'),
       metricsElements: [metricsPanel?.element, performancePanel?.element],
       carMode: ENABLE_CAR,   // resolved mode (URL ?mode outranks dd_flyMode) — for an honest Fly-mode toggle
-      gameModes: carDriver ? [dashMode, taxiMode, deliveryMode] : [],   // in-game mode switcher (empty in fly mode)
+      gameModes: carDriver ? [dashMode, taxiMode, deliveryMode, policeMode] : [],   // in-game mode switcher (empty in fly mode)
     });
     initTunnelDebug(); // reads ?debug=tunnel; no-op when absent
     initCollisionDebug(); // reads ?debug=collision; no-op when absent
@@ -462,6 +470,7 @@ spawnTileReady.finally(() => {
           if (chosen === 'dash') dashMode?.start?.();
           else if (chosen === 'taxi') taxiMode?.start?.();
           else if (chosen === 'delivery') deliveryMode?.start?.();
+          else if (chosen === 'police') policeMode?.start?.();
         } catch {}
       }
     }, 150);
@@ -538,6 +547,7 @@ function animate(time = 0) {
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
     if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (deliveryMode) deliveryMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
+    if (policeMode) policeMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     // Flipped-over hint (press R)
     if (recoverHint) {
       const upDot = carDriver.getUpDot?.() ?? 1;
