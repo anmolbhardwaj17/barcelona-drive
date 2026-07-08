@@ -192,16 +192,5 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
-  // Style-system signals: how hard the car is sliding, and how many wheels are on the ground (0 = airborne).
-  function getDriftFactor() { return physics.getDriftFactor ? physics.getDriftFactor() : 0; }
-  function getSkidLevel()   { return physics.getSkidLevel ? physics.getSkidLevel() : 0; }
-  function getWheelsInContact() {
-    const wi = physics.vehicle?.wheelInfos;
-    if (!wi) return 4;
-    let n = 0;
-    for (let i = 0; i < wi.length; i++) if (wi[i].isInContact) n++;
-    return n;
-  }
-
-  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), getDriftFactor, getSkidLevel, getWheelsInContact, dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.() };
+  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.() };
 }

@@ -21,7 +21,6 @@ import { setCollisionDebugActive, isCollisionDebugActive } from '../collisionDeb
 import { setInputBlocked } from '../inputGate.js';
 import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
-import { xp } from '../game/xp.js';
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
@@ -200,25 +199,6 @@ export function createEscMenu(refs = {}) {
   _updWallet();
   wallet.onChange(_updWallet);
   page.appendChild(walletLine);
-
-  // ── Driver level + style XP (earned from tricks — drift/air/near-miss; separate from money) ──
-  const xpWrap = el('div');
-  xpWrap.style.cssText = 'margin:0 2px 12px 2px;';
-  const xpLine = el('div');
-  xpLine.style.cssText = 'font:800 18px "Lilita One",system-ui,sans-serif;color:#c9a3ff;text-shadow:0 2px 0 rgba(0,0,0,0.35);display:flex;justify-content:space-between;align-items:baseline;';
-  const xpTrack = el('div');
-  xpTrack.style.cssText = 'height:7px;margin-top:6px;border-radius:4px;background:rgba(255,255,255,0.14);overflow:hidden;';
-  const xpFill = el('div');
-  xpFill.style.cssText = 'height:100%;border-radius:4px;background:linear-gradient(90deg,#8b5cf6,#c9a3ff);transition:width .3s ease;';
-  xpTrack.appendChild(xpFill);
-  const _updXp = () => {
-    xpLine.innerHTML = `<span>🏅 Level ${xp.level()}</span><span style="font:700 13px 'Poppins',sans-serif;color:#a9a0c8;">${xp.total().toLocaleString()} XP · ${xp.xpToNext().toLocaleString()} to next</span>`;
-    xpFill.style.width = `${Math.round(xp.levelProgress() * 100)}%`;
-  };
-  _updXp();
-  xp.onChange(_updXp);
-  xpWrap.append(xpLine, xpTrack);
-  page.appendChild(xpWrap);
 
   const colorPanel = refs.colorPanelElement || document.getElementById('dd-car-color-panel');
   if (colorPanel) {

@@ -55,21 +55,9 @@ const SUSP_DAMPING_R    = 3.4;    // rebound damping — how fast suspension ext
 const SUSP_DAMPING_C    = 4.5;    // compression damping — bump absorption; high = harsh, low = wallowy.
 const SUSP_MAX_FORCE    = 130000; // N — suspension force clamp; raise if the heavier car bottoms out.
 const FRICTION_SLIP     = 4.5;    // tyre grip — lower = more slide/oversteer (RWD character); higher = stuck.
+const DRIFT_YAW_ASSIST  = 13000;  // N·m·(unit steer) — handbrake yaw torque; higher = tail swings out harder.
 const YAW_SPIN_DAMP     = 2600;   // N·m per (rad/s)² — quadratic anti-spin. Negligible in normal turns, firm on a
                                   // fishtail/spin. OFF during handbrake so deliberate drift stays free. Raise to tame oversteer more.
-// ── Arcade drift (Space) ── an AUTHORED slide: steer the velocity + yaw directly instead of via tyre friction,
-// so the drift is big, holdable and catchable (proper arcade feel, not finicky sim grip). See applyInputs().
-const DRIFT_MIN_KMH     = 14;     // below this a handbrake tap just slows; above it initiates a slide
-const DRIFT_OVERSTEER   = 4.4;    // self-yaw per rad of slip — the rear "wants to come around". THIS makes it a
-                                  // drift not a slide; must exceed DRIFT_GRIP so an initiated slide self-sustains.
-const DRIFT_STEER_AUTH  = 3.2;    // rad/s — player steering authority in a drift (steer-in deepens, counter catches)
-const DRIFT_YAW_RATE    = 3.4;    // rad/s — hard clamp on drift yaw rate so a flick can't instantly spin
-const DRIFT_YAW_LERP    = 8;      // how quickly yaw follows the target (snappy tail-out / counter-steer response)
-const DRIFT_GRIP        = 2.1;    // /s — base rate momentum chases the nose; balances oversteer at the held angle
-const DRIFT_SLIP_LIMIT  = 0.95;   // rad (~54°) — the held drift angle band; grip ramps hard past it (anti-spin)
-const DRIFT_SCRUB       = 0.24;   // speed shed per rad-of-slip per second (drift feels weighty, not frictionless)
-const DRIFT_ACCEL       = 9;      // m/s² throttle adds to slide speed (brake subtracts) — player paces the drift
-const DRIFT_WHEEL_GRIP  = 1.1;    // tyre frictionSlip while drifting — low so wheels don't fight the authored slide
 const ROLL_INFLUENCE    = 0.08;   // weight transfer in turns — higher = more lean/flip risk; keep low.
 const BASE_ENGINE_FORCE = 4800;   // N — drive force. Softened 6000→4800 for a city-car feel (~5.5s 0–100 vs supercar ~4s) so you DWELL in the 40-90 range instead of teleporting past it.
 const BRAKE_FORCE       = 420;    // N — per-wheel braking (was 600: overshot → stoppie/rear-lift). Nose dips, rear stays planted.
@@ -179,7 +167,6 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
   let _isBraking = false;
   let _skidLevel = 0;   // 0..1 tyre-slip for skid marks + smoke: real sideways slide OR handbrake OR hard braking
   let _handbraking = false;
-  let _arcadeDrift = false;   // true while an authored handbrake slide is active (velocity/yaw steered directly)
   let _currentGear = 1;
   let _currentRpm = IDLE_RPM;
   let _shiftTimer = 0;  // cooldown after gear change
@@ -311,8 +298,8 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
       // Handbrake — lock rear wheels, free front for steering
       vehicle.setBrake(0, 0);
       vehicle.setBrake(0, 1);
-      vehicle.setBrake(BRAKE_FORCE * 1.25, 2); // just enough to break rear traction — light so the car KEEPS speed
-      vehicle.setBrake(BRAKE_FORCE * 1.25, 3); // through the slide (2.2× was hauling it to a stop → drift died)
+      vehicle.setBrake(BRAKE_FORCE * 2.2, 2); // break rear traction but DON'T halt the car — keeps drift momentum
+      vehicle.setBrake(BRAKE_FORCE * 2.2, 3);
     } else if (_burnout) {
       // Burnout: clamp the front wheels so the car stays put; leave the rears free to spin under power.
       vehicle.setBrake(BRAKE_FORCE * 3.0, 0);
@@ -346,92 +333,60 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     vehicle.setSteeringValue(_currentSteer, 0);
     vehicle.setSteeringValue(_currentSteer, 1);
 
+    // Drift — progressive rear grip reduction for smooth handbrake turns
     const absSteering = Math.abs(_currentSteer);
 
-    // Drift-commitment factor (0..1) for effects/sound/style — how deep into a handbrake slide we are.
-    const hbTarget = _handbraking ? Math.min(1, absSpeed / DRIFT_MIN_KMH) : 0;
-    _driftFactor += (hbTarget - _driftFactor) * Math.min(1, (_handbraking ? 7.0 : 3.0) * dt);
+    // Handbrake drift: ramp up smoothly, maintain momentum for smooth sliding
+    const hbTarget = _handbraking ? Math.min(1, absSpeed / 20) : 0;
+    const driftLerp = _handbraking ? 4.0 : 2.0; // build up faster, release slower
+    _driftFactor += (hbTarget - _driftFactor) * Math.min(1, driftLerp * dt);
 
-    // Downforce — grows with speed² for high-speed stability (both modes).
+    // Throttle-steer drift at high speed — kept SMALL so normal cornering stays planted (the car was
+    // tail-happy: rear grip dropped too much just from steering). Deliberate slides come from the handbrake.
+    const turnDrift = Math.min(0.1, (absSteering / MAX_STEER) * (absSpeed / 130));
+    const totalDrift = Math.min(1, _driftFactor + turnDrift);
+
+    // Rear grip — handbrake gives progressive slide, not instant lockup
+    const rearSlip = _burnout ? 1.1 : FRICTION_SLIP * (1 - totalDrift * 0.85); // burnout = near-zero rear grip → wheelspin
+    vehicle.wheelInfos[2].frictionSlip = rearSlip;
+    vehicle.wheelInfos[3].frictionSlip = rearSlip;
+
+    // Front tires keep strong grip for confident steering (slight understeer at limit)
+    const frontGripLoss = Math.min(0.5, absSteering * absSpeed / 250);
+    vehicle.wheelInfos[0].frictionSlip = FRICTION_SLIP - frontGripLoss;
+    vehicle.wheelInfos[1].frictionSlip = FRICTION_SLIP - frontGripLoss;
+
+    // Downforce — grows with speed squared for high-speed stability
     const speedMs = absSpeed / 3.6;
     _downForce.set(0, -DOWNFORCE_COEFF * speedMs * speedMs, 0);
     chassisBody.applyForce(_downForce, _zeroPoint);
 
-    _arcadeDrift = _handbraking && absSpeed > DRIFT_MIN_KMH;
-    if (_arcadeDrift) {
-      // ═══ ARCADE DRIFT ═════════════════════════════════════════════════════════════════════════════════
-      // Steer the velocity vector and yaw DIRECTLY instead of via tyre friction. Steering rotates the car
-      // (nose leads); momentum follows with a lag that IS the slide angle. Throttle paces it, counter-steer
-      // sets the angle, release Space to snap grip back. Big, holdable, catchable — proper arcade drift.
-      const v = chassisBody.velocity;
-      const sp = Math.hypot(v.x, v.z);                        // horizontal speed (m/s)
+    // Lateral stabilization — reduced during drift for smooth sliding
+    _right.set(1, 0, 0);
+    chassisBody.quaternion.vmult(_right, _right);
+    const lateralSpeed = _right.dot(chassisBody.velocity);
 
-      _fwd.set(0, 0, 1); chassisBody.quaternion.vmult(_fwd, _fwd);   // car forward (horizontal)
-      const carAng = Math.atan2(_fwd.x, _fwd.z);
-      const velAng = Math.atan2(v.x, v.z);
-      let slip = carAng - velAng;                             // signed slide angle
-      while (slip >  Math.PI) slip -= 2 * Math.PI;
-      while (slip < -Math.PI) slip += 2 * Math.PI;
+    // Tyre-slip level for skid marks + smoke. Restores marks on hard turns & braking (not just handbrake):
+    // real sideways slide, OR handbrake/steering drift, OR hard braking at speed (wheel lockup).
+    const _slideMag = Math.abs(lateralSpeed);
+    _skidLevel = Math.max(
+      totalDrift,                                    // handbrake + steering-induced drift
+      Math.min(1, _slideMag / 3),                    // sideways slide: ≥3 m/s → full
+      (brake > 0 && absSpeed > 18) ? Math.min(1, (absSpeed - 18) / 35) : 0, // hard braking lockup
+      _burnout ? 1 : 0                               // burnout wheelspin → full smoke + skid marks
+    );
+    const coastGrip = throttle === 0 && !_handbraking ? 1.3 : 1.0;
+    // During handbrake drift, dramatically reduce lateral damping so car slides freely
+    const driftRelease = _handbraking ? 0.15 : (1 - totalDrift * 0.4);
+    const dampFactor = LATERAL_DAMP * driftRelease * coastGrip;
+    _lateralForce.copy(_right);
+    _lateralForce.scale(-lateralSpeed * CHASSIS_MASS * dampFactor, _lateralForce);
+    chassisBody.applyForce(_lateralForce, _zeroPoint);
 
-      // 1) YAW — this is what makes it a DRIFT, not a slide. The slide is UNSTABLE: once the rear is out, the
-      //    slip angle itself generates yaw that grows the slide (OVERSTEER — the rear keeps coming around). You
-      //    must actively COUNTER-STEER to hold it on the edge of a spin. Steering-in deepens it, counter-steer
-      //    catches it. A flick of steer initiates; oversteer then self-sustains the angle even hands-off.
-      const speedF = Math.min(1, sp / 8);
-      const oversteerYaw = slip * DRIFT_OVERSTEER;             // destabilizing: the drift wants to come around
-      const steerYaw     = steer * DRIFT_STEER_AUTH * speedF;  // player: steer-in deepens, counter-steer holds/exits
-      let yawTarget = oversteerYaw + steerYaw;
-      const maxYaw = DRIFT_YAW_RATE * speedF;                  // clamp so a hard flick can't instantly spin
-      if (yawTarget >  maxYaw) yawTarget =  maxYaw;
-      else if (yawTarget < -maxYaw) yawTarget = -maxYaw;
-      const av2 = chassisBody.angularVelocity;
-      av2.y += (yawTarget - av2.y) * Math.min(1, DRIFT_YAW_LERP * dt);
-
-      // 2) VELOCITY REDIRECT — momentum chases the nose. Grip recovery RAMPS HARD past the slip limit: this is
-      //    the counter-force to oversteer, so the two balance at a big held angle instead of spinning out.
-      const over = Math.max(0, Math.abs(slip) / DRIFT_SLIP_LIMIT - 0.5);
-      const gripRate = DRIFT_GRIP * (1 + 4.0 * over);
-      const newVelAng = velAng + slip * Math.min(1, gripRate * dt);
-
-      // 3) SLIDE SPEED — scrub with slip angle; throttle adds, brake subtracts (player controls the pace).
-      let ns = sp * (1 - Math.min(0.6, Math.abs(slip) * DRIFT_SCRUB) * dt)
-             + (throttle * DRIFT_ACCEL - brake * DRIFT_ACCEL * 1.5) * dt;
-      if (ns < 0) ns = 0;
-      v.x = Math.sin(newVelAng) * ns;
-      v.z = Math.cos(newVelAng) * ns;
-
-      // wheels shouldn't fight the authored slide; kill the handbrake wheel-brake set earlier this frame.
-      for (let i = 0; i < 4; i++) { vehicle.setBrake(0, i); vehicle.wheelInfos[i].frictionSlip = DRIFT_WHEEL_GRIP; }
-
-      _skidLevel = Math.max(Math.min(1, Math.abs(slip) / 0.5), Math.min(0.5, sp / 24));
-    } else {
-      // ═══ NORMAL GRIP (not drifting) ═══════════════════════════════════════════════════════════════════
-      const totalDrift = Math.min(1, _driftFactor + Math.min(0.1, (absSteering / MAX_STEER) * (absSpeed / 130)));
-
-      // Rear grip — handbrake below the drift speed still eases grip; front stays strong for confident steering.
-      const rearSlip = _burnout ? 1.1 : FRICTION_SLIP * (1 - totalDrift * 0.85);
-      vehicle.wheelInfos[2].frictionSlip = rearSlip;
-      vehicle.wheelInfos[3].frictionSlip = rearSlip;
-      const frontGripLoss = Math.min(0.5, absSteering * absSpeed / 250);
-      vehicle.wheelInfos[0].frictionSlip = FRICTION_SLIP - frontGripLoss;
-      vehicle.wheelInfos[1].frictionSlip = FRICTION_SLIP - frontGripLoss;
-
-      // Lateral stabilization
-      _right.set(1, 0, 0);
-      chassisBody.quaternion.vmult(_right, _right);
-      const lateralSpeed = _right.dot(chassisBody.velocity);
-      const _slideMag = Math.abs(lateralSpeed);
-      _skidLevel = Math.max(
-        totalDrift,
-        Math.min(1, _slideMag / 3),                    // sideways slide: ≥3 m/s → full
-        (brake > 0 && absSpeed > 18) ? Math.min(1, (absSpeed - 18) / 35) : 0, // hard braking lockup
-        _burnout ? 1 : 0
-      );
-      const coastGrip = throttle === 0 ? 1.3 : 1.0;
-      const dampFactor = LATERAL_DAMP * (1 - totalDrift * 0.4) * coastGrip;
-      _lateralForce.copy(_right);
-      _lateralForce.scale(-lateralSpeed * CHASSIS_MASS * dampFactor, _lateralForce);
-      chassisBody.applyForce(_lateralForce, _zeroPoint);
+    // ── Arcade drift assist ── while handbraking + moving, add yaw torque toward the steering so the
+    // tail swings out and the car holds a controllable slide (flip the sign if it drifts the wrong way).
+    if (_handbraking && absSpeed > 4) {
+      chassisBody.torque.y += _currentSteer * Math.min(1, absSpeed / 35) * DRIFT_YAW_ASSIST;
     }
 
     // ── Anti-spin (stability) ── quadratic yaw-rate damping when NOT handbraking. Scales with yaw²,

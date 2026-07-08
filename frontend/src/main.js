@@ -54,7 +54,6 @@ import { createDashMode } from './game/dashMode.js';
 import { createTaxiMode } from './game/taxiMode.js';
 import { createDeliveryMode } from './game/deliveryMode.js';
 import { createPoliceMode } from './game/policeMode.js';
-import { createStyleSystem } from './game/styleSystem.js';
 import { audio } from './audio/audioManager.js';
 import { createContactShadows } from './car/contactShadows.js';
 import { updateDebugColliders } from './debugColliders.js';
@@ -184,7 +183,6 @@ let recoverHint = null;
 let _flipT = 0;
 let _captureRequested = false;   // Photo Mode capture: read the canvas next render (declared early — animate() may run before the Photo Mode block)
 let trafficSystem = null;
-let styleSystem = null;
 let parkedCars = null;
 let pedestrians = null;
 let contactShadows = null;
@@ -401,13 +399,6 @@ spawnTileReady.finally(() => {
           getOrigin: getOriginOffset,
           audio,
         });
-        // Style & combo scoring — runs continuously in car mode (all game modes + free-roam). Awards XP
-        // (driver progression), NOT money — cash stays tied to jobs (taxi/delivery/police).
-        styleSystem = createStyleSystem({
-          camera, audio,
-          getTraffic: () => trafficSystem,
-          getPedestrians: () => pedestrians,
-        });
         // Mode is chosen on the title screen (dd_mode) and switchable from the ESC menu — no on-screen column.
         // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
         recoverHint = document.createElement('div');
@@ -557,14 +548,6 @@ function animate(time = 0) {
     if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (deliveryMode) deliveryMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (policeMode) policeMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
-    // Style scoring (drift / air / near-miss / speed → combo → XP). Skip during pickup/drop cinematics.
-    if (styleSystem && !(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.())) {
-      styleSystem.update(lp.lx, lp.lz, frameDt, speedKmh, {
-        drift: carDriver.getDriftFactor?.() || 0,
-        skid: carDriver.getSkidLevel?.() || 0,
-        wheels: carDriver.getWheelsInContact?.() ?? 4,
-      });
-    }
     // Flipped-over hint (press R)
     if (recoverHint) {
       const upDot = carDriver.getUpDot?.() ?? 1;

@@ -482,8 +482,8 @@ export function createScene(container) {
   renderer.toneMapping = THREE.LinearToneMapping;
   renderer.toneMappingExposure = isRallyStyle() ? 1.5 : 1.25; // rally: brighter, airy high-key exposure
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
-  // PCFShadowMap: as of three r183 PCFSoftShadowMap is deprecated and the renderer auto-swaps it to this
-  // on first render anyway — set it directly so output is identical but without the console deprecation warning.
+  // PCFShadowMap: three r183 deprecated PCFSoftShadowMap and auto-swaps it to this on first render anyway —
+  // set it directly so output is identical but without the console deprecation warning.
   renderer.shadowMap.type = THREE.PCFShadowMap;
   const canvas = renderer.domElement;
   canvas.style.display = 'block';

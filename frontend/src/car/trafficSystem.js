@@ -388,18 +388,5 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
   function getCount() { return cars.length; }
   function dispose() { for (const car of cars) removeCar(car); cars.length = 0; }
 
-  // Nearby traffic cars (physics frame) within radius r of (px,pz) — for the style system's near-miss check.
-  // Reuses the persistent car objects (identity stable across frames → callers can track closest approach).
-  function getNearby(px, pz, r) {
-    const out = [];
-    const r2 = r * r;
-    for (const car of cars) {
-      const p = car.mesh.position;
-      const dx = p.x - px, dz = p.z - pz;
-      if (dx * dx + dz * dz <= r2) out.push(car);
-    }
-    return out;
-  }
-
-  return { update, setEnabled, getCount, getNearby, dispose };
+  return { update, setEnabled, getCount, dispose };
 }
