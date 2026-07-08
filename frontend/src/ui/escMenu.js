@@ -42,7 +42,7 @@ const CSS = `
 #dd-car-color-panel > div[style*="50%"]:hover { transform:translateY(-2px); }
 #dd-car-color-panel > div[style*="50%"].sel { border-color:#ffd23f !important; box-shadow:0 0 0 4px rgba(255,210,63,0.4), 0 5px 0 rgba(0,0,0,0.35) !important; }
 #dd-car-color-panel > div:not([style*="50%"]) { display:none !important; } /* hide the little speaker btn — Sound section handles it */
-.dd-esc-range { -webkit-appearance:none; appearance:none; width:240px; height:10px; border-radius:6px; background:rgba(0,0,0,0.4); border:2px solid rgba(0,0,0,0.28); outline:none; }
+.dd-esc-range { -webkit-appearance:none; appearance:none; width:240px; height:10px; border-radius:6px; background:rgba(255,255,255,0.18); border:2px solid rgba(255,255,255,0.14); outline:none; box-shadow:inset 0 1px 3px rgba(0,0,0,0.35); }
 .dd-esc-range::-webkit-slider-thumb { -webkit-appearance:none; width:26px; height:26px; border-radius:50%; background:linear-gradient(#ffe07a,#f5b32a); border:2px solid rgba(0,0,0,0.2); box-shadow:0 4px 0 #c88a10; cursor:pointer; }
 .dd-esc-range::-moz-range-thumb { width:24px; height:24px; border-radius:50%; background:#f5b32a; border:2px solid rgba(0,0,0,0.2); cursor:pointer; }
 .dd-esc-val { min-width:52px; color:#ffd23f; font-size:19px; text-shadow:0 2px 0 rgba(0,0,0,0.28); }
