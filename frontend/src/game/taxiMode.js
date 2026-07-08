@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
 import { loadPeopleWalkTemplates } from '../car/carModels.js';
+import { wallet } from './wallet.js';
 
 const HIT_RADIUS = 16;
 const STOP_SPEED = 6;                 // km/h — must be near-stopped at the marker to board/alight
@@ -137,6 +138,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
       const payout = Math.round(fareBase * (1 + tip));
       const gold = tip > 0.45;
       total += payout; fares += 1;
+      wallet.add(payout);   // → persistent balance you can spend in the colour shop
       fxBanner(`<div style="font-size:30px;color:#8ef0b0">${gold ? '⭐ FARE COMPLETE!' : '✅ DELIVERED!'}</div>` +
                `<div style="font-size:50px;color:#ffd23f;margin-top:2px">+$${payout}</div>`, { duration: 1900, top: '32%' });
       fxConfetti(gold ? 40 : 26, undefined, 0.4); fxFlash(gold ? 'rgba(255,210,63,.2)' : 'rgba(255,210,63,.13)');

@@ -10,6 +10,7 @@ import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
 import { audio } from '../audio/audioManager.js';
 import { isRallyStyle } from '../rallyStyle.js';
+import { wallet } from '../game/wallet.js';
 
 const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this so it matches the physics box
 // MUST match carPhysics CHASSIS_BOX_OFFSET_Y: the physics CoM/origin sits low and the collision box is
@@ -510,29 +511,82 @@ export async function createCarModel(scene) {
   colorLabel.style.cssText = 'color:#fff;font:12px sans-serif;';
   colorPanel.appendChild(colorLabel);
 
+  // Colours: first four are free; the rest unlock with taxi earnings (price in $). Owned colours persist.
   const CAR_PRESETS = [
-    { hex: '#0a0a0a', name: 'Black' },
-    { hex: '#e8e8e8', name: 'White' },
-    { hex: '#8c8c8c', name: 'Silver' },
-    { hex: '#1a3a6a', name: 'Blue' },
-    { hex: '#6a1a1a', name: 'Red' },
-    { hex: '#1a4a1a', name: 'Green' },
-    { hex: '#f0c020', name: 'Yellow' },
-    { hex: '#f06020', name: 'Orange' },
+    { hex: '#0a0a0a', name: 'Black',  price: 0 },
+    { hex: '#e8e8e8', name: 'White',  price: 0 },
+    { hex: '#8c8c8c', name: 'Silver', price: 0 },
+    { hex: '#1a3a6a', name: 'Blue',   price: 0 },
+    { hex: '#6a1a1a', name: 'Red',    price: 40 },
+    { hex: '#1a4a1a', name: 'Green',  price: 70 },
+    { hex: '#f0c020', name: 'Yellow', price: 110 },
+    { hex: '#f06020', name: 'Orange', price: 150 },
+    { hex: '#5a2a8a', name: 'Purple', price: 200 },
+    { hex: '#12b0c0', name: 'Cyan',   price: 260 },
+    { hex: '#e05aa0', name: 'Pink',   price: 320 },
+    { hex: '#d4af37', name: 'Gold',   price: 450 },
   ];
   const _savedColor = (() => { try { return (localStorage.getItem('dd_carColor') || '').toLowerCase(); } catch { return ''; } })();
+  if (_savedColor) wallet.own(_savedColor);   // grandfather the player's current colour as owned
+  colorPanel.style.position = 'relative';
+
+  // Wallet balance chip
+  const balChip = document.createElement('span');
+  balChip.title = 'Wallet — earn by driving City Cab fares';
+  balChip.style.cssText = 'color:#ffd23f;font:700 12px system-ui,sans-serif;margin:0 2px;white-space:nowrap;';
+  const updateBalance = () => { balChip.textContent = `$${wallet.balance()}`; };
+  updateBalance();
+  colorPanel.appendChild(balChip);
+
+  const isOwned = (p) => p.price === 0 || wallet.isOwned(p.hex);
+  const selectColor = (hex, btn) => {
+    setCarColor(hex);
+    for (const s of colorPanel.querySelectorAll('.dd-swatch')) s.classList.remove('sel');
+    btn.classList.add('sel');
+  };
+  const renderSwatch = (btn, p) => {
+    const owned = isOwned(p);
+    btn.className = 'dd-swatch' + (p.hex.toLowerCase() === _savedColor && owned ? ' sel' : '');
+    btn.title = owned ? p.name : `${p.name} — $${p.price} (locked)`;
+    btn.style.cssText = `position:relative;width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,0.4);background:${p.hex};` + (owned ? '' : 'opacity:0.4;');
+    btn.innerHTML = owned ? '' : '<span style="position:absolute;inset:-2px;display:flex;align-items:center;justify-content:center;font-size:10px;pointer-events:none">🔒</span>';
+  };
+
+  // Buy-confirmation popup (one, reused)
+  const buyPop = document.createElement('div');
+  buyPop.style.cssText = 'position:absolute;top:calc(100% + 8px);left:0;background:#1b2230;color:#fff;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:10px 12px;box-shadow:0 8px 26px rgba(0,0,0,0.55);display:none;z-index:20;min-width:180px;';
+  colorPanel.appendChild(buyPop);
+  const closeBuy = () => { buyPop.style.display = 'none'; };
+  const openBuy = (p, btn) => {
+    const afford = wallet.balance() >= p.price;
+    buyPop.innerHTML =
+      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font:12px system-ui">` +
+        `<span style="width:16px;height:16px;border-radius:50%;background:${p.hex};border:1px solid rgba(255,255,255,.4)"></span>` +
+        `<b>${p.name}</b><span style="opacity:.65">$${p.price}</span></div>` +
+      (afford
+        ? `<button class="dd-buy" style="background:#2ee06a;color:#0a1a0a;border:none;border-radius:7px;padding:6px 12px;font:700 12px system-ui;cursor:pointer">Unlock — $${p.price}</button>`
+        : `<div style="color:#ff8a8a;font:12px system-ui">Need $${p.price - wallet.balance()} more<br><span style="opacity:.6">Drive City Cab fares to earn</span></div>`) +
+      `<span class="dd-buy-x" style="opacity:.55;cursor:pointer;margin-left:10px;font:12px system-ui">✕</span>`;
+    buyPop.style.display = 'block';
+    buyPop.querySelector('.dd-buy-x')?.addEventListener('click', (e) => { e.stopPropagation(); closeBuy(); });
+    buyPop.querySelector('.dd-buy')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (wallet.spend(p.price)) { wallet.own(p.hex); renderSwatch(btn, p); selectColor(p.hex, btn); closeBuy(); }
+    });
+  };
+
   for (const preset of CAR_PRESETS) {
     const btn = document.createElement('div');
-    btn.title = preset.name;
-    btn.style.cssText = `width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,0.4);background:${preset.hex};`;
-    if (preset.hex.toLowerCase() === _savedColor) btn.classList.add('sel'); // prefill: mark the saved colour selected
-    btn.addEventListener('click', () => {
-      setCarColor(preset.hex);
-      for (const s of colorPanel.querySelectorAll('div')) s.classList.remove('sel');
-      btn.classList.add('sel');
+    renderSwatch(btn, preset);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isOwned(preset)) { closeBuy(); selectColor(preset.hex, btn); }
+      else openBuy(preset, btn);
     });
     colorPanel.appendChild(btn);
   }
+  wallet.onChange(updateBalance);
+  document.addEventListener('click', (e) => { if (!colorPanel.contains(e.target)) closeBuy(); });
 
   // Sound toggle button — single source of truth is audioManager (same as the ESC "Sound on" toggle),
   // so the two never desync and dd_soundMuted isn't written twice.
