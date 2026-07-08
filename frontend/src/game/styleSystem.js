@@ -13,6 +13,7 @@
  * Tricks pay XP (driver progression), NOT money — cash stays tied to actual jobs (taxi/delivery/police).
  */
 import { xp } from './xp.js';
+import { driftState } from './driftState.js';
 
 // ── Tuning ──────────────────────────────────────────────────────────────────
 const COMBO_WINDOW   = 3.2;   // s of no events before the combo banks
@@ -21,9 +22,8 @@ const EVENTS_PER_MULT = 2;    // +1x every N discrete events
 
 const DRIFT_MIN_KMH  = 22;
 const DRIFT_SLIDE    = 0.30;  // max(driftFactor, skidLevel) above this = drifting
-const DRIFT_RATE     = 46;    // pts/s at the reference (scaled by speed & slide amount)
-const DRIFT_END      = 0.32;  // s below threshold before a drift is considered "ended"
-const DRIFT_MIN_PTS  = 60;    // don't emit a popup for a tiny twitch
+const DRIFT_RATE     = 46;    // pts/s base (scaled by speed, slide amount, and the current tier multiplier)
+const DRIFT_MIN_PTS  = 60;    // don't bank a chain for a tiny twitch
 
 const AIR_MIN_T      = 0.35;  // s airborne to count as a jump
 const AIR_RATE       = 300;   // pts per second of air time
@@ -41,6 +41,23 @@ const WRECK_DROP_KMH = 25;    // single-frame speed loss this big = a wreck (wal
 
 const MAX_SHAKE_M    = 0.28;  // camera shake at full trauma
 const TRAUMA_DECAY   = 1.9;   // trauma units per second
+
+// ── Drift chain — hold/link a slide to climb tiers; longer = exponentially more points ("keep it lit"). ──
+const DRIFT_GRACE    = 1.25;  // s the chain survives a brief straighten → link corners without losing it
+// [seconds-held threshold, name, points-multiplier, smoke colour]. Highest tier whose time ≤ held wins.
+const DRIFT_TIERS = [
+  { t: 0.0,  name: 'DRIFT',     mult: 1,   color: 0xffffff, hex: '#ffffff' },
+  { t: 2.0,  name: 'NICE',      mult: 1.5, color: 0xfff07a, hex: '#fff07a' },
+  { t: 4.0,  name: 'GREAT',     mult: 2,   color: 0xffc24a, hex: '#ffc24a' },
+  { t: 6.5,  name: 'AWESOME',   mult: 3,   color: 0xff7a3a, hex: '#ff7a3a' },
+  { t: 9.5,  name: 'INSANE',    mult: 4,   color: 0xff4db2, hex: '#ff4db2' },
+  { t: 13.0, name: 'LEGENDARY', mult: 5,   color: 0xb06bff, hex: '#b06bff' },
+];
+function driftTierFor(heldSeconds) {
+  let i = 0;
+  for (let k = 1; k < DRIFT_TIERS.length; k++) if (heldSeconds >= DRIFT_TIERS[k].t) i = k; else break;
+  return i;
+}
 
 export function createStyleSystem({ camera, audio, getTraffic, getPedestrians }) {
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -67,6 +84,7 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
         animation: ddPop 1.15s ease forwards; }
       .dd-pop b { color: #ffd21f; }
       .dd-pop.miss b { color: #4fd0ff; }
+      .dd-pop.big { font-size: 30px; color: #ffd21f; -webkit-text-stroke: 1px rgba(30,20,0,.4); }
       .dd-pop.wreck { color: #ff5b5b; }
       #dd-style-bank { position: fixed; left: 50%; top: 38%; transform: translate(-50%,-50%);
         z-index: 62; pointer-events: none; text-align: center; font-family: 'Lilita One', system-ui, sans-serif;
@@ -79,6 +97,19 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
         30%{transform:scale(1)} 100%{opacity:0; transform:translateY(-40px) scale(1)} }
       @keyframes ddBank { 0%{opacity:0; transform:translate(-50%,-50%) scale(.6)} 18%{opacity:1; transform:translate(-50%,-50%) scale(1.12)}
         30%{transform:translate(-50%,-50%) scale(1)} 78%{opacity:1} 100%{opacity:0; transform:translate(-50%,-58%) scale(1)} }
+      #dd-drift { position: fixed; left: 50%; bottom: 16%; transform: translateX(-50%); z-index: 61;
+        pointer-events: none; text-align: center; font-family: 'Poppins', sans-serif; opacity: 0;
+        transition: opacity .18s ease; text-shadow: 0 2px 10px rgba(0,0,0,.6); min-width: 300px; }
+      #dd-drift.on { opacity: 1; }
+      #dd-drift .top { display: flex; justify-content: center; align-items: baseline; gap: 12px; }
+      #dd-drift .tier { font-family: 'Lilita One', system-ui, sans-serif; font-size: 30px; letter-spacing: 1px; }
+      #dd-drift .tier.bump { animation: ddMultBump .3s ease; }
+      #dd-drift .xmult { font-size: 22px; font-weight: 800; color: #fff; }
+      #dd-drift .bar { height: 8px; margin: 8px auto 5px; width: 300px; border-radius: 5px;
+        background: rgba(255,255,255,.16); overflow: hidden; }
+      #dd-drift .bar > i { display: block; height: 100%; width: 100%; transform-origin: left center; border-radius: 5px; }
+      #dd-drift .pts { font-size: 17px; font-weight: 700; color: #fff; }
+      #dd-drift .pts em { color: #ffd21f; font-style: normal; }
     `;
     document.head.appendChild(st);
   }
@@ -88,14 +119,21 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
   const elMult = hud.querySelector('.mult'), elPts = hud.querySelector('.pts'), elBar = hud.querySelector('.bar > i');
   const pops = document.createElement('div'); pops.id = 'dd-style-pops';
   const bank = document.createElement('div'); bank.id = 'dd-style-bank';
-  document.body.append(hud, pops, bank);
+  const drift = document.createElement('div'); drift.id = 'dd-drift';
+  drift.innerHTML = `<div class="top"><span class="tier">DRIFT</span><span class="xmult">x1</span></div>` +
+                    `<div class="bar"><i></i></div><div class="pts"><em>0</em> pts — keep it lit!</div>`;
+  const elTier = drift.querySelector('.tier'), elXmult = drift.querySelector('.xmult'),
+        elDBar = drift.querySelector('.bar > i'), elDPts = drift.querySelector('.pts em');
+  document.body.append(hud, pops, bank, drift);
 
   // ── State ───────────────────────────────────────────────────────────────────
   let pool = 0;             // un-banked style points
   let chain = 0;            // discrete events this combo → multiplier
   let mult = 1;
   let timer = 0;            // s left before bank
-  let driftAccum = 0, driftBelow = 0;   // current drift run
+  // Drift chain — a held/linked slide. Accumulates points at a tier-scaled rate; survives brief straightens
+  // (grace) so you can link corners; banks as one big DRIFT event when it finally ends; a wreck kills it.
+  const dc = { active: false, time: 0, points: 0, tier: 0, grace: 0 };
   let airT = 0;             // current airborne time
   let prevSpeed = 0;
   let trauma = 0;
@@ -149,7 +187,18 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
     hud.classList.add('on');
   }
 
+  // End the drift chain: bank its points into the combo as one DRIFT event (tier-named), unless wrecked.
+  function endDriftChain(wrecked) {
+    if (!dc.active) return;
+    const pts = dc.points, name = DRIFT_TIERS[dc.tier].name;
+    dc.active = false; dc.time = 0; dc.points = 0; dc.tier = 0; dc.grace = 0;
+    driftState.reset();
+    drift.classList.remove('on');
+    if (!wrecked && pts >= DRIFT_MIN_PTS) score(`${name} DRIFT`, pts, dc.tier >= 3 ? 'big' : null);
+  }
+
   function doBank(wrecked) {
+    if (wrecked) endDriftChain(true);          // a wreck forfeits the drift chain too
     if (pool <= 0) { reset(); return; }
     if (wrecked) {
       popup('WRECKED! COMBO LOST', null, 'wreck');
@@ -168,7 +217,7 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
     reset();
   }
 
-  function reset() { pool = 0; chain = 0; mult = 1; timer = 0; driftAccum = 0; hud.classList.remove('on'); }
+  function reset() { pool = 0; chain = 0; mult = 1; timer = 0; hud.classList.remove('on'); }
 
   // ── Per-frame ─────────────────────────────────────────────────────────────────
   function update(px, pz, dt, speedKmh, car) {
@@ -176,23 +225,34 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
     const slide = Math.max(car?.drift || 0, car?.skid || 0);
     const wheels = car?.wheels ?? 4;
 
-    // WRECK — a big single-frame speed loss means we hit something hard.
-    if (prevSpeed - spd > WRECK_DROP_KMH && pool > 0) doBank(true);
+    // WRECK — a big single-frame speed loss means we hit something hard (kills combo AND drift chain).
+    if (prevSpeed - spd > WRECK_DROP_KMH && (pool > 0 || dc.active)) doBank(true);
     prevSpeed = spd;
 
-    // DRIFT — accumulate while sliding at speed; emit one popup when the slide ends.
-    if (slide > DRIFT_SLIDE && spd > DRIFT_MIN_KMH && wheels >= 2) {
-      driftAccum += DRIFT_RATE * (spd / 50) * slide * dt;
-      driftBelow = 0;
-      timer = Math.max(timer, 0.6);          // keep combo alive mid-drift
-      hud.classList.add('on');
-      addTrauma(0.06 * dt * 60 * slide * (spd / 90));   // subtle rumble while drifting
-    } else if (driftAccum > 0) {
-      driftBelow += dt;
-      if (driftBelow >= DRIFT_END) {
-        if (driftAccum >= DRIFT_MIN_PTS) score('DRIFT', driftAccum, null);
-        driftAccum = 0;
+    // DRIFT CHAIN — hold/link a slide to climb tiers; longer = exponentially more. Grace links corners.
+    const drifting = slide > DRIFT_SLIDE && spd > DRIFT_MIN_KMH && wheels >= 2;
+    if (drifting) {
+      if (!dc.active) { dc.active = true; dc.time = 0; dc.points = 0; dc.tier = 0; }
+      dc.grace = DRIFT_GRACE;
+      dc.time += dt;
+      const nt = driftTierFor(dc.time);
+      if (nt !== dc.tier) {
+        dc.tier = nt;
+        elTier.classList.remove('bump'); void elTier.offsetWidth; elTier.classList.add('bump');
+        sfxCombo();
+        addTrauma(0.22);                     // little kick on each tier-up
       }
+      const T = DRIFT_TIERS[dc.tier];
+      dc.points += DRIFT_RATE * (spd / 50) * Math.max(0.4, slide) * T.mult * dt;
+      timer = Math.max(timer, 0.6);          // keep the outer combo alive mid-drift
+      hud.classList.add('on');
+      drift.classList.add('on');
+      addTrauma(0.05 * dt * 60 * slide * (spd / 90));   // subtle rumble while sliding
+      driftState.set(true, dc.tier, T.color, dc.time);
+    } else if (dc.active) {
+      dc.grace -= dt;
+      driftState.set(true, dc.tier, DRIFT_TIERS[dc.tier].color, dc.time);  // keep smoke tinted through grace
+      if (dc.grace <= 0) endDriftChain(false);
     }
 
     // BIG AIR — count airborne time; award on landing.
@@ -253,11 +313,23 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
       if (timer <= 0) doBank(false);
     }
 
-    // HUD refresh (live pool includes the in-progress drift)
+    // Combo HUD refresh (live pool includes the in-progress drift chain)
     if (hud.classList.contains('on')) {
       elMult.textContent = 'x' + mult;
-      elPts.textContent = fmt(pool + driftAccum);
+      elPts.textContent = fmt(pool + dc.points);
       elBar.style.transform = `scaleX(${Math.max(0, Math.min(1, timer / COMBO_WINDOW))})`;
+    }
+
+    // Drift-chain HUD — tier name + colour, tier multiplier, fill toward the NEXT tier, and live points.
+    if (dc.active) {
+      const T = DRIFT_TIERS[dc.tier], next = DRIFT_TIERS[dc.tier + 1];
+      elTier.textContent = T.name;
+      elTier.style.color = T.hex;
+      elXmult.textContent = 'x' + T.mult;
+      elDPts.textContent = fmt(dc.points);
+      const frac = next ? Math.max(0, Math.min(1, (dc.time - T.t) / (next.t - T.t))) : 1;
+      elDBar.style.transform = `scaleX(${frac})`;
+      elDBar.style.background = next ? `linear-gradient(90deg,${T.hex},${next.hex})` : T.hex;
     }
 
     // Screen shake — offset the camera AFTER carCam has positioned it this frame.
@@ -271,7 +343,8 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
   }
 
   function dispose() {
-    hud.remove(); pops.remove(); bank.remove();
+    hud.remove(); pops.remove(); bank.remove(); drift.remove();
+    driftState.reset();
     tracked.clear();
   }
 

@@ -4,6 +4,9 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { isRallyStyle } from '../rallyStyle.js';
+import { driftState } from '../game/driftState.js';
+
+const _smokeColor = new THREE.Color();  // scratch — no per-frame alloc
 
 const SKID_POOL_SIZE = 200;
 const SMOKE_POOL_SIZE = 90; // shared by drift smoke + rally speed-dust; bigger so neither starves the other
@@ -168,23 +171,33 @@ export function createCarEffects(scene, carModel, physics) {
       skidSpawnTimer = 0;
     }
 
-    // Tire smoke
+    // Tire smoke — during a scored drift chain the puffs take the chain-tier COLOUR and billow harder the
+    // higher the tier (white → yellow → orange → hot-pink → purple). Plain grey smoke otherwise.
     if (smokeSprites && driftFactor > 0.5) {
+      const tinted = driftState.active;
+      const tier = driftState.tier;
+      const puffs = tinted && tier >= 3 ? 2 : 1;               // billow more at the top tiers
+      const op = tinted ? Math.min(0.6, 0.32 + tier * 0.06) : 0.3;
+      if (tinted) _smokeColor.setHex(driftState.color);
       for (const wi of [2, 3]) {
         const hit = physics.vehicle.wheelInfos[wi].raycastResult?.hitPointWorld;
         if (!hit) continue;
-        const s = smokeSprites[smokeIndex % SMOKE_POOL_SIZE];
-        smokeIndex++;
-        s.life = 0;
-        s.maxLife = 0.8;
-        s.startOpacity = 0.3;
-        s.vx = (Math.random() - 0.5) * 2;
-        s.vy = 1.5 + Math.random();
-        s.vz = (Math.random() - 0.5) * 2;
-        s.sprite.position.set(hit.x, hit.y + 0.1, hit.z);
-        s.sprite.visible = true;
-        s.sprite.material.opacity = s.startOpacity;
-        s.sprite.scale.setScalar(0.5);
+        for (let p = 0; p < puffs; p++) {
+          const s = smokeSprites[smokeIndex % SMOKE_POOL_SIZE];
+          smokeIndex++;
+          s.life = 0;
+          s.maxLife = tinted ? 0.9 : 0.8;
+          s.startOpacity = op;
+          s.vx = (Math.random() - 0.5) * 2;
+          s.vy = 1.5 + Math.random();
+          s.vz = (Math.random() - 0.5) * 2;
+          s.sprite.position.set(hit.x, hit.y + 0.1, hit.z);
+          s.sprite.visible = true;
+          if (tinted) s.sprite.material.color.copy(_smokeColor);
+          else s.sprite.material.color.setHex(0xCCCCCC);
+          s.sprite.material.opacity = op;
+          s.sprite.scale.setScalar(0.5);
+        }
       }
     }
 
@@ -214,6 +227,7 @@ export function createCarEffects(scene, carModel, physics) {
             s.vz = bz * (2.5 + Math.random() * 1.5) + (Math.random() - 0.5);
             s.sprite.position.set(hit.x, hit.y + 0.06, hit.z);
             s.sprite.visible = true;
+            s.sprite.material.color.setHex(puffColor);   // reset any drift-tint left on this pooled sprite
             s.sprite.material.opacity = op;
             s.sprite.scale.setScalar(0.4);
           }
