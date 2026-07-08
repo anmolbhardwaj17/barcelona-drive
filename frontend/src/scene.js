@@ -416,20 +416,22 @@ function addClouds(scene, spawnX, spawnZ) {
   _cloudMaterials = materials;
   _cloudSprites = [];
 
-  // Sparse clouds — just a few wisps for atmosphere
+  // Fuller sky — several populated rings from near-mid out to high wisps (sprites are cheap, so we can afford
+  // a lot). Each ring wraps 360° with jitter; large distVar staggers them so they don't read as tidy rings.
   const rings = [
-    { count: 4,  dist: 1500, distVar: 800,  y: 350,  yVar: 100,  w: 200, wVar: 120 },   // mid, medium
-    { count: 3,  dist: 2500, distVar: 1000, y: 600,  yVar: 200,  w: 350, wVar: 200 },   // upper, big
-    { count: 5,  dist: 4000, distVar: 1500, y: 1000, yVar: 400,  w: 180, wVar: 100 },   // high, small wisps
+    { count: 14, dist: 1100, distVar: 900,  y: 300,  yVar: 130,  w: 230, wVar: 150 },   // near-mid, plentiful
+    { count: 12, dist: 1900, distVar: 1100, y: 470,  yVar: 190,  w: 320, wVar: 190 },   // mid, big
+    { count: 11, dist: 2900, distVar: 1300, y: 700,  yVar: 260,  w: 380, wVar: 210 },   // upper, big
+    { count: 16, dist: 4200, distVar: 1900, y: 1020, yVar: 460,  w: 210, wVar: 130 },   // high, many small wisps
   ];
 
   for (const ring of rings) {
     for (let i = 0; i < ring.count; i++) {
-      const mat = materials[i % materials.length];
+      const mat = materials[(Math.random() * materials.length) | 0];   // random texture per cloud → less repetition
       const sprite = new THREE.Sprite(mat);
 
-      // Exact equal spacing around 360° + small random jitter
-      const angle = (i / ring.count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+      // Even 360° spacing + jitter that grows with count so denser rings still look scattered, not gridded.
+      const angle = (i / ring.count) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI * 2 / ring.count) * 0.9;
       const dist = ring.dist + (Math.random() - 0.5) * ring.distVar;
       const dx = Math.cos(angle) * dist;
       const y = ring.y + Math.random() * ring.yVar;
