@@ -55,9 +55,11 @@ const SUSP_DAMPING_R    = 3.4;    // rebound damping — how fast suspension ext
 const SUSP_DAMPING_C    = 4.5;    // compression damping — bump absorption; high = harsh, low = wallowy.
 const SUSP_MAX_FORCE    = 130000; // N — suspension force clamp; raise if the heavier car bottoms out.
 const FRICTION_SLIP     = 4.5;    // tyre grip — lower = more slide/oversteer (RWD character); higher = stuck.
-const DRIFT_YAW_ASSIST  = 13000;  // N·m·(unit steer) — handbrake yaw torque; higher = tail swings out harder.
+const DRIFT_YAW_ASSIST  = 16000;  // N·m·(unit steer) — handbrake yaw torque; higher = tail swings out harder.
 const YAW_SPIN_DAMP     = 2600;   // N·m per (rad/s)² — quadratic anti-spin. Negligible in normal turns, firm on a
                                   // fishtail/spin. OFF during handbrake so deliberate drift stays free. Raise to tame oversteer more.
+const DRIFT_SLIDE_CAP   = 1.7;    // rad/s — target max yaw rate while drifting; over this the tail is caught so
+const DRIFT_SLIDE_HOLD  = 4200;   // N·m per (rad/s) — ...the slide HOLDS at a big controllable angle instead of spinning.
 const ROLL_INFLUENCE    = 0.08;   // weight transfer in turns — higher = more lean/flip risk; keep low.
 const BASE_ENGINE_FORCE = 4800;   // N — drive force. Softened 6000→4800 for a city-car feel (~5.5s 0–100 vs supercar ~4s) so you DWELL in the 40-90 range instead of teleporting past it.
 const BRAKE_FORCE       = 420;    // N — per-wheel braking (was 600: overshot → stoppie/rear-lift). Nose dips, rear stays planted.
@@ -298,8 +300,8 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
       // Handbrake — lock rear wheels, free front for steering
       vehicle.setBrake(0, 0);
       vehicle.setBrake(0, 1);
-      vehicle.setBrake(BRAKE_FORCE * 2.2, 2); // break rear traction but DON'T halt the car — keeps drift momentum
-      vehicle.setBrake(BRAKE_FORCE * 2.2, 3);
+      vehicle.setBrake(BRAKE_FORCE * 1.25, 2); // just enough to break rear traction — light so the car KEEPS speed
+      vehicle.setBrake(BRAKE_FORCE * 1.25, 3); // through the slide (2.2× was hauling it to a stop → drift died)
     } else if (_burnout) {
       // Burnout: clamp the front wheels so the car stays put; leave the rears free to spin under power.
       vehicle.setBrake(BRAKE_FORCE * 3.0, 0);
@@ -336,9 +338,10 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     // Drift — progressive rear grip reduction for smooth handbrake turns
     const absSteering = Math.abs(_currentSteer);
 
-    // Handbrake drift: ramp up smoothly, maintain momentum for smooth sliding
-    const hbTarget = _handbraking ? Math.min(1, absSpeed / 20) : 0;
-    const driftLerp = _handbraking ? 4.0 : 2.0; // build up faster, release slower
+    // Handbrake drift: ramp up smoothly, maintain momentum for smooth sliding. Reaches full slide by ~40 km/h
+    // (11 m/s) so a handbrake flick at normal city speed breaks the rear loose instead of needing ~72 km/h.
+    const hbTarget = _handbraking ? Math.min(1, absSpeed / 11) : 0;
+    const driftLerp = _handbraking ? 6.5 : 2.0; // snappy tail-out on press, smooth grip recovery on release
     _driftFactor += (hbTarget - _driftFactor) * Math.min(1, driftLerp * dt);
 
     // Throttle-steer drift at high speed — kept SMALL so normal cornering stays planted (the car was
@@ -385,8 +388,16 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
 
     // ── Arcade drift assist ── while handbraking + moving, add yaw torque toward the steering so the
     // tail swings out and the car holds a controllable slide (flip the sign if it drifts the wrong way).
+    // Reaches full authority by ~58 km/h (was ~126) so the tail actually kicks out at normal driving speed.
     if (_handbraking && absSpeed > 4) {
-      chassisBody.torque.y += _currentSteer * Math.min(1, absSpeed / 35) * DRIFT_YAW_ASSIST;
+      chassisBody.torque.y += _currentSteer * Math.min(1, absSpeed / 16) * DRIFT_YAW_ASSIST;
+
+      // Slide-HOLD: softly cap the yaw rate so the tail swings to a big, controllable angle and stays there
+      // instead of whipping around into a spin. This is what makes the drift feel "nice" — catchable, not twitchy.
+      const yr = chassisBody.angularVelocity.y;
+      if (Math.abs(yr) > DRIFT_SLIDE_CAP) {
+        chassisBody.torque.y -= (yr - Math.sign(yr) * DRIFT_SLIDE_CAP) * DRIFT_SLIDE_HOLD;
+      }
     }
 
     // ── Anti-spin (stability) ── quadratic yaw-rate damping when NOT handbraking. Scales with yaw²,
