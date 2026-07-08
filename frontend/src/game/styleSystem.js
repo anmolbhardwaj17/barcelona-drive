@@ -139,6 +139,8 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
   let trauma = 0;
   let runXp = 0;            // style XP earned this session
   const tracked = new Map(); // entity -> min distance seen while in the near-miss zone
+  const _nmHere = new Set(); // reused each near-miss scan (no per-frame Set alloc)
+  let _nmTick = 0;           // frame counter → near-miss scan runs every 3rd frame
 
   // ── SFX (tiny synths on the sfx bus) ─────────────────────────────────────────
   function blip(f0, f1, dur, peak, type) {
@@ -187,6 +189,16 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
     hud.classList.add('on');
   }
 
+  // Set the tier-dependent drift HUD bits (name, colour, xMult, gradient). Only called on tier change —
+  // the gradient string rebuild is too costly to run every frame.
+  function setDriftTierUI(tier) {
+    const T = DRIFT_TIERS[tier], next = DRIFT_TIERS[tier + 1];
+    elTier.textContent = T.name;
+    elTier.style.color = T.hex;
+    elXmult.textContent = 'x' + T.mult;
+    elDBar.style.background = next ? `linear-gradient(90deg,${T.hex},${next.hex})` : T.hex;
+  }
+
   // End the drift chain: bank its points into the combo as one DRIFT event (tier-named), unless wrecked.
   function endDriftChain(wrecked) {
     if (!dc.active) return;
@@ -232,12 +244,13 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
     // DRIFT CHAIN — hold/link a slide to climb tiers; longer = exponentially more. Grace links corners.
     const drifting = slide > DRIFT_SLIDE && spd > DRIFT_MIN_KMH && wheels >= 2;
     if (drifting) {
-      if (!dc.active) { dc.active = true; dc.time = 0; dc.points = 0; dc.tier = 0; }
+      if (!dc.active) { dc.active = true; dc.time = 0; dc.points = 0; dc.tier = 0; setDriftTierUI(0); }
       dc.grace = DRIFT_GRACE;
       dc.time += dt;
       const nt = driftTierFor(dc.time);
       if (nt !== dc.tier) {
         dc.tier = nt;
+        setDriftTierUI(nt);                  // tier name/colour/xMult/gradient — only on tier-up, not per frame
         elTier.classList.remove('bump'); void elTier.offsetWidth; elTier.classList.add('bump');
         sfxCombo();
         addTrauma(0.22);                     // little kick on each tier-up
@@ -247,7 +260,7 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
       timer = Math.max(timer, 0.6);          // keep the outer combo alive mid-drift
       hud.classList.add('on');
       drift.classList.add('on');
-      addTrauma(0.05 * dt * 60 * slide * (spd / 90));   // subtle rumble while sliding
+      addTrauma(0.008 * dt * 60 * slide * Math.min(1, spd / 90));  // SUBTLE rumble — must settle low, not pin at max
       driftState.set(true, dc.tier, T.color, dc.time);
     } else if (dc.active) {
       dc.grace -= dt;
@@ -268,15 +281,16 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
     }
 
     // NEAR MISS — track closest approach to nearby cars/peds; award when they leave the zone close-but-clean.
-    if (spd > NEARMISS_MIN_KMH) {
+    // Throttled to every 3rd frame (20 Hz) with a REUSED Set → no per-frame Set/array churn (GC-friendly).
+    if (spd > NEARMISS_MIN_KMH && (++_nmTick % 3 === 0)) {
       const cars = getTraffic?.()?.getNearby?.(px, pz, NEARMISS_R) || [];
       const peds = getPedestrians?.()?.getNearby?.(px, pz, NEARMISS_R) || [];
-      const here = new Set();
+      _nmHere.clear();
       const scan = (list) => {
         for (const e of list) {
           const p = e.mesh ? e.mesh.position : e;   // car: mesh.position, ped: {x,z}
           const d = Math.hypot(p.x - px, p.z - pz);
-          here.add(e);
+          _nmHere.add(e);
           const prev = tracked.get(e);
           if (prev === undefined || d < prev) tracked.set(e, d);
         }
@@ -284,7 +298,7 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
       scan(cars); scan(peds);
       // resolve entities that left the zone
       for (const [e, minD] of tracked) {
-        if (here.has(e)) continue;
+        if (_nmHere.has(e)) continue;
         if (minD > NEARMISS_HIT_R && minD < NEARMISS_R) {
           const isPed = !e.mesh;
           const base = isPed ? NEARMISS_PED : NEARMISS_CAR;
@@ -296,7 +310,7 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
         }
         tracked.delete(e);
       }
-    } else if (tracked.size) {
+    } else if (spd <= NEARMISS_MIN_KMH && tracked.size) {
       tracked.clear();
     }
 
@@ -320,16 +334,12 @@ export function createStyleSystem({ camera, audio, getTraffic, getPedestrians })
       elBar.style.transform = `scaleX(${Math.max(0, Math.min(1, timer / COMBO_WINDOW))})`;
     }
 
-    // Drift-chain HUD — tier name + colour, tier multiplier, fill toward the NEXT tier, and live points.
+    // Drift-chain HUD — only the cheap bits per frame (points + bar fill); tier styling is set on tier-up.
     if (dc.active) {
       const T = DRIFT_TIERS[dc.tier], next = DRIFT_TIERS[dc.tier + 1];
-      elTier.textContent = T.name;
-      elTier.style.color = T.hex;
-      elXmult.textContent = 'x' + T.mult;
       elDPts.textContent = fmt(dc.points);
       const frac = next ? Math.max(0, Math.min(1, (dc.time - T.t) / (next.t - T.t))) : 1;
       elDBar.style.transform = `scaleX(${frac})`;
-      elDBar.style.background = next ? `linear-gradient(90deg,${T.hex},${next.hex})` : T.hex;
     }
 
     // Screen shake — offset the camera AFTER carCam has positioned it this frame.
