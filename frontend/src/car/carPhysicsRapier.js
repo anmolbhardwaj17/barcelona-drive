@@ -16,13 +16,16 @@ const GEAR_TOP_SPEEDS = [0, 34, 60, 84, 100, 106, 110];
 const NUM_GEARS = 6;
 const REDLINE_RPM = 6500, IDLE_RPM = 850, SHIFT_COOLDOWN = 0.30;
 
-// Chassis box half-extents — match the cannon chassis (0.95 × 0.715 × 2.395).
-const CH = { x: 0.95, y: 0.715, z: 2.395 };
-const CHASSIS_MASS = 1200;
+// Geometry MATCHES the cannon car so carModel's visual placement (body at the low-CoM origin, wheels at
+// their world Y) lines up — otherwise the body floats above the wheels (monster-truck look).
+const CH = { x: 0.95, y: 0.715, z: 2.395 };   // collision box half-extents
+const BOX_OFFSET_Y = 0.5;                       // box sits UP from the low CoM origin (cannon CHASSIS_BOX_OFFSET_Y)
+const CHASSIS_MASS = 1730;                      // kg — real G80 M3 kerb+driver
 
-// Wheel layout (chassis-local). Front = +z, RWD (engine on rear).
-const WHEEL_Y = -0.55, HALF_W = 0.82, FRONT_Z = 1.5, REAR_Z = -1.5, WHEEL_R = 0.4, REST_LEN = 0.32;
-const MAX_STEER = 0.55;             // rad at full lock (low speed)
+// Wheel layout (chassis-local, relative to the low origin). Front = +z, RWD (engine on rear).
+const WHEEL_Y = 0.20;              // connection point above the low origin (cannon WHEEL_CONNECT_Y)
+const HALF_W = 0.78, FRONT_Z = 1.43, REAR_Z = -1.43, WHEEL_R = 0.34, REST_LEN = 0.32;
+const MAX_STEER = 0.38;            // rad (~22°) at full lock
 const BASE_ENGINE_FORCE = 5200;
 
 export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
@@ -32,11 +35,20 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
       .setTranslation(spawnPos.x, spawnPos.y, spawnPos.z)
       .setLinearDamping(0.05)
       .setAngularDamping(0.6)
-      .setCanSleep(false),
+      .setCanSleep(false)
+      // Low centre of mass AT the body-frame origin (like the cannon car) + explicit inertia, so
+      // body.translation() reads the low origin the visual expects and the car stays planted (anti-roll).
+      .setAdditionalMassProperties(
+        CHASSIS_MASS,
+        { x: 0, y: 0, z: 0 },              // CoM at the (low) frame origin
+        { x: 3600, y: 3820, z: 814 },      // principal inertia ≈ box(1.9×1.43×4.79) @1730kg
+        { x: 0, y: 0, z: 0, w: 1 },
+      ),
   );
   chassis.setRotation({ x: 0, y: Math.sin((heading ?? Math.PI) / 2), z: 0, w: Math.cos((heading ?? Math.PI) / 2) }, true);
+  // Box offset UP from the low origin so it sits at body height (cannon CHASSIS_BOX_OFFSET_Y).
   world.createCollider(
-    RAPIER.ColliderDesc.cuboid(CH.x, CH.y, CH.z).setFriction(0.5).setRestitution(0.05).setMass(CHASSIS_MASS),
+    RAPIER.ColliderDesc.cuboid(CH.x, CH.y, CH.z).setTranslation(0, BOX_OFFSET_Y, 0).setFriction(0.5).setRestitution(0.05),
     chassis,
   );
 
