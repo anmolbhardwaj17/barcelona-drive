@@ -1264,8 +1264,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   // finalizing concurrently share the same budget — total tile work per frame is capped no matter how
   // many tiles entered range at once. This is what keeps new areas from stuttering: work spreads across
   // frames instead of several tiles materializing in one frame. Kept small so the render always has headroom.
-  const FRAME_BUDGET_MS = 4;      // baseline ms of tile build work per frame when the frame rate is healthy
-  const BUDGET_MIN = 1.2, BUDGET_MAX = 5;
+  const FRAME_BUDGET_MS = 3;      // baseline ms of tile build work per frame when the frame rate is healthy
+  const BUDGET_MIN = 1.0, BUDGET_MAX = 3.5; // capped low: a finalizing tile can't brush the 16.6ms frame limit
+                                            // and drop a frame. Tiles appear a touch slower; driving stays smooth.
   let _budgetMs = FRAME_BUDGET_MS; // ADAPTIVE: shrinks when frames run long (heavy streaming at speed),
                                    //           grows back when they're smooth — so build never compounds a slow frame
   let _lastUpdateAt = 0;
