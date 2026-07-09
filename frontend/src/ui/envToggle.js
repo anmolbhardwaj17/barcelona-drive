@@ -32,7 +32,7 @@ const DAY = {
   fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,
   bgColor:          null,
-  toneMappingExposure: 1.0,
+  toneMappingExposure: 1.9,   // matches scene.js ACES exposure — keeps the airy daylight when toggled to day
   lampEmissive:     0.25,   // subtle glow in daylight
   poolOpacity:      0.04,   // barely visible in daylight
   bloomStrength:    0.5,    // subtle bloom by day (only the sun/bright highlights)
@@ -41,8 +41,9 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x6a7398,  // lighter blue-grey fill (was 0x424c74 — too dark a colour kept night dim even at high intensity)
-  ambientIntensity: 1.25,      // lifted hard — night kept reading too dark to enjoy (0.72→0.9→1.25)
+  ambientColor:     0x8c8f97,  // desaturated cool-grey fill — ACES amplified the old saturated blue (0x6a7398)
+                               // into a blue road; this keeps a faint night coolness without tinting surfaces blue
+  ambientIntensity: 1.15,      // slight trim (1.25→1.15) — the higher ACES exposure already lifts night
   hemiSkyColor:     0x515c85,  // brighter blue sky fill
   hemiGroundColor:  0x2a2438,  // lifted warm-ish ground bounce
   hemiIntensity:    0.5,       // note: only takes effect if a hemi light exists; ambient carries the fill
@@ -52,7 +53,8 @@ const NIGHT = {
   fogDensity:       0.0045,     // thin night haze so the distance keeps depth, not grey murk
   skyVisible:       false,
   bgColor:          0x0e1730,  // deeper blue night sky (was too washed/grey)
-  toneMappingExposure: 1.18,   // global exposure lift (0.92→1.02→1.18) — clean brighten, no grey veil
+  toneMappingExposure: 1.75,   // lifted for ACES (filmic curve crushes darks harder than Linear did) — the
+                               // dimmer moonlight/ambient still reads as night, this just rescues it from black
   lampEmissive:     8.5,       // hotter streetlamp glow → warm pops punch through the deep blue
   poolOpacity:      1.0,
   bloomStrength:    0.95,      // stronger glow at night

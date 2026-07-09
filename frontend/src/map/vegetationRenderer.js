@@ -58,11 +58,13 @@ const FOLIAGE_DETAIL = 0;          // icosahedron detail level (0 = 20 tris; dod
 const TRUNK_RADIAL_SEGMENTS = 3;   // 3 sides sufficient at game scale
 // Mediterranean / Barcelona palettes — fresh street greens (plane trees line most avenues), kept
 // distinct between variants so a row of trees reads as varied rather than one flat green.
+// V5 cohesion: warmed toward olive (R up, B up a touch, G eased) so foliage sits in the same
+// warm palette family as the buildings under ACES — pure vivid greens were popping/clashing.
 const FOLIAGE_COLORS = [
-  [0x4F7D33, 0x5E8E3D, 0x6E9E48],  // Plane tree — fresh mid green
-  [0x5A8B3A, 0x6E9E48, 0x88AC54],  // Elm/lime — lighter, yellow-green highlights
-  [0x33602A, 0x3E6E30, 0x4C7A38],  // Cypress/pine — deep rich green
-  [0x5E8E3D, 0x6E9E48, 0x8AA850],  // Jacaranda/mixed — warm varied green
+  [0x5C7C3A, 0x6C8C44, 0x7C9B50],  // Plane tree — warm olive mid green
+  [0x688943, 0x7C9B50, 0x94A85C],  // Elm/lime — lighter olive-gold highlights
+  [0x3C5E2E, 0x486C34, 0x58783E],  // Cypress/pine — deep warm green
+  [0x6C8C44, 0x7C9B50, 0x96A458],  // Jacaranda/mixed — warm varied olive
 ];
 const TRUNK_COLOR = 0x7A7158;      // London-plane bark: muted grey-olive-brown (was 0x877662 — too pale/orange, read fake)
 const DUST_COLOR = 0x9B8B6E;
@@ -267,7 +269,7 @@ const TREE_ROAD_TYPES = new Set([
 
 function getGreenMaterial() {
   if (sharedGreenMaterial) return sharedGreenMaterial;
-  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x4a6e38, roughness: 0.95, metalness: 0 });
+  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x54703e, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
   return sharedGreenMaterial;
 }
 

@@ -869,21 +869,43 @@ function getBuildingCategory(building, roads, worldX, worldZ) {
  * Per-building brightness variation (±8%) applied via vertex colors.
  */
 function getFacadeTint(building) {
-  const v = 0.85 + (deterministicIndex(building.id) % 21) / 100;
-  return new THREE.Color(v, v, v);
+  const idx = deterministicIndex(building.id);
+  const v = 0.82 + (idx % 24) / 100;               // brightness 0.82–1.06 (slightly wider than before)
+  // subtle per-building warm/cool bias so neighbours differ in MATERIAL, not just lightness — some facades
+  // read cream/warm, some cool-grey. Kept small so it stays tasteful, not garish.
+  const warm = (((idx * 7) % 15) - 7) / 170;       // ≈ −0.041 … +0.041
+  return new THREE.Color(
+    Math.max(0, Math.min(1.1, v + warm)),
+    v + warm * 0.3,
+    Math.max(0, v - warm),
+  );
 }
 
-/** Apply tint color to all vertices (multiplies with texture when vertexColors: true). */
-function applyVertexColor(geometry, color) {
+// Baked ambient occlusion: darken wall vertices toward the building base and ease off up the facade. This
+// is the perf-safe AO for a streamed city — free at runtime (multiplied into the vertex-colour attribute the
+// buildings already use), no screen-space depth prepass (which tanked FPS on the 4M-tri scene). Grounds the
+// blocks so they stop reading as flat solid boxes.
+const BUILDING_AO_BAND_M = 6.0;   // metres of base-darkening (fades to none above this)
+const BUILDING_AO_MIN    = 0.66;  // brightness at the very base (1 = no AO)
+
+/** Apply tint color to all vertices (multiplies with texture when vertexColors: true). withAO adds the
+ *  base-darkening gradient (walls only — pass false for roofs, which sit at the top). */
+function applyVertexColor(geometry, color, withAO = false) {
   const pos = geometry.attributes.position;
   if (!pos) return;
   const count = pos.count;
   const colors = new Float32Array(count * 3);
   const r = color.r, g = color.g, b = color.b;
-  for (let i = 0; i < count; i++) {
-    colors[i * 3] = r;
-    colors[i * 3 + 1] = g;
-    colors[i * 3 + 2] = b;
+  if (withAO) {
+    let minY = Infinity;
+    for (let i = 0; i < count; i++) { const y = pos.getY(i); if (y < minY) minY = y; }
+    for (let i = 0; i < count; i++) {
+      const t = Math.min(1, (pos.getY(i) - minY) / BUILDING_AO_BAND_M);
+      const ao = BUILDING_AO_MIN + (1 - BUILDING_AO_MIN) * (t * t * (3 - 2 * t)); // smoothstep base→full
+      colors[i * 3] = r * ao; colors[i * 3 + 1] = g * ao; colors[i * 3 + 2] = b * ao;
+    }
+  } else {
+    for (let i = 0; i < count; i++) { colors[i * 3] = r; colors[i * 3 + 1] = g; colors[i * 3 + 2] = b; }
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
@@ -1356,7 +1378,7 @@ export function renderTileBuildings(tileData, options) {
       if (originalFootprint) b.footprint = originalFootprint;
       continue;
     }
-    applyVertexColor(geom, getFacadeTint(b));
+    applyVertexColor(geom, getFacadeTint(b), true);   // walls: with baked base AO
 
     const normalized = normalizeForMerge(geom);
     if (!normalized) {
