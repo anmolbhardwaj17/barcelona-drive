@@ -10,7 +10,9 @@ import { uiSound } from './uiSound.js';
 
 const MINIMAP_SIZE = 170;
 const MINIMAP_ZOOM = 17;
-const UPDATE_INTERVAL_MS = 200;
+const UPDATE_INTERVAL_MS = 350;   // Leaflet setView (tile re-center) is a DOM spike + GC churn; pan less
+                                  // often. Rotation + the car arrow still update every frame (cheap CSS),
+                                  // so the map stays lively — only the tile re-centre steps a touch larger.
 const ROTATION_LERP = 0.15;
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
