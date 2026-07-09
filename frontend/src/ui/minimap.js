@@ -1,11 +1,13 @@
 /**
- * Circular mini map (Leaflet) synced to viewer position.
- * Map rotates to match camera heading; pointer icon stays fixed pointing forward.
- * Cartoony grey border frame. Click to expand modal.
+ * Circular mini map synced to viewer position — rendered by our own canvas (NO Leaflet).
+ * Map rotates to match camera heading; pointer icon stays fixed pointing forward. Click / M to expand.
+ *
+ * The map image is drawn straight from the baked v7 vector data via customMap.drawTile(ctx, px, worldBounds,
+ * zoom) — one canvas, centred on the car, north-up; heading-up is the existing CSS rotation on mapInner.
+ * Expanded mode adds pointer-drag pan + wheel/button zoom. Leaflet (and its DOM-tile setView spike + GC
+ * churn) is gone entirely.
  */
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { worldToLatLon, tileToBBox, latLonToWorld } from '../projection.js';
+import { worldToLatLon } from '../projection.js';
 import { uiSound } from './uiSound.js';
 
 const MINIMAP_SIZE = 170;
@@ -24,7 +26,6 @@ const FILTER_DAY = 'none';
 const FILTER_NIGHT = 'none';
 let _isNight = false;
 
-let map = null;
 let mapInner = null;
 let markerEl = null;
 let compassRing = null;
@@ -33,11 +34,10 @@ let currentRotationDeg = 0;
 let expanded = false;
 let lastCarLatLon = null;
 let backdropEl = null;
-let locationMarker = null;      // Leaflet marker shown in expanded mode
-let locationMarkerArrow = null; // inner SVG element — updated each frame for rotation
+let locationMarkerArrow = null; // expanded you-are-here SVG — updated each frame for rotation
 
 /**
- * Create circular mini map DOM and Leaflet map. Call once on init.
+ * Create circular mini map DOM + canvas renderer. Call once on init.
  * @param {{ x: number, z: number }} spawnCenter
  * @returns {{ update: (worldX: number, worldZ: number, headingDeg: number) => void }}
  */
@@ -299,6 +299,19 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     'border:2px solid #fff;box-shadow:0 0 8px #35e0ff;transform:translate(-50%,-50%);display:none;z-index:5;pointer-events:none;';
   wrapper.appendChild(gateMarkerEl);
 
+  // Expanded-map "you are here" marker — own DOM element (no Leaflet). Positioned at the car's pixel and
+  // rotated to heading each frame while expanded; hidden in circular mode (the centre markerEl serves there).
+  const locMarkerEl = document.createElement('div');
+  locMarkerEl.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;z-index:1000;pointer-events:none;display:none;';
+  locMarkerEl.innerHTML = `<svg width="56" height="56" viewBox="0 0 56 56" style="position:absolute;transform:translate(-28px,-28px);transform-origin:28px 28px;overflow:visible;">
+      <circle cx="28" cy="28" r="24" fill="#2a7fff" opacity="0.14"/>
+      <polygon points="28,1 37,22 28,17 19,22" fill="#2a7fff" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="28" cy="28" r="11" fill="#2a7fff" stroke="#ffffff" stroke-width="3.5"/>
+      <circle cx="28" cy="28" r="4.5" fill="#ffffff" opacity="0.85"/>
+    </svg>`;
+  const _locSvg = locMarkerEl.firstElementChild;
+  wrapper.appendChild(locMarkerEl);
+
   // Dynamic blips (e.g. police cars in Heat mode) — pooled dots, world coords, heading-up in the circle.
   let _blips = [];
   const _blipEls = [];
@@ -321,7 +334,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       (divider ? 'border-bottom:1px solid rgba(0,0,0,0.09);' : '');
     b.addEventListener('mouseenter', () => { b.style.background = 'rgba(0,0,0,0.06)'; });
     b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; });
-    b.addEventListener('click', (e) => { e.stopPropagation(); if (map) map.setZoom(map.getZoom() + delta, { animate: true }); });
+    b.addEventListener('click', (e) => { e.stopPropagation(); zoomBy(delta); });
     zoomBtns.appendChild(b);
   };
   _mkZoom('plus', 1, true);
@@ -331,76 +344,71 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   // Zoom slider along the bottom of the expanded map — easy zoom for trackpads.
   document.body.appendChild(frame);
 
-  map = L.map('minimap-map', {
-    zoomControl: false,
-    dragging: false,
-    doubleClickZoom: false,
-    scrollWheelZoom: false,
-    touchZoom: false,
-    boxZoom: false,
-    keyboard: false,
-    attributionControl: false,
-    // Don't let the expanded map zoom out past where the city fills the frame (we only have Barcelona's
-    // data — zooming further just shows a tiny city island in blank beige). 19 = close street detail.
-    minZoom: 13,
-    maxZoom: 19,
-    // Smooth, continuous zoom (no integer-step snapping) but FAST — low wheelPx = less scrolling per level.
-    zoomSnap: 0,
-    zoomDelta: 1,
-    wheelPxPerZoomLevel: 55,   // gentle wheel — smooth over fast (buttons + slider handle quick zoom)
-    wheelDebounceTime: 5,
-    zoomAnimation: true,
-  });
+  // ── Canvas renderer (replaces Leaflet) ─────────────────────────────────────
+  // One canvas, drawn straight from the baked vector data. No tile grid, no setView, no DOM churn.
+  const mapCanvas = document.createElement('canvas');
+  mapCanvas.style.cssText = 'width:100%;height:100%;display:block;';
+  mapDiv.appendChild(mapCanvas);
+  const _mctx = mapCanvas.getContext('2d');
 
-  // Custom vector tiles drawn from the baked v7 world data (roads/buildings/water/parks) — no OSM, no
-  // network. One canvas per slippy tile; each tile's world bounds come from its lat/lon corners so the
-  // features line up with Leaflet's own tile placement (both Web Mercator). Falls back to a blank ground
-  // fill if no customMap was provided.
-  let customLayer = null;
-  const _wbOf = (coords) => {
-    const bb = tileToBBox(coords.x, coords.y, coords.z);
-    const sw = latLonToWorld(bb.south, bb.west);
-    const ne = latLonToWorld(bb.north, bb.east);
-    return [Math.min(sw.x, ne.x), Math.min(sw.z, ne.z), Math.max(sw.x, ne.x), Math.max(sw.z, ne.z)];
-  };
+  let _zoom = MINIMAP_ZOOM;                                   // LOD + scale (13..19)
+  let _lastCarWX = spawnCenter.x, _lastCarWZ = spawnCenter.z; // car world pos → circular map centre
+  let _viewX = spawnCenter.x, _viewZ = spawnCenter.z;         // expanded pan centre (world)
+  let _drawX = Infinity, _drawZ = Infinity, _drawZoom = -1, _drawPx = 0;
+
+  // Web-Mercator metres-per-CSS-pixel at a given latitude + zoom (matches the old Leaflet scale).
+  const _mPerPx = (lat, zoom) => 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+
+  function redrawMap(force = false) {
+    if (!customMap || !_mctx) return;
+    const cssPx = Math.max(2, Math.round(mapDiv.clientWidth || MINIMAP_SIZE));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const bw = Math.round(cssPx * dpr);                 // retina backing resolution
+    if (mapCanvas.width !== bw) { mapCanvas.width = bw; mapCanvas.height = bw; force = true; }
+    const cx = expanded ? _viewX : _lastCarWX;
+    const cz = expanded ? _viewZ : _lastCarWZ;
+    if (!force) {
+      const moved = (cx - _drawX) ** 2 + (cz - _drawZ) ** 2;
+      if (moved < 25 && _zoom === _drawZoom && bw === _drawPx) return;  // <5 m moved, unchanged → skip
+    }
+    _drawX = cx; _drawZ = cz; _drawZoom = _zoom; _drawPx = bw;
+    const ll = worldToLatLon(cx, cz);
+    const span = cssPx * _mPerPx(ll.lat, _zoom);        // world metres across the canvas
+    const wb = [cx - span / 2, cz - span / 2, cx + span / 2, cz + span / 2];
+    try { customMap.drawTile(_mctx, bw, wb, Math.round(_zoom)); } catch (e) { /* blank */ }
+  }
+
+  function zoomBy(delta) { _zoom = Math.max(13, Math.min(19, _zoom + delta)); redrawMap(true); }
+
+  // Expanded-mode pan (pointer drag moves the world view centre) + wheel zoom.
+  let _dragging = false, _dragPX = 0, _dragPY = 0;
+  wrapper.addEventListener('pointerdown', (e) => {
+    if (!expanded) return;
+    _dragging = true; _dragPX = e.clientX; _dragPY = e.clientY; wrapper.setPointerCapture?.(e.pointerId);
+  });
+  wrapper.addEventListener('pointermove', (e) => {
+    if (!_dragging || !expanded) return;
+    const ll = worldToLatLon(_viewX, _viewZ);
+    const mpp = _mPerPx(ll.lat, _zoom);                 // world metres per CSS pixel
+    _viewX -= (e.clientX - _dragPX) * mpp;              // content follows the finger
+    _viewZ += (e.clientY - _dragPY) * mpp;              // screen-down = south (north-up map)
+    _dragPX = e.clientX; _dragPY = e.clientY;
+    redrawMap(true);
+  });
+  const _endDrag = () => { _dragging = false; };
+  wrapper.addEventListener('pointerup', _endDrag);
+  wrapper.addEventListener('pointercancel', _endDrag);
+  wrapper.addEventListener('wheel', (e) => { if (!expanded) return; e.preventDefault(); zoomBy(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+
   if (customMap) {
-    const CustomTiles = L.GridLayer.extend({
-      createTile(coords) {
-        const c = document.createElement('canvas');
-        const size = this.getTileSize();
-        c.width = size.x; c.height = size.y;
-        try { customMap.drawTile(c.getContext('2d'), size.x, _wbOf(coords), coords.z); } catch (e) { /* blank */ }
-        return c;
-      },
-    });
-    // fade:false → tiles don't animate in (no flash); keepBuffer keeps neighbours ready while driving.
-    customLayer = new CustomTiles({ tileSize: 256, updateWhenZooming: false, keepBuffer: 8, fade: false });
-    customLayer.addTo(map);
-    // Repaint IN PLACE (no tile recreate → no blink) when new baked data arrives. redraw() would destroy
-    // and re-fade every tile, which flickered while driving.
-    let _redrawTimer = null;
-    const refreshInPlace = () => {
-      // Don't fight an in-progress zoom/pan animation — reschedule so the gesture stays smooth.
-      if (map && (map._animatingZoom || (map._panAnim && map._panAnim._inProgress))) { scheduleRedraw(); return; }
-      const tiles = customLayer._tiles || {};
-      for (const k in tiles) {
-        const t = tiles[k]; const el = t && t.el; const co = t && t.coords;
-        if (!el || !co || !el.getContext) continue;
-        try { customMap.drawTile(el.getContext('2d'), el.width, _wbOf(co), co.z); } catch (e) { /* skip */ }
-      }
-    };
-    // Longer throttle → far less redraw churn while the whole city streams in (the main source of zoom lag).
-    const scheduleRedraw = () => {
-      if (_redrawTimer) return;
-      _redrawTimer = setTimeout(() => { _redrawTimer = null; refreshInPlace(); }, 800);
-    };
-    customMap.setOnChange(scheduleRedraw);
-    customLayer._ddRefresh = refreshInPlace;   // used on night-toggle / expand
+    // Repaint (throttled) as new baked tiles stream in while driving.
+    let _rdT = null;
+    customMap.setOnChange(() => { if (_rdT) return; _rdT = setTimeout(() => { _rdT = null; redrawMap(true); }, 300); });
   }
 
   const { lat, lon } = worldToLatLon(spawnCenter.x, spawnCenter.z);
   lastCarLatLon = [lat, lon];
-  map.setView([lat, lon], MINIMAP_ZOOM, { animate: false });
+  redrawMap(true);
 
   function setExpanded(isExpanded) {
     if (expanded === isExpanded) return;
@@ -467,41 +475,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       innerShadow.style.display = 'none';
       highlight.style.display = 'none';
       markerEl.style.display = 'none';
-      map.dragging.enable();
-      map.scrollWheelZoom.enable();
-      map.doubleClickZoom.enable();
-      map.invalidateSize();
-      if (customLayer) customLayer._ddRefresh?.();   // repaint existing tiles into the resized viewport
-      // Place a Leaflet marker at the player's current position with heading arrow
-      if (lastCarLatLon) {
-        const deg = currentRotationDeg;
-        const markerHtml = `
-          <div id="loc-marker-inner" style="
-            position:relative; width:0; height:0;
-            transform-origin:0 0;
-          ">
-            <svg id="loc-marker-svg" width="56" height="56" viewBox="0 0 56 56"
-              style="position:absolute;transform:translate(-28px,-28px) rotate(${deg}deg);transform-origin:28px 28px;overflow:visible;">
-              <!-- accuracy halo -->
-              <circle cx="28" cy="28" r="24" fill="#2a7fff" opacity="0.14"/>
-              <!-- heading wedge (points where you're facing) -->
-              <polygon points="28,1 37,22 28,17 19,22" fill="#2a7fff" stroke="#ffffff" stroke-width="1.5"/>
-              <!-- you-are-here dot -->
-              <circle cx="28" cy="28" r="11" fill="#2a7fff" stroke="#ffffff" stroke-width="3.5"/>
-              <circle cx="28" cy="28" r="4.5" fill="#ffffff" opacity="0.85"/>
-            </svg>
-          </div>`;
-        if (!locationMarker) {
-          const icon = L.divIcon({ className: '', html: markerHtml, iconSize: [0, 0] });
-          locationMarker = L.marker(lastCarLatLon, { icon, interactive: false }).addTo(map);
-        } else {
-          locationMarker.setLatLng(lastCarLatLon);
-          if (!map.hasLayer(locationMarker)) locationMarker.addTo(map);
-        }
-        // Grab the SVG element so we can rotate it live each frame
-        locationMarkerArrow = locationMarker.getElement()?.querySelector('#loc-marker-svg') || null;
-        map.setView(lastCarLatLon, map.getZoom(), { animate: true });
-      }
+      // Centre the expanded view on the car and show the you-are-here marker (positioned each frame).
+      _viewX = _lastCarWX; _viewZ = _lastCarWZ;
+      locationMarkerArrow = _locSvg;
+      locMarkerEl.style.display = 'block';
+      redrawMap(true);
     } else {
       if (backdropEl && backdropEl.parentNode) backdropEl.parentNode.removeChild(backdropEl);
       frame.style.top = 'auto';
@@ -544,14 +522,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       innerShadow.style.display = '';
       highlight.style.display = '';
       markerEl.style.display = '';
-      // Remove the expanded Leaflet location marker
-      if (locationMarker && map.hasLayer(locationMarker)) map.removeLayer(locationMarker);
+      // Hide the expanded you-are-here marker; back to circular zoom + car-centred redraw.
+      locMarkerEl.style.display = 'none';
       locationMarkerArrow = null;
-      map.dragging.disable();
-      map.scrollWheelZoom.disable();
-      map.doubleClickZoom.disable();
-      map.invalidateSize();
-      if (lastCarLatLon) map.setView(lastCarLatLon, MINIMAP_ZOOM, { animate: false });
+      _zoom = MINIMAP_ZOOM;
+      redrawMap(true);
     }
   }
 
@@ -629,19 +604,27 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       for (const el of _blipEls) el.style.display = 'none';
     }
 
-    // Map tile panning is throttled (expensive Leaflet operation)
-    const now = Date.now();
-    if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return;
-    lastUpdateTime = now;
+    // Track the car's world position (for the car-centred redraw + expanded marker); refresh its lat/lon
+    // (used by the blip/objective bearing math) on a light throttle to avoid a per-frame allocation.
+    if (Number.isFinite(worldX) && Number.isFinite(worldZ)) {
+      _lastCarWX = worldX; _lastCarWZ = worldZ;
+      const now = Date.now();
+      if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
+        lastUpdateTime = now;
+        const { lat, lon } = worldToLatLon(worldX, worldZ);
+        lastCarLatLon = [lat, lon];
+      }
+    }
 
-    if (!Number.isFinite(worldX) || !Number.isFinite(worldZ)) return;
-    const { lat, lon } = worldToLatLon(worldX, worldZ);
-    lastCarLatLon = [lat, lon];
-    if (!expanded) {
-      map.setView([lat, lon], MINIMAP_ZOOM, { animate: false });
-    } else if (locationMarker) {
-      // Keep marker at current position while expanded (map view stays where user panned)
-      locationMarker.setLatLng([lat, lon]);
+    // Redraw: circular is car-centred + self-throttled by movement; expanded only redraws on pan/zoom, and
+    // keeps the you-are-here marker glued to the car's pixel every frame.
+    redrawMap();
+    if (expanded && locMarkerEl.style.display !== 'none') {
+      const cssPx = mapDiv.clientWidth || MINIMAP_SIZE;
+      const ll = worldToLatLon(_viewX, _viewZ);
+      const mpp = _mPerPx(ll.lat, _zoom);
+      locMarkerEl.style.left = `${cssPx / 2 + (_lastCarWX - _viewX) / mpp}px`;
+      locMarkerEl.style.top = `${cssPx / 2 - (_lastCarWZ - _viewZ) / mpp}px`;
     }
   }
 
@@ -662,7 +645,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   function setNightMode(isNight) {
     _isNight = isNight;
     _markerNight = isNight;
-    if (customMap) { customMap.setNight(isNight); if (customLayer) customLayer._ddRefresh?.(); }
+    if (customMap) { customMap.setNight(isNight); redrawMap(true); }
     borderRing.style.background = _isNight ? '#2a2a2a' : '#ffffff';
     updateMarker();
   }

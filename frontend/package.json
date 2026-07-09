@@ -18,7 +18,6 @@
   "dependencies": {
     "cannon-es": "^0.20.0",
     "fflate": "^0.8.3",
-    "leaflet": "^1.9.4",
     "three": "^0.183.1"
   }
 }
