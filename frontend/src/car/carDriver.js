@@ -88,16 +88,42 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   };
   let _crumbTimer = 0;
   let _resetCooldown = 0;
-  const _onRecoverKey = (e) => {
-    if (e.code !== 'KeyR' || _resetCooldown > 0 || isInputBlocked() || isTypingTarget()) return;
-    _resetCooldown = 1.0;
+  // Shared teleport used by both the R key and the freefall auto-recovery below.
+  const _recoverToCrumb = () => {
     const b = physics.chassisBody;
     b.position.set(_crumb.x, _crumb.y + 0.8, _crumb.z);
     b.quaternion.set(_crumb.qx, _crumb.qy, _crumb.qz, _crumb.qw);
     b.velocity.set(0, 0, 0);
     b.angularVelocity.set(0, 0, 0);
   };
+  const _onRecoverKey = (e) => {
+    if (e.code !== 'KeyR' || _resetCooldown > 0 || isInputBlocked() || isTypingTarget()) return;
+    _resetCooldown = 1.0;
+    _recoverToCrumb();
+  };
   window.addEventListener('keydown', _onRecoverKey);
+
+  // ── Freefall auto-recovery ───────────────────────────────────────────────
+  // If terrain tiles haven't streamed in yet (slow load, or a load error), the car drops
+  // through the void; sometimes the ground then loads ABOVE it, trapping it under the mesh.
+  // Detect a sustained airborne state well below the last known-good pose (or past a hard
+  // floor sentinel) and auto-recover to the crumb — the same teleport as pressing R — then
+  // HOLD the car hovering there until a wheel actually contacts terrain, so we don't
+  // teleport-and-fall in a loop while tiles are still loading.
+  const FALL_DROP_M  = 8;     // m below last known-good pose (airborne) → suspect void-fall
+  const FALL_FLOOR_Y = -50;   // hard sentinel: no real terrain is this low → immediate recover
+  const FALL_TIME_S  = 0.6;   // must be anomalous this long before recover (ignore normal jumps/bumps)
+  let _fallTimer = 0;
+  let _holdGround = false;
+
+  // DEV-only: force a void-fall from the console to verify auto-recovery. Stripped from prod builds.
+  if (import.meta.env.DEV) {
+    window._testFreefall = (depth = 60) => {
+      physics.chassisBody.position.y -= depth;
+      physics.chassisBody.velocity.set(0, -8, 0);
+      console.log(`[test] dropped car ${depth}m — freefall auto-recovery should fire within ~0.6s`);
+    };
+  }
 
   // ── Per-frame update ──────────────────────────────────────────────────────
   function update(dt, cinematic = false) {
@@ -146,6 +172,38 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
         _crumb.qx = 0; _crumb.qy = q.y; _crumb.qz = 0; _crumb.qw = q.w; // yaw only
         const n = Math.hypot(_crumb.qy, _crumb.qw) || 1;
         _crumb.qy /= n; _crumb.qw /= n;
+      }
+    }
+
+    // 5c. Freefall auto-recovery (tiles not loaded / physics glitch → car falls through void,
+    //     or ground streams in above it and traps it). See setup comment above.
+    if (!cinematic) {
+      const cb = physics.chassisBody;
+      const wheelsOn = physics.vehicle.wheelInfos.filter((w) => w.isInContact).length;
+      const belowCrumb = cb.position.y < _crumb.y - FALL_DROP_M;
+      const belowFloor = cb.position.y < FALL_FLOOR_Y;
+
+      // Airborne AND far below the last grounded pose (falling OR trapped under mesh) → suspect.
+      if (wheelsOn === 0 && (belowCrumb || belowFloor)) _fallTimer += dt;
+      else _fallTimer = 0;
+
+      if (_fallTimer >= FALL_TIME_S || belowFloor) {
+        _recoverToCrumb();
+        _fallTimer = 0;
+        _holdGround = true;   // begin hover-hold until terrain is confirmed underfoot
+      }
+
+      // Hover-hold: keep the car pinned at the recover point until a wheel touches terrain,
+      // so it doesn't teleport-and-fall repeatedly while tiles are still streaming in.
+      if (_holdGround) {
+        if (wheelsOn > 0) {
+          _holdGround = false;                      // ground arrived — release control
+        } else {
+          cb.velocity.set(0, 0, 0);
+          cb.angularVelocity.set(0, 0, 0);
+          const restY = _crumb.y + 0.8;
+          if (cb.position.y < restY) cb.position.y = restY;
+        }
       }
     }
 

@@ -30,18 +30,20 @@ export function createStreetDisplay() {
   el.textContent = DEFAULT_TEXT;
   el.style.cssText = `
     position: fixed;
-    bottom: 80px;
+    bottom: 82px;
     left: 50%;
     transform: translateX(-50%);
-    padding: 8px 20px;
+    padding: 0;
     background: none;
-    color: #fff;
-    font-family: Futura PT, system-ui, sans-serif;
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    text-shadow: none;
+    color: #f3ede1;
+    font-family: 'Futura PT', system-ui, sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.45);
     pointer-events: none;
+    white-space: nowrap;
     z-index: 10;
   `;
   document.body.appendChild(el);

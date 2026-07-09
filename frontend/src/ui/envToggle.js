@@ -15,6 +15,7 @@ import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetli
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
+import { UI, iconButton, injectUITheme } from './theme.js';
 
 const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
@@ -213,42 +214,20 @@ export function createEnvToggle(refs) {
   const savedMode = (() => { try { return localStorage.getItem('dd_dayNight') || 'day'; } catch { return 'day'; } })();
   applyMode(savedMode, true);
 
-  // ── Toggle switch (chunky gamified pill — matches the settings toggles) ─────
-  const TRACK_W = 74, TRACK_H = 40, KNOB_SIZE = 32, KNOB_PAD = 4;
-
-  // press-down effect (inline styles can't do :active)
-  const _st = document.createElement('style');
-  _st.textContent = '#env-toggle:active { transform: translateY(5px); }';
-  document.head.appendChild(_st);
-
+  // ── Day / night toggle — flat frosted icon button (art-of-rally chrome) ─────
+  injectUITheme();
   const toggle = document.createElement('div');
   toggle.id = 'env-toggle';
-  toggle.style.cssText = `
-    position: fixed; top: 14px; right: 14px; z-index: 1000;
-    width: ${TRACK_W}px; height: ${TRACK_H}px; border-radius: 22px;
-    cursor: pointer; user-select: none;
-    border: 3px solid rgba(0,0,0,0.18);
-    transition: background .35s ease, box-shadow .06s, transform .06s;
-  `;
-
-  const knob = document.createElement('div');
-  knob.style.cssText = `
-    width: ${KNOB_SIZE}px; height: ${KNOB_SIZE}px; border-radius: 50%;
-    position: absolute; top: ${(TRACK_H - KNOB_SIZE) / 2}px; background: #fff;
-    transition: left .3s ease;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-  `;
-  toggle.appendChild(knob);
+  toggle.className = 'dd-btn';
+  toggle.title = 'Toggle day / night';
+  toggle.style.cssText = iconButton({ size: 46 }) + 'position:fixed;top:14px;right:14px;z-index:1000;';
 
   function updateToggle() {
     const isNight = mode === 'night';
-    toggle.style.background = isNight ? 'linear-gradient(#4a6ea5,#284872)' : 'linear-gradient(#ffe07a,#f5b32a)';
-    toggle.style.boxShadow = (isNight ? '0 6px 0 #16304f' : '0 6px 0 #c8871a') + ', 0 9px 12px rgba(0,0,0,0.35)';
-    knob.style.left = isNight ? `${TRACK_W - KNOB_SIZE - KNOB_PAD}px` : `${KNOB_PAD}px`;
-    knob.innerHTML = isNight
-      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="#3a5a8a"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
-      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5931f" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+    // Simple, single-weight line icon in warm cream — sun by day, moon by night.
+    toggle.innerHTML = isNight
+      ? `<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="${UI.cream}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
+      : `<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="${UI.cream}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`;
   }
   updateToggle();
 

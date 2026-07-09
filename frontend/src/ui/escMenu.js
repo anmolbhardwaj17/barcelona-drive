@@ -96,9 +96,10 @@ const CSS = `
 .dd-esc-x { width:52px; height:52px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff;
   background:linear-gradient(#ff8a63,#ff5a4d); border:3px solid rgba(0,0,0,0.16); box-shadow:0 6px 0 #c8342a, 0 9px 12px rgba(0,0,0,0.35); }
 .dd-esc-x:active { transform:translateY(5px); box-shadow:0 1px 0 #c8342a; }
-.dd-esc-fab { position:fixed; top:12px; left:12px; z-index:1500; width:50px; height:50px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:24px; color:#3a2a00;
-  background:linear-gradient(#ffe07a,#f2a626); border:3px solid rgba(0,0,0,0.15); box-shadow:0 6px 0 #c88010, 0 9px 12px rgba(0,0,0,0.35); }
-.dd-esc-fab:active { transform:translateY(5px); box-shadow:0 1px 0 #c88010; }
+.dd-esc-fab { position:fixed; top:14px; left:14px; z-index:1500; width:46px; height:46px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:20px; color:#f3ede1; cursor:pointer;
+  background:rgba(28,25,22,0.44); backdrop-filter:blur(15px) saturate(1.08); -webkit-backdrop-filter:blur(15px) saturate(1.08); border:1px solid rgba(243,237,225,0.16); box-shadow:0 3px 12px rgba(0,0,0,0.20); transition:background .18s ease, border-color .18s ease, transform .1s ease; }
+.dd-esc-fab:hover { background:rgba(243,237,225,0.14); }
+.dd-esc-fab:active { transform:translateY(1px) scale(0.97); }
 `;
 
 function el(t, c, h) { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }

@@ -405,17 +405,19 @@ spawnTileReady.finally(() => {
         // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
         recoverHint = document.createElement('div');
         recoverHint.style.cssText = 'position:fixed;bottom:118px;left:50%;transform:translateX(-50%);z-index:1200;display:none;' +
-          'font:800 15px Poppins,system-ui,sans-serif;color:#fff;background:rgba(176,42,30,.9);padding:9px 16px;border-radius:12px;' +
-          'box-shadow:0 4px 16px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap;';
-        recoverHint.innerHTML = '🔄 Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px">R</b> to recover';
+          "font-family:'Futura PT',system-ui,sans-serif;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.14em;" +
+          'color:#f3ede1;background:rgba(215,106,79,0.92);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);padding:9px 16px;border-radius:11px;' +
+          'box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;white-space:nowrap;';
+        recoverHint.innerHTML = 'Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px;letter-spacing:0">R</b> to recover';
         document.body.appendChild(recoverHint);
-        // Subtle controls hint, bottom-centre, small font.
+        // Subtle controls hint, bottom-centre — thin uppercase Futura, wide tracking (art-of-rally caption).
         const controlsStrip = document.createElement('div');
         controlsStrip.id = 'controls-strip';
-        controlsStrip.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;' +
-          'font:500 13px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.8);' +
-          'pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.4px;';
-        controlsStrip.innerHTML = 'WASD-DRIVE &nbsp;·&nbsp; SPACE-DRIFT &nbsp;·&nbsp; H-HORN &nbsp;·&nbsp; L-LIGHTS &nbsp;·&nbsp; R-RECOVER &nbsp;·&nbsp; M-MAP &nbsp;·&nbsp; ESC-MENU';
+        controlsStrip.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:900;' +
+          "font-family:'Futura PT',system-ui,sans-serif;font-size:11.5px;font-weight:500;text-transform:uppercase;letter-spacing:.18em;" +
+          'color:rgba(243,237,225,.68);text-shadow:0 1px 4px rgba(0,0,0,.4);' +
+          'pointer-events:none;user-select:none;white-space:nowrap;';
+        controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
         document.body.appendChild(controlsStrip);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
