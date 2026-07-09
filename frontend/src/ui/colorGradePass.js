@@ -44,7 +44,7 @@ const ColorGradeShader = {
       // 1. Saturation — RICHER streets (1.15); rally style is VIVID (art of rally is bright + saturated,
       //    NOT muted — the earlier "cohesive muted palette" was exactly backwards).
       float l0 = luma(c);
-      float satAmt = mix(1.15, 1.42, uRally);
+      float satAmt = mix(1.15, 1.52, uRally);   // a touch richer — counters ACES desaturating the highlights
       c = mix(c, mix(vec3(l0), c, satAmt), s);
 
       // 2. Gentle contrast S-curve.
@@ -64,8 +64,9 @@ const ColorGradeShader = {
       //    (ambient/hemi), not a global additive. None at night.
       c = mix(c, c * 0.985 + mix(0.024, 0.018, uRally) * (1.0 - uNight), s);
 
-      // 5. High-key brighten — bright/airy by DAY; at night it only greyed-out the deep shadows, so kill it.
-      c *= mix(1.0, 1.14, uRally * s * (1.0 - uNight));
+      // 5. High-key brighten — a gentle airy lift by DAY. Kept modest (was 1.14 → washed the frame flat/faded
+      //    under ACES); at night it only greyed the deep shadows, so killed there.
+      c *= mix(1.0, 1.06, uRally * s * (1.0 - uNight));
 
       // 6. Vignette — subtle by default; rally keeps it minimal so the frame stays open + bright.
       float dist = length(vUv - vec2(0.5));
