@@ -1,5 +1,12 @@
 # Visual Refinement Plan (v2)
 
+> **STATUS: COMPLETE (2026-07-10).** All phases landed on `v2`. V1/V2 = ACES filmic tone mapping +
+> day/night lighting rebalance (`f6c280c`); V3 = grade dial-in / un-fade (`3a9958a`); V4 = baked
+> building base-AO (`3a9958a`) + per-building facade tint variation (`1b58a13`); V5 = vegetation
+> warmed toward Mediterranean olive for palette cohesion (`3ef62d1`). GTAO (original V1) was NOT used —
+> it tripled triangle count and tanked FPS on the 4M-tri scene; replaced with perf-safe baked vertex AO.
+> Ready for `v2 → main` merge + deploy on Anmol's confirmation.
+
 **Goal:** take the game from "functional stylized" to *refined* — a cohesive, art-directed look that reads as
 polished — **without switching engines or rewriting.** Everything here builds on the existing Three.js
 pipeline. Reference direction: **stylized realism, art-of-rally-adjacent** (cohesion > realism).
