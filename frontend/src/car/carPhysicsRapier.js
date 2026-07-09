@@ -60,10 +60,11 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   }
 
   // ── Cannon-compatible proxy objects (read live from the Rapier body each step) ──
-  const _pos = { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z, set(x, y, z) { chassis.setTranslation({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
+  const _len = function () { return Math.hypot(this.x, this.y, this.z); };  // cannon Vec3.length() parity
+  const _pos = { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z, length: _len, set(x, y, z) { chassis.setTranslation({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
   const _quat = { x: 0, y: 0, z: 0, w: 1, set(x, y, z, w) { chassis.setRotation({ x, y, z, w }, true); this.x = x; this.y = y; this.z = z; this.w = w; } };
-  const _vel = { x: 0, y: 0, z: 0, set(x, y, z) { chassis.setLinvel({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
-  const _ang = { x: 0, y: 0, z: 0, set(x, y, z) { chassis.setAngvel({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
+  const _vel = { x: 0, y: 0, z: 0, length: _len, set(x, y, z) { chassis.setLinvel({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
+  const _ang = { x: 0, y: 0, z: 0, length: _len, set(x, y, z) { chassis.setAngvel({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
   function refresh() {
     const t = chassis.translation(); _pos.x = t.x; _pos.y = t.y; _pos.z = t.z;
     const r = chassis.rotation(); _quat.x = r.x; _quat.y = r.y; _quat.z = r.z; _quat.w = r.w;
@@ -92,7 +93,7 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   });
 
   // ── State ───────────────────────────────────────────────────────────────────
-  let _currentGear = 1, _currentRpm = IDLE_RPM, _shiftTimer = 0, _reverse = false, _currentSteer = 0, _skidLevel = 0;
+  let _currentGear = 1, _currentRpm = IDLE_RPM, _shiftTimer = 0, _reverse = false, _currentSteer = 0, _skidLevel = 0, _isBraking = false;
 
   function getSpeedKmh() { return vc.currentVehicleSpeed() * 3.6; }
 
@@ -114,6 +115,7 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     const signed = getSpeedKmh();
     const absSpeed = Math.abs(signed);
     _reverse = signed < -0.5;
+    _isBraking = brake > 0.05 && signed > 1;
     _transmission(absSpeed, throttle, dt);
 
     // Steering — reduce lock with speed (twitch-free at pace).
@@ -187,6 +189,16 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     return 1 - 2 * (q.x * q.x + q.z * q.z);
   }
 
+  // Drift factor 0..1 — how sideways the velocity is vs the car's forward, boosted by handbrake skid.
+  function getDriftFactor() {
+    const spd = Math.hypot(_vel.x, _vel.z);
+    if (spd < 2) return _skidLevel;
+    const f = _rotQ(_quat, 0, 0, 1);                    // forward = local +Z in world
+    const fdot = (_vel.x * f.x + _vel.z * f.z) / spd;   // cos(slip angle)
+    const slip = Math.sqrt(Math.max(0, 1 - fdot * fdot)); // sin(slip angle) = lateral fraction
+    return Math.min(1, Math.max(_skidLevel, slip * 1.5));
+  }
+
   return {
     chassisBody, vehicle, step, applyInputs, getSpeedKmh, dispose,
     getSkidLevel() { return _skidLevel; },
@@ -194,6 +206,9 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     getCurrentGear() { return _reverse ? -1 : _currentGear; },
     getCurrentRpm() { return _currentRpm; },
     getUpDot,
+    getDriftFactor,
+    isBraking() { return _isBraking; },
+    isReversing() { return _reverse; },
     getCurrentForce() { return 0; },
   };
 }
