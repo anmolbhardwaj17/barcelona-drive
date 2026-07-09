@@ -869,8 +869,16 @@ function getBuildingCategory(building, roads, worldX, worldZ) {
  * Per-building brightness variation (±8%) applied via vertex colors.
  */
 function getFacadeTint(building) {
-  const v = 0.85 + (deterministicIndex(building.id) % 21) / 100;
-  return new THREE.Color(v, v, v);
+  const idx = deterministicIndex(building.id);
+  const v = 0.82 + (idx % 24) / 100;               // brightness 0.82–1.06 (slightly wider than before)
+  // subtle per-building warm/cool bias so neighbours differ in MATERIAL, not just lightness — some facades
+  // read cream/warm, some cool-grey. Kept small so it stays tasteful, not garish.
+  const warm = (((idx * 7) % 15) - 7) / 170;       // ≈ −0.041 … +0.041
+  return new THREE.Color(
+    Math.max(0, Math.min(1.1, v + warm)),
+    v + warm * 0.3,
+    Math.max(0, v - warm),
+  );
 }
 
 // Baked ambient occlusion: darken wall vertices toward the building base and ease off up the facade. This
