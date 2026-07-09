@@ -10,6 +10,12 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
 import { warmupBegin, warmupEnd } from './map/gpuWarmup.js';
+
+// DEV-only physics benchmark: cannon-es vs Rapier on a tile-world-like load. Dynamic import + DEV gate ⇒
+// never in the production bundle. Trigger with ?bench=physics, or window._benchPhysics() from the console.
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('bench') === 'physics') {
+  import('./bench/physicsBench.js').then((m) => m.benchPhysics()).catch((e) => console.warn('[bench] failed', e));
+}
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
