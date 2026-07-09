@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { makeGLTFLoader } from '../loaders.js';
 import { worldToLatLon } from '../projection.js';
 import { CONFIG } from '../config.js';
 import { isVegetationAllowed } from './vegetationMask.js';
@@ -55,7 +55,7 @@ export function preloadBushModels() {
       metalness: 0,
     });
 
-    const loader = new GLTFLoader();
+    const loader = makeGLTFLoader();
     await Promise.all(
       GLB_BUSH_URLS.map((url, i) =>
         new Promise((resolve) => {

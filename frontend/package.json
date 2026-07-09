@@ -10,6 +10,7 @@
     "optimize:textures": "node scripts/optimize-textures.js"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.4.1",
     "sharp": "^0.34.5",
     "vite": "^7.3.1",
     "vite-plugin-arraybuffer": "^0.1.4"

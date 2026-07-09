@@ -6,7 +6,7 @@
  * open (start()/stop()), so it costs nothing during play. Art-of-rally lighting: warm key + cool fill.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { makeGLTFLoader } from '../loaders.js';
 
 export function createCarShowcase() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -45,7 +45,7 @@ export function createCarShowcase() {
   // ── Load the player car ──
   const pivot = new THREE.Group(); scene.add(pivot); // rotate this
   let carCenterY = 0.6;
-  new GLTFLoader().load('/models/bmw_m3.glb', (gltf) => {
+  makeGLTFLoader().load('/models/bmw_m3.glb', (gltf) => {
     const car = gltf.scene;
     car.traverse((c) => {
       if (!c.isMesh) return;

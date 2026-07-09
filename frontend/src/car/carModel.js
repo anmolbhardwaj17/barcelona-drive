@@ -5,7 +5,7 @@
  * Forward = +Z in physics world (Y-up).
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { makeGLTFLoader } from '../loaders.js';
 import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
 import { audio } from '../audio/audioManager.js';
@@ -40,7 +40,7 @@ async function loadGLBResilient(loader, url, { tries = 3, timeoutMs = 12000 } = 
 
 export async function createCarModel(scene) {
   console.log('[CarModel] Loading BMW M3 GLB...');
-  const loader = new GLTFLoader();
+  const loader = makeGLTFLoader();
   const gltf = await loadGLBResilient(loader, '/models/bmw_m3.glb');
   const model = gltf.scene;
 

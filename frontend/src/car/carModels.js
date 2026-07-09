@@ -8,10 +8,10 @@
  * so hundreds of cars stay cheap.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { makeGLTFLoader } from '../loaders.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-const _loader = new GLTFLoader();
+const _loader = makeGLTFLoader();
 
 // The normal city cars from the kit (skip tractors/karts/race/debris).
 export const CITY_CARS = [
