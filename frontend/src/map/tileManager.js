@@ -23,6 +23,7 @@ import { createRailwayMeshes, createTramMeshes } from './railwayRenderer.js';
 import { createGreensMeshes } from './greensRenderer.js';
 import { buildBarrierMeshes, buildBarrierColliders } from './barrierRenderer.js';
 import { buildBusStopMeshes } from './busStopRenderer.js';
+import { queueWarmup } from './gpuWarmup.js';
 import { buildParkingMeshes } from './parkingRenderer.js';
 import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildAwningMesh } from './awningRenderer.js';
@@ -95,15 +96,28 @@ function meshHasNaN(mesh) {
   return false;
 }
 
+// Meshes at/above this vertex count are worth pre-uploading to the GPU (queueWarmup) — below it, the
+// VBO upload on first render is negligible and not worth an extra draw. Buildings/roads/terrain/veg
+// (the big merged meshes) clear this easily; small props (streetlights, reflectors) don't.
+const WARMUP_MIN_VERTS = 1500;
+
+/** Queue any sufficiently-large mesh children of a group for GPU pre-upload. */
+function queueGroupWarmup(group) {
+  group.traverse((o) => {
+    if (o.isMesh && (o.geometry?.attributes?.position?.count || 0) >= WARMUP_MIN_VERTS) queueWarmup(o);
+  });
+}
+
 /** Safe scene.add that skips meshes with NaN positions to prevent render errors. */
 function safeSceneAdd(scene, mesh) {
   if (!mesh) return false;
-  if (mesh.isGroup) { scene.add(mesh); return true; }
+  if (mesh.isGroup) { scene.add(mesh); queueGroupWarmup(mesh); return true; }
   if (meshHasNaN(mesh)) {
     mesh.geometry.dispose();
     return false;
   }
   scene.add(mesh);
+  if ((mesh.geometry?.attributes?.position?.count || 0) >= WARMUP_MIN_VERTS) queueWarmup(mesh);
   return true;
 }
 

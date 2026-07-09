@@ -26,6 +26,9 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     <div class="perf-row"><span class="perf-k">Draw calls</span><span class="perf-v" id="perf-calls">—</span></div>
     <div class="perf-row"><span class="perf-k">Triangles</span><span class="perf-v" id="perf-tris">—</span></div>
     <div class="perf-row"><span class="perf-k">Memory</span><span class="perf-v" id="perf-mem">—</span></div>
+    <div class="perf-sub" id="perf-cpu">cpu —</div>
+    <div class="perf-sub" id="perf-alloc">alloc —</div>
+    <div class="perf-sub" id="perf-worst">worst —</div>
   `;
   el.style.cssText = `
     position: fixed; top: 260px; right: 24px; z-index: 10; pointer-events: none;
@@ -39,6 +42,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   el.querySelectorAll('.perf-row').forEach((r) => { r.style.cssText = 'display:flex;justify-content:space-between;gap:18px;padding:2px 0;'; });
   el.querySelectorAll('.perf-k').forEach((k) => { k.style.color = 'rgba(255,255,255,0.55)'; });
   el.querySelectorAll('.perf-v').forEach((v) => { v.style.cssText = 'font-variant-numeric:tabular-nums;font-weight:400;'; });
+  el.querySelectorAll('.perf-sub').forEach((s) => { s.style.cssText = 'margin-top:6px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.5);font-size:10.5px;max-width:280px;line-height:1.5;'; });
   document.body.appendChild(el);
 
   const vFps = el.querySelector('#perf-fps');
@@ -46,6 +50,9 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   const vCalls = el.querySelector('#perf-calls');
   const vTris = el.querySelector('#perf-tris');
   const vMem = el.querySelector('#perf-mem');
+  const vCpu = el.querySelector('#perf-cpu');
+  const vAlloc = el.querySelector('#perf-alloc');
+  const vWorst = el.querySelector('#perf-worst');
 
   let frameCount = 0, lastUpdate = 0, worstMs = 0;
 
@@ -74,6 +81,15 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     vMem.textContent = (performance?.memory?.usedJSHeapSize)
       ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)} MB`
       : 'n/a';
+
+    // CPU section breakdown (ms/frame), per-section allocation (MB/frame — the GC-stutter culprit), and the
+    // single worst frame this second (what a stutter was made of). Powered by cpuTimer.report().
+    const rep = context?.cpuTimer?.report?.();
+    if (rep) {
+      vCpu.textContent = `cpu   ${rep.avg}`;
+      vAlloc.textContent = `alloc ${rep.heap}`;
+      vWorst.textContent = `worst ${rep.worst}`;
+    }
   }
 
   return { element: el, tick };

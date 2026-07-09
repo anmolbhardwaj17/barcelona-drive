@@ -25,8 +25,8 @@ const MAX_H_DIST          = 9.3;   // horizontal clamp — MUST stay above BASE_
 const LERP_POSITION       = 0.16;
 const LERP_LOOK           = 0.22;
 const BASE_FOV            = 70;
-const MAX_FOV_BOOST       = 17;   // was 14 — a bit more speed-warp at the top
-const FOV_PEAK_KMH        = 85;   // speed at which the FOV boost maxes (was 120) — so 40-90 city speeds actually FEEL fast
+const MAX_FOV_BOOST       = 21;   // more speed-warp at the top to sell the trimmed 110 km/h top speed
+const FOV_PEAK_KMH        = 80;   // speed at which the FOV boost maxes — so 40-90 city speeds actually FEEL fast
 
 // Mouse orbit config
 const MOUSE_SENSITIVITY_X = 0.004;  // radians per pixel

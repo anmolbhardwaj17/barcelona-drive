@@ -104,17 +104,21 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   window.addEventListener('keydown', _onRecoverKey);
 
   // ── Freefall auto-recovery ───────────────────────────────────────────────
-  // If terrain tiles haven't streamed in yet (slow load, or a load error), the car drops
-  // through the void; sometimes the ground then loads ABOVE it, trapping it under the mesh.
-  // Detect a sustained airborne state well below the last known-good pose (or past a hard
-  // floor sentinel) and auto-recover to the crumb — the same teleport as pressing R — then
-  // HOLD the car hovering there until a wheel actually contacts terrain, so we don't
-  // teleport-and-fall in a loop while tiles are still loading.
-  const FALL_DROP_M  = 8;     // m below last known-good pose (airborne) → suspect void-fall
-  const FALL_FLOOR_Y = -50;   // hard sentinel: no real terrain is this low → immediate recover
-  const FALL_TIME_S  = 0.6;   // must be anomalous this long before recover (ignore normal jumps/bumps)
-  let _fallTimer = 0;
+  // If terrain tiles fail to stream in, the car can drop through the void. We ONLY want to fire on that
+  // genuine plunge — never on normal driving, bumps, jumps or slopes (an earlier version false-fired and
+  // yanked the car back to spawn). So we require ALL THREE at once, measured from the instant the wheels
+  // left the ground: airborne a while, dropped a long way, and STILL falling fast. Real driving never
+  // satisfies all three; a void-fall always does.
+  const VOID_MIN_AIR_S  = 1.2;    // must have been airborne at least this long
+  const VOID_MIN_DROP_M = 30;     // ...and dropped at least this far below where the wheels left ground
+  const VOID_MIN_FALL_V = 14;     // ...and still be falling faster than this (m/s downward)
+  const FALL_FLOOR_Y    = spawnLocalPos.y - 400;  // last-resort sentinel, far below any real terrain
+  const HOLD_MAX_S      = 2.0;    // hard cap on the hover-hold so the car can NEVER get stuck floating
+  let _airTime    = 0;            // seconds since wheels last touched ground
+  let _airStartY  = spawnLocalPos.y; // chassis Y at the moment we last became airborne
+  let _wasGrounded = true;
   let _holdGround = false;
+  let _holdTimer  = 0;
 
   // DEV-only: force a void-fall from the console to verify auto-recovery. Stripped from prod builds.
   if (import.meta.env.DEV) {
@@ -157,52 +161,62 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     // 5. Chase camera (pass speed for reverse camera flip). Skipped while a game mode drives a cinematic.
     if (!cinematic) carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
 
-    // 5b. Recovery breadcrumb: record pose when upright + ≥3 wheels grounded (every 2 s)
+    // 5b. Recovery breadcrumb + freefall auto-recovery.
     _resetCooldown = Math.max(0, _resetCooldown - dt);
-    _crumbTimer += dt;
-    if (_crumbTimer >= 2) {
-      _crumbTimer = 0;
-      const wheelsOn = physics.vehicle.wheelInfos.filter((w) => w.isInContact).length;
-      const q = physics.chassisBody.quaternion;
-      // chassis up-axis Y component: 1 - 2(qx² + qz²) — upright when close to 1
-      const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
-      if (wheelsOn >= 3 && upY > 0.8) {
-        const bp = physics.chassisBody.position;
+    {
+      const cb = physics.chassisBody;
+      // Count grounded wheels without allocating a filtered array every frame (this runs at 60 Hz).
+      let wheelsOn = 0;
+      const _wi = physics.vehicle.wheelInfos;
+      for (let wj = 0; wj < _wi.length; wj++) if (_wi[wj].isInContact) wheelsOn++;
+      const q = cb.quaternion;
+      const upY = 1 - 2 * (q.x * q.x + q.z * q.z); // chassis up-axis Y: ~1 when upright
+
+      // Breadcrumb: keep it FRESH. Record the last upright, grounded pose continuously (throttled to
+      // ~3/s) whenever ≥2 wheels touch and we're roughly upright — so "recover" never sends us all the
+      // way back to spawn (the earlier bug: a strict ≥3-wheel/2s gate rarely fired → stale crumb).
+      _crumbTimer += dt;
+      if (wheelsOn >= 2 && upY > 0.6 && _crumbTimer >= 0.3) {
+        _crumbTimer = 0;
+        const bp = cb.position;
         _crumb.x = bp.x; _crumb.y = bp.y; _crumb.z = bp.z;
         _crumb.qx = 0; _crumb.qy = q.y; _crumb.qz = 0; _crumb.qw = q.w; // yaw only
         const n = Math.hypot(_crumb.qy, _crumb.qw) || 1;
         _crumb.qy /= n; _crumb.qw /= n;
       }
-    }
 
-    // 5c. Freefall auto-recovery (tiles not loaded / physics glitch → car falls through void,
-    //     or ground streams in above it and traps it). See setup comment above.
-    if (!cinematic) {
-      const cb = physics.chassisBody;
-      const wheelsOn = physics.vehicle.wheelInfos.filter((w) => w.isInContact).length;
-      const belowCrumb = cb.position.y < _crumb.y - FALL_DROP_M;
-      const belowFloor = cb.position.y < FALL_FLOOR_Y;
-
-      // Airborne AND far below the last grounded pose (falling OR trapped under mesh) → suspect.
-      if (wheelsOn === 0 && (belowCrumb || belowFloor)) _fallTimer += dt;
-      else _fallTimer = 0;
-
-      if (_fallTimer >= FALL_TIME_S || belowFloor) {
-        _recoverToCrumb();
-        _fallTimer = 0;
-        _holdGround = true;   // begin hover-hold until terrain is confirmed underfoot
-      }
-
-      // Hover-hold: keep the car pinned at the recover point until a wheel touches terrain,
-      // so it doesn't teleport-and-fall repeatedly while tiles are still streaming in.
-      if (_holdGround) {
+      if (!cinematic) {
+        // Track airborne time + how far we've dropped since the wheels left the ground.
         if (wheelsOn > 0) {
-          _holdGround = false;                      // ground arrived — release control
+          _airTime = 0; _wasGrounded = true; _holdGround = false; _holdTimer = 0;
         } else {
-          cb.velocity.set(0, 0, 0);
-          cb.angularVelocity.set(0, 0, 0);
-          const restY = _crumb.y + 0.8;
-          if (cb.position.y < restY) cb.position.y = restY;
+          if (_wasGrounded) { _airStartY = cb.position.y; _wasGrounded = false; }
+          _airTime += dt;
+        }
+        const fellDist  = _airStartY - cb.position.y;     // metres dropped since going airborne
+        const fallingV  = -cb.velocity.y;                 // downward speed (m/s), positive = falling
+        // Genuine void-fall = airborne long enough AND dropped far AND still plummeting. All three.
+        const voidFall  = !_wasGrounded && _airTime >= VOID_MIN_AIR_S &&
+                          fellDist >= VOID_MIN_DROP_M && fallingV >= VOID_MIN_FALL_V;
+
+        if ((voidFall || cb.position.y < FALL_FLOOR_Y) && !_holdGround) {
+          _recoverToCrumb();
+          _holdGround = true;   // brief hover-hold until terrain is confirmed underfoot
+          _holdTimer = 0;
+        }
+
+        // Hover-hold: pin at the recover point until a wheel touches — but NEVER longer than HOLD_MAX_S,
+        // so a bad crumb can't leave the car floating forever (release and let physics take over).
+        if (_holdGround) {
+          _holdTimer += dt;
+          if (wheelsOn > 0 || _holdTimer >= HOLD_MAX_S) {
+            _holdGround = false;
+          } else {
+            cb.velocity.set(0, 0, 0);
+            cb.angularVelocity.set(0, 0, 0);
+            const restY = _crumb.y + 0.8;
+            if (cb.position.y < restY) cb.position.y = restY;
+          }
         }
       }
     }

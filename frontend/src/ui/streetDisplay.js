@@ -36,11 +36,11 @@ export function createStreetDisplay() {
     padding: 0;
     background: none;
     color: #f3ede1;
-    font-family: 'Futura PT', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     font-size: 20px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.03em;
     text-shadow: 0 1px 6px rgba(0,0,0,0.45);
     pointer-events: none;
     white-space: nowrap;

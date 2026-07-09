@@ -66,9 +66,12 @@ const MIN_STEER         = 0.10;   // rad (~6°) — min steer angle at high spee
 const MAX_PITCH_ROLL_VEL = 1.5;   // rad/s — clamp pitch/roll rate to prevent wheelies/flips.
 
 // ── Transmission ────────────────────────────────────────────────────────────
-// City-car feel — 6-speed, top ~150 km/h. Gears compressed so 40-90 (everyday city speed) spans gears
-// 2-3 where torque is strongest → those speeds feel meaty and fast, and 100-150 is a genuine high-end you
+// City-car feel — 6-speed, top ~110 km/h. Gears compressed so 40-90 (everyday city speed) spans gears
+// 2-3 where torque is strongest → those speeds feel meaty and fast, and 100+ is a genuine high-end you
 // have to work for (was a 280 km/h M3 where 120 was trivial low-third and 50 got skipped in 1 second).
+// Top speed deliberately trimmed from 150→110: at lower speed the tile streamer keeps lead time crossing
+// boundaries (less high-speed stutter). The lost sense-of-speed is bought back with the speed FX
+// (radial blur + speed lines + FOV punch) in main.js, ramped by speed.
 const GEAR_RATIOS = [0, 3.2, 2.2, 1.55, 1.18, 0.94, 0.78];
 const NUM_GEARS = 6;
 const REDLINE_RPM = 6500;
@@ -76,8 +79,8 @@ const IDLE_RPM = 850;
 const SHIFT_DOWN_RPM = 2000;       // shift down here
 const MAX_RPM = 7000;              // hard rev limiter
 const SHIFT_COOLDOWN = 0.30;       // seconds — quick DCT shifts
-// Top speed per gear (km/h) — tops ~150 km/h (city-car), compressed so mid-range is the meaty zone
-const GEAR_TOP_SPEEDS = [0, 40, 70, 100, 125, 140, 150];
+// Top speed per gear (km/h) — tops ~110 km/h (city-car), compressed so mid-range stays the meaty zone.
+const GEAR_TOP_SPEEDS = [0, 34, 60, 84, 100, 106, 110];
 
 export function createCarPhysics(world, spawnPos, spawnHeading) {
   const { roadMaterial, carMaterial } = getCarContactMaterials(world);

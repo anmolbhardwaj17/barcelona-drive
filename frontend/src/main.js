@@ -9,6 +9,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
+import { warmupBegin, warmupEnd } from './map/gpuWarmup.js';
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
@@ -405,7 +406,7 @@ spawnTileReady.finally(() => {
         // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
         recoverHint = document.createElement('div');
         recoverHint.style.cssText = 'position:fixed;bottom:118px;left:50%;transform:translateX(-50%);z-index:1200;display:none;' +
-          "font-family:'Futura PT',system-ui,sans-serif;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.14em;" +
+          "font-family:'Inter',system-ui,sans-serif;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;" +
           'color:#f3ede1;background:rgba(215,106,79,0.92);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);padding:9px 16px;border-radius:11px;' +
           'box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;white-space:nowrap;';
         recoverHint.innerHTML = 'Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px;letter-spacing:0">R</b> to recover';
@@ -414,7 +415,7 @@ spawnTileReady.finally(() => {
         const controlsStrip = document.createElement('div');
         controlsStrip.id = 'controls-strip';
         controlsStrip.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:900;' +
-          "font-family:'Futura PT',system-ui,sans-serif;font-size:11.5px;font-weight:500;text-transform:uppercase;letter-spacing:.18em;" +
+          "font-family:'Inter',system-ui,sans-serif;font-size:11.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;" +
           'color:rgba(243,237,225,.68);text-shadow:0 1px 4px rgba(0,0,0,.4);' +
           'pointer-events:none;user-select:none;white-space:nowrap;';
         controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
@@ -660,16 +661,21 @@ function animate(time = 0) {
   updateTreeWind(time / 1000);
   cpuTimer.lap('ui'); // hud/minimap/shadow-follow/wind/infra since the last lap
 
-  // Radial edge blur scales with speed — skip the full-screen pass entirely below 40 km/h (a free frame)
+  // Radial edge blur scales with speed — skip the full-screen pass entirely below ~30 km/h (a free frame).
   const blurSpd = Math.abs(speedKmh || 0);
-  // Edge speed-blur starts earlier now (37 vs 42) and ramps over a shorter range — with top speed at 150,
-  // the cue should live in the 37-110 city range so 40-90 reads as fast.
-  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 35) / 75));
-  radialBlurPass.enabled = blurSpd > 37;
+  // Top speed is now 110, so the cue is recalibrated into 30-95: it starts sooner and hits FULL strength by
+  // ~95 km/h, so the trimmed top end still reads as genuinely fast (bought-back sense of speed).
+  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 30) / 65));
+  radialBlurPass.enabled = blurSpd > 30;
   renderer.info.reset();
   gpuTimer.poll();       // read back a previously-issued GPU timer query (async, resolves a few frames later)
   gpuTimer.begin();      // time the actual GPU work this frame → "capable FPS" even when vsync caps display at 60
+  // GPU pre-upload: force a few queued (prefetched, off-screen) tile meshes through this render so their
+  // vertex buffers upload NOW, spread over frames — instead of all at once when the tile reveals (the
+  // "stutter driving into a new tile"). Restore culling right after. See map/gpuWarmup.js.
+  warmupBegin(3);
   composer.render();
+  warmupEnd();
   gpuTimer.end();
   cpuTimer.lap('rend'); // CPU cost of submitting draws (not GPU exec — that's the gpuTimer)
   if (perfLogger.recording) {

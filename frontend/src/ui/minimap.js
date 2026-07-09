@@ -97,7 +97,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     const ly = compassCenter + Math.sin(rad) * labelR;
     const fw = c.bold ? 'bold' : '600';
     const fs = c.bold ? 14 : 12;
-    labelsSvg += `<text x="${lx}" y="${ly}" fill="${c.color}" font-size="${fs}" font-weight="${fw}" font-family="Futura PT,system-ui,sans-serif" text-anchor="middle" dominant-baseline="central">${c.label}</text>`;
+    labelsSvg += `<text x="${lx}" y="${ly}" fill="${c.color}" font-size="${fs}" font-weight="${fw}" font-family="Inter,system-ui,sans-serif" text-anchor="middle" dominant-baseline="central">${c.label}</text>`;
   }
 
   // Red heading indicator dot at top (fixed, doesn't rotate)

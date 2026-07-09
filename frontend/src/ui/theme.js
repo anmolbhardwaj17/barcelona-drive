@@ -3,7 +3,7 @@
  *
  * Single source of truth for the HUD / menu chrome. Replaces the old per-component "Brawl-Stars"
  * styling (chunky 3D bevels, saturated yellow/green, Poppins/Lilita One) with a calm, flat,
- * geometric look: Futura PT, warm frosted glass, one muted coral accent, generous letter-spacing.
+ * geometric look: Inter, warm frosted glass, one muted coral accent, tight letter-spacing.
  *
  * Usage:
  *   import { UI, glassPanel, iconButton, injectUITheme } from './theme.js';
@@ -14,8 +14,8 @@
 
 export const UI = {
   // ── Type ──────────────────────────────────────────────────────────────────
-  font:     "'Futura PT', system-ui, 'Segoe UI', sans-serif",
-  fontCond: "'Futura Condensed', 'Futura PT', system-ui, sans-serif",
+  font:     "'Inter', system-ui, 'Segoe UI', sans-serif",
+  fontCond: "'Inter', system-ui, sans-serif",
 
   // ── Warm paper palette ─────────────────────────────────────────────────────
   cream:    '#f3ede1',            // primary text / light surfaces (warm off-white)
@@ -49,7 +49,7 @@ export const UI = {
 };
 
 /** UPPERCASE, wide-tracked label (the signature art-of-rally caption style). */
-export function label({ size = 11, weight = 600, color = UI.creamDim, spacing = 0.16 } = {}) {
+export function label({ size = 11, weight = 600, color = UI.creamDim, spacing = 0.04 } = {}) {
   return `font-family:${UI.font};font-size:${size}px;font-weight:${weight};color:${color};` +
          `text-transform:uppercase;letter-spacing:${spacing}em;`;
 }

@@ -38,7 +38,7 @@ export function createSpeedDisplay() {
     height: ${TOTAL}px;
     pointer-events: none;
     z-index: 10;
-    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+    filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.22));
   `;
   document.body.appendChild(canvas);
   const ctx = canvas.getContext('2d');
@@ -81,143 +81,86 @@ export function createSpeedDisplay() {
   }
   _rafId = requestAnimationFrame(_animLoop);
 
-  function _draw(speed, gear, rpm) {
+  // Art-of-rally palette (canvas can't read CSS tokens — kept in sync with theme.js).
+  const CREAM = '#f3ede1';
+  const CORAL = '#d76a4f';
 
+  function _draw(speed, gear, rpm) {
     ctx.clearRect(0, 0, TOTAL, TOTAL);
 
-    // Outer circle background (light, semi-transparent)
+    const needleAngle = rpmToAngle(rpm);
+    const ARC_R = R - 6;
+    const inRedzone = rpm >= 7.5;
+
+    // Faint frosted disc behind the readout — keeps the number legible over bright roads.
     ctx.beginPath();
-    ctx.arc(CX, CY, R + 4, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
+    ctx.arc(CX, CY, ARC_R - 10, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(28,25,22,0.34)';
     ctx.fill();
 
-    const needleAngle = rpmToAngle(rpm);
+    // Background track arc (thin, faint cream).
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(CX, CY, ARC_R, degToRad(ARC_START), degToRad(ARC_START + ARC_SWEEP));
+    ctx.strokeStyle = 'rgba(243,237,225,0.14)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
 
-    // Dense compass-style tick marks around the RPM arc perimeter
-    // Each 1k RPM = 30° of arc. Draw ticks every 0.2k RPM (every 6°).
-    const TICK_OUTER = R - 1;
-    const TICK_MAJOR = R - 10;   // every 1k RPM
-    const TICK_MID   = R - 7;    // every 0.5k RPM
-    const TICK_MINOR = R - 5;    // every 0.2k RPM
+    // Progress arc — fills with RPM; turns coral in the redzone.
+    ctx.beginPath();
+    ctx.arc(CX, CY, ARC_R, degToRad(ARC_START), degToRad(needleAngle));
+    ctx.strokeStyle = inRedzone ? CORAL : 'rgba(243,237,225,0.9)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
 
-    for (let rpmVal = 0; rpmVal <= GAUGE_MAX_RPM; rpmVal += 0.2) {
-      const rounded = Math.round(rpmVal * 10) / 10;
-      const isMajor = Math.abs(rounded - Math.round(rounded)) < 0.05;
-      const isMid = !isMajor && Math.abs((rounded * 2) - Math.round(rounded * 2)) < 0.05;
-      const angle = degToRad(rpmToAngle(rounded));
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-
-      const innerR = isMajor ? TICK_MAJOR : isMid ? TICK_MID : TICK_MINOR;
-      const inRedzone = rounded >= 7.5;
-      const isActive = rpmToAngle(rounded) <= needleAngle;
-
-      let color, lw;
-      if (inRedzone) {
-        color = isMajor ? 'rgba(255, 50, 50, 0.7)' : isMid ? 'rgba(255, 50, 50, 0.5)' : 'rgba(255, 50, 50, 0.3)';
-        lw = isMajor ? 2 : isMid ? 1.2 : 0.7;
-      } else if (isActive) {
-        color = isMajor ? 'rgba(255, 255, 255, 0.9)' : isMid ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.45)';
-        lw = isMajor ? 2 : isMid ? 1.2 : 0.7;
-      } else {
-        color = isMajor ? 'rgba(255, 255, 255, 0.5)' : isMid ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.15)';
-        lw = isMajor ? 1.5 : isMid ? 1 : 0.6;
-      }
-
+    // Redzone start marker (7.5k).
+    {
+      const a = degToRad(rpmToAngle(7.5));
       ctx.beginPath();
-      ctx.moveTo(CX + cos * innerR, CY + sin * innerR);
-      ctx.lineTo(CX + cos * TICK_OUTER, CY + sin * TICK_OUTER);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lw;
+      ctx.moveTo(CX + Math.cos(a) * (ARC_R - 6), CY + Math.sin(a) * (ARC_R - 6));
+      ctx.lineTo(CX + Math.cos(a) * (ARC_R + 5), CY + Math.sin(a) * (ARC_R + 5));
+      ctx.strokeStyle = 'rgba(215,106,79,0.75)';
+      ctx.lineWidth = 2;
       ctx.stroke();
     }
 
-    // RPM numbers at major ticks
+    // Speed number.
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (let i = 0; i <= GAUGE_MAX_RPM; i++) {
-      const angle = degToRad(rpmToAngle(i));
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const numR = R - 18;
-      ctx.font = 'bold 11px Futura PT, system-ui, sans-serif';
-      ctx.fillStyle = i >= 8 ? 'rgba(255, 50, 50, 0.9)' : 'rgba(255, 255, 255, 0.9)';
-      ctx.fillText(`${i}`, CX + cos * numR, CY + sin * numR);
-    }
+    ctx.font = '600 38px Inter, system-ui, sans-serif';
+    ctx.fillStyle = CREAM;
+    ctx.fillText(`${Math.round(speed)}`, CX, CY - 7);
 
-    // Needle (drawn before center disc so inner part is hidden)
-    const nAngle = degToRad(needleAngle);
-    const nCos = Math.cos(nAngle);
-    const nSin = Math.sin(nAngle);
-    ctx.beginPath();
-    ctx.moveTo(CX - nCos * 8 + 1, CY - nSin * 8 + 1);
-    ctx.lineTo(CX + nCos * (R - 13) + 1, CY + nSin * (R - 13) + 1);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(CX - nCos * 8, CY - nSin * 8);
-    ctx.lineTo(CX + nCos * (R - 13), CY + nSin * (R - 13));
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    // KM/H label — wide-tracked uppercase (art-of-rally caption).
+    ctx.font = '600 9px Inter, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(243,237,225,0.55)';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '1px';
+    ctx.fillText('KM/H', CX + 1, CY + 17);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
 
-    // Center disc — covers needle center + inner tick ends
-    ctx.beginPath();
-    ctx.arc(CX, CY, R - 42, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(60, 60, 60, 1)';
-    ctx.fill();
-
-
-    // Speed (centered in grey disc)
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const speedText = `${Math.round(speed)}`;
-    ctx.font = 'bold 30px Futura PT, system-ui, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(speedText, CX, CY - 4);
-    // km/h label below speed
-    ctx.font = '10px Futura PT, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.fillText('km/h', CX, CY + 20);
-
-    // Gear indicator (bottom gap of dial arc) with shift animation
-    const gw = 26, gh = 26;
-    const gearBaseY = CY + R - 16;
-
-    // Clip gear region so text slides within bounds
+    // Gear chip — flat pill (coral in redzone, else faint cream), with the slide animation.
+    const gw = 30, gh = 22;
+    const gearBaseY = CY + ARC_R - 20;
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(CX - gw / 2, gearBaseY - gh / 2, gw, gh, 6);
+    ctx.roundRect(CX - gw / 2, gearBaseY - gh / 2, gw, gh, 7);
+    ctx.fillStyle = inRedzone ? CORAL : 'rgba(243,237,225,0.14)';
+    ctx.fill();
     ctx.clip();
-
-    // Red background
-    ctx.fillStyle = '#cc2222';
-    ctx.fillRect(CX - gw / 2, gearBaseY - gh / 2, gw, gh);
-
-    ctx.font = 'bold 20px Futura PT, system-ui, sans-serif';
-    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 15px Inter, system-ui, sans-serif';
+    ctx.fillStyle = inRedzone ? CREAM : 'rgba(243,237,225,0.92)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-
     if (_gearShiftAnim > 0) {
-      // Animate: old gear slides out, new gear slides in
       const slideRange = gh + 4;
-      const t = 1 - _gearShiftAnim; // 0→1 progress
-      const ease = t * t * (3 - 2 * t); // smoothstep
+      const t = 1 - _gearShiftAnim;            // 0→1 progress
+      const ease = t * t * (3 - 2 * t);        // smoothstep
       const offset = ease * slideRange;
       const dir = _gearShiftDir;
-
-      // Old gear sliding out
-      const oldText = _gearOld < 0 ? 'R' : `${_gearOld}`;
-      ctx.fillText(oldText, CX, gearBaseY - dir * offset + 1);
-
-      // New gear sliding in
-      const newText = gear < 0 ? 'R' : `${gear}`;
-      ctx.fillText(newText, CX, gearBaseY + dir * (slideRange - offset) + 1);
+      ctx.fillText(_gearOld < 0 ? 'R' : `${_gearOld}`, CX, gearBaseY - dir * offset + 1);
+      ctx.fillText(gear < 0 ? 'R' : `${gear}`, CX, gearBaseY + dir * (slideRange - offset) + 1);
     } else {
-      const gearText = gear < 0 ? 'R' : `${gear}`;
-      ctx.fillText(gearText, CX, gearBaseY + 1);
+      ctx.fillText(gear < 0 ? 'R' : `${gear}`, CX, gearBaseY + 1);
     }
     ctx.restore();
   }
