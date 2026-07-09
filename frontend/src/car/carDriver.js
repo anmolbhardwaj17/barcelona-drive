@@ -12,6 +12,7 @@
  *   driver.dispose()
  */
 import { createCarPhysics } from './carPhysics.js';
+import { createCarPhysicsRapier } from './carPhysicsRapier.js';
 import { createCarControls } from './carControls.js';
 import { createCarCamera }   from './carCamera.js';
 import { createCarModel }    from './carModel.js';
@@ -24,14 +25,14 @@ import { audio }             from '../audio/audioManager.js';
 // Pre-allocated for getHeadingDeg — no alloc in hot path
 const _hq = { x: 0, y: 0, z: 0, w: 1 };
 
-export async function createCarDriver(scene, world, groundMesh, camera, spawnLocalPos, _domElement, groundBody, spawnHeading) {
+export async function createCarDriver(scene, world, groundMesh, camera, spawnLocalPos, _domElement, groundBody, spawnHeading, opts = {}) {
 
   // ── Sub-systems ───────────────────────────────────────────────────────────
-  const physics  = createCarPhysics(world, {
-    x: spawnLocalPos.x,
-    y: spawnLocalPos.y + 2,    // drop from 2 m above surface; physics settles it
-    z: spawnLocalPos.z,
-  }, spawnHeading);
+  const _spawn = { x: spawnLocalPos.x, y: spawnLocalPos.y + 2, z: spawnLocalPos.z }; // drop 2 m; settles
+  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (?physics=rapier), else cannon-es.
+  const physics  = opts.rapier
+    ? createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading)
+    : createCarPhysics(world, _spawn, spawnHeading);
   const controls = createCarControls();
   const carCam   = createCarCamera(camera, _domElement);
   const model    = await createCarModel(scene);
@@ -132,7 +133,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   // ── Per-frame update ──────────────────────────────────────────────────────
   function update(dt, cinematic = false) {
     // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter)
-    world.step(1 / 60, Math.min(dt, 0.035), 3);
+    if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3);
 
     // 2. Read inputs → apply to vehicle. During a game-mode cinematic, ignore input and pin the car in
     //    place (zero velocities) so it can't creep while the b-roll plays. (state stays function-scoped —
