@@ -225,8 +225,10 @@ export function createCarPhysics(world, spawnPos, spawnHeading) {
     const rpmLerp = _currentRpm < rpmTarget ? 12 : 6; // faster rise, slower fall
     _currentRpm += (rpmTarget - _currentRpm) * Math.min(1, rpmLerp * dt);
 
-    // Auto-shift logic — shift up when speed exceeds 85% of gear's top speed
-    const shiftUpSpeed = gearTopSpeed * 0.82;
+    // Auto-shift logic — shift up near the top of each gear so RPM climbs into the redzone before the
+    // shift (0.92 → shift at ~6050 rpm, just past the 6000 redzone marker). Lower values upshifted early
+    // (~5500 rpm) so the tach never approached redline — you never saw it rev out.
+    const shiftUpSpeed = gearTopSpeed * 0.92;
     // Shift down when speed drops below 70% of previous gear's top speed
     const prevGearTop = _currentGear > 1 ? GEAR_TOP_SPEEDS[_currentGear - 1] : 0;
     const shiftDownSpeed = prevGearTop * 0.7;

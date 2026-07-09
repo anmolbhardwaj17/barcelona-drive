@@ -10,8 +10,10 @@ const CX = TOTAL / 2;
 const CY = TOTAL / 2;
 const R = GAUGE_SIZE / 2 - 8;  // main arc radius
 
-// RPM range: 0–9 (×1000) — gauge display scale
-const GAUGE_MAX_RPM = 9;
+// RPM range: 0–7 (×1000) — gauge display scale. Matches the engine: REDLINE 6500, MAX 7000. (Was 0–9,
+// which left the top third of the dial dead and put the redzone at an unreachable 7500 rpm.)
+const GAUGE_MAX_RPM = 7;
+const REDZONE_RPM = 6.0;   // gauge units (×1000) — coral from here up; engine redline is 6.5
 // Arc spans from 135° to 405° (270° sweep)
 const ARC_START = 135;
 const ARC_SWEEP = 270;
@@ -90,7 +92,7 @@ export function createSpeedDisplay() {
 
     const needleAngle = rpmToAngle(rpm);
     const ARC_R = R - 6;
-    const inRedzone = rpm >= 7.5;
+    const inRedzone = rpm >= REDZONE_RPM;
 
     // Faint frosted disc behind the readout — keeps the number legible over bright roads.
     ctx.beginPath();
@@ -113,9 +115,9 @@ export function createSpeedDisplay() {
     ctx.lineWidth = 5;
     ctx.stroke();
 
-    // Redzone start marker (7.5k).
+    // Redzone start marker.
     {
-      const a = degToRad(rpmToAngle(7.5));
+      const a = degToRad(rpmToAngle(REDZONE_RPM));
       ctx.beginPath();
       ctx.moveTo(CX + Math.cos(a) * (ARC_R - 6), CY + Math.sin(a) * (ARC_R - 6));
       ctx.lineTo(CX + Math.cos(a) * (ARC_R + 5), CY + Math.sin(a) * (ARC_R + 5));
