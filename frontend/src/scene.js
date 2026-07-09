@@ -481,8 +481,11 @@ export function createScene(container) {
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap: DPR 2 = 4× the fragments everywhere
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.LinearToneMapping;
-  renderer.toneMappingExposure = isRallyStyle() ? 1.5 : 1.25; // rally: brighter, airy high-key exposure
+  // Filmic tone mapping (ACES) instead of flat Linear — cinematic highlight rolloff + richer contrast across
+  // the whole frame (bright skies/lights no longer clip to flat white). Exposure bumped to preserve the airy
+  // high-key look. Tunable: swap to THREE.NeutralToneMapping for a gentler, more colour-preserving curve.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = isRallyStyle() ? 1.9 : 1.55;
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
   // PCFShadowMap: three r183 deprecated PCFSoftShadowMap and auto-swaps it to this on first render anyway —
   // set it directly so output is identical but without the console deprecation warning.
