@@ -216,7 +216,7 @@ export function createEscMenu(refs = {}) {
   page.appendChild(sec('Display'));
   const dispRow = el('div', 'dd-esc-checkrow'); page.appendChild(dispRow);
   const metricsEls = (refs.metricsElements || []).filter(Boolean);
-  let metricsOn = ls('dd_showMetrics', 'true') !== 'false';
+  let metricsOn = ls('dd_showMetrics', 'false') === 'true';   // OFF by default — it's a dev overlay; opt-in via the toggle
   const applyMetrics = () => { for (const e of metricsEls) e.style.display = metricsOn ? '' : 'none'; };
   applyMetrics();
   dispRow.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
