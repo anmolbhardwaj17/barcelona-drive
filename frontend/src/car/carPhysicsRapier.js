@@ -73,8 +73,23 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   refresh();
   // collide events aren't wired yet (Rapier uses an event queue) — no-op so carDriver's listener is safe.
   const chassisBody = { position: _pos, quaternion: _quat, velocity: _vel, angularVelocity: _ang, addEventListener() {}, removeEventListener() {} };
-  const wheelInfos = [0, 1, 2, 3].map(() => ({ isInContact: false }));
-  const vehicle = { wheelInfos };
+  // wheelInfos exposes what carModel reads: isInContact + a worldTransform {position, quaternion} (the wheel's
+  // world Y for suspension bounce + orientation carrying the steering angle). carModel applies wheel-spin itself.
+  const wheelInfos = wheels.map(() => ({ isInContact: false, worldTransform: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } } }));
+  const vehicle = { wheelInfos, updateWheelTransform() {} /* transforms are refreshed in step() */ };
+
+  // Rotate a vector by a quaternion (no THREE dependency in the hot path).
+  const _rotQ = (q, vx, vy, vz) => {
+    const tx = 2 * (q.y * vz - q.z * vy), ty = 2 * (q.z * vx - q.x * vz), tz = 2 * (q.x * vy - q.y * vx);
+    return { x: vx + q.w * tx + (q.y * tz - q.z * ty), y: vy + q.w * ty + (q.z * tx - q.x * tz), z: vz + q.w * tz + (q.x * ty - q.y * tx) };
+  };
+  // quaternion multiply a*b
+  const _mulQ = (a, b) => ({
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  });
 
   // ── State ───────────────────────────────────────────────────────────────────
   let _currentGear = 1, _currentRpm = IDLE_RPM, _shiftTimer = 0, _reverse = false, _currentSteer = 0, _skidLevel = 0;
@@ -143,7 +158,21 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     vc.updateVehicle(h);
     world.step();
     refresh();
-    for (let i = 0; i < 4; i++) wheelInfos[i].isInContact = vc.wheelIsInContact(i);
+    for (let i = 0; i < 4; i++) {
+      const wi = wheelInfos[i];
+      wi.isInContact = vc.wheelIsInContact(i);
+      // Wheel world transform: centre = chassis + rotate(local connection − suspensionLength·down);
+      // orientation = chassis · steer(about up). carModel uses .position.y (suspension) + .quaternion (steer).
+      const suspLen = vc.wheelSuspensionLength(i) ?? REST_LEN;
+      const local = _rotQ(_quat, wheels[i].x, WHEEL_Y - suspLen, wheels[i].z);
+      wi.worldTransform.position.x = _pos.x + local.x;
+      wi.worldTransform.position.y = _pos.y + local.y;
+      wi.worldTransform.position.z = _pos.z + local.z;
+      const st = wheels[i].steer ? _currentSteer : 0;
+      const q = _mulQ(_quat, { x: 0, y: Math.sin(st / 2), z: 0, w: Math.cos(st / 2) });
+      wi.worldTransform.quaternion.x = q.x; wi.worldTransform.quaternion.y = q.y;
+      wi.worldTransform.quaternion.z = q.z; wi.worldTransform.quaternion.w = q.w;
+    }
   }
 
   function dispose() {
