@@ -67,7 +67,7 @@ function probeHeightfieldConvention(world, RAPIER) {
       console.warn(`[rapier] heightfield probe inconclusive (hx=${hx}, hz=${hz}) — falling back to trimesh terrain`);
       return null;
     }
-    console.log(`[rapier] heightfield convention probed: colsRunPlusX=${colsRunPlusX}, rowsRunPlusZ=${rowsRunPlusZ}`);
+    console.warn(`[rapier] heightfield convention probed: colsRunPlusX=${colsRunPlusX}, rowsRunPlusZ=${rowsRunPlusZ}`);
     return { colsRunPlusX, rowsRunPlusZ };
   } catch (e) {
     console.warn('[rapier] heightfield probe failed — falling back to trimesh terrain:', e);

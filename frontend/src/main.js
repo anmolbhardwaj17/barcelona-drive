@@ -361,7 +361,7 @@ spawnTileReady.finally(() => {
             const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // mirror future tiles
             world.addBody = (b) => { _oAdd(b); try { _adapter.addBody(b); } catch {} };
             world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
-            console.log(`[physics] Rapier enabled (Phase 2a: mirrored ${world.bodies.length} tile colliders).`);
+            console.warn(`[physics] Rapier enabled (Phase 2a: mirrored ${world.bodies.length} tile colliders).`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier });
