@@ -235,6 +235,10 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     if (!_enabled || !world) return;
     const origin = getOrigin();
     const d = Math.min(dt || 0.016, 0.05);
+    // Cap path-extensions per frame. extendPath walks ALL road segments; several cars reaching their
+    // path-end in one frame used to stack into a ~12ms spike. Excess cars retry next frame — imperceptible
+    // (they're mid-junction on a long path), and the spike is gone.
+    let _extendBudget = 2;
 
     // Pass 1: current position + heading of every car
     for (const car of cars) {
@@ -311,7 +315,10 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       // instead of vanishing. Cooldown so a dead-end car doesn't rescan every frame.
       if (car.idx >= pts.length - 2) {
         car.extendCd = (car.extendCd || 0) - d;
-        if (car.extendCd <= 0 && !extendPath(car, origin)) car.extendCd = 0.5;
+        if (car.extendCd <= 0 && _extendBudget > 0) {
+          _extendBudget--;
+          if (!extendPath(car, origin)) car.extendCd = 0.5;
+        }
       }
 
       let remaining = car.cur * d;
