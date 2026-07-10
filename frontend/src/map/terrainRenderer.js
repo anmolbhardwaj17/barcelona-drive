@@ -622,45 +622,45 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
       vec2 wPos = vWorldPos.xz;
 
-      // ── Delhi terrain palette — harsh, distinct patches ──
-      vec3 dustyGrass = vec3(0.58, 0.54, 0.35);  // dusty khaki
-      vec3 dryStraw   = vec3(0.72, 0.65, 0.40);  // dry yellow straw
-      vec3 bareSoil   = vec3(0.48, 0.40, 0.26);  // dark exposed earth
-      vec3 darkDirt   = vec3(0.40, 0.34, 0.22);  // very dark packed soil
-      vec3 shadeGreen = vec3(0.38, 0.44, 0.22);  // dull shade green
-      vec3 roadDirt   = vec3(0.44, 0.38, 0.26);  // road-edge packed dirt
+      // ── Lush Mediterranean park palette (replaces the DELHI dust palette — its khaki/dry-straw at 75%
+      //    dominance over vertex colours WAS the persistent yellow ground; no CPU-side green survived it) ──
+      vec3 lushGrass = vec3(0.30, 0.54, 0.23);   // vivid stylized lawn
+      vec3 midGreen  = vec3(0.23, 0.45, 0.19);
+      vec3 deepGreen = vec3(0.17, 0.37, 0.15);
+      vec3 sageGreen = vec3(0.34, 0.51, 0.27);
+      vec3 drySoil   = vec3(0.45, 0.39, 0.26);   // sparse worn patches only
+      vec3 roadDirt  = vec3(0.40, 0.36, 0.26);
 
-      // ── 1. Macro: large 80-150m biome patches — harsh transitions ──
+      // ── 1. Macro: large 80-150m patches — deep vs lush green ──
       float macroN = terrainFBM(wPos * 0.007 + 17.0);
-      // Hard-step the noise for distinct patch boundaries
       float macroHard = smoothstep(0.30, 0.42, macroN);
-      vec3 terrainBase = mix(shadeGreen, dryStraw, macroHard);
-      // Second macro layer for dusty vs bare patches
+      vec3 terrainBase = mix(deepGreen, lushGrass, macroHard);
+      // Second macro layer: sage variation
       float macro2 = terrainFBM(wPos * 0.004 + 43.0);
-      float dustHard = smoothstep(0.35, 0.50, macro2);
-      terrainBase = mix(terrainBase, dustyGrass, dustHard * 0.7);
+      float sageHard = smoothstep(0.35, 0.50, macro2);
+      terrainBase = mix(terrainBase, sageGreen, sageHard * 0.5);
 
-      // ── 2. Medium patches: 20-40m — visible from aerial ──
+      // ── 2. Medium patches: 20-40m — mid-green mottling ──
       float medN = terrainFBM(wPos * 0.03 + 71.0);
       float medHard = smoothstep(0.35, 0.55, medN);
-      terrainBase = mix(terrainBase, bareSoil, medHard * 0.50);
+      terrainBase = mix(terrainBase, midGreen, medHard * 0.6);
 
-      // ── 3. Micro variation: 5-10m patchiness ──
+      // ── 3. Micro variation: 5-10m patchiness (gentle — lawns, not scrubland) ──
       float microN = terrainFBM(wPos * 0.10 + 53.0);
-      terrainBase *= 0.82 + microN * 0.36;
+      terrainBase *= 0.88 + microN * 0.24;
 
-      // ── 4. Dark soil blotches: irregular bare ground ──
+      // ── 4. Sparse worn-soil blotches ──
       float soilN = terrainFBM(wPos * 0.018 + 91.0);
-      float soilBlend = smoothstep(0.48, 0.68, soilN) * 0.60;
-      terrainBase = mix(terrainBase, darkDirt, soilBlend);
+      float soilBlend = smoothstep(0.55, 0.75, soilN) * 0.22;
+      terrainBase = mix(terrainBase, drySoil, soilBlend);
 
       // ── 5. Blend with vertex colors — procedural dominates at 75% ──
       // CPU vertex colors carry road-edge brown, tree shadow, water shore
       diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75);
 
-      // ── 6. Detect CPU road-edge dark tint and amplify ──
+      // ── 6. Detect CPU road-edge dark tint and amplify (softened) ──
       float vertLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.50;
+      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35;
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
       // ── 7. Fiber texture micro-detail ── (rally keeps the ground flat/clean, so skip the per-pixel
@@ -672,7 +672,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
            diffuseColor.rgb *= 0.70 + fiber * 0.52;`}`
     );
   };
-  material.customProgramCacheKey = () => 'terrainDelhiProcedural' + (isRallyStyle() ? '_rally' : '');
+  material.customProgramCacheKey = () => 'terrainBcnLush' + (isRallyStyle() ? '_rally' : '');
 
   const mesh = new THREE.Mesh(geometry, material);
   if (useBaked) {
