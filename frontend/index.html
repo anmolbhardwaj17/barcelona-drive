@@ -114,6 +114,13 @@
         background:
           radial-gradient(circle at 50% 44%, transparent 30%, rgba(9,13,20,0.22) 70%, rgba(9,13,20,0.5) 100%),
           linear-gradient(rgba(9,13,20,0.08), rgba(9,13,20,0.26)); }
+      /* Soft light backdrop behind the logo column — blends to transparent outward so the logo reads
+         clearly over the busy aerial artwork without boxing it in. */
+      #dd-title::after { content: ''; position: absolute; z-index: 1; pointer-events: none;
+        left: 50%; top: 41%; width: min(880px, 94vw); height: min(600px, 84vh);
+        transform: translate(-50%, -50%);
+        background: radial-gradient(closest-side, rgba(240,234,222,0.22), rgba(240,234,222,0.10) 46%, transparent 72%);
+      }
       #dd-title .logo {
         position: relative; z-index: 2; width: min(560px, 78vw);
         filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
