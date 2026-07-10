@@ -89,7 +89,9 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   const chassisBody = { position: _pos, quaternion: _quat, velocity: _vel, angularVelocity: _ang, addEventListener() {}, removeEventListener() {} };
   // wheelInfos exposes what carModel reads: isInContact + a worldTransform {position, quaternion} (the wheel's
   // world Y for suspension bounce + orientation carrying the steering angle). carModel applies wheel-spin itself.
-  const wheelInfos = wheels.map(() => ({ isInContact: false, worldTransform: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } } }));
+  // raycastResult.hitPointWorld = wheel ground-contact point (world/physics frame) — carEffects places skid
+  // marks + tyre smoke there. Persistent object (updated when in contact) so there's no per-frame allocation.
+  const wheelInfos = wheels.map(() => ({ isInContact: false, worldTransform: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } }, raycastResult: { hitPointWorld: { x: 0, y: 0, z: 0 } } }));
   const vehicle = { wheelInfos, updateWheelTransform() {} /* transforms are refreshed in step() */ };
 
   // Rotate a vector by a quaternion (no THREE dependency in the hot path).
@@ -186,6 +188,10 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     for (let i = 0; i < 4; i++) {
       const wi = wheelInfos[i];
       wi.isInContact = vc.wheelIsInContact(i);
+      if (wi.isInContact) {
+        const cp = vc.wheelContactPoint(i);
+        if (cp) { wi.raycastResult.hitPointWorld.x = cp.x; wi.raycastResult.hitPointWorld.y = cp.y; wi.raycastResult.hitPointWorld.z = cp.z; }
+      }
       // Wheel world transform: centre = chassis + rotate(local connection − suspensionLength·down);
       // orientation = chassis · steer(about up). carModel uses .position.y (suspension) + .quaternion (steer).
       const suspLen = vc.wheelSuspensionLength(i) ?? REST_LEN;
@@ -224,7 +230,7 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
 
   return {
     chassisBody, vehicle, step, applyInputs, getSpeedKmh, dispose,
-    getSkidLevel() { return _skidLevel; },
+    getSkidLevel() { return getDriftFactor(); },   // real lateral slip + handbrake, so smoke/marks show in slides
     getCurrentSteer() { return _currentSteer; },
     getCurrentGear() { return _reverse ? -1 : _currentGear; },
     getCurrentRpm() { return _currentRpm; },
