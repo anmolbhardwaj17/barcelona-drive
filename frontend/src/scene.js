@@ -577,8 +577,11 @@ export function createScene(container) {
   const ambientLight = new THREE.AmbientLight(ambColor, _rally ? 0.92 : 0.55);
   scene.add(ambientLight);
 
-  // Hemisphere light removed — simpler two-light setup
-  const hemiLight = null;
+  // Hemisphere light (L1 golden-hour fill): cool sky-blue from above + warm ground bounce from below —
+  // the warm-key/cool-shadow colour separation that GI gives for free offline. Actual colours/intensity
+  // are owned by the envToggle DAY/NIGHT presets; these are just sane creation defaults.
+  const hemiLight = new THREE.HemisphereLight(0xa3c0e4, 0xd08a4e, 0.5);
+  scene.add(hemiLight);
 
   // Directional sun light — always created so the env toggle can control it. Rally: warmer + stronger
   // key for crisp light/shade on flat facets.
@@ -607,6 +610,61 @@ export function createScene(container) {
     // Density 0.005: reads as atmosphere without aggressively culling near tiles.
     // Rally style: a touch denser (0.0075) so distance melts into a soft haze — the diorama depth.
     scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0025 : 0.005);
+
+    // ── L2: AERIAL PERSPECTIVE (visual-target-analysis §5.4) ─────────────────
+    // Globally patch the fog shader chunks (compiles lazily on first render, so patching here catches every
+    // fogged material, including worker-built/shared singletons). Replaces the flat single-colour veil with
+    // real atmosphere: distance progressively DESATURATES the scene, the haze BLUE-SHIFTS far away, warms
+    // into a golden wedge toward the sun azimuth, and THINS with fragment altitude (rooftops/aerial shots
+    // sit above the haze layer). All colours derive from fogColor, so day/night/title tints keep working.
+    THREE.ShaderChunk.fog_pars_vertex = /* glsl */`
+      #ifdef USE_FOG
+        varying float vFogDepth;
+        varying vec3 vDdFogWorldPos;
+      #endif`;
+    THREE.ShaderChunk.fog_vertex = /* glsl */`
+      #ifdef USE_FOG
+        vFogDepth = - mvPosition.z;
+        vec4 ddFogWP = vec4( transformed, 1.0 );
+        #ifdef USE_INSTANCING
+          ddFogWP = instanceMatrix * ddFogWP;
+        #endif
+        vDdFogWorldPos = ( modelMatrix * ddFogWP ).xyz;
+      #endif`;
+    THREE.ShaderChunk.fog_pars_fragment = /* glsl */`
+      #ifdef USE_FOG
+        uniform vec3 fogColor;
+        varying float vFogDepth;
+        varying vec3 vDdFogWorldPos;
+        #ifdef FOG_EXP2
+          uniform float fogDensity;
+        #else
+          uniform float fogNear;
+          uniform float fogFar;
+        #endif
+      #endif`;
+    THREE.ShaderChunk.fog_fragment = /* glsl */`
+      #ifdef USE_FOG
+        #ifdef FOG_EXP2
+          float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+        #else
+          float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+        #endif
+        // altitude thinning — high fragments rise above the haze layer
+        fogFactor *= exp( - max( vDdFogWorldPos.y, 0.0 ) * 0.0045 );
+        // aerial desaturation before the tint (distance greys colour long before it hides shape)
+        float ddLum = dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( ddLum ), fogFactor * 0.4 );
+        // haze colour: blue-shifts with distance; warms toward the sun near the horizon (day only —
+        // the warm wedge scales with the haze brightness so night stays clean)
+        vec3 ddViewDir = normalize( vDdFogWorldPos - cameraPosition );
+        const vec3 ddSunDir = vec3( -0.2802, 0.5736, -0.7698 );  // az 200°, elev 35° — matches scene.js sun
+        float ddSun = pow( max( dot( ddViewDir, ddSunDir ), 0.0 ), 6.0 );
+        float ddDay = smoothstep( 0.15, 0.4, dot( fogColor, vec3( 0.333 ) ) );
+        vec3 ddFog = mix( fogColor, fogColor * vec3( 0.88, 0.97, 1.14 ), smoothstep( 0.25, 1.0, fogFactor ) );
+        ddFog = mix( ddFog, fogColor * vec3( 1.22, 1.03, 0.82 ), ddSun * ddDay * 0.6 );
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, ddFog, fogFactor );
+      #endif`;
   }
 
   // Physics world (cannon-es)

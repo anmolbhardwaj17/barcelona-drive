@@ -785,22 +785,8 @@ function getFacadeMaterial(hexColor, category = 'residential') {
   } else {
     mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, map: faceMap, flatShading: rally, side: THREE.DoubleSide, ...emis });
   }
-  // Inject extra distance-based fade toward fog color so distant buildings soften
-  mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <fog_fragment>',
-      `#ifdef USE_FOG
-        float fogDepth = vFogDepth;
-        #ifdef FOG_EXP2
-          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);
-        #else
-          float fogFactor = smoothstep(fogNear, fogFar, fogDepth);
-        #endif
-        // Clean fade to fog — no warm desaturation
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-      #endif`
-    );
-  };
+  // (Old custom fog-fade injection removed — the GLOBAL aerial-perspective fog chunk in scene.js now
+  //  handles distance fade for every material, so buildings fog consistently with roads/terrain.)
   // If night mode is already active, apply emissive to this new material
   if (_buildingNightMode) {
     applyNightToMaterial(mat, category, true);
@@ -2549,13 +2535,14 @@ export function renderLODBuildings(buildings, getWorldElevation) {
   let vertCount = 0;
   const MAX_LOD_VERTS = 18000;
 
-  // Shared color palette for LOD buildings (muted urban tones)
+  // Shared color palette for LOD buildings — kept in sync with the worker's terracotta ROOF_PALETTES
+  // (from above, LOD boxes read as ROOFS: the distant fabric must stay clay-orange, not beige).
   const LOD_COLORS = [
-    [0.78, 0.76, 0.72], // warm grey
-    [0.74, 0.73, 0.70], // cool grey
-    [0.80, 0.78, 0.74], // light beige
-    [0.72, 0.70, 0.68], // medium grey
-    [0.76, 0.74, 0.70], // taupe
+    [0.76, 0.42, 0.26], // clay tile
+    [0.72, 0.37, 0.22], // deeper clay
+    [0.80, 0.45, 0.29], // light clay
+    [0.74, 0.73, 0.70], // cool grey (modern blocks)
+    [0.68, 0.34, 0.19], // dark clay
   ];
 
   for (let bi = 0; bi < buildings.length; bi++) {

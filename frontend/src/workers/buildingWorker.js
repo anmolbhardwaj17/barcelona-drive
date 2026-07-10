@@ -94,12 +94,14 @@ const FACADE_PALETTES = {
 const ENABLE_DELHI_DETAILS = false; // boundary walls/gates, setback, shikhara, billboards, AC, water tanks, garage shutters
 const BALCONY_CATEGORIES = new Set(['residential', 'commercial', 'office']); // masonry blocks that get balconies + bands
 
+// Barcelona-from-above signature: the residential fabric is TERRACOTTA clay tile (the orange rooftop sea
+// in every aerial of the city). Modern office/industrial/glass keep grey flat roofs for realistic contrast.
 const ROOF_PALETTES = {
-  residential: [0xCCC6BC, 0xC4BEB4, 0xBEB8AE, 0xC8C2B8, 0xB8B2A8],
-  commercial:  [0xC8CCD2, 0xBEC2C8, 0xC2C6CC, 0xCED2D8, 0xD8D4CC, 0xC8C0B4, 0xE0DCD4, 0xD4CCC0],
+  residential: [0xC26A42, 0xB85F38, 0xCB7349, 0xAD5731, 0xC97E52, 0xBF6A3E, 0xB2582F], // clay tile range
+  commercial:  [0xC26A42, 0xB85F38, 0xC8CCD2, 0xBEC2C8, 0xCB7349, 0xD8D4CC, 0xAD5731, 0xC2C6CC], // mixed: many older blocks tiled
   office:      [0xC0C8D0, 0xB8C0C8, 0xC4CCD4, 0xB4BCC4, 0xCAD0D6],
-  hospital:    [0xDCD8D2, 0xD6D2CC, 0xD0CCC6, 0xD8D4CE, 0xCCC8C2],
-  school:      [0xD8D2B8, 0xD0CAB2, 0xCCC6AE, 0xD4CEB6, 0xC8C2AA],
+  hospital:    [0xD6D2CC, 0xC97E52, 0xD0CCC6, 0xBF6A3E, 0xCCC8C2],   // older masonry wards often tiled
+  school:      [0xC26A42, 0xD0CAB2, 0xB85F38, 0xD4CEB6, 0xCB7349],   // ditto
   industrial:  [0xBAB6AE, 0xB2AEA6, 0xACA8A0, 0xB6B2AA, 0xC0BCB4],
   religious:   [0x5E574E, 0x564F47, 0x645C52, 0x524B43, 0x6A6258], // dark slate/lead church roof
   commercial_glass: [0xA0B0C0, 0x98A8B8, 0xA8B8C8, 0x90A0B0, 0xB0C0D0],

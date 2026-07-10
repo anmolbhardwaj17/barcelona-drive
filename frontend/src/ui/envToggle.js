@@ -22,13 +22,15 @@ const _nightModeCallbacks = [];
 export function onNightModeChange(cb) { _nightModeCallbacks.push(cb); }
 
 const DAY = {
-  ambientColor:     0xc8dce8,
-  ambientIntensity: 0.46,   // lifted → open, sunny shadows (was too dark/crushed at 0.32)
-  hemiSkyColor:     0xaab8d0,
-  hemiGroundColor:  0xcc7733,
-  hemiIntensity:    0.50,   // more sky fill so shadows stay bright
-  dirIntensity:     3.0,    // sun a touch softer → less harsh contrast
-  dirColor:         0xffeada, // warm afternoon sun, but not orange-heavy
+  // L1 golden-hour split: the hemi (now a REAL light — cool sky fill + warm ground bounce) carries the
+  // colour separation; ambient drops to a neutral base so the fill isn't doubled. Sun warmed slightly.
+  ambientColor:     0xd4e2ec,
+  ambientIntensity: 0.30,   // was 0.46 — hemi now contributes real fill, total brightness ~unchanged
+  hemiSkyColor:     0xa3c0e4, // cool blue sky-light → shadows read cool
+  hemiGroundColor:  0xd08a4e, // warm ground bounce → undersides/facades pick up golden warmth
+  hemiIntensity:    0.55,
+  dirIntensity:     3.0,
+  dirColor:         0xffdcae, // warmer golden-hour key (was 0xffeada)
   fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
   fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,

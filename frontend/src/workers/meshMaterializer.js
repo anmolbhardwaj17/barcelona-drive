@@ -545,26 +545,11 @@ function getPipeMaterial() {
 // =============================================================================
 
 /**
- * Inject fog shader modification into a material so distant buildings
- * fade cleanly toward the fog color.
+ * (No-op since L2.) The old per-material "clean fade" fog replacement is retired — the GLOBAL
+ * aerial-perspective fog chunk in scene.js now handles distance fade for every material, so buildings
+ * fog consistently with roads/terrain (desaturation + blue-shift + sun-side warmth + altitude thinning).
  */
-function injectFogShader(mat) {
-  mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <fog_fragment>',
-      `#ifdef USE_FOG
-        float fogDepth = vFogDepth;
-        #ifdef FOG_EXP2
-          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);
-        #else
-          float fogFactor = smoothstep(fogNear, fogFar, fogDepth);
-        #endif
-        // Clean fade to fog -- no warm desaturation
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-      #endif`
-    );
-  };
-}
+function injectFogShader(_mat) {}
 
 // Building winding is INCONSISTENT across the worker's geometry (some facades/roofs are wound CW, some
 // CCW), so NO single side renders every building correctly — FrontSide left some buildings inside-out
