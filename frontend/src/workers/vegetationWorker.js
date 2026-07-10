@@ -1105,6 +1105,25 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
     }
   }
 
+  // Courtyard gardens — plant trees inside building INNER RINGS (the Eixample patios de manzana). The
+  // rings are already baked into the tile data (multipolygon holes, verified ~58/tile in the Eixample);
+  // green cores are what make the blocks read open from the air, like every real aerial of Barcelona.
+  // NOTE: deliberately NOT filtered by isInsideOrNearBuilding — a courtyard is by definition inside one.
+  if (positions.length < cap && tileData.buildings) {
+    for (const b of tileData.buildings) {
+      if (!b.innerRings || b.innerRings.length === 0) continue;
+      for (const ring of b.innerRings) {
+        const pts = scatterTreesInPolygon(ring, 0.02, ((b.id | 0) % 977 + 977) % 977, 8);
+        for (const p of pts) {
+          positions.push({ x: p.x, y: p.y });
+          if (positions.length >= cap) break;
+        }
+        if (positions.length >= cap) break;
+      }
+      if (positions.length >= cap) break;
+    }
+  }
+
   return positions.slice(0, cap);
 }
 
