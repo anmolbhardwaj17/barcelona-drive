@@ -104,7 +104,7 @@
       #dd-title .bg {
         position: absolute; inset: -3%; z-index: 0; transform-origin: center;
         background: url('/title-bg.webp') center / cover no-repeat;
-        filter: saturate(0.9) brightness(0.55);
+        filter: brightness(0.85);
         animation: ddBreathe 24s ease-in-out infinite;
       }
       #dd-title .bg.color { display: none; }   /* single dim layer now — no grayscale reveal */
@@ -112,8 +112,8 @@
       /* dark scrim + vignette over the background */
       #dd-title::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
         background:
-          radial-gradient(circle at 50% 42%, rgba(9,13,20,0.18) 0%, rgba(9,13,20,0.5) 62%, rgba(9,13,20,0.82) 100%),
-          linear-gradient(rgba(9,13,20,0.2), rgba(9,13,20,0.4)); }
+          radial-gradient(circle at 50% 44%, transparent 30%, rgba(9,13,20,0.22) 70%, rgba(9,13,20,0.5) 100%),
+          linear-gradient(rgba(9,13,20,0.08), rgba(9,13,20,0.26)); }
       #dd-title .logo {
         position: relative; z-index: 2; width: min(560px, 78vw);
         filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
