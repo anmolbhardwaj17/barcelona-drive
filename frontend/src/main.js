@@ -529,6 +529,7 @@ spawnTileReady.finally(() => {
         clearInterval(_pollLoad); _hideLoader();
         // Go LIVE behind the title: crossfade the static artwork to the real city + start the cinematic
         // orbit (only in car mode, and only if the player hasn't already entered the game).
+        try { window._ddBootDone?.(); } catch {}   // boot loader → 100% + fade, reveal the title content
         try {
           const titleEl = document.getElementById('dd-title');
           if (titleEl && !titleEl.classList.contains('hide') && carDriver && _titleOrbit) {
@@ -545,10 +546,12 @@ spawnTileReady.finally(() => {
             try {
               const su = sky?.material?.uniforms;
               if (su?.uHorizon && su?.uMid && su?.uZenith) {
-                _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone() };
+                _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone(),
+                              f: scene.fog ? scene.fog.color.clone() : null };
                 su.uHorizon.value.set(0xaed3ee);
                 su.uMid.value.set(0x6fa9de);
                 su.uZenith.value.set(0x3e7ec6);
+                if (scene.fog) scene.fog.color.set(0xaed3ee);   // haze reads as sky-blue, not grey
               }
             } catch {}
           }
@@ -632,9 +635,9 @@ function animate(time = 0) {
     // behind the car (the dive-in).
     if (_titleLive) {
       const _p = Math.min(1, (performance.now() - _titleT0) / TITLE_DESCENT_MS);
-      const _ease = _p * _p * (3 - 2 * _p);              // smoothstep fall — fast through the deck, soft landing
+      const _ease = _p * _p * (3 - 2 * _p);              // smoothstep fall — quick drop, soft landing
       const _ta = time * 0.001 * 0.045;                  // ~2.3 min per orbit — unhurried
-      const _tr = 200, _th = 115, _cloudAlt = 560;       // orbit height + starting altitude above it
+      const _tr = 200, _th = 115, _cloudAlt = 340;       // orbit height + starting altitude above it
       camera.position.set(
         _titleOrbit.x + Math.cos(_ta) * _tr,
         _titleOrbit.y + _th + (1 - _ease) * _cloudAlt + Math.sin(_ta * 0.5) * 8,
@@ -643,16 +646,9 @@ function animate(time = 0) {
       // Aim slightly above the ground so the frame includes real sky + the drifting 3D clouds — pure
       // top-down framing showed only the dome's washed horizon band ("dead sky").
       camera.lookAt(_titleOrbit.x, _titleOrbit.y + 55, _titleOrbit.z);
-      // The ENGINE renders the cloud emergence: fog starts near-opaque (white void at altitude) and thins
-      // as we fall, so the city materializes out of the cloud. The CSS deck doesn't just fade — it
-      // PARALLAXES out: the whole sky rushes upward and scales past the camera (clouds growing as they
-      // whip by), selling the fall; opacity only clears the last remnants once we're through the deck.
-      if (scene.fog) scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.030;
-      const _cl = document.querySelector('#dd-title .clouds');
-      if (_cl) {
-        _cl.style.transform = `translateY(${(-_ease * 130).toFixed(2)}vh) scale(${(1 + _ease * 1.7).toFixed(3)})`;
-        _cl.style.opacity = String(Math.max(0, 1 - Math.max(0, _p - 0.45) / 0.3));
-      }
+      // Light altitude haze that clears as we land — kept SUBTLE (a heavy start read as a grey wall);
+      // the city should be visible the whole way down, just softened at the top of the drop.
+      if (scene.fog) scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.006;
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
         _titleLive = false;
@@ -662,6 +658,7 @@ function animate(time = 0) {
           const su = sky?.material?.uniforms;
           if (_titleSky && su?.uHorizon && su?.uMid && su?.uZenith) {
             su.uHorizon.value.copy(_titleSky.h); su.uMid.value.copy(_titleSky.m); su.uZenith.value.copy(_titleSky.z);
+            if (scene.fog && _titleSky.f) scene.fog.color.copy(_titleSky.f);
           }
         } catch {}
       }

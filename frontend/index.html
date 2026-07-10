@@ -107,19 +107,24 @@
       #dd-title.live .bg { opacity: 0; }
       #dd-title.live::before { opacity: 0.55; }
       #dd-title.live::after { opacity: 0.32; }
-      /* Sky deck — the pre-load backdrop, styled to MATCH the in-game sky: soft blue fading to a pale
-         horizon, with sparse FLAT cloud wisps (stacked wide ellipses, like the game's blob sprites) drifting
-         slowly in the upper sky. Faded out by main.js during the descent. */
-      #dd-title .clouds { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
-        background: linear-gradient(#82c0e9 0%, #9dcdee 34%, #c6e2f5 64%, #eef6fc 100%);
-        will-change: transform, opacity; transform-origin: 50% 28%;   /* descent parallax pivots high */
-      }
-      #dd-title .clouds .cl { position: absolute; background: #fff; border-radius: 50%;
-        filter: blur(1.5px); opacity: .92; animation: ddFloat linear infinite; will-change: transform; }
-      #dd-title .clouds .cl::before, #dd-title .clouds .cl::after { content: ''; position: absolute; background: #fff; border-radius: 50%; }
-      #dd-title .clouds .cl::before { width: 58%; height: 90%; left: 16%; top: -42%; }
-      #dd-title .clouds .cl::after  { width: 34%; height: 70%; left: 50%; top: -22%; }
-      @keyframes ddFloat { from { transform: translateX(-30vw); } to { transform: translateX(115vw); } }
+      /* Boot loader — a clean black screen with a counting percentage. Covers everything (incl. the logo)
+         until the 3D world is ready; main.js then snaps it to 100, fades it, and reveals the live title. */
+      #dd-title .boot { position: absolute; inset: 0; z-index: 5;
+        display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 12px;
+        padding: 0 0 52px 58px; background: #0b0e15; transition: opacity .9s ease; }
+      #dd-title .boot.done { opacity: 0; pointer-events: none; }
+      #dd-title .boot .pct { font-size: 96px; font-weight: 800; letter-spacing: -0.01em; color: #f3ede1;
+        font-variant-numeric: tabular-nums; line-height: 1; }
+      #dd-title .boot .pct::after { content: '%'; font-size: 34px; font-weight: 600; color: rgba(243,237,225,0.45); margin-left: 8px; }
+      #dd-title .boot .cap { font-size: 12px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase;
+        color: rgba(243,237,225,0.5); }
+      #dd-title .boot .bbar { width: min(300px, 60vw); height: 3px; border-radius: 2px; background: rgba(243,237,225,0.14); overflow: hidden; }
+      #dd-title .boot .bbar i { display: block; height: 100%; width: 0%; background: #d76a4f; transition: width .3s ease; }
+      /* Staged entrance for the title content once the boot fades */
+      #dd-title .logo, #dd-title .tagline, #dd-title .play { opacity: 0; transform: translateY(14px); }
+      #dd-title.reveal .logo    { opacity: 1; transform: none; transition: opacity .8s ease .15s, transform .8s ease .15s; }
+      #dd-title.reveal .tagline { opacity: 1; transform: none; transition: opacity .8s ease .45s, transform .8s ease .45s; }
+      #dd-title.reveal .play    { opacity: 1; transform: none; transition: opacity .8s ease .7s,  transform .8s ease .7s; }
       /* Background image layer (swap /title-bg.png for the dark artwork when ready). Kept dim + slightly
          desaturated under a dark scrim so the screen reads dark-mode even with a bright source image. */
       #dd-title .bg {
@@ -185,14 +190,10 @@
   </head>
   <body>
     <div id="dd-title">
-      <div class="clouds">
-        <div class="cl" style="top:6%;  width:12vw; height:2.6vw; animation-duration:140s; animation-delay:-30s;"></div>
-        <div class="cl" style="top:12%; width:7vw;  height:1.6vw; opacity:.7; animation-duration:180s; animation-delay:-120s; filter:blur(2px);"></div>
-        <div class="cl" style="top:19%; width:15vw; height:3.2vw; animation-duration:110s; animation-delay:-70s;"></div>
-        <div class="cl" style="top:28%; width:9vw;  height:2vw;   opacity:.8; animation-duration:160s; animation-delay:-45s; filter:blur(2px);"></div>
-        <div class="cl" style="top:38%; width:13vw; height:2.8vw; animation-duration:120s; animation-delay:-95s;"></div>
-        <div class="cl" style="top:55%; width:8vw;  height:1.8vw; opacity:.65; animation-duration:190s; animation-delay:-150s; filter:blur(2.5px);"></div>
-        <div class="cl" style="top:70%; width:11vw; height:2.4vw; opacity:.75; animation-duration:150s; animation-delay:-15s; filter:blur(2px);"></div>
+      <div class="boot">
+        <div class="pct">0</div>
+        <div class="cap">Loading Barcelona</div>
+        <div class="bbar"><i></i></div>
       </div>
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
@@ -331,6 +332,30 @@
           title.classList.add('hide');
           setTimeout(function () { if (title) title.remove(); }, 550);
         }
+
+        // Boot counter — eases toward 92% while the world builds; main.js snaps it to 100 and fades the
+        // boot when the scene is ready (window._ddBootDone). 30s safety net so it can never stick black.
+        var bootEl = title.querySelector('.boot');
+        var pctEl = title.querySelector('.boot .pct');
+        var barEl = title.querySelector('.boot .bbar i');
+        var pct = 0, bootDone = false;
+        var tick = setInterval(function () {
+          if (bootDone) return clearInterval(tick);
+          // ease: fast early, crawls near the cap — reads like real work
+          pct = Math.min(92, pct + Math.max(0.4, (92 - pct) * 0.045));
+          if (pctEl) pctEl.textContent = String(Math.floor(pct));
+          if (barEl) barEl.style.width = pct + '%';
+        }, 120);
+        window._ddBootDone = function () {
+          if (bootDone) return; bootDone = true;
+          if (pctEl) pctEl.textContent = '100';
+          if (barEl) barEl.style.width = '100%';
+          setTimeout(function () {
+            if (bootEl) bootEl.classList.add('done');
+            title.classList.add('reveal');
+          }, 320);
+        };
+        setTimeout(function () { if (window._ddBootDone) window._ddBootDone(); }, 30000);
 
         // PLAY just reveals the mode picker; picking a mode drops into the game.
         if (play) play.addEventListener('click', function () {
