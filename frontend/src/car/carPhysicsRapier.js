@@ -25,7 +25,7 @@ const CHASSIS_MASS = 1730;                      // kg — real G80 M3 kerb+drive
 // Wheel layout (chassis-local, relative to the low origin). Front = +z, RWD (engine on rear).
 const WHEEL_Y = 0.20;              // connection point above the low origin (cannon WHEEL_CONNECT_Y)
 const HALF_W = 0.78, FRONT_Z = 1.43, REAR_Z = -1.43, WHEEL_R = 0.34, REST_LEN = 0.32;
-const MAX_STEER = 0.38;            // rad (~22°) at full lock
+const MAX_STEER = 0.52;            // rad — Rapier's wheel steering bites less than cannon's, so more lock
 const BASE_ENGINE_FORCE = 5200;
 
 export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
@@ -136,8 +136,8 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     _isBraking = brake > 0.05 && signed > 1;
     _transmission(absSpeed, throttle, dt);
 
-    // Steering — reduce lock with speed (twitch-free at pace).
-    const steerReduction = 1 - Math.min(0.72, absSpeed / 140);
+    // Steering — reduce lock with speed (twitch-free at pace), but keep more low-speed authority.
+    const steerReduction = 1 - Math.min(0.6, absSpeed / 170);
     const targetSteer = steer * MAX_STEER * steerReduction;
     _currentSteer += (targetSteer - _currentSteer) * Math.min(1, 10 * dt);
     vc.setWheelSteering(0, _currentSteer);
@@ -174,7 +174,11 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
 
   // carDriver calls this instead of cannon's world.step() when a physics.step exists.
   function step(dt) {
-    const h = Math.min(dt, 0.035);
+    // Advance physics by the ACTUAL frame time so the vehicle forces (updateVehicle), the integration
+    // (world.step uses world.timestep) and the render all align — a fixed 1/60 step against variable frames
+    // was the stutter (forces for dt≠integration for 1/60, and the raw pose snapped to a mismatched grid).
+    const h = Math.min(Math.max(dt, 1 / 130), 1 / 30);
+    world.timestep = h;
     vc.updateVehicle(h);
     world.step();
     refresh();
