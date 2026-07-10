@@ -114,7 +114,14 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     return Number.isFinite(y) ? y : 0;
   }
 
+  // Shared per-frame budget: buildPath is the expensive traffic op (groundY sampling per point + allocs),
+  // called by BOTH path-extension and every spawn attempt (up to 8×/spawn). A burst of spawns/extends in
+  // one frame stacked into the ~14ms `traffic` spike. Cap total builds/frame (reset in update); excess
+  // spawns/extends just retry next frame — traffic fills a hair slower, spike gone.
+  let _buildBudget = 0;
   function buildPath(seg, origin, reverse) {
+    if (_buildBudget <= 0) return null;
+    _buildBudget--;
     const wpts = seg.points;
     if (!wpts || wpts.length < 2) return null;
     if (reverse == null) reverse = Math.random() < 0.5;
@@ -235,10 +242,9 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     if (!_enabled || !world) return;
     const origin = getOrigin();
     const d = Math.min(dt || 0.016, 0.05);
-    // Cap path-extensions per frame. extendPath walks ALL road segments; several cars reaching their
-    // path-end in one frame used to stack into a ~12ms spike. Excess cars retry next frame — imperceptible
-    // (they're mid-junction on a long path), and the spike is gone.
+    // Per-frame budgets: cap path-extensions AND total path builds so a burst of spawns/extends can't spike.
     let _extendBudget = 2;
+    _buildBudget = 4;   // total buildPath() calls allowed this frame (shared by spawn + extend)
 
     // Pass 1: current position + heading of every car
     for (const car of cars) {
