@@ -61,10 +61,10 @@ const TRUNK_RADIAL_SEGMENTS = 3;   // 3 sides sufficient at game scale
 // V5 cohesion: warmed toward olive (R up, B up a touch, G eased) so foliage sits in the same
 // warm palette family as the buildings under ACES — pure vivid greens were popping/clashing.
 const FOLIAGE_COLORS = [
-  [0x4C6830, 0x587439, 0x668043],  // Plane tree — deep olive (reference aerial greens)
-  [0x567338, 0x668043, 0x7A8C4A],  // Elm/lime — olive-gold, deepened
-  [0x33502A, 0x3D5A2F, 0x4A6437],  // Cypress/pine — deep forest green
-  [0x587439, 0x668043, 0x7C884A],  // Jacaranda/mixed — deepened olive
+  [0x3F7434, 0x4A833D, 0x579247],  // Plane tree — true rich green (reference: emerald, not olive)
+  [0x468A3E, 0x579247, 0x69A052],  // Elm/lime — brighter true green
+  [0x2C5B28, 0x35682E, 0x407637],  // Cypress/pine — deep true green
+  [0x4A833D, 0x579247, 0x649B50],  // Jacaranda/mixed — varied true green
 ];
 const TRUNK_COLOR = 0x7A7158;      // London-plane bark: muted grey-olive-brown (was 0x877662 — too pale/orange, read fake)
 const DUST_COLOR = 0x9B8B6E;
@@ -269,7 +269,7 @@ const TREE_ROAD_TYPES = new Set([
 
 function getGreenMaterial() {
   if (sharedGreenMaterial) return sharedGreenMaterial;
-  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x475f33, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
+  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x3B6B30, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
   return sharedGreenMaterial;
 }
 
@@ -728,7 +728,7 @@ async function createTreeMesh(positions, typeIndex, getElevationAt, getWorldElev
   const tintColor = new THREE.Color();
   const vertExag = Number.isFinite(CONFIG.ELEVATION_VERTICAL_EXAGGERATION)
     ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION : 1;
-  const tintPalette = [0x50702F, 0x5B7836, 0x687840, 0x767D4C];
+  const tintPalette = [0x417936, 0x4C883F, 0x58924A, 0x699E55];
 
   const LEAN_MAX = (4 * Math.PI) / 180;
   for (let i = 0; i < positions.length; i++) {
