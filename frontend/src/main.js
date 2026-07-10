@@ -536,9 +536,10 @@ spawnTileReady.finally(() => {
 setTimeout(() => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); } }, 20000);
 
 let lastTime = 0;
-// FPS cap (default 60). Override with ?fpscap=N (e.g. ?fpscap=0 uncapped, ?fpscap=72). Cuts per-second
-// engine garbage + evens frame pacing on high-refresh displays. Small 0.5ms slack so we don't miss the cap.
-const _fpsCapVal = (() => { const p = new URLSearchParams(location.search).get('fpscap'); return p == null ? 60 : Math.max(0, parseInt(p, 10) || 0); })();
+// FPS cap (default 120 — lets high-refresh displays breathe past 60; was 60 to cut GC, but the big
+// per-frame allocators are being killed off so we can afford more frames). Override with ?fpscap=N
+// (e.g. ?fpscap=0 uncapped, ?fpscap=60). Small 0.5ms slack so we don't miss the cap.
+const _fpsCapVal = (() => { const p = new URLSearchParams(location.search).get('fpscap'); return p == null ? 120 : Math.max(0, parseInt(p, 10) || 0); })();
 const _fpsCapMs = _fpsCapVal > 0 ? (1000 / _fpsCapVal) - 0.5 : 0;
 let _lastRenderT = 0;
 const _camDir = new THREE.Vector3();

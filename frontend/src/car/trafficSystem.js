@@ -123,30 +123,34 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     if (_buildBudget <= 0) return null;
     _buildBudget--;
     const wpts = seg.points;
-    if (!wpts || wpts.length < 2) return null;
+    const N = wpts && wpts.length;
+    if (!N || N < 2) return null;
     if (reverse == null) reverse = Math.random() < 0.5;
-    const ordered = reverse ? wpts.slice().reverse() : wpts;
-    const cl = ordered.map((p) => ({ px: -(p.x - origin.x), pz: p.y - origin.z, wx: p.x, wz: p.y }));
+    // Ordered world point at index k WITHOUT the slice().reverse()/map() throwaway arrays (buildPath runs
+    // hot in busy areas — those two allocations per call were the traffic GC feeder).
+    const ox = origin.x, oz = origin.z;
+    const wp = (k) => wpts[reverse ? N - 1 - k : k];
     const pts = [];
     let len = 0;
-    for (let i = 0; i < cl.length; i++) {
-      const a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)];
-      let dx = b.px - a.px, dz = b.pz - a.pz;
+    for (let i = 0; i < N; i++) {
+      const pa = wp(i > 0 ? i - 1 : 0), pb = wp(i < N - 1 ? i + 1 : N - 1), pc = wp(i);
+      let dx = -(pb.x - pa.x), dz = pb.y - pa.y;        // physics frame: X negated, world.y → z
       const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
       const rx = dz, rz = -dx;
-      const px = cl[i].px + rx * LANE_OFFSET;
-      const pz = cl[i].pz + rz * LANE_OFFSET;
-      const y = groundY(cl[i].wx, cl[i].wz);
+      const px = -(pc.x - ox) + rx * LANE_OFFSET;
+      const pz = (pc.y - oz) + rz * LANE_OFFSET;
+      const y = groundY(pc.x, pc.y);
       if (i > 0) len += Math.hypot(px - pts[i - 1].x, pz - pts[i - 1].z);
       pts.push({ x: px, y, z: pz });
     }
     if (len < 8) return null;
     const baseSpeed = SPEED_BY_TYPE[seg.highwayType] ?? 8;
+    const first = wp(0), last = wp(N - 1);
     // startW/endW = world coords of the centreline ends, used to chain onto connecting roads.
     return {
       pts, len, speed: baseSpeed * (0.8 + Math.random() * 0.35),
-      startWx: cl[0].wx, startWz: cl[0].wz,
-      endWx: cl[cl.length - 1].wx, endWz: cl[cl.length - 1].wz,
+      startWx: first.x, startWz: first.y,
+      endWx: last.x, endWz: last.y,
     };
   }
 
