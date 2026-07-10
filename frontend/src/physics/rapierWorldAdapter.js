@@ -163,16 +163,17 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
     }
   }
 
-  // ── Streaming mirror ────────────────────────────────────────────────────────
-  // Measured (Node experiment + in-game): Rapier's step cost scales with resident collider count — 32k
-  // mirrored colliders ⇒ ~8ms/step, worse than cannon. Statics the car can't reach contribute cost and
-  // nothing else. So the mirror keeps a WORKING SET: every cannon body is registered (with a cheap bounding
-  // radius), but only bodies within R_IN of the car are materialized as Rapier colliders; past R_OUT they
-  // dematerialize. Materialization is budgeted per frame so tile arrival never spikes. tick() also syncs
-  // poses for cannon bodies that move (traffic cars etc.) so the mirror never holds stale obstacles.
-  const R_IN = 260, R_OUT = 340;            // hysteresis (car tops out ~30 m/s; streaming has huge margin)
-  const MATERIALIZE_BUDGET = 900;           // max colliders created per tick (spread big tiles over frames)
-  const entries = [];                       // { body, r, rb } — r = bounding radius around body.position
+  // ── Streaming mirror (PER-SHAPE) ────────────────────────────────────────────
+  // Measured: Rapier's step cost scales with resident collider count (32k ⇒ ~8ms/step, worse than cannon).
+  // Body-level streaming isn't enough — tileManager builds tile-wide compound bodies (often at position
+  // (0,0,0) with shape offsets spanning the whole map region), so a "body near the car" test keeps nearly
+  // everything resident. The mirror therefore streams INDIVIDUAL SHAPES: each cannon body registers its
+  // shapes with per-shape world centres + radii, and only shapes within R_IN of the car exist as Rapier
+  // colliders (dropped past R_OUT, creations budgeted per frame). tick() also re-syncs poses for cannon
+  // bodies that move (traffic cars) so the mirror never holds stale obstacles.
+  const R_IN = 220, R_OUT = 290;            // hysteresis; car tops out ~30 m/s → streaming has big margin
+  const MATERIALIZE_BUDGET = 700;           // max colliders created per tick (spreads a dense area over frames)
+  const entries = [];
   const _entryOf = new WeakMap();
 
   function shapeRadius(shape) {
@@ -196,54 +197,59 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
     }
   }
 
-  function boundingRadius(cannonBody) {
-    const shapes = cannonBody.shapes, offs = cannonBody.shapeOffsets;
-    let r = 0;
-    for (let i = 0; i < shapes.length; i++) {
-      const o = offs[i];
-      const rr = Math.hypot(o.x, o.y, o.z) + shapeRadius(shapes[i]);
-      if (rr > r) r = rr;
-    }
-    return r;
+  // Build one Rapier collider for shape i of an entry (composing the cannon shape offset with any
+  // desc-local transform, e.g. the native heightfield's Rx(+90°) + centre offset).
+  function makeCollider(entry, i) {
+    const body = entry.body;
+    const desc = shapeDesc(body.shapes[i]);
+    if (!desc) return null;
+    const o = body.shapeOffsets[i], r = body.shapeOrientations[i];
+    const p0 = desc.translation || { x: 0, y: 0, z: 0 };
+    const r0 = desc.rotation || { x: 0, y: 0, z: 0, w: 1 };
+    const pr = _qrot(r, p0);
+    desc.setTranslation(o.x + pr.x, o.y + pr.y, o.z + pr.z).setRotation(_qmul(r, r0));
+    try { return rapierWorld.createCollider(desc, entry.rb); } catch (e) { return null; }
   }
 
-  function materialize(entry) {
-    const cannonBody = entry.body;
-    const p = cannonBody.position, q = cannonBody.quaternion;
-    const rb = rapierWorld.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed()
-        .setTranslation(p.x, p.y, p.z)
-        .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }),
+  function ensureRb(entry) {
+    if (entry.rb) return;
+    const p = entry.body.position, q = entry.body.quaternion;
+    entry.rb = rapierWorld.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }),
     );
-    const shapes = cannonBody.shapes, offs = cannonBody.shapeOffsets, oris = cannonBody.shapeOrientations;
-    let added = 0;
-    for (let i = 0; i < shapes.length; i++) {
-      const desc = shapeDesc(shapes[i]);
-      if (!desc) continue;
-      // COMPOSE the cannon shape offset with any local transform the desc already carries (the native
-      // heightfield sets one) instead of overwriting it: final = cannonOffset ∘ descLocal.
-      const o = offs[i], r = oris[i];
-      const p0 = desc.translation || { x: 0, y: 0, z: 0 };
-      const r0 = desc.rotation || { x: 0, y: 0, z: 0, w: 1 };
-      const pr = _qrot(r, p0);
-      desc.setTranslation(o.x + pr.x, o.y + pr.y, o.z + pr.z).setRotation(_qmul(r, r0));
-      try { rapierWorld.createCollider(desc, rb); added++; } catch (e) { /* skip a bad shape rather than crash the tile */ }
-    }
-    if (added === 0) { rapierWorld.removeRigidBody(rb); entry.dead = true; return 0; } // nothing supported
-    entry.rb = rb;
     entry.px = p.x; entry.py = p.y; entry.pz = p.z; entry.qy = q.y; entry.qw = q.w;
-    return added;
   }
 
-  function dematerialize(entry) {
+  function dropRb(entry) {
     if (!entry.rb) return;
-    try { rapierWorld.removeRigidBody(entry.rb); } catch {}
+    try { rapierWorld.removeRigidBody(entry.rb); } catch {}   // removes all its colliders too
     entry.rb = null;
+    entry.colls.fill(null);
+    entry.active = 0;
   }
 
   function addBody(cannonBody) {
     bodies.push(cannonBody);
-    const entry = { body: cannonBody, r: boundingRadius(cannonBody), rb: null, dead: false, px: 0, py: 0, pz: 0, qy: 0, qw: 1 };
+    const shapes = cannonBody.shapes, offs = cannonBody.shapeOffsets;
+    const n = shapes.length;
+    const shapeR = new Float64Array(n);
+    // Body-local bounding sphere over all shapes (quick whole-body reject in tick).
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < n; i++) {
+      shapeR[i] = shapeRadius(shapes[i]);
+      const o = offs[i];
+      if (o.x - shapeR[i] < minX) minX = o.x - shapeR[i];
+      if (o.x + shapeR[i] > maxX) maxX = o.x + shapeR[i];
+      if (o.z - shapeR[i] < minZ) minZ = o.z - shapeR[i];
+      if (o.z + shapeR[i] > maxZ) maxZ = o.z + shapeR[i];
+    }
+    const entry = {
+      body: cannonBody, shapeR,
+      clx: n ? (minX + maxX) / 2 : 0, clz: n ? (minZ + maxZ) / 2 : 0,
+      cr: n ? Math.hypot(maxX - minX, maxZ - minZ) / 2 : 0,
+      rb: null, colls: new Array(n).fill(null), active: 0,
+      px: 0, py: 0, pz: 0, qy: 0, qw: 1,
+    };
     entries.push(entry);
     _entryOf.set(cannonBody, entry);
     return cannonBody;
@@ -252,7 +258,7 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
   function removeBody(cannonBody) {
     const entry = _entryOf.get(cannonBody);
     if (entry) {
-      dematerialize(entry);
+      dropRb(entry);
       _entryOf.delete(cannonBody);
       const j = entries.indexOf(entry);
       if (j >= 0) entries.splice(j, 1);
@@ -261,32 +267,60 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
     if (i >= 0) bodies.splice(i, 1);
   }
 
+  const _isIdentityQ = (q) => Math.abs(q.x) + Math.abs(q.y) + Math.abs(q.z) < 1e-6;
+
   /**
-   * Stream the working set around (x, z) — call once per frame with the car's physics-frame position.
-   * Materializes bodies entering R_IN (budgeted), drops bodies past R_OUT, and re-syncs the pose of any
-   * materialized body whose cannon source moved (traffic cars are repositioned every frame by trafficSystem).
+   * Stream the collider working set around (x, z) — call once per frame with the car's physics position.
+   * Whole-body sphere reject first; near bodies stream per shape (budgeted creates, hysteresis drops).
+   * Also re-syncs the pose of any materialized body whose cannon source moved (traffic cars).
    */
   function tick(x, z) {
     let budget = MATERIALIZE_BUDGET;
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      if (e.dead) continue;
-      const bp = e.body.position;
-      const d = Math.hypot(bp.x - x, bp.z - z) - e.r;
-      if (!e.rb) {
-        if (d < R_IN && budget > 0) budget -= materialize(e);
-      } else if (d > R_OUT) {
-        dematerialize(e);
-      } else {
-        // Pose sync for movers (yaw-only rotation covers traffic; full quat would also be fine).
-        const bq = e.body.quaternion;
-        if (Math.abs(bp.x - e.px) + Math.abs(bp.y - e.py) + Math.abs(bp.z - e.pz) > 1e-3 ||
-            Math.abs(bq.y - e.qy) + Math.abs(bq.w - e.qw) > 1e-3) {
-          e.rb.setTranslation({ x: bp.x, y: bp.y, z: bp.z }, false);
-          e.rb.setRotation({ x: bq.x, y: bq.y, z: bq.z, w: bq.w }, false);
-          e.px = bp.x; e.py = bp.y; e.pz = bp.z; e.qy = bq.y; e.qw = bq.w;
+    for (let k = 0; k < entries.length; k++) {
+      const e = entries[k];
+      const body = e.body, bp = body.position, bq = body.quaternion;
+      const ident = _isIdentityQ(bq);
+
+      // Pose sync for movers, BEFORE the distance math (their shapes travel with them).
+      if (e.rb && (Math.abs(bp.x - e.px) + Math.abs(bp.y - e.py) + Math.abs(bp.z - e.pz) > 1e-3 ||
+                   Math.abs(bq.y - e.qy) + Math.abs(bq.w - e.qw) > 1e-3)) {
+        e.rb.setTranslation({ x: bp.x, y: bp.y, z: bp.z }, false);
+        e.rb.setRotation({ x: bq.x, y: bq.y, z: bq.z, w: bq.w }, false);
+        e.px = bp.x; e.py = bp.y; e.pz = bp.z; e.qy = bq.y; e.qw = bq.w;
+      }
+
+      // Whole-body sphere in world space (rotate the local centre only when the body is rotated).
+      let cx, cz;
+      if (ident) { cx = bp.x + e.clx; cz = bp.z + e.clz; }
+      else { const c = _qrot(bq, { x: e.clx, y: 0, z: e.clz }); cx = bp.x + c.x; cz = bp.z + c.z; }
+      const dBody = Math.hypot(cx - x, cz - z) - e.cr;
+      if (dBody > R_OUT) { if (e.active) dropRb(e); continue; }
+      if (dBody >= R_IN && !e.active) continue;   // not near enough to start, nothing to drop
+
+      // Per-shape streaming.
+      const offs = body.shapeOffsets;
+      for (let i = 0; i < e.colls.length; i++) {
+        const o = offs[i];
+        let sx, sz;
+        if (ident) { sx = bp.x + o.x; sz = bp.z + o.z; }
+        else { const w = _qrot(bq, o); sx = bp.x + w.x; sz = bp.z + w.z; }
+        const d = Math.hypot(sx - x, sz - z) - e.shapeR[i];
+        const coll = e.colls[i];
+        if (coll === false) continue;              // unsupported shape — never retry
+        if (!coll) {
+          if (d < R_IN && budget > 0) {
+            ensureRb(e);
+            const c = makeCollider(e, i);
+            if (c) { e.colls[i] = c; e.active++; budget--; }
+            else e.colls[i] = false;   // unsupported shape — never retry
+          }
+        } else if (coll !== false && d > R_OUT) {
+          try { rapierWorld.removeCollider(coll, false); } catch {}
+          e.colls[i] = null;
+          e.active--;
         }
       }
+      if (e.active === 0 && e.rb && dBody >= R_IN) dropRb(e);
     }
   }
 
