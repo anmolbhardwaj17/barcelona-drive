@@ -591,10 +591,12 @@ function animate(time = 0) {
     // AI traffic + parked cars + pedestrians — player position is in the physics frame (lp.lx, lp.lz).
     if (contactShadows) contactShadows.begin();
     if (trafficSystem) trafficSystem.update(lp.lx, lp.lz, frameDt, speedKmh);
+    cpuTimer.lap('traffic');
     if (parkedCars) parkedCars.update(lp.lx, lp.lz);
+    cpuTimer.lap('parked');
     if (pedestrians) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
-    cpuTimer.lap('ent');
+    cpuTimer.lap('peds');
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
     if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (deliveryMode) deliveryMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
