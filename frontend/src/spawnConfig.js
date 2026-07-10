@@ -23,10 +23,11 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
-  // Avinguda Diagonal near Passeig de Gràcia — wide central avenue (multi-lane), at-grade,
-  // good for traffic + an Eixample showcase. (Was Sagrada Família 41.4036/2.1744.)
-  lat: 41.3948,
-  lon: 2.1602,
+  // Passeig Marítim by Barceloneta beach — seafront drive with the Mediterranean on one side, the
+  // W hotel down the coast; beach-vibe check spawn. (Was Avinguda Diagonal 41.3948/2.1602; before
+  // that Sagrada Família 41.4036/2.1744.)
+  lat: 41.3786,
+  lon: 2.1925,
   heading: null,
 };
 
