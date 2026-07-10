@@ -625,11 +625,9 @@ export function createScene(container) {
     THREE.ShaderChunk.fog_vertex = /* glsl */`
       #ifdef USE_FOG
         vFogDepth = - mvPosition.z;
-        vec4 ddFogWP = vec4( transformed, 1.0 );
-        #ifdef USE_INSTANCING
-          ddFogWP = instanceMatrix * ddFogWP;
-        #endif
-        vDdFogWorldPos = ( modelMatrix * ddFogWP ).xyz;
+        // World position reconstructed from mvPosition (rigid inverse of viewMatrix) — works for EVERY
+        // material including sprites/points, which have no 'transformed' or instanceMatrix in scope.
+        vDdFogWorldPos = transpose( mat3( viewMatrix ) ) * ( mvPosition.xyz - viewMatrix[ 3 ].xyz );
       #endif`;
     THREE.ShaderChunk.fog_pars_fragment = /* glsl */`
       #ifdef USE_FOG

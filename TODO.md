@@ -17,3 +17,12 @@ error-prone and worth consolidating into one clearly-documented layer:
 **Goal:** one boundary module that owns all world↔physics↔render coordinate conversions (mirror + rotations),
 so individual renderers/colliders don't each re-derive them. Reduces the class of "silently misplaced
 geometry / broken collision" bugs the CLAUDE.md danger note warns about.
+
+## Road / surface Z-layering — proper research pass (parked)
+The stacking of co-planar ground surfaces (asphalt ↔ markings ↔ crossings ↔ sidewalks ↔ plazas ↔ terrain,
+plus bridges/tunnels layer tags) is currently managed by ad-hoc Y-offsets (e.g. GREEN_OFFSET_Y, road paint
+lifts, ROAD_VISUAL_ABOVE_TERRAIN) — prone to z-fighting at distance and elevation-dependent artifacts.
+Do a proper research pass: inventory every ground-plane offset, then design ONE layering scheme
+(polygonOffset units per layer class, or renderOrder + depthFunc strategy, or true OSM layer=* handling)
+so all surfaces stack deterministically at any camera distance. Also covers the building-wall z-fighting
+seen on overlapping OSM footprints.
