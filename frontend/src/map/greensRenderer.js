@@ -10,13 +10,13 @@ import { CONFIG } from '../config.js';
 const GREEN_OFFSET_Y = 0.01;
 
 const TYPE_COLORS = {
-  park: 0x4a7c23,
-  garden: 0x5a9c2e,
+  park: 0x33591b,
+  garden: 0x3f7020,
   forest: 0x2d5a1a,
-  grass: 0x6b9e3a,
-  playground: 0x7cb342,
-  scrub: 0x558b2f,
-  generic_green: 0x558b2f,
+  grass: 0x497328,
+  playground: 0x568030,
+  scrub: 0x3c6421,
+  generic_green: 0x3c6421,
 };
 
 function getMaterialForType(type) {
