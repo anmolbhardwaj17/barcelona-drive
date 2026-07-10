@@ -624,10 +624,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
       // ── Lush Mediterranean park palette (replaces the DELHI dust palette — its khaki/dry-straw at 75%
       //    dominance over vertex colours WAS the persistent yellow ground; no CPU-side green survived it) ──
-      vec3 lushGrass = vec3(0.20, 0.37, 0.15);   // rich lawn (set DARK — exposure 1.9 + warm sun lift it)
-      vec3 midGreen  = vec3(0.15, 0.30, 0.12);
-      vec3 deepGreen = vec3(0.11, 0.24, 0.10);
-      vec3 sageGreen = vec3(0.22, 0.36, 0.17);
+      vec3 lushGrass = vec3(0.24, 0.43, 0.18);   // rich lawn (reference mid-green under the soft rig)
+      vec3 midGreen  = vec3(0.18, 0.35, 0.15);
+      vec3 deepGreen = vec3(0.13, 0.28, 0.12);
+      vec3 sageGreen = vec3(0.26, 0.41, 0.20);
       vec3 drySoil   = vec3(0.45, 0.39, 0.26);   // sparse worn patches only
       vec3 roadDirt  = vec3(0.40, 0.36, 0.26);
 
