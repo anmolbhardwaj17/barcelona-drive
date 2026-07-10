@@ -99,6 +99,15 @@
         transition: opacity .5s ease;
       }
       #dd-title.hide { opacity: 0; pointer-events: none; }
+      /* LIVE state — once the 3D world has loaded behind the title, main.js adds .live: the static artwork
+         crossfades away revealing the real city under a slow cinematic camera; scrim + glow stay (dimmer)
+         so the logo/PLAY remain legible over the live world. */
+      #dd-title .bg { transition: opacity 2.2s ease; }
+      #dd-title::before, #dd-title::after { transition: opacity 2.2s ease; }
+      #dd-title.live { background: transparent; }
+      #dd-title.live .bg { opacity: 0; }
+      #dd-title.live::before { opacity: 0.75; }
+      #dd-title.live::after { opacity: 0.7; }
       /* Background image layer (swap /title-bg.png for the dark artwork when ready). Kept dim + slightly
          desaturated under a dark scrim so the screen reads dark-mode even with a bright source image. */
       #dd-title .bg {

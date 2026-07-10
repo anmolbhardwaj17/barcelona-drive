@@ -185,6 +185,17 @@ let tileManager;
 let freeCameraControls;
 let carDriver = null;
 let rapierAdapter = null;   // set when ?physics=rapier — streams the collider working set around the car
+
+// ── Live title screen ─────────────────────────────────────────────────────
+// Once the spawn area has built, the static title artwork crossfades away (#dd-title.live) and a slow
+// cinematic camera orbits the REAL city under the logo/PLAY. Picking a mode hands the camera to carCam,
+// whose lerp glides it down behind the car (the "dive"). HUD elements are hidden while the title is live.
+let _titleLive = false;
+let _titleOrbit = null;     // { x, y, z } — spawn point (physics/scene frame) the cinematic orbits
+const TITLE_HUD_SELECTOR = '#minimap-frame, #controls-strip, #street-display, #env-toggle, .dd-esc-fab, #performance-panel, #compass-bar, #metrics-panel, #speed-display';
+function _setHudHidden(hidden) {
+  document.querySelectorAll(TITLE_HUD_SELECTOR).forEach((el) => { el.style.visibility = hidden ? 'hidden' : ''; });
+}
 let dashMode = null;
 let taxiMode = null;
 let deliveryMode = null;
@@ -368,6 +379,7 @@ spawnTileReady.finally(() => {
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier, cpuTimer });
+        _titleOrbit = { x: spawnLocalPos.x, y: spawnLocalPos.y, z: spawnLocalPos.z };   // live-title cinematic centre
         contactShadows = createContactShadows({ scene });
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
@@ -512,6 +524,16 @@ spawnTileReady.finally(() => {
       _polls++;
       if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) {
         clearInterval(_pollLoad); _hideLoader();
+        // Go LIVE behind the title: crossfade the static artwork to the real city + start the cinematic
+        // orbit (only in car mode, and only if the player hasn't already entered the game).
+        try {
+          const titleEl = document.getElementById('dd-title');
+          if (titleEl && !titleEl.classList.contains('hide') && carDriver && _titleOrbit) {
+            titleEl.classList.add('live');
+            _titleLive = true;
+            _setHudHidden(true);
+          }
+        } catch {}
         // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
         try { envToggle?.reapply?.(); } catch {}
         // Warm the GPU shader programs once now (materials are shared singletons, so this compiles almost
@@ -582,7 +604,25 @@ function animate(time = 0) {
     // ── Car driving mode ──────────────────────────────────────────────────────
     // Skip the chase camera while the taxi mode is playing a pickup/drop-off cinematic (it drives the
     // camera itself, in taxiMode.update below).
-    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()));
+    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive);
+
+    // Live title screen: slow aerial orbit of the spawn area under the logo/PLAY. When a mode is picked
+    // (title hides), release — carCam's lerp then glides the camera down behind the car (the dive-in).
+    if (_titleLive) {
+      const _ta = time * 0.001 * 0.045;                 // ~2.3 min per orbit — unhurried
+      const _tr = 200, _th = 115;
+      camera.position.set(
+        _titleOrbit.x + Math.cos(_ta) * _tr,
+        _titleOrbit.y + _th + Math.sin(_ta * 0.5) * 8,  // gentle height breathing
+        _titleOrbit.z + Math.sin(_ta) * _tr,
+      );
+      camera.lookAt(_titleOrbit.x, _titleOrbit.y + 12, _titleOrbit.z);
+      const _te = document.getElementById('dd-title');
+      if (!_te || _te.classList.contains('hide')) {
+        _titleLive = false;
+        _setHudHidden(false);
+      }
+    }
     cpuTimer.lap('phys');
 
     const lp = carDriver.getLocalPosition();

@@ -30,6 +30,7 @@ function rpmToAngle(rpm) {
  */
 export function createSpeedDisplay() {
   const canvas = document.createElement('canvas');
+  canvas.id = 'speed-display';
   canvas.width = TOTAL * 2;   // 2x for retina
   canvas.height = TOTAL * 2;
   canvas.style.cssText = `
