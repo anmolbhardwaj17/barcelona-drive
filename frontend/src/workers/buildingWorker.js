@@ -97,7 +97,7 @@ const BALCONY_CATEGORIES = new Set(['residential', 'commercial', 'office']); // 
 // Barcelona-from-above signature: the residential fabric is TERRACOTTA clay tile (the orange rooftop sea
 // in every aerial of the city). Modern office/industrial/glass keep grey flat roofs for realistic contrast.
 const ROOF_PALETTES = {
-  residential: [0x95573A, 0x8A4E31, 0x9D6142, 0x814830, 0x99684A, 0x8F5537, 0x7C452C], // brick-brown clay (grade saturates warm tones — keep base muted)
+  residential: [0x95573A, 0x8A4E31, 0xB9B4A9, 0x9D6142, 0xC0BBB0, 0x814830, 0x99684A, 0xACA79C], // clay MIXED with grey terrace roofs (~5:3) — all-clay read unnaturally uniform
   commercial:  [0x95573A, 0x8A4E31, 0xC8CCD2, 0xBEC2C8, 0x9D6142, 0xD8D4CC, 0x814830, 0xC2C6CC], // mixed: many older blocks tiled
   office:      [0xC0C8D0, 0xB8C0C8, 0xC4CCD4, 0xB4BCC4, 0xCAD0D6],
   hospital:    [0xD6D2CC, 0x99684A, 0xD0CCC6, 0x8F5537, 0xCCC8C2],   // older masonry wards often tiled

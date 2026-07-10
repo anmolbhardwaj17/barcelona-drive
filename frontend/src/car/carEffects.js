@@ -34,20 +34,23 @@ export function createCarEffects(scene, carModel, physics) {
   let skidIndex = 0;
   let skidSpawnTimer = 0;
 
+  // ONE InstancedMesh for the whole pool — the old per-mark Mesh pool was up to 200 separate draw calls
+  // (the top entry in the draw audit once a few drifts had happened). Same visuals, 1 draw.
+  let skidIM = null;
+  const _skidM = new THREE.Matrix4();
   if (CONFIG.ENABLE_SKID_MARKS) {
     const skidGeo = new THREE.PlaneGeometry(0.15, 1.0);
     skidGeo.rotateX(-Math.PI / 2);
     const skidMat = new THREE.MeshBasicMaterial({
       color: 0x111111, transparent: true, opacity: 0.4, depthWrite: false,
     });
-    skidMarks = [];
-    for (let i = 0; i < SKID_POOL_SIZE; i++) {
-      const m = new THREE.Mesh(skidGeo, skidMat);
-      m.visible = false;
-      m.renderOrder = -1;
-      scene.add(m);
-      skidMarks.push(m);
-    }
+    skidIM = new THREE.InstancedMesh(skidGeo, skidMat, SKID_POOL_SIZE);
+    skidIM.count = 0;
+    skidIM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    skidIM.frustumCulled = false;   // marks trail far behind the camera target; skip stale-bounds culling
+    skidIM.renderOrder = -1;
+    scene.add(skidIM);
+    skidMarks = skidIM;             // truthy flag for the update path below
   }
 
   // ── Tire smoke ────────────────────────────────────────────────────────────
@@ -147,21 +150,23 @@ export function createCarEffects(scene, carModel, physics) {
       skidSpawnTimer += dt;
       if (skidSpawnTimer >= 0.05) {
         skidSpawnTimer -= 0.05;
-        // Spawn at rear wheel positions (wheels 2 and 3)
+        // Spawn at rear wheel positions (wheels 2 and 3) — write an instance matrix into the pool.
         for (const wi of [2, 3]) {
           const hit = physics.vehicle.wheelInfos[wi].raycastResult?.hitPointWorld;
           if (!hit) continue;
-          const mark = skidMarks[skidIndex % SKID_POOL_SIZE];
+          const idx = skidIndex % SKID_POOL_SIZE;
           skidIndex++;
-          mark.visible = true;
-          // hit.y is the TERRAIN heightfield contact; the visual asphalt floats ~0.11m above it
-          // (ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN). Sit the mark on the asphalt, under the paint (+0.19).
-          mark.position.set(hit.x, hit.y + 0.15, hit.z);
           // Orient to chassis heading
           const cq = physics.chassisBody.quaternion;
           _quat.set(cq.x, cq.y, cq.z, cq.w);
           _euler.setFromQuaternion(_quat, 'YXZ');
-          mark.rotation.y = _euler.y;
+          _skidM.makeRotationY(_euler.y);
+          // hit.y is the TERRAIN heightfield contact; the visual asphalt floats ~0.11m above it
+          // (ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN). Sit the mark on the asphalt, under the paint (+0.19).
+          _skidM.setPosition(hit.x, hit.y + 0.15, hit.z);
+          skidIM.setMatrixAt(idx, _skidM);
+          skidIM.count = Math.min(SKID_POOL_SIZE, skidIndex);
+          skidIM.instanceMatrix.needsUpdate = true;
         }
       }
     } else {
@@ -243,12 +248,11 @@ export function createCarEffects(scene, carModel, physics) {
   }
 
   function dispose() {
-    if (skidMarks) {
-      for (const m of skidMarks) {
-        scene.remove(m);
-        m.geometry.dispose();
-      }
-      skidMarks[0]?.material?.dispose();
+    if (skidIM) {
+      scene.remove(skidIM);
+      skidIM.geometry.dispose();
+      skidIM.material.dispose();
+      skidIM.dispose();
     }
     if (smokeSprites) {
       for (const s of smokeSprites) {
