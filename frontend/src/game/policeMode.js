@@ -63,10 +63,10 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
 
   // ── HUD ──
   const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:9px 12px;border-radius:10px;display:none;min-width:190px;';
+  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Inter,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:9px 12px;border-radius:10px;display:none;min-width:190px;';
   document.body.appendChild(hud);
   const banner = document.createElement('div');
-  banner.style.cssText = 'position:fixed;top:86px;left:50%;transform:translateX(-50%);z-index:1000;font:800 26px Poppins,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;text-align:center;';
+  banner.style.cssText = 'position:fixed;top:86px;left:50%;transform:translateX(-50%);z-index:1000;font:800 26px Inter,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;text-align:center;';
   document.body.appendChild(banner);
 
   function renderHud() {

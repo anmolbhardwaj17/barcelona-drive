@@ -70,13 +70,13 @@
       }
       #dd-loading .bar i {
         display: block; height: 100%; width: 42%; border-radius: 6px;
-        background: #ff7a1a;
+        background: #d76a4f;
         animation: ddSlide 1.25s ease-in-out infinite;
       }
       @keyframes ddSlide { 0% { transform: translateX(-130%); } 100% { transform: translateX(360%); } }
       #dd-loading .factlabel {
         font-family: 'Inter', -apple-system, sans-serif; font-weight: 700;
-        color: #ffd23f; letter-spacing: 1px; font-size: 15px;
+        color: #e08a6f; letter-spacing: 1px; font-size: 15px;
         text-transform: uppercase; margin-top: 34px;
       }
       #dd-loading .fact {
@@ -90,77 +90,69 @@
         font-weight: 600; text-transform: uppercase;
       }
 
-      /* ── Title / start screen (shown first; PLAY drops into the game) ── */
+      /* ── Title / start screen — dark, flat, Inter + one coral accent (matches the ESC menu) ── */
       #dd-title {
         position: fixed; inset: 0; z-index: 10000; overflow: hidden;
-        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
-        background: #24406a; transition: opacity .5s ease;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+        background: radial-gradient(135% 105% at 50% -8%, #1e2637, #121a26 64%, #090d14);
+        font-family: 'Inter', -apple-system, sans-serif;
+        transition: opacity .5s ease;
       }
       #dd-title.hide { opacity: 0; pointer-events: none; }
-      /* two stacked background layers: grayscale base + full-colour on top, revealed by an expanding
-         radial MASK from the centre (feels nicer than a flat fade). Both share the breathing zoom. */
+      /* Background image layer (swap /title-bg.png for the dark artwork when ready). Kept dim + slightly
+         desaturated under a dark scrim so the screen reads dark-mode even with a bright source image. */
       #dd-title .bg {
         position: absolute; inset: -3%; z-index: 0; transform-origin: center;
         background: url('/title-bg.png') center / cover no-repeat;
-        animation: ddBreathe 20s ease-in-out infinite;
+        filter: saturate(0.75) brightness(0.5);
+        animation: ddBreathe 24s ease-in-out infinite;
       }
-      #dd-title .bg.gray { filter: grayscale(1) brightness(0.78); }
-      #dd-title .bg.color {
-        -webkit-mask: radial-gradient(circle at 50% 46%, #000 45%, transparent 78%) center / 0% 0% no-repeat;
-        mask: radial-gradient(circle at 50% 46%, #000 45%, transparent 78%) center / 0% 0% no-repeat;
-        animation: ddBreathe 20s ease-in-out infinite, ddReveal 2.6s ease-out forwards;
-      }
-      @keyframes ddReveal {
-        0%   { -webkit-mask-size: 0% 0%;     mask-size: 0% 0%; }
-        100% { -webkit-mask-size: 280% 280%; mask-size: 280% 280%; }
-      }
-      @keyframes ddBreathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.12); } }
-      /* vignette on top of the background */
+      #dd-title .bg.color { display: none; }   /* single dim layer now — no grayscale reveal */
+      @keyframes ddBreathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.1); } }
+      /* dark scrim + vignette over the background */
       #dd-title::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
-        background: radial-gradient(circle at 50% 44%, transparent 34%, rgba(8,12,24,0.28) 72%, rgba(6,9,18,0.6) 100%); }
+        background:
+          radial-gradient(circle at 50% 42%, rgba(9,13,20,0.25) 0%, rgba(9,13,20,0.55) 62%, rgba(9,13,20,0.85) 100%),
+          linear-gradient(rgba(9,13,20,0.25), rgba(9,13,20,0.45)); }
       #dd-title .logo {
-        position: relative; z-index: 2; width: min(600px, 82vw);
-        filter: drop-shadow(0 10px 16px rgba(0,0,0,0.45));
-        animation: ddBob 2.8s ease-in-out infinite;
+        position: relative; z-index: 2; width: min(560px, 78vw);
+        filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
+        animation: ddBob 3.4s ease-in-out infinite;
       }
       #dd-title .tagline {
-        position: relative; z-index: 2; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 700;
-        font-size: 20px; letter-spacing: 0.3px; color: #fff; margin-top: -6px;
-        padding: 10px 36px; background: #000;
-        clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%); /* parallelogram */
+        position: relative; z-index: 2; font-weight: 600;
+        font-size: 13px; letter-spacing: 0.34em; text-transform: uppercase;
+        color: rgba(243,237,225,0.66); margin-top: -2px;
+        text-shadow: 0 1px 8px rgba(0,0,0,0.6);
       }
       #dd-title .play {
         position: relative; z-index: 2; cursor: pointer; user-select: none;
-        font-family: 'Lilita One', sans-serif; font-size: 34px; letter-spacing: 3px; color: #3a2a00;
-        padding: 16px 76px; border-radius: 24px; border: 3px solid rgba(0,0,0,0.18);
-        background: linear-gradient(#ffe07a, #f5b32a);
-        box-shadow: 0 10px 0 #c8871a, 0 16px 24px rgba(0,0,0,0.4);
-        text-shadow: 0 2px 0 rgba(255,255,255,0.4);
-        transition: transform .06s, box-shadow .06s; margin-top: 6px;
+        font-family: inherit; font-size: 17px; font-weight: 600; letter-spacing: 0.22em; color: #f3ede1;
+        padding: 16px 84px; border-radius: 13px; border: 1px solid transparent;
+        background: #d76a4f;
+        box-shadow: 0 6px 26px rgba(215,106,79,0.35);
+        transition: background .16s, transform .1s, box-shadow .16s; margin-top: 8px;
       }
-      #dd-title .play:hover { filter: brightness(1.06); }
-      #dd-title .play:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
+      #dd-title .play:hover { background: #e0785c; box-shadow: 0 8px 32px rgba(215,106,79,0.45); }
+      #dd-title .play:active { transform: scale(0.97); }
 
-      /* ── Mode picker (revealed after PLAY) ── */
+      /* ── Mode picker (revealed after PLAY) — flat dark-glass cards, coral hover ── */
       #dd-title .modes { display: none; flex-direction: column; align-items: center; gap: 16px; position: relative; z-index: 2; }
       #dd-title .modes.show { display: flex; animation: ddModesIn .32s ease-out; }
       @keyframes ddModesIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-      #dd-title .modes-row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+      #dd-title .modes-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
       #dd-title .mode {
-        cursor: pointer; user-select: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
-        font-family: 'Lilita One', sans-serif; font-size: 18px; letter-spacing: 1px; color: #241a08;
-        width: 172px; padding: 22px 14px; border-radius: 16px; border: 3px solid rgba(0,0,0,0.16);
-        background: linear-gradient(#ffe07a, #f5b32a); box-shadow: 0 8px 0 #c8871a, 0 12px 20px rgba(0,0,0,0.4);
-        text-shadow: 0 2px 0 rgba(255,255,255,0.35); transition: transform .06s, box-shadow .06s, filter .1s;
+        cursor: pointer; user-select: none; display: flex; flex-direction: column; align-items: center; gap: 10px;
+        font-family: inherit; font-size: 14px; font-weight: 600; letter-spacing: 0.04em; color: rgba(243,237,225,0.88);
+        width: 158px; padding: 22px 14px; border-radius: 13px;
+        border: 1px solid rgba(243,237,225,0.14);
+        background: rgba(14,18,26,0.55);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        transition: transform .1s, border-color .16s, background .16s;
       }
-      #dd-title .mode .ic { font-size: 38px; line-height: 1; }
-      #dd-title .mode:hover { filter: brightness(1.06); }
-      #dd-title .mode:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
-      #dd-title .mode[data-mode="free"] { background: linear-gradient(#bcd0ff, #7aa0f5); box-shadow: 0 8px 0 #3f5fc8, 0 12px 20px rgba(0,0,0,0.4); color: #0a1633; }
-      #dd-title .mode[data-mode="dash"] { background: linear-gradient(#ffd23f, #f5a623); box-shadow: 0 8px 0 #b9791a, 0 12px 20px rgba(0,0,0,0.4); }
-      #dd-title .mode[data-mode="taxi"] { background: linear-gradient(#8ef0b0, #2ee06a); box-shadow: 0 8px 0 #1c9c48, 0 12px 20px rgba(0,0,0,0.4); color: #0b2417; }
-      #dd-title .mode[data-mode="delivery"] { background: linear-gradient(#ffc07a, #ff8a33); box-shadow: 0 8px 0 #c25e12, 0 12px 20px rgba(0,0,0,0.4); color: #2a1400; }
-      #dd-title .mode[data-mode="police"] { background: linear-gradient(#ff8a8a, #e2362d); box-shadow: 0 8px 0 #9c1b16, 0 12px 20px rgba(0,0,0,0.4); }
+      #dd-title .mode .ic { font-size: 34px; line-height: 1; }
+      #dd-title .mode:hover { border-color: rgba(215,106,79,0.7); background: rgba(215,106,79,0.14); color: #f3ede1; }
+      #dd-title .mode:active { transform: scale(0.97); }
     </style>
   </head>
   <body>

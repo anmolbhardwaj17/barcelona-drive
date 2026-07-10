@@ -159,7 +159,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   // ── Money / fare card — top-left corner (below the ☰ button), out of the compass + centre view ──
   const hud = document.createElement('div');
   hud.style.cssText = 'position:fixed;top:92px;left:14px;z-index:1290;display:none;' +
-    'font-family:Poppins,system-ui,sans-serif;color:#fff;pointer-events:none;user-select:none;';
+    'font-family:Inter,system-ui,sans-serif;color:#fff;pointer-events:none;user-select:none;';
   const liveWrap = document.createElement('div');
   liveWrap.style.cssText = 'display:none;background:linear-gradient(160deg,rgba(12,34,20,.92),rgba(8,22,14,.92));' +
     'border:2px solid #2ee06a;border-radius:14px;padding:9px 15px 11px;box-shadow:0 4px 14px rgba(0,0,0,.45);min-width:120px;';
@@ -167,7 +167,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   moneyRow.style.cssText = 'display:flex;align-items:center;gap:7px;';
   const coin = document.createElement('div'); coin.textContent = '💵'; coin.style.cssText = 'font-size:19px;line-height:1;';
   const liveTotal = document.createElement('div');
-  liveTotal.style.cssText = "font-family:'Lilita One',sans-serif;font-size:30px;line-height:1;color:#8ef0b0;text-shadow:0 2px 5px rgba(0,0,0,.6)";
+  liveTotal.style.cssText = "font-family:'Inter',sans-serif;font-size:30px;line-height:1;color:#8ef0b0;text-shadow:0 2px 5px rgba(0,0,0,.6)";
   moneyRow.appendChild(coin); moneyRow.appendChild(liveTotal);
   const liveObj = document.createElement('div');
   liveObj.style.cssText = 'font-weight:700;font-size:12px;letter-spacing:.3px;opacity:.85;margin-top:4px;';
@@ -182,7 +182,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   // ── End-of-shift result — its own centred overlay (not the corner card) ──
   const resultWrap = document.createElement('div');
   resultWrap.style.cssText = 'position:fixed;top:34%;left:50%;transform:translate(-50%,-50%);z-index:1300;display:none;' +
-    'text-align:center;font-family:Poppins,sans-serif;color:#fff;pointer-events:none;user-select:none;' +
+    'text-align:center;font-family:Inter,sans-serif;color:#fff;pointer-events:none;user-select:none;' +
     'background:rgba(8,22,14,.92);border:2px solid #2ee06a;border-radius:18px;padding:16px 32px;box-shadow:0 6px 22px rgba(0,0,0,.55);';
   document.body.appendChild(resultWrap);
 
@@ -203,18 +203,18 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   nav.innerHTML =
     '<div class="t-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
     'border-right:8px solid transparent;border-bottom:30px solid #2ee06a;filter:drop-shadow(0 0 5px #2ee06a);transition:transform .12s"></div>' +
-    '<div class="t-lbl" style="font:800 11px Poppins,sans-serif;letter-spacing:1px;color:#bff5d1">PICK UP</div>' +
-    '<div class="t-dist" style="font-family:\'Lilita One\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
+    '<div class="t-lbl" style="font:800 11px Inter,sans-serif;letter-spacing:1px;color:#bff5d1">PICK UP</div>' +
+    '<div class="t-dist" style="font-family:\'Inter\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
   const navTri = nav.querySelector('.t-tri'), navLbl = nav.querySelector('.t-lbl'), navDist = nav.querySelector('.t-dist');
   document.body.appendChild(nav);
 
   const tag = document.createElement('div');
-  tag.style.cssText = 'position:fixed;z-index:1291;display:none;pointer-events:none;user-select:none;transform:translate(-50%,-100%);text-align:center;font-family:Poppins,sans-serif;';
+  tag.style.cssText = 'position:fixed;z-index:1291;display:none;pointer-events:none;user-select:none;transform:translate(-50%,-100%);text-align:center;font-family:Inter,sans-serif;';
   document.body.appendChild(tag);
 
   const pop = document.createElement('div');
   pop.style.cssText = 'position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);z-index:1300;display:none;' +
-    "pointer-events:none;user-select:none;font-family:'Lilita One',sans-serif;font-size:56px;color:#8ef0b0;text-shadow:0 3px 12px rgba(0,0,0,.6)";
+    "pointer-events:none;user-select:none;font-family:'Inter',sans-serif;font-size:56px;color:#8ef0b0;text-shadow:0 3px 12px rgba(0,0,0,.6)";
   document.body.appendChild(pop);
   const popStyle = document.createElement('style');
   popStyle.textContent = '@keyframes ddPay{0%{transform:translate(-50%,-40%) scale(.6);opacity:0}20%{transform:translate(-50%,-50%) scale(1.1);opacity:1}100%{transform:translate(-50%,-90%) scale(1);opacity:0}}';
@@ -222,7 +222,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
 
   const toast = document.createElement('div');
   toast.style.cssText = 'position:fixed;top:33%;left:50%;transform:translate(-50%,-50%);z-index:1300;display:none;' +
-    "font:800 19px Poppins,system-ui,sans-serif;color:#fff;background:rgba(18,58,30,.92);border:2px solid #2ee06a;" +
+    "font:800 19px Inter,system-ui,sans-serif;color:#fff;background:rgba(18,58,30,.92);border:2px solid #2ee06a;" +
     'padding:9px 18px;border-radius:14px;box-shadow:0 4px 16px rgba(0,0,0,.5);pointer-events:none;white-space:nowrap;';
   document.body.appendChild(toast);
   let _toastT = null;
@@ -241,8 +241,8 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
       updateLiveHud();
     } else if (state === 'ended') {
       resultWrap.innerHTML =
-        `<div style="font-family:'Lilita One',sans-serif;font-size:24px;color:#8ef0b0">SHIFT OVER</div>` +
-        `<div style="font-family:'Lilita One',sans-serif;font-size:40px;text-shadow:0 2px 6px rgba(0,0,0,.6)">$${total}</div>` +
+        `<div style="font-family:'Inter',sans-serif;font-size:24px;color:#8ef0b0">SHIFT OVER</div>` +
+        `<div style="font-family:'Inter',sans-serif;font-size:40px;text-shadow:0 2px 6px rgba(0,0,0,.6)">$${total}</div>` +
         `<div style="font-weight:700;font-size:13px;opacity:.9">${fares} fares · best $${getBest()}</div>`;
     }
     nav.style.display = active ? 'block' : 'none';

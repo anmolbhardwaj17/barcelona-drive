@@ -764,7 +764,7 @@ const _captureBtn = document.createElement('button');
 _captureBtn.id = 'photo-capture-btn';
 _captureBtn.textContent = '📷 Capture';
 _captureBtn.style.cssText = 'position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:6000;display:none;' +
-  'cursor:pointer;font:800 16px Poppins,system-ui,sans-serif;color:#141414;padding:12px 28px;border:none;border-radius:14px;' +
+  'cursor:pointer;font:800 16px Inter,system-ui,sans-serif;color:#141414;padding:12px 28px;border:none;border-radius:14px;' +
   'background:linear-gradient(#ffffff,#e4e4e4);box-shadow:0 6px 0 #b4b4b4,0 10px 18px rgba(0,0,0,.4);letter-spacing:.5px;';
 _captureBtn.onmousedown = () => { _captureBtn.style.transform = 'translateX(-50%) translateY(4px)'; _captureBtn.style.boxShadow = '0 2px 0 #b4b4b4'; };
 const _captureBtnUp = () => { _captureBtn.style.transform = 'translateX(-50%)'; _captureBtn.style.boxShadow = '0 6px 0 #b4b4b4,0 10px 18px rgba(0,0,0,.4)'; };
@@ -776,7 +776,7 @@ document.body.appendChild(_captureBtn);
 const _photoInfo = document.createElement('div');
 _photoInfo.id = 'photo-info';
 _photoInfo.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:6000;display:none;' +
-  'font:700 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);padding:8px 16px;border-radius:12px;' +
+  'font:700 13px Inter,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);padding:8px 16px;border-radius:12px;' +
   'pointer-events:none;user-select:none;letter-spacing:.3px;text-align:center;';
 document.body.appendChild(_photoInfo);
 function _updatePhotoInfo() {

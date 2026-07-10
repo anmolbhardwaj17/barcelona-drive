@@ -56,10 +56,10 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
 
   // ── HUD (top-left card + big centre countdown + direction arrow) ──
   const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:10px;display:none;min-width:160px;';
+  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Inter,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:10px;display:none;min-width:160px;';
   document.body.appendChild(hud);
   const timerEl = document.createElement('div');
-  timerEl.style.cssText = 'position:fixed;top:76px;left:50%;transform:translateX(-50%);z-index:1000;font:800 44px Poppins,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;';
+  timerEl.style.cssText = 'position:fixed;top:76px;left:50%;transform:translateX(-50%);z-index:1000;font:800 44px Inter,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;';
   document.body.appendChild(timerEl);
 
   // Direction arrow + distance (rotates in the camera's frame toward the objective).
@@ -70,8 +70,8 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
   nav.innerHTML =
     '<div class="d-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
     'border-right:8px solid transparent;border-bottom:30px solid #35b0ff;filter:drop-shadow(0 0 5px #35b0ff);transition:transform .12s"></div>' +
-    '<div class="d-lbl" style="font:800 11px Poppins,sans-serif;letter-spacing:1px;color:#bfe4ff">PICK UP</div>' +
-    '<div class="d-dist" style="font-family:\'Lilita One\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
+    '<div class="d-lbl" style="font:800 11px Inter,sans-serif;letter-spacing:1px;color:#bfe4ff">PICK UP</div>' +
+    '<div class="d-dist" style="font-family:\'Inter\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
   const navTri = nav.querySelector('.d-tri'), navLbl = nav.querySelector('.d-lbl'), navDist = nav.querySelector('.d-dist');
   document.body.appendChild(nav);
   const _v = new THREE.Vector3(), _camSpace = new THREE.Vector3(), _invQ = new THREE.Quaternion();

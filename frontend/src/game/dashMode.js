@@ -50,12 +50,12 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
 
   const hud = document.createElement('div');
   hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;' +
-    'font-family:Poppins,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
+    'font-family:Inter,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
   // Persistent live display (timer + counter) — updated via textContent each frame, NOT innerHTML,
   // so the running HUD doesn't re-parse HTML + reflow 60×/s (that tanked FPS while a mode was active).
   const liveWrap = document.createElement('div'); liveWrap.style.display = 'none';
   const liveTimer = document.createElement('div');
-  liveTimer.style.cssText = "font-family:'Lilita One',sans-serif;font-size:34px;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)";
+  liveTimer.style.cssText = "font-family:'Inter',sans-serif;font-size:34px;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)";
   const liveCount = document.createElement('div');
   liveCount.style.cssText = 'font-weight:700;font-size:15px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)';
   liveWrap.appendChild(liveTimer); liveWrap.appendChild(liveCount);
@@ -75,8 +75,8 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   nav.innerHTML =
     '<div class="nav-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
     'border-right:8px solid transparent;border-bottom:30px solid #35e0ff;filter:drop-shadow(0 0 5px #35e0ff);transition:transform .12s"></div>' +
-    '<div style="font:800 11px Poppins,sans-serif;letter-spacing:1px;color:#9fe9ff">NEXT CHECKPOINT</div>' +
-    '<div class="nav-dist" style="font-family:\'Lilita One\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
+    '<div style="font:800 11px Inter,sans-serif;letter-spacing:1px;color:#9fe9ff">NEXT CHECKPOINT</div>' +
+    '<div class="nav-dist" style="font-family:\'Inter\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
   const navTri = nav.querySelector('.nav-tri');
   const navDist = nav.querySelector('.nav-dist');
   document.body.appendChild(nav);
@@ -84,7 +84,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   // floating "NEXT ▾" tag pinned over the gate when it's on screen
   const gateTag = document.createElement('div');
   gateTag.style.cssText = 'position:fixed;z-index:1291;display:none;pointer-events:none;user-select:none;' +
-    'transform:translate(-50%,-100%);text-align:center;font-family:Poppins,sans-serif;';
+    'transform:translate(-50%,-100%);text-align:center;font-family:Inter,sans-serif;';
   gateTag.innerHTML =
     '<div style="display:inline-block;background:#35e0ff;color:#062430;font-weight:800;font-size:11px;letter-spacing:.5px;' +
     'padding:3px 9px;border-radius:9px;box-shadow:0 2px 8px rgba(0,0,0,.45)">NEXT</div>' +
@@ -94,7 +94,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   // big centre countdown (3·2·1·GO)
   const countdownEl = document.createElement('div');
   countdownEl.style.cssText = 'position:fixed;top:44%;left:50%;transform:translate(-50%,-50%);z-index:1300;' +
-    "display:none;pointer-events:none;user-select:none;font-family:'Lilita One',sans-serif;font-size:120px;" +
+    "display:none;pointer-events:none;user-select:none;font-family:'Inter',sans-serif;font-size:120px;" +
     'color:#fff;text-shadow:0 4px 20px rgba(0,0,0,.6),0 0 30px rgba(53,224,255,.5);';
   document.body.appendChild(countdownEl);
   const cdStyle = document.createElement('style');
@@ -105,7 +105,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   const againBtn = document.createElement('button');
   againBtn.textContent = '🏁 Race again';
   againBtn.style.cssText = 'position:fixed;top:236px;left:50%;transform:translateX(-50%);z-index:1295;display:none;cursor:pointer;' +
-    'font-family:Poppins,system-ui,sans-serif;font-weight:800;font-size:14px;color:#241a08;background:linear-gradient(#ffd23f,#f5a623);' +
+    'font-family:Inter,system-ui,sans-serif;font-weight:800;font-size:14px;color:#241a08;background:linear-gradient(#ffd23f,#f5a623);' +
     'border:none;border-radius:22px;padding:9px 20px;box-shadow:0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35);';
   againBtn.onclick = () => start();
   document.body.appendChild(againBtn);
@@ -141,8 +141,8 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
       const m = _medal || medalFor(elapsed, route.length);
       resultWrap.innerHTML =
         `<div style="font-size:52px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))">${m.emoji}</div>` +
-        `<div style="font-family:'Lilita One',sans-serif;font-size:22px;color:${m.color};letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${m.label}</div>` +
-        `<div style="font-family:'Lilita One',sans-serif;font-size:34px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
+        `<div style="font-family:'Inter',sans-serif;font-size:22px;color:${m.color};letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${m.label}</div>` +
+        `<div style="font-family:'Inter',sans-serif;font-size:34px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
         (_newBest ? `<div style="font-weight:800;font-size:13px;color:#ffd23f;letter-spacing:1px;text-shadow:0 1px 3px rgba(0,0,0,.7)">★ NEW BEST!</div>`
                   : `<div style="font-weight:700;font-size:13px;opacity:.85;text-shadow:0 1px 3px rgba(0,0,0,.7)">Best ${best != null ? fmt(best) : '—'}</div>`);
     } else {
