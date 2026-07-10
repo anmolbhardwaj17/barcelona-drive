@@ -339,9 +339,9 @@ spawnTileReady.finally(() => {
       };
       try {
         // ── Rapier (WASM) physics — opt in with ?physics=rapier. The car runs on Rapier; the cannon world
-        //    is never stepped (inert). PHASE 2a: tileManager keeps adding CANNON collider bodies to `world`,
-        //    and we MIRROR each into Rapier via the adapter (boxes/meshes; terrain heightfield is Phase 2b, so
-        //    a flat safety floor covers off-road). Zero tileManager changes.
+        //    is never stepped (inert). tileManager keeps adding CANNON collider bodies to `world`, and we
+        //    MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain as a NATIVE Rapier
+        //    heightfield (convention probed at runtime, trimesh fallback). Zero tileManager changes.
         let _rapier = null, _physicsWorld = world;
         if (new URLSearchParams(location.search).get('physics') === 'rapier') {
           try {
