@@ -535,6 +535,9 @@ spawnTileReady.finally(() => {
             _titleLive = true;
             _titleT0 = performance.now();   // begin the descent from the clouds
             _setHudHidden(true);
+            // Widen streaming to a 5×5 full-detail set for the aerial shot (photo mode also disables the
+            // LOD/distance fades, so the periphery isn't flat boxes). Restored when the player enters.
+            try { tileManager.setPhotoRadius(2); tileManager.setPhotoMode(true); } catch {}
           }
         } catch {}
         // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
@@ -632,6 +635,7 @@ function animate(time = 0) {
       if (!_te || _te.classList.contains('hide')) {
         _titleLive = false;
         _setHudHidden(false);
+        try { tileManager.setPhotoMode(false); } catch {}   // back to the normal streaming radius
       }
     }
     cpuTimer.lap('phys');
