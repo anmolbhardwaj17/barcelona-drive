@@ -2538,11 +2538,11 @@ export function renderLODBuildings(buildings, getWorldElevation) {
   // Shared color palette for LOD buildings — kept in sync with the worker's terracotta ROOF_PALETTES
   // (from above, LOD boxes read as ROOFS: the distant fabric must stay clay-orange, not beige).
   const LOD_COLORS = [
-    [0.76, 0.42, 0.26], // clay tile
-    [0.72, 0.37, 0.22], // deeper clay
-    [0.80, 0.45, 0.29], // light clay
+    [0.66, 0.38, 0.25], // weathered clay
+    [0.61, 0.34, 0.21], // deeper clay
+    [0.69, 0.42, 0.28], // lighter aged clay
     [0.74, 0.73, 0.70], // cool grey (modern blocks)
-    [0.68, 0.34, 0.19], // dark clay
+    [0.56, 0.31, 0.19], // dark brick-brown
   ];
 
   for (let bi = 0; bi < buildings.length; bi++) {
