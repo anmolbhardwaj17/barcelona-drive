@@ -288,8 +288,15 @@ function getFacadeMaterialKey(category, buildingId) {
   return 'facade_' + category + '_' + hexColor.toString(16).toUpperCase();
 }
 
-function getRoofMaterialKey(category, buildingId) {
-  const pal = ROOF_PALETTES[category] ?? ROOF_PALETTES.residential;
+// Low structures (< 8m) are mostly the single-storey interiors of Eixample blocks — flat gravel/terrace
+// roofs in reality, NOT clay tile. Keeping them grey-tan carves the real courtyard pattern out of the
+// terracotta fabric (orange perimeter rings, muted interiors), matching aerial Barcelona.
+const TERRACE_ROOFS = [0xB9B4A9, 0xC2BDB2, 0xADA89D, 0xC8C2B5, 0xB1AB9F];
+
+function getRoofMaterialKey(category, buildingId, height) {
+  const pal = (Number.isFinite(height) && height < 8 && category !== 'religious')
+    ? TERRACE_ROOFS
+    : (ROOF_PALETTES[category] ?? ROOF_PALETTES.residential);
   const idx = deterministicIndex(buildingId + 7) % pal.length;
   return 'roof_' + pal[idx].toString(16).toUpperCase();
 }
@@ -862,7 +869,7 @@ export function processBuildingsInWorker(data, config) {
       applyVertexColorToBuffers(roofBuffers, roofTint);
       ensureUvs(roofBuffers);
 
-      const roofKey = getRoofMaterialKey(category, b.id);
+      const roofKey = getRoofMaterialKey(category, b.id, b.height);
       const rc = roofBuffers.positions.length / 3;
       if (!roofByMaterial.has(roofKey)) {
         roofByMaterial.set(roofKey, { geoms: [], vertCount: 0 });

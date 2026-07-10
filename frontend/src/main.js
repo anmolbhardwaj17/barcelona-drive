@@ -548,10 +548,10 @@ spawnTileReady.finally(() => {
               if (su?.uHorizon && su?.uMid && su?.uZenith) {
                 _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone(),
                               f: scene.fog ? scene.fog.color.clone() : null };
-                su.uHorizon.value.set(0xaed3ee);
-                su.uMid.value.set(0x6fa9de);
-                su.uZenith.value.set(0x3e7ec6);
-                if (scene.fog) scene.fog.color.set(0xaed3ee);   // haze reads as sky-blue, not grey
+                su.uHorizon.value.set(0x9fd0f2);
+                su.uMid.value.set(0x54a4e8);
+                su.uZenith.value.set(0x2b78d2);
+                if (scene.fog) scene.fog.color.set(0x9fd0f2);   // haze reads as sky-blue, not grey
               }
             } catch {}
           }
