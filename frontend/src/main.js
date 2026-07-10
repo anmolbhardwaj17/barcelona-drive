@@ -194,6 +194,7 @@ let _titleLive = false;
 let _titleOrbit = null;     // { x, y, z } — spawn point (physics/scene frame) the cinematic orbits
 let _titleT0 = 0;           // when the descent-from-the-clouds began (performance.now)
 let _titleSky = null;       // saved sky-dome horizon/mid colors (biased bluer during the aerial title)
+const _titleFogLanded = new THREE.Color(0x9fd0f2);   // light horizon haze the descent settles into
 const TITLE_DESCENT_MS = 5200;   // fall time from cloud level to orbit height
 const TITLE_HUD_SELECTOR = '#minimap-frame, #controls-strip, #street-display, #env-toggle, .dd-esc-fab, #performance-panel, #compass-bar, #metrics-panel, #speed-display';
 function _setHudHidden(hidden) {
@@ -647,8 +648,13 @@ function animate(time = 0) {
       // top-down framing showed only the dome's washed horizon band ("dead sky").
       camera.lookAt(_titleOrbit.x, _titleOrbit.y + 55, _titleOrbit.z);
       // Light altitude haze that clears as we land — kept SUBTLE (a heavy start read as a grey wall);
-      // the city should be visible the whole way down, just softened at the top of the drop.
-      if (scene.fog) scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.006;
+      // the city should be visible the whole way down, just softened at the top of the drop. The haze
+      // COLOUR sweeps from a rich sunny sky-blue at the top of the fall to the light horizon haze on
+      // landing, so the transition reads sky→ground instead of a grey veil.
+      if (scene.fog) {
+        scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.006;
+        scene.fog.color.setHex(0x62b4f0).lerp(_titleFogLanded, _ease);
+      }
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
         _titleLive = false;
