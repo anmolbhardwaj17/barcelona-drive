@@ -16,6 +16,30 @@ import { warmupBegin, warmupEnd } from './map/gpuWarmup.js';
 if (import.meta.env.DEV && new URLSearchParams(location.search).get('bench') === 'physics') {
   import('./bench/physicsBench.js').then((m) => m.benchPhysics()).catch((e) => console.warn('[bench] failed', e));
 }
+// DEV-only draw-call audit for the BatchedMesh migration: groups every visible mesh (≈1 draw each) by
+// material signature so we know exactly which families dominate the ~700 draws. Run window._drawAudit().
+if (import.meta.env.DEV) {
+  window._drawAudit = () => {
+    const by = new Map();
+    let total = 0;
+    scene.traverse((o) => {
+      if ((!o.isMesh && !o.isSprite) || o.visible === false) return;
+      total++;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      const kind = o.isInstancedMesh ? 'INST ' : o.isBatchedMesh ? 'BATCH ' : '';
+      const key = kind + (m?.type || '?')
+        + (m?.map ? '+map' : '')
+        + (m?.vertexColors ? '+vc' : '')
+        + ' #' + (m?.color?.getHexString?.() || '------')
+        + (o.name ? ' [' + o.name.slice(0, 24) + ']' : '');
+      by.set(key, (by.get(key) || 0) + 1);
+    });
+    const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 35);
+    console.warn('[drawAudit] total mesh/sprite objects:', total, '| distinct material signatures:', by.size);
+    for (const [k, n] of top) console.warn(String(n).padStart(5), ' ', k);
+    return { total, distinct: by.size, top };
+  };
+}
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
