@@ -644,10 +644,15 @@ function animate(time = 0) {
       // top-down framing showed only the dome's washed horizon band ("dead sky").
       camera.lookAt(_titleOrbit.x, _titleOrbit.y + 55, _titleOrbit.z);
       // The ENGINE renders the cloud emergence: fog starts near-opaque (white void at altitude) and thins
-      // as we fall, so the city materializes out of the cloud. The CSS backdrop fades early and hands over.
+      // as we fall, so the city materializes out of the cloud. The CSS deck doesn't just fade — it
+      // PARALLAXES out: the whole sky rushes upward and scales past the camera (clouds growing as they
+      // whip by), selling the fall; opacity only clears the last remnants once we're through the deck.
       if (scene.fog) scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.030;
       const _cl = document.querySelector('#dd-title .clouds');
-      if (_cl) _cl.style.opacity = String(Math.max(0, 1 - _p / 0.35));
+      if (_cl) {
+        _cl.style.transform = `translateY(${(-_ease * 130).toFixed(2)}vh) scale(${(1 + _ease * 1.7).toFixed(3)})`;
+        _cl.style.opacity = String(Math.max(0, 1 - Math.max(0, _p - 0.45) / 0.3));
+      }
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
         _titleLive = false;
