@@ -29,13 +29,13 @@ const DAY = {
   hemiSkyColor:     0xa3c0e4, // cool blue sky-light → shadows read cool
   hemiGroundColor:  0xd08a4e, // warm ground bounce → undersides/facades pick up golden warmth
   hemiIntensity:    0.55,
-  dirIntensity:     3.0,
+  dirIntensity:     2.7,
   dirColor:         0xffdcae, // warmer golden-hour key (was 0xffeada)
   fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
   fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,
   bgColor:          null,
-  toneMappingExposure: 1.9,   // matches scene.js ACES exposure — keeps the airy daylight when toggled to day
+  toneMappingExposure: 1.6,   // pulled from 1.9 — the scene was overexposed, washing every surface colour pale
   lampEmissive:     0.25,   // subtle glow in daylight
   poolOpacity:      0.04,   // barely visible in daylight
   bloomStrength:    0.5,    // subtle bloom by day (only the sun/bright highlights)
