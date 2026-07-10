@@ -107,7 +107,13 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   // ── State ───────────────────────────────────────────────────────────────────
   let _currentGear = 1, _currentRpm = IDLE_RPM, _shiftTimer = 0, _reverse = false, _currentSteer = 0, _skidLevel = 0, _isBraking = false;
 
-  function getSpeedKmh() { return vc.currentVehicleSpeed() * 3.6; }
+  // Signed speed = velocity projected onto the car's forward (local +Z), EXACTLY like the cannon car. Using
+  // Rapier's currentVehicleSpeed() risked a sign/axis mismatch that made the chase cam's reverse-swing blend
+  // oscillate (camera drifting to the side + jitter). This guarantees the sign matches the model's forward.
+  function getSpeedKmh() {
+    const f = _rotQ(_quat, 0, 0, 1);
+    return (_vel.x * f.x + _vel.y * f.y + _vel.z * f.z) * 3.6;
+  }
 
   function _transmission(absSpeed, throttle, dt) {
     _shiftTimer = Math.max(0, _shiftTimer - dt);
