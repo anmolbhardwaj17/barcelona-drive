@@ -266,26 +266,24 @@ function getBuildingCategory(building, roads, worldX, worldZ) {
 // Facade / Roof tint
 // ────────────────────────────────────────────────────────────────────────────
 
-function getFacadeTint(building) {
-  const v = 0.85 + (deterministicIndex(building.id) % 21) / 100;
-  return { r: v, g: v, b: v };
+// DRAW-CALL COLLAPSE: palette colours are BAKED into the vertex-colour attribute (in linear space, matching
+// how three interprets material.color) and every facade/roof shares one WHITE material per category. The
+// per-tile merge then produces a handful of building meshes instead of one per palette colour — the audit
+// showed ~200+ draws across ~25 colour-keyed material signatures; this removes them with zero new machinery.
+function srgbHexToLinear(hex) {
+  const f = (u) => (u <= 0.04045 ? u / 12.92 : Math.pow((u + 0.055) / 1.055, 2.4));
+  return { r: f(((hex >> 16) & 255) / 255), g: f(((hex >> 8) & 255) / 255), b: f((hex & 255) / 255) };
 }
 
-function getRoofTint(category, buildingId) {
-  // Same logic as facade tint for consistency
-  const v = 0.85 + (deterministicIndex(buildingId) % 21) / 100;
-  return { r: v, g: v, b: v };
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Material key generation
-// ────────────────────────────────────────────────────────────────────────────
-
-function getFacadeMaterialKey(category, buildingId) {
+function pickFacadeColorHex(category, buildingId) {
   const pal = FACADE_PALETTES[category] ?? FACADE_PALETTES.commercial;
-  const idx = deterministicIndex(buildingId) % pal.length;
-  const hexColor = pal[idx];
-  return 'facade_' + category + '_' + hexColor.toString(16).toUpperCase();
+  return pal[deterministicIndex(buildingId) % pal.length];
+}
+
+function getFacadeTint(building, category) {
+  const v = 0.85 + (deterministicIndex(building.id) % 21) / 100;
+  const c = srgbHexToLinear(pickFacadeColorHex(category, building.id));
+  return { r: c.r * v, g: c.g * v, b: c.b * v };
 }
 
 // Low structures (< 8m) are mostly the single-storey interiors of Eixample blocks — flat gravel/terrace
@@ -293,12 +291,30 @@ function getFacadeMaterialKey(category, buildingId) {
 // terracotta fabric (orange perimeter rings, muted interiors), matching aerial Barcelona.
 const TERRACE_ROOFS = [0xB9B4A9, 0xC2BDB2, 0xADA89D, 0xC8C2B5, 0xB1AB9F];
 
-function getRoofMaterialKey(category, buildingId, height) {
+function pickRoofColorHex(category, buildingId, height) {
   const pal = (Number.isFinite(height) && height < 8 && category !== 'religious')
     ? TERRACE_ROOFS
     : (ROOF_PALETTES[category] ?? ROOF_PALETTES.residential);
-  const idx = deterministicIndex(buildingId + 7) % pal.length;
-  return 'roof_' + pal[idx].toString(16).toUpperCase();
+  return pal[deterministicIndex(buildingId + 7) % pal.length];
+}
+
+function getRoofTint(category, buildingId, height) {
+  const v = 0.85 + (deterministicIndex(buildingId) % 21) / 100;
+  const c = srgbHexToLinear(pickRoofColorHex(category, buildingId, height));
+  return { r: c.r * v, g: c.g * v, b: c.b * v };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Material key generation — colour is baked into vertices, so keys collapse to one per category (facades)
+// and ONE total (roofs). The materializer's existing key parser sees hex FFFFFF → white materials.
+// ────────────────────────────────────────────────────────────────────────────
+
+function getFacadeMaterialKey(category) {
+  return 'facade_' + category + '_FFFFFF';
+}
+
+function getRoofMaterialKey() {
+  return 'roof_FFFFFF';
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -832,7 +848,7 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // Apply tint
-    const tint = getFacadeTint(b);
+    const tint = getFacadeTint(b, category);
     applyVertexColorToBuffers(wallBuffers, tint);
     ensureUvs(wallBuffers);
 
@@ -865,7 +881,7 @@ export function processBuildingsInWorker(data, config) {
     }
 
     if (roofBuffers) {
-      const roofTint = getRoofTint(category, b.id);
+      const roofTint = getRoofTint(category, b.id, b.height);
       applyVertexColorToBuffers(roofBuffers, roofTint);
       ensureUvs(roofBuffers);
 
