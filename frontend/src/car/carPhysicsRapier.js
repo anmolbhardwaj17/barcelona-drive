@@ -27,6 +27,8 @@ const WHEEL_Y = 0.20;              // connection point above the low origin (can
 const HALF_W = 0.78, FRONT_Z = 1.43, REAR_Z = -1.43, WHEEL_R = 0.34, REST_LEN = 0.32;
 const MAX_STEER = 0.64;            // rad — Rapier's wheel steering bites less than cannon's, so more lock
 const BASE_ENGINE_FORCE = 5200;
+const YAW_SPIN_DAMP = 5200;        // N·m per (rad/s)² — quadratic anti-spin: negligible in normal turns,
+                                   // firm on a fishtail so the tail can't snap into a full 180. OFF on handbrake.
 
 export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   // ── Chassis rigid body + collider ──────────────────────────────────────────
@@ -67,9 +69,9 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     vc.setWheelSuspensionCompression(i, 0.82);
     vc.setWheelSuspensionRelaxation(i, 0.88);
     vc.setWheelMaxSuspensionTravel(i, 0.3);
-    // Front wheels get more grip so the car turns in instead of pushing straight (understeer).
-    vc.setWheelFrictionSlip(i, wheels[i].steer ? 3.6 : 2.2);
-    vc.setWheelSideFrictionStiffness(i, wheels[i].steer ? 1.4 : 1.0);
+    // Front a touch grippier than rear (turn-in) but CLOSE — too big a gap made the tail snap out (spin).
+    vc.setWheelFrictionSlip(i, wheels[i].steer ? 3.1 : 2.9);
+    vc.setWheelSideFrictionStiffness(i, wheels[i].steer ? 1.2 : 1.1);
   }
 
   // ── Cannon-compatible proxy objects (read live from the Rapier body each step) ──
@@ -117,7 +119,7 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   });
 
   // ── State ───────────────────────────────────────────────────────────────────
-  let _currentGear = 1, _currentRpm = IDLE_RPM, _shiftTimer = 0, _reverse = false, _currentSteer = 0, _skidLevel = 0, _isBraking = false;
+  let _currentGear = 1, _currentRpm = IDLE_RPM, _shiftTimer = 0, _reverse = false, _currentSteer = 0, _skidLevel = 0, _isBraking = false, _handbrake = false;
 
   // Signed speed = velocity projected onto the car's forward (local +Z), EXACTLY like the cannon car. Using
   // Rapier's currentVehicleSpeed() risked a sign/axis mismatch that made the chase cam's reverse-swing blend
@@ -146,6 +148,7 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     const absSpeed = Math.abs(signed);
     _reverse = signed < -0.5;
     _isBraking = brake > 0.05 && signed > 1;
+    _handbrake = !!handbrake;
     _transmission(absSpeed, throttle, dt);
 
     // Steering — reduce lock with speed (twitch-free at pace), but keep more low-speed authority.
@@ -191,6 +194,13 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     while (_accum >= FIXED) {
       _prev.px = _cur.px; _prev.py = _cur.py; _prev.pz = _cur.pz;
       _prev.qx = _cur.qx; _prev.qy = _cur.qy; _prev.qz = _cur.qz; _prev.qw = _cur.qw;
+      // Quadratic anti-spin yaw torque — stops a fishtail snapping into a full 180 (OFF on handbrake so a
+      // deliberate drift stays free). resetTorques each step so it doesn't accumulate across steps.
+      chassis.resetTorques(false);
+      if (!_handbrake) {
+        const yr = chassis.angvel().y;
+        chassis.addTorque({ x: 0, y: -yr * Math.abs(yr) * YAW_SPIN_DAMP, z: 0 }, false);
+      }
       vc.updateVehicle(FIXED);
       world.step();
       _snap(_cur);
