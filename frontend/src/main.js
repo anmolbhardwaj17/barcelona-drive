@@ -349,10 +349,11 @@ spawnTileReady.finally(() => {
             await _rapier.init();
             const rw = new _rapier.World({ x: 0, y: -9.82, z: 0 });
             rw.timestep = 1 / 60;
-            // Off-road safety floor at spawn height (until the Phase 2b terrain heightfield lands).
-            const groundTopY = spawnLocalPos.y - 0.5;
-            const gb = rw.createRigidBody(_rapier.RigidBodyDesc.fixed().setTranslation(spawnLocalPos.x, groundTopY - 0.5, spawnLocalPos.z));
-            rw.createCollider(_rapier.ColliderDesc.cuboid(2000, 0.5, 2000).setFriction(1.2), gb);
+            // Deep safety backstop only — terrain + road colliders are the real surface now. Placed far
+            // below (−60 m) so it never lifts the car off a road/terrain that dips below spawn height; it
+            // just catches a catastrophic fall (freefall-recovery is the primary backstop).
+            const gb = rw.createRigidBody(_rapier.RigidBodyDesc.fixed().setTranslation(spawnLocalPos.x, spawnLocalPos.y - 60, spawnLocalPos.z));
+            rw.createCollider(_rapier.ColliderDesc.cuboid(4000, 1, 4000).setFriction(1.0), gb);
             _physicsWorld = rw;
             const { createRapierWorldAdapter } = await import('./physics/rapierWorldAdapter.js');
             const _adapter = createRapierWorldAdapter(rw, _rapier);
