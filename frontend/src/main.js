@@ -192,6 +192,8 @@ let rapierAdapter = null;   // set when ?physics=rapier — streams the collider
 // whose lerp glides it down behind the car (the "dive"). HUD elements are hidden while the title is live.
 let _titleLive = false;
 let _titleOrbit = null;     // { x, y, z } — spawn point (physics/scene frame) the cinematic orbits
+let _titleT0 = 0;           // when the descent-from-the-clouds began (performance.now)
+const TITLE_DESCENT_MS = 5200;   // fall time from cloud level to orbit height
 const TITLE_HUD_SELECTOR = '#minimap-frame, #controls-strip, #street-display, #env-toggle, .dd-esc-fab, #performance-panel, #compass-bar, #metrics-panel, #speed-display';
 function _setHudHidden(hidden) {
   document.querySelectorAll(TITLE_HUD_SELECTOR).forEach((el) => { el.style.visibility = hidden ? 'hidden' : ''; });
@@ -531,6 +533,7 @@ spawnTileReady.finally(() => {
           if (titleEl && !titleEl.classList.contains('hide') && carDriver && _titleOrbit) {
             titleEl.classList.add('live');
             _titleLive = true;
+            _titleT0 = performance.now();   // begin the descent from the clouds
             _setHudHidden(true);
           }
         } catch {}
@@ -597,7 +600,9 @@ function animate(time = 0) {
   // Fog is atmospheric — only meaningful at ground level in drive mode.
   // In drone/free-camera mode, disable fog so the aerial view stays clear.
   if (CONFIG.ENABLE_FOG && scene.fog) {
-    scene.fog.density = carDriver ? 0.005 : 0;
+    // Ground-level fog washes out the aerial title cinematic (camera at ~115m+ in 0.005 fog = white soup),
+    // so it's nearly off while the title is live — like drone mode — and restored on entering the game.
+    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005) : 0;
   }
 
   if (carDriver) {
@@ -606,17 +611,23 @@ function animate(time = 0) {
     // camera itself, in taxiMode.update below).
     carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive);
 
-    // Live title screen: slow aerial orbit of the spawn area under the logo/PLAY. When a mode is picked
-    // (title hides), release — carCam's lerp then glides the camera down behind the car (the dive-in).
+    // Live title: descend FROM the cloud deck into the city (clouds part in sync), then settle into a
+    // slow orbit under the logo/PLAY. Picking a mode releases the camera — carCam's lerp glides it down
+    // behind the car (the dive-in).
     if (_titleLive) {
-      const _ta = time * 0.001 * 0.045;                 // ~2.3 min per orbit — unhurried
-      const _tr = 200, _th = 115;
+      const _p = Math.min(1, (performance.now() - _titleT0) / TITLE_DESCENT_MS);
+      const _ease = _p * _p * (3 - 2 * _p);              // smoothstep fall — fast through the deck, soft landing
+      const _ta = time * 0.001 * 0.045;                  // ~2.3 min per orbit — unhurried
+      const _tr = 200, _th = 115, _cloudAlt = 560;       // orbit height + starting altitude above it
       camera.position.set(
         _titleOrbit.x + Math.cos(_ta) * _tr,
-        _titleOrbit.y + _th + Math.sin(_ta * 0.5) * 8,  // gentle height breathing
+        _titleOrbit.y + _th + (1 - _ease) * _cloudAlt + Math.sin(_ta * 0.5) * 8,
         _titleOrbit.z + Math.sin(_ta) * _tr,
       );
       camera.lookAt(_titleOrbit.x, _titleOrbit.y + 12, _titleOrbit.z);
+      // Clouds thin as we fall through the deck (fully clear by ~70% of the descent).
+      const _cl = document.querySelector('#dd-title .clouds');
+      if (_cl) _cl.style.opacity = String(Math.max(0, 1 - _p / 0.7));
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
         _titleLive = false;

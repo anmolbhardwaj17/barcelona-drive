@@ -99,15 +99,27 @@
         transition: opacity .5s ease;
       }
       #dd-title.hide { opacity: 0; pointer-events: none; }
-      /* LIVE state — once the 3D world has loaded behind the title, main.js adds .live: the static artwork
-         crossfades away revealing the real city under a slow cinematic camera; scrim + glow stay (dimmer)
-         so the logo/PLAY remain legible over the live world. */
-      #dd-title .bg { transition: opacity 2.2s ease; }
+      /* LIVE state — the world has loaded behind the title. main.js then flies the camera DOWN from above
+         the cloud deck into the city (the .clouds overlay opacity is driven per-frame in sync with the
+         descent), settling into a slow orbit under the logo/PLAY. */
       #dd-title::before, #dd-title::after { transition: opacity 2.2s ease; }
       #dd-title.live { background: transparent; }
       #dd-title.live .bg { opacity: 0; }
-      #dd-title.live::before { opacity: 0.75; }
-      #dd-title.live::after { opacity: 0.7; }
+      #dd-title.live::before { opacity: 0.55; }
+      #dd-title.live::after { opacity: 0.32; }
+      /* Cloud deck — the pre-load backdrop (replaces the loading screen for the title flow). Soft layered
+         cloud blobs over a high-altitude sky; drifts slowly. Faded out by main.js during the descent. */
+      #dd-title .clouds { position: absolute; inset: -12%; z-index: 1; pointer-events: none;
+        background:
+          radial-gradient(46% 30% at 18% 62%, rgba(255,255,255,0.96), transparent 70%),
+          radial-gradient(54% 36% at 78% 52%, rgba(250,251,253,0.93), transparent 72%),
+          radial-gradient(64% 42% at 44% 88%, rgba(255,255,255,0.98), transparent 75%),
+          radial-gradient(40% 26% at 92% 82%, rgba(246,248,252,0.9), transparent 70%),
+          radial-gradient(36% 24% at 8% 90%, rgba(252,253,255,0.94), transparent 72%),
+          linear-gradient(#9db2cc, #c3d1e2 44%, #e9eef5 78%, #f4f7fb);
+        animation: ddCloudDrift 38s ease-in-out infinite alternate;
+      }
+      @keyframes ddCloudDrift { from { transform: translateX(-1.5%) scale(1.03); } to { transform: translateX(1.5%) scale(1.08); } }
       /* Background image layer (swap /title-bg.png for the dark artwork when ready). Kept dim + slightly
          desaturated under a dark scrim so the screen reads dark-mode even with a bright source image. */
       #dd-title .bg {
@@ -173,8 +185,7 @@
   </head>
   <body>
     <div id="dd-title">
-      <div class="bg gray"></div>
-      <div class="bg color"></div>
+      <div class="clouds"></div>
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
