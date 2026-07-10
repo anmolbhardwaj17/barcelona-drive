@@ -452,10 +452,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
     // ── Large soft grass color patches (4 colors blended via low-freq noise) ──
     // Cooler, fresher greens (was dusty warm Delhi olive → read yellowish/weird against the art-of-rally palette).
-    const GRASS_A = [0.30, 0.50, 0.28]; // fresh green
-    const GRASS_B = [0.25, 0.43, 0.24]; // mid green
-    const GRASS_C = [0.20, 0.37, 0.20]; // darker green
-    const GRASS_D = [0.28, 0.47, 0.27]; // sage green
+    const GRASS_A = [0.21, 0.41, 0.21]; // fresh green (deep — warm sun + ACES washes lighter values yellow)
+    const GRASS_B = [0.17, 0.35, 0.18]; // mid green
+    const GRASS_C = [0.13, 0.29, 0.15]; // darker green
+    const GRASS_D = [0.19, 0.38, 0.20]; // sage green
 
     // Very low frequency noise → large blobs (~30-60m patches)
     const patchNoise1 = terrainNoise(vx, vz, 0.007, 3.0);  // huge patches
