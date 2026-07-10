@@ -78,13 +78,22 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   const _quat = { x: 0, y: 0, z: 0, w: 1, set(x, y, z, w) { chassis.setRotation({ x, y, z, w }, true); this.x = x; this.y = y; this.z = z; this.w = w; } };
   const _vel = { x: 0, y: 0, z: 0, length: _len, set(x, y, z) { chassis.setLinvel({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
   const _ang = { x: 0, y: 0, z: 0, length: _len, set(x, y, z) { chassis.setAngvel({ x, y, z }, true); this.x = x; this.y = y; this.z = z; } };
-  function refresh() {
-    const t = chassis.translation(); _pos.x = t.x; _pos.y = t.y; _pos.z = t.z;
-    const r = chassis.rotation(); _quat.x = r.x; _quat.y = r.y; _quat.z = r.z; _quat.w = r.w;
-    const v = chassis.linvel(); _vel.x = v.x; _vel.y = v.y; _vel.z = v.z;
-    const a = chassis.angvel(); _ang.x = a.x; _ang.y = a.y; _ang.z = a.z;
+  // Fixed-timestep + interpolation (like cannon's interpolatedPosition): physics steps at a FIXED 60 Hz for
+  // stability, and the pose the game reads is interpolated between the last two steps by the render's
+  // leftover time — so the car is smooth regardless of frame pacing (a long frame no longer jumps physics).
+  const FIXED = 1 / 60;
+  let _accum = 0;
+  const _prev = { px: spawnPos.x, py: spawnPos.y, pz: spawnPos.z, qx: 0, qy: 0, qz: 0, qw: 1 };
+  const _cur  = { px: spawnPos.x, py: spawnPos.y, pz: spawnPos.z, qx: 0, qy: 0, qz: 0, qw: 1 };
+  function _snap(d) {
+    const t = chassis.translation(); d.px = t.x; d.py = t.y; d.pz = t.z;
+    const r = chassis.rotation();    d.qx = r.x; d.qy = r.y; d.qz = r.z; d.qw = r.w;
   }
-  refresh();
+  _snap(_prev);
+  _cur.px = _prev.px; _cur.py = _prev.py; _cur.pz = _prev.pz;
+  _cur.qx = _prev.qx; _cur.qy = _prev.qy; _cur.qz = _prev.qz; _cur.qw = _prev.qw;
+  _pos.x = _cur.px; _pos.y = _cur.py; _pos.z = _cur.pz;
+  _quat.x = _cur.qx; _quat.y = _cur.qy; _quat.z = _cur.qz; _quat.w = _cur.qw;
   // collide events aren't wired yet (Rapier uses an event queue) — no-op so carDriver's listener is safe.
   const chassisBody = { position: _pos, quaternion: _quat, velocity: _vel, angularVelocity: _ang, addEventListener() {}, removeEventListener() {} };
   // wheelInfos exposes what carModel reads: isInContact + a worldTransform {position, quaternion} (the wheel's
@@ -177,14 +186,37 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
 
   // carDriver calls this instead of cannon's world.step() when a physics.step exists.
   function step(dt) {
-    // Advance physics by the ACTUAL frame time so the vehicle forces (updateVehicle), the integration
-    // (world.step uses world.timestep) and the render all align — a fixed 1/60 step against variable frames
-    // was the stutter (forces for dt≠integration for 1/60, and the raw pose snapped to a mismatched grid).
-    const h = Math.min(Math.max(dt, 1 / 130), 1 / 30);
-    world.timestep = h;
-    vc.updateVehicle(h);
-    world.step();
-    refresh();
+    world.timestep = FIXED;
+    _accum += Math.min(dt || FIXED, 0.1);   // clamp so a long pause / tab-out doesn't spiral
+    while (_accum >= FIXED) {
+      _prev.px = _cur.px; _prev.py = _cur.py; _prev.pz = _cur.pz;
+      _prev.qx = _cur.qx; _prev.qy = _cur.qy; _prev.qz = _cur.qz; _prev.qw = _cur.qw;
+      vc.updateVehicle(FIXED);
+      world.step();
+      _snap(_cur);
+      _accum -= FIXED;
+    }
+    // A teleport (recover) makes cur jump far from prev — don't smear across it.
+    if (Math.abs(_cur.px - _prev.px) + Math.abs(_cur.pz - _prev.pz) > 5) {
+      _prev.px = _cur.px; _prev.py = _cur.py; _prev.pz = _cur.pz;
+      _prev.qx = _cur.qx; _prev.qy = _cur.qy; _prev.qz = _cur.qz; _prev.qw = _cur.qw;
+    }
+    // Interpolate the exposed pose between the last two physics states by the leftover accumulator.
+    const a = Math.max(0, Math.min(1, _accum / FIXED));
+    _pos.x = _prev.px + (_cur.px - _prev.px) * a;
+    _pos.y = _prev.py + (_cur.py - _prev.py) * a;
+    _pos.z = _prev.pz + (_cur.pz - _prev.pz) * a;
+    const sgn = (_prev.qx * _cur.qx + _prev.qy * _cur.qy + _prev.qz * _cur.qz + _prev.qw * _cur.qw) < 0 ? -1 : 1;
+    let qx = _prev.qx + (_cur.qx * sgn - _prev.qx) * a;
+    let qy = _prev.qy + (_cur.qy * sgn - _prev.qy) * a;
+    let qz = _prev.qz + (_cur.qz * sgn - _prev.qz) * a;
+    let qw = _prev.qw + (_cur.qw * sgn - _prev.qw) * a;
+    const inv = 1 / (Math.hypot(qx, qy, qz, qw) || 1);
+    _quat.x = qx * inv; _quat.y = qy * inv; _quat.z = qz * inv; _quat.w = qw * inv;
+    // Velocity/angular read from the live body (used for speed/effects — no interpolation needed).
+    const v = chassis.linvel(); _vel.x = v.x; _vel.y = v.y; _vel.z = v.z;
+    const av = chassis.angvel(); _ang.x = av.x; _ang.y = av.y; _ang.z = av.z;
+    // Wheels follow the interpolated body pose.
     for (let i = 0; i < 4; i++) {
       const wi = wheelInfos[i];
       wi.isInContact = vc.wheelIsInContact(i);
@@ -192,8 +224,6 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
         const cp = vc.wheelContactPoint(i);
         if (cp) { wi.raycastResult.hitPointWorld.x = cp.x; wi.raycastResult.hitPointWorld.y = cp.y; wi.raycastResult.hitPointWorld.z = cp.z; }
       }
-      // Wheel world transform: centre = chassis + rotate(local connection − suspensionLength·down);
-      // orientation = chassis · steer(about up). carModel uses .position.y (suspension) + .quaternion (steer).
       const suspLen = vc.wheelSuspensionLength(i) ?? REST_LEN;
       const local = _rotQ(_quat, wheels[i].x, WHEEL_Y - suspLen, wheels[i].z);
       wi.worldTransform.position.x = _pos.x + local.x;
