@@ -25,7 +25,7 @@ const CHASSIS_MASS = 1730;                      // kg — real G80 M3 kerb+drive
 // Wheel layout (chassis-local, relative to the low origin). Front = +z, RWD (engine on rear).
 const WHEEL_Y = 0.20;              // connection point above the low origin (cannon WHEEL_CONNECT_Y)
 const HALF_W = 0.78, FRONT_Z = 1.43, REAR_Z = -1.43, WHEEL_R = 0.34, REST_LEN = 0.32;
-const MAX_STEER = 0.52;            // rad — Rapier's wheel steering bites less than cannon's, so more lock
+const MAX_STEER = 0.64;            // rad — Rapier's wheel steering bites less than cannon's, so more lock
 const BASE_ENGINE_FORCE = 5200;
 
 export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
@@ -67,8 +67,9 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     vc.setWheelSuspensionCompression(i, 0.82);
     vc.setWheelSuspensionRelaxation(i, 0.88);
     vc.setWheelMaxSuspensionTravel(i, 0.3);
-    vc.setWheelFrictionSlip(i, 2.2);
-    vc.setWheelSideFrictionStiffness(i, 1.0);
+    // Front wheels get more grip so the car turns in instead of pushing straight (understeer).
+    vc.setWheelFrictionSlip(i, wheels[i].steer ? 3.6 : 2.2);
+    vc.setWheelSideFrictionStiffness(i, wheels[i].steer ? 1.4 : 1.0);
   }
 
   // ── Cannon-compatible proxy objects (read live from the Rapier body each step) ──
