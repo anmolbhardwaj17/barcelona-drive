@@ -44,7 +44,7 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
         // this terrain surface is for off-road, where perfect fidelity isn't needed).
         const data = shape.data; const es = shape.elementSize;
         const cols = data.length, rows = data[0].length;
-        const stride = Math.max(1, Math.ceil(Math.max(cols, rows) / 64));
+        const stride = Math.max(1, Math.ceil(Math.max(cols, rows) / 24));
         const cN = Math.floor((cols - 1) / stride) + 1, rN = Math.floor((rows - 1) / stride) + 1;
         const verts = new Float32Array(cN * rN * 3);
         for (let ci = 0; ci < cN; ci++) {
