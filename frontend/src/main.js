@@ -193,6 +193,7 @@ let rapierAdapter = null;   // set when ?physics=rapier — streams the collider
 let _titleLive = false;
 let _titleOrbit = null;     // { x, y, z } — spawn point (physics/scene frame) the cinematic orbits
 let _titleT0 = 0;           // when the descent-from-the-clouds began (performance.now)
+let _titleSky = null;       // saved sky-dome horizon/mid colors (biased bluer during the aerial title)
 const TITLE_DESCENT_MS = 5200;   // fall time from cloud level to orbit height
 const TITLE_HUD_SELECTOR = '#minimap-frame, #controls-strip, #street-display, #env-toggle, .dd-esc-fab, #performance-panel, #compass-bar, #metrics-panel, #speed-display';
 function _setHudHidden(hidden) {
@@ -538,6 +539,16 @@ spawnTileReady.finally(() => {
             // Widen streaming to a 5×5 full-detail set for the aerial shot (photo mode also disables the
             // LOD/distance fades, so the periphery isn't flat boxes). Restored when the player enters.
             try { tileManager.setPhotoRadius(2); tileManager.setPhotoMode(true); } catch {}
+            // From altitude the camera only sees the sky dome's near-white HORIZON band — pull the blues
+            // down toward the horizon for the cinematic so the sky reads as sky, not a white cast.
+            try {
+              const su = sky?.material?.uniforms;
+              if (su?.uHorizon && su?.uMid && su?.uZenith) {
+                _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone() };
+                su.uHorizon.value.lerp(su.uMid.value, 0.65);
+                su.uMid.value.lerp(su.uZenith.value, 0.35);
+              }
+            } catch {}
           }
         } catch {}
         // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
@@ -628,14 +639,20 @@ function animate(time = 0) {
         _titleOrbit.z + Math.sin(_ta) * _tr,
       );
       camera.lookAt(_titleOrbit.x, _titleOrbit.y + 12, _titleOrbit.z);
-      // Clouds thin as we fall through the deck (fully clear by ~70% of the descent).
+      // The ENGINE renders the cloud emergence: fog starts near-opaque (white void at altitude) and thins
+      // as we fall, so the city materializes out of the cloud. The CSS backdrop fades early and hands over.
+      if (scene.fog) scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.030;
       const _cl = document.querySelector('#dd-title .clouds');
-      if (_cl) _cl.style.opacity = String(Math.max(0, 1 - _p / 0.7));
+      if (_cl) _cl.style.opacity = String(Math.max(0, 1 - _p / 0.35));
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
         _titleLive = false;
         _setHudHidden(false);
         try { tileManager.setPhotoMode(false); } catch {}   // back to the normal streaming radius
+        try {   // restore the gameplay sky gradient
+          const su = sky?.material?.uniforms;
+          if (_titleSky && su?.uHorizon && su?.uMid) { su.uHorizon.value.copy(_titleSky.h); su.uMid.value.copy(_titleSky.m); }
+        } catch {}
       }
     }
     cpuTimer.lap('phys');
