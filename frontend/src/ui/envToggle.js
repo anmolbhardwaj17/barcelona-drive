@@ -25,12 +25,12 @@ const DAY = {
   // L1 golden-hour split: the hemi (now a REAL light — cool sky fill + warm ground bounce) carries the
   // colour separation; ambient drops to a neutral base so the fill isn't doubled. Sun warmed slightly.
   ambientColor:     0xd4e2ec,
-  ambientIntensity: 0.40,   // soft-GI feel: more even fill, softer key (reference render lighting)
+  ambientIntensity: 0.30,
   hemiSkyColor:     0xa3c0e4, // cool blue sky-light → shadows read cool
   hemiGroundColor:  0xd08a4e, // warm ground bounce → undersides/facades pick up golden warmth
-  hemiIntensity:    0.70,
-  dirIntensity:     2.3,
-  dirColor:         0xfdf3e4, // NEAR-NEUTRAL sun — warm light on green made yellow-green; neutral renders true colour
+  hemiIntensity:    0.55,
+  dirIntensity:     2.7,
+  dirColor:         0xffdcae, // warm golden-hour key
   fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
   fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,
