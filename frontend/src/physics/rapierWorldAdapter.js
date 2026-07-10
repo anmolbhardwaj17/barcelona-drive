@@ -36,9 +36,35 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
       case T.CYLINDER:
         // cannon Cylinder axis ≈ Y here (vertical pillars); Rapier cylinder is Y-axis too.
         return RAPIER.ColliderDesc.cylinder((shape.height ?? 1) / 2, shape.radiusTop ?? shape.radius ?? 0.5);
-      case T.HEIGHTFIELD:
+      case T.HEIGHTFIELD: {
+        // PHASE 2b terrain. Convert the cannon Heightfield to a Rapier TRIMESH in the SHAPE's local frame
+        // (cannon HF local: point (c,r) = (c·es, r·es, height)). The adapter then applies the body's
+        // position + the −90° X rotation, landing it exactly where cannon put it — no layout guesswork.
+        // Downsampled to ≤~64×64 so the trimesh stays light (roads have their own accurate box colliders;
+        // this terrain surface is for off-road, where perfect fidelity isn't needed).
+        const data = shape.data; const es = shape.elementSize;
+        const cols = data.length, rows = data[0].length;
+        const stride = Math.max(1, Math.ceil(Math.max(cols, rows) / 64));
+        const cN = Math.floor((cols - 1) / stride) + 1, rN = Math.floor((rows - 1) / stride) + 1;
+        const verts = new Float32Array(cN * rN * 3);
+        for (let ci = 0; ci < cN; ci++) {
+          const c = Math.min(ci * stride, cols - 1);
+          for (let ri = 0; ri < rN; ri++) {
+            const r = Math.min(ri * stride, rows - 1);
+            const k = (ci * rN + ri) * 3;
+            verts[k] = c * es; verts[k + 1] = r * es; verts[k + 2] = data[c][r];
+          }
+        }
+        const idx = new Uint32Array((cN - 1) * (rN - 1) * 6);
+        let n = 0;
+        for (let ci = 0; ci < cN - 1; ci++) for (let ri = 0; ri < rN - 1; ri++) {
+          const a = ci * rN + ri, b = (ci + 1) * rN + ri, cc = (ci + 1) * rN + (ri + 1), d = ci * rN + (ri + 1);
+          idx[n++] = a; idx[n++] = b; idx[n++] = cc; idx[n++] = a; idx[n++] = cc; idx[n++] = d;
+        }
+        return RAPIER.ColliderDesc.trimesh(verts, idx);
+      }
       default:
-        return null; // deferred / unsupported → skip this shape
+        return null; // unsupported → skip this shape
     }
   }
 
