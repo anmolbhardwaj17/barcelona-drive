@@ -539,14 +539,16 @@ spawnTileReady.finally(() => {
             // Widen streaming to a 5×5 full-detail set for the aerial shot (photo mode also disables the
             // LOD/distance fades, so the periphery isn't flat boxes). Restored when the player enters.
             try { tileManager.setPhotoRadius(2); tileManager.setPhotoMode(true); } catch {}
-            // From altitude the camera only sees the sky dome's near-white HORIZON band — pull the blues
-            // down toward the horizon for the cinematic so the sky reads as sky, not a white cast.
+            // From altitude the camera only sees the sky dome's near-white HORIZON band, and the street-level
+            // pastel palette reads dead grey up there. Give the cinematic its own decisive blues (all three
+            // stops saved + restored on entering the game).
             try {
               const su = sky?.material?.uniforms;
               if (su?.uHorizon && su?.uMid && su?.uZenith) {
-                _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone() };
-                su.uHorizon.value.lerp(su.uMid.value, 0.65);
-                su.uMid.value.lerp(su.uZenith.value, 0.35);
+                _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone() };
+                su.uHorizon.value.set(0xaed3ee);
+                su.uMid.value.set(0x6fa9de);
+                su.uZenith.value.set(0x3e7ec6);
               }
             } catch {}
           }
@@ -638,7 +640,9 @@ function animate(time = 0) {
         _titleOrbit.y + _th + (1 - _ease) * _cloudAlt + Math.sin(_ta * 0.5) * 8,
         _titleOrbit.z + Math.sin(_ta) * _tr,
       );
-      camera.lookAt(_titleOrbit.x, _titleOrbit.y + 12, _titleOrbit.z);
+      // Aim slightly above the ground so the frame includes real sky + the drifting 3D clouds — pure
+      // top-down framing showed only the dome's washed horizon band ("dead sky").
+      camera.lookAt(_titleOrbit.x, _titleOrbit.y + 55, _titleOrbit.z);
       // The ENGINE renders the cloud emergence: fog starts near-opaque (white void at altitude) and thins
       // as we fall, so the city materializes out of the cloud. The CSS backdrop fades early and hands over.
       if (scene.fog) scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.030;
@@ -651,7 +655,9 @@ function animate(time = 0) {
         try { tileManager.setPhotoMode(false); } catch {}   // back to the normal streaming radius
         try {   // restore the gameplay sky gradient
           const su = sky?.material?.uniforms;
-          if (_titleSky && su?.uHorizon && su?.uMid) { su.uHorizon.value.copy(_titleSky.h); su.uMid.value.copy(_titleSky.m); }
+          if (_titleSky && su?.uHorizon && su?.uMid && su?.uZenith) {
+            su.uHorizon.value.copy(_titleSky.h); su.uMid.value.copy(_titleSky.m); su.uZenith.value.copy(_titleSky.z);
+          }
         } catch {}
       }
     }
