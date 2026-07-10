@@ -163,8 +163,52 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
     }
   }
 
-  function addBody(cannonBody) {
-    bodies.push(cannonBody);
+  // ── Streaming mirror ────────────────────────────────────────────────────────
+  // Measured (Node experiment + in-game): Rapier's step cost scales with resident collider count — 32k
+  // mirrored colliders ⇒ ~8ms/step, worse than cannon. Statics the car can't reach contribute cost and
+  // nothing else. So the mirror keeps a WORKING SET: every cannon body is registered (with a cheap bounding
+  // radius), but only bodies within R_IN of the car are materialized as Rapier colliders; past R_OUT they
+  // dematerialize. Materialization is budgeted per frame so tile arrival never spikes. tick() also syncs
+  // poses for cannon bodies that move (traffic cars etc.) so the mirror never holds stale obstacles.
+  const R_IN = 260, R_OUT = 340;            // hysteresis (car tops out ~30 m/s; streaming has huge margin)
+  const MATERIALIZE_BUDGET = 900;           // max colliders created per tick (spread big tiles over frames)
+  const entries = [];                       // { body, r, rb } — r = bounding radius around body.position
+  const _entryOf = new WeakMap();
+
+  function shapeRadius(shape) {
+    switch (shape.type) {
+      case T.BOX: { const h = shape.halfExtents; return Math.hypot(h.x, h.y, h.z); }
+      case T.TRIMESH: {
+        let m = 0; const v = shape.vertices;
+        for (let i = 0; i < v.length; i += 3) { const d = v[i] * v[i] + v[i + 1] * v[i + 1] + v[i + 2] * v[i + 2]; if (d > m) m = d; }
+        return Math.sqrt(m);
+      }
+      case T.CONVEXPOLYHEDRON: {
+        let m = 0; for (const p of shape.vertices) { const d = p.x * p.x + p.y * p.y + p.z * p.z; if (d > m) m = d; }
+        return Math.sqrt(m);
+      }
+      case T.CYLINDER: return Math.max(shape.radiusTop ?? shape.radius ?? 0.5, (shape.height ?? 1) / 2);
+      case T.HEIGHTFIELD: {
+        const es = shape.elementSize, cols = shape.data.length, rows = shape.data[0].length;
+        return Math.hypot((cols - 1) * es, (rows - 1) * es); // corner-origin field → generous full-diagonal
+      }
+      default: return 5;
+    }
+  }
+
+  function boundingRadius(cannonBody) {
+    const shapes = cannonBody.shapes, offs = cannonBody.shapeOffsets;
+    let r = 0;
+    for (let i = 0; i < shapes.length; i++) {
+      const o = offs[i];
+      const rr = Math.hypot(o.x, o.y, o.z) + shapeRadius(shapes[i]);
+      if (rr > r) r = rr;
+    }
+    return r;
+  }
+
+  function materialize(entry) {
+    const cannonBody = entry.body;
     const p = cannonBody.position, q = cannonBody.quaternion;
     const rb = rapierWorld.createRigidBody(
       RAPIER.RigidBodyDesc.fixed()
@@ -185,16 +229,65 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
       desc.setTranslation(o.x + pr.x, o.y + pr.y, o.z + pr.z).setRotation(_qmul(r, r0));
       try { rapierWorld.createCollider(desc, rb); added++; } catch (e) { /* skip a bad shape rather than crash the tile */ }
     }
-    if (added === 0) { rapierWorld.removeRigidBody(rb); return cannonBody; } // nothing supported on this body
-    _rb.set(cannonBody, rb);
+    if (added === 0) { rapierWorld.removeRigidBody(rb); entry.dead = true; return 0; } // nothing supported
+    entry.rb = rb;
+    entry.px = p.x; entry.py = p.y; entry.pz = p.z; entry.qy = q.y; entry.qw = q.w;
+    return added;
+  }
+
+  function dematerialize(entry) {
+    if (!entry.rb) return;
+    try { rapierWorld.removeRigidBody(entry.rb); } catch {}
+    entry.rb = null;
+  }
+
+  function addBody(cannonBody) {
+    bodies.push(cannonBody);
+    const entry = { body: cannonBody, r: boundingRadius(cannonBody), rb: null, dead: false, px: 0, py: 0, pz: 0, qy: 0, qw: 1 };
+    entries.push(entry);
+    _entryOf.set(cannonBody, entry);
     return cannonBody;
   }
 
   function removeBody(cannonBody) {
-    const rb = _rb.get(cannonBody);
-    if (rb) { try { rapierWorld.removeRigidBody(rb); } catch {} _rb.delete(cannonBody); }
+    const entry = _entryOf.get(cannonBody);
+    if (entry) {
+      dematerialize(entry);
+      _entryOf.delete(cannonBody);
+      const j = entries.indexOf(entry);
+      if (j >= 0) entries.splice(j, 1);
+    }
     const i = bodies.indexOf(cannonBody);
     if (i >= 0) bodies.splice(i, 1);
+  }
+
+  /**
+   * Stream the working set around (x, z) — call once per frame with the car's physics-frame position.
+   * Materializes bodies entering R_IN (budgeted), drops bodies past R_OUT, and re-syncs the pose of any
+   * materialized body whose cannon source moved (traffic cars are repositioned every frame by trafficSystem).
+   */
+  function tick(x, z) {
+    let budget = MATERIALIZE_BUDGET;
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.dead) continue;
+      const bp = e.body.position;
+      const d = Math.hypot(bp.x - x, bp.z - z) - e.r;
+      if (!e.rb) {
+        if (d < R_IN && budget > 0) budget -= materialize(e);
+      } else if (d > R_OUT) {
+        dematerialize(e);
+      } else {
+        // Pose sync for movers (yaw-only rotation covers traffic; full quat would also be fine).
+        const bq = e.body.quaternion;
+        if (Math.abs(bp.x - e.px) + Math.abs(bp.y - e.py) + Math.abs(bp.z - e.pz) > 1e-3 ||
+            Math.abs(bq.y - e.qy) + Math.abs(bq.w - e.qw) > 1e-3) {
+          e.rb.setTranslation({ x: bp.x, y: bp.y, z: bp.z }, false);
+          e.rb.setRotation({ x: bq.x, y: bq.y, z: bq.z, w: bq.w }, false);
+          e.px = bp.x; e.py = bp.y; e.pz = bp.z; e.qy = bq.y; e.qw = bq.w;
+        }
+      }
+    }
   }
 
   // Cannon-World surface tileManager touches. Most are no-ops (Rapier needs none of them).
@@ -202,6 +295,7 @@ export function createRapierWorldAdapter(rapierWorld, RAPIER) {
     addBody,
     removeBody,
     bodies,
+    tick,
     gravity: { x: 0, y: -9.82, z: 0 },
     addContactMaterial() {},
     removeContactMaterial() {},

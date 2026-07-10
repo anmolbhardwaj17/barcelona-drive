@@ -184,6 +184,7 @@ if (ENABLE_CAR !== CONFIG.ENABLE_CAR) {
 let tileManager;
 let freeCameraControls;
 let carDriver = null;
+let rapierAdapter = null;   // set when ?physics=rapier — streams the collider working set around the car
 let dashMode = null;
 let taxiMode = null;
 let deliveryMode = null;
@@ -357,11 +358,13 @@ spawnTileReady.finally(() => {
             _physicsWorld = rw;
             const { createRapierWorldAdapter } = await import('./physics/rapierWorldAdapter.js');
             const _adapter = createRapierWorldAdapter(rw, _rapier);
-            for (const b of [...world.bodies]) { try { _adapter.addBody(b); } catch {} }   // mirror already-loaded tiles
-            const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // mirror future tiles
+            for (const b of [...world.bodies]) { try { _adapter.addBody(b); } catch {} }   // register already-loaded tiles
+            const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // register future tiles
             world.addBody = (b) => { _oAdd(b); try { _adapter.addBody(b); } catch {} };
             world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
-            console.warn(`[physics] Rapier enabled (Phase 2a: mirrored ${world.bodies.length} tile colliders).`);
+            rapierAdapter = _adapter;   // animate() streams the working set around the car each frame
+            window._rapierWorld = rw;   // dev: _rapierWorld.colliders.len() shows the live working set
+            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies.`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier, cpuTimer });
@@ -583,6 +586,7 @@ function animate(time = 0) {
     cpuTimer.lap('phys');
 
     const lp = carDriver.getLocalPosition();
+    rapierAdapter?.tick(lp.lx, lp.lz);   // stream the Rapier collider working set around the car
     // Physics / scene X is mirrored relative to world/map X (worldGroup.scale.x = -1),
     // so convert back to world coordinates by negating X (same convention as free camera).
     viewerWx = -lp.lx;
