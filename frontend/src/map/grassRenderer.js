@@ -302,13 +302,13 @@ export function updateGrassWind(timeSeconds) {
 // Greener Mediterranean lawn palette — the old dry-golden set read as a YELLOW carpet over every park
 // from the air (photo mode renders grass at any distance). One straw accent kept for variety.
 const GRASS_TINTS = [
-  new THREE.Color(0.38, 0.55, 0.27), // fresh park green
-  new THREE.Color(0.33, 0.50, 0.24), // mid green
-  new THREE.Color(0.28, 0.44, 0.21), // deep green
-  new THREE.Color(0.42, 0.57, 0.29), // bright lawn
-  new THREE.Color(0.25, 0.40, 0.19), // dark lush
-  new THREE.Color(0.58, 0.58, 0.32), // straw accent (sparse)
-  new THREE.Color(0.35, 0.49, 0.25), // forest floor
+  new THREE.Color(0.27, 0.42, 0.18), // fresh park green
+  new THREE.Color(0.23, 0.37, 0.16), // mid green
+  new THREE.Color(0.19, 0.32, 0.14), // deep green
+  new THREE.Color(0.30, 0.44, 0.20), // bright lawn
+  new THREE.Color(0.17, 0.29, 0.13), // dark lush
+  new THREE.Color(0.40, 0.44, 0.22), // straw accent (sparse)
+  new THREE.Color(0.24, 0.36, 0.17), // forest floor
 ];
 
 // Dry/scrubby tints for roadside weed instances

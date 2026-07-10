@@ -61,10 +61,10 @@ const TRUNK_RADIAL_SEGMENTS = 3;   // 3 sides sufficient at game scale
 // V5 cohesion: warmed toward olive (R up, B up a touch, G eased) so foliage sits in the same
 // warm palette family as the buildings under ACES — pure vivid greens were popping/clashing.
 const FOLIAGE_COLORS = [
-  [0x3F7434, 0x4A833D, 0x579247],  // Plane tree — true rich green (reference: emerald, not olive)
-  [0x468A3E, 0x579247, 0x69A052],  // Elm/lime — brighter true green
-  [0x2C5B28, 0x35682E, 0x407637],  // Cypress/pine — deep true green
-  [0x4A833D, 0x579247, 0x649B50],  // Jacaranda/mixed — varied true green
+  [0x2F5C2A, 0x3A6B32, 0x477A3C],  // Plane tree — deep rich green (reference low-poly)
+  [0x366630, 0x477A3C, 0x558B47],  // Elm/lime — mid rich green
+  [0x224722, 0x2A5427, 0x33612E],  // Cypress/pine — darkest pine
+  [0x3A6B32, 0x477A3C, 0x528445],  // Jacaranda/mixed — varied rich green
 ];
 const TRUNK_COLOR = 0x7A7158;      // London-plane bark: muted grey-olive-brown (was 0x877662 — too pale/orange, read fake)
 const DUST_COLOR = 0x9B8B6E;
@@ -269,7 +269,7 @@ const TREE_ROAD_TYPES = new Set([
 
 function getGreenMaterial() {
   if (sharedGreenMaterial) return sharedGreenMaterial;
-  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x3B6B30, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
+  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x2F5C28, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
   return sharedGreenMaterial;
 }
 
@@ -728,7 +728,7 @@ async function createTreeMesh(positions, typeIndex, getElevationAt, getWorldElev
   const tintColor = new THREE.Color();
   const vertExag = Number.isFinite(CONFIG.ELEVATION_VERTICAL_EXAGGERATION)
     ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION : 1;
-  const tintPalette = [0x417936, 0x4C883F, 0x58924A, 0x699E55];
+  const tintPalette = [0x30602B, 0x3A6B32, 0x45763A, 0x518245];
 
   const LEAN_MAX = (4 * Math.PI) / 180;
   for (let i = 0; i < positions.length; i++) {

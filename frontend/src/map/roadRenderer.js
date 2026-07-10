@@ -136,14 +136,14 @@ function getSidewalkWidthForRoad(highwayType) {
 
 /** Asphalt colors by highway type (hex) — unified dark asphalt. */
 const COLOR_BY_TYPE = {
-  motorway: 0x61768C,
-  trunk: 0x61768C,
-  primary: 0x61768C,
-  secondary: 0x61768C,
-  tertiary: 0x61768C,
-  residential: 0x61768C,
-  service: 0x61768C,
-  unclassified: 0x61768C,
+  motorway: 0x3A414B,
+  trunk: 0x3A414B,
+  primary: 0x3A414B,
+  secondary: 0x3A414B,
+  tertiary: 0x3A414B,
+  residential: 0x3A414B,
+  service: 0x3A414B,
+  unclassified: 0x3A414B,
 };
 
 /** Road width (m) by highway type. Used when road.width is not set.
