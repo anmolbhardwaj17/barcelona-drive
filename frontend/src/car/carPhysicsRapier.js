@@ -85,6 +85,7 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   // leftover time — so the car is smooth regardless of frame pacing (a long frame no longer jumps physics).
   const FIXED = 1 / 60;
   let _accum = 0;
+  const _dbg = { uv: 0, ws: 0, n: 0, at: 0 };   // dev step-cost breakdown → window._stepBreakdown
   const _prev = { px: spawnPos.x, py: spawnPos.y, pz: spawnPos.z, qx: 0, qy: 0, qz: 0, qw: 1 };
   const _cur  = { px: spawnPos.x, py: spawnPos.y, pz: spawnPos.z, qx: 0, qy: 0, qz: 0, qw: 1 };
   function _snap(d) {
@@ -201,8 +202,26 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
         const yr = chassis.angvel().y;
         chassis.addTorque({ x: 0, y: -yr * Math.abs(yr) * YAW_SPIN_DAMP, z: 0 }, false);
       }
+      // Dev breakdown: split updateVehicle (wheel raycasts) vs world.step (broadphase/narrowphase/solver)
+      // so we can see WHERE the step cost lives instead of guessing. Read via window._stepBreakdown.
+      const _t0 = performance.now();
       vc.updateVehicle(FIXED);
+      const _t1 = performance.now();
       world.step();
+      const _t2 = performance.now();
+      _dbg.uv += _t1 - _t0; _dbg.ws += _t2 - _t1; _dbg.n++;
+      if (_t2 - _dbg.at > 1000) {
+        if (typeof window !== 'undefined') {
+          window._stepBreakdown = {
+            updateVehicleMs: +(_dbg.uv / _dbg.n).toFixed(3),
+            worldStepMs: +(_dbg.ws / _dbg.n).toFixed(3),
+            stepsPerSec: _dbg.n,
+            colliders: world.colliders?.len?.() ?? -1,
+            bodies: world.bodies?.len?.() ?? -1,
+          };
+        }
+        _dbg.uv = 0; _dbg.ws = 0; _dbg.n = 0; _dbg.at = _t2;
+      }
       _snap(_cur);
       _accum -= FIXED;
     }
