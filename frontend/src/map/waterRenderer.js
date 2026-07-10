@@ -107,7 +107,7 @@ let _waterMat = null;
 function getWaterMaterial() {
   if (_waterMat) return _waterMat;
   _waterMat = new THREE.MeshLambertMaterial({
-    color: 0x1A7A9B,
+    color: 0x2394AC,   // brighter Mediterranean turquoise (reference near-shore)
     transparent: true,
     opacity: 0.92,
     side: THREE.FrontSide,
