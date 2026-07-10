@@ -59,8 +59,11 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   if (colorPanel) colorPanel._onSoundToggle = () => sound.setMuted(!sound.isMuted());
   const sound    = createCarSound();
 
-  // Start audio on first user interaction (required by browsers)
+  // Start audio on first user interaction (required by browsers) — but NOT while the title screen is up
+  // (clicking PLAY was arming the engine idle under the menu). The first interaction in-game starts it.
   const _startAudio = () => {
+    const t = document.getElementById('dd-title');
+    if (t && !t.classList.contains('hide')) return;   // still on the title — stay silent, keep listening
     sound.ensureStarted();
     window.removeEventListener('keydown', _startAudio);
     window.removeEventListener('click', _startAudio);
