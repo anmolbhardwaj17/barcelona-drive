@@ -33,6 +33,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   const physics  = opts.rapier
     ? createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading)
     : createCarPhysics(world, _spawn, spawnHeading);
+  const _ct = opts.cpuTimer || null;   // optional: splits the STATS 'phys' lap into step (pure physics) + phys (car visuals)
   const controls = createCarControls();
   const carCam   = createCarCamera(camera, _domElement);
   const model    = await createCarModel(scene);
@@ -134,6 +135,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   function update(dt, cinematic = false) {
     // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter)
     if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3);
+    _ct?.lap('step');   // pure physics-step cost; the remainder of this update lands in main's 'phys' lap
 
     // 2. Read inputs → apply to vehicle. During a game-mode cinematic, ignore input and pin the car in
     //    place (zero velocities) so it can't creep while the b-roll plays. (state stays function-scoped —
