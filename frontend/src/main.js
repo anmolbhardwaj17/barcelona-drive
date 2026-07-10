@@ -338,9 +338,10 @@ spawnTileReady.finally(() => {
         z: spawnResult.wz - origin.z,
       };
       try {
-        // ── Rapier (WASM) physics — opt in with ?physics=rapier. PHASE 1: the car drives on a flat Rapier
-        //    ground; the cannon world (tile colliders) is simply never stepped, so it sits inert at ~zero
-        //    per-frame cost. Cannon stays the default. Next phases add the terrain heightfield + tile colliders.
+        // ── Rapier (WASM) physics — opt in with ?physics=rapier. The car runs on Rapier; the cannon world
+        //    is never stepped (inert). PHASE 2a: tileManager keeps adding CANNON collider bodies to `world`,
+        //    and we MIRROR each into Rapier via the adapter (boxes/meshes; terrain heightfield is Phase 2b, so
+        //    a flat safety floor covers off-road). Zero tileManager changes.
         let _rapier = null, _physicsWorld = world;
         if (new URLSearchParams(location.search).get('physics') === 'rapier') {
           try {
@@ -348,11 +349,18 @@ spawnTileReady.finally(() => {
             await _rapier.init();
             const rw = new _rapier.World({ x: 0, y: -9.82, z: 0 });
             rw.timestep = 1 / 60;
-            const groundTopY = spawnLocalPos.y - 0.5;   // spawn road height (physics/local frame)
+            // Off-road safety floor at spawn height (until the Phase 2b terrain heightfield lands).
+            const groundTopY = spawnLocalPos.y - 0.5;
             const gb = rw.createRigidBody(_rapier.RigidBodyDesc.fixed().setTranslation(spawnLocalPos.x, groundTopY - 0.5, spawnLocalPos.z));
             rw.createCollider(_rapier.ColliderDesc.cuboid(2000, 0.5, 2000).setFriction(1.2), gb);
             _physicsWorld = rw;
-            console.log('[physics] Rapier enabled (Phase 1: flat ground; cannon world inert).');
+            const { createRapierWorldAdapter } = await import('./physics/rapierWorldAdapter.js');
+            const _adapter = createRapierWorldAdapter(rw, _rapier);
+            for (const b of [...world.bodies]) { try { _adapter.addBody(b); } catch {} }   // mirror already-loaded tiles
+            const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // mirror future tiles
+            world.addBody = (b) => { _oAdd(b); try { _adapter.addBody(b); } catch {} };
+            world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
+            console.log(`[physics] Rapier enabled (Phase 2a: mirrored ${world.bodies.length} tile colliders).`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier });
