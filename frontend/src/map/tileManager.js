@@ -523,6 +523,7 @@ async function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, 
     if (any) {
       body.collisionFilterGroup = COLLISION_GROUP_WORLD;
       body.collisionFilterMask  = COLLISION_GROUP_VEHICLE;
+      body._ddKind = 'building';   // collisionDebug (K key) excludes buildings — user call 2026-07-12
       bodies.push(body);
     }
     // Yield between batches so a dense tile's collider creation spreads over a few frames instead of one
