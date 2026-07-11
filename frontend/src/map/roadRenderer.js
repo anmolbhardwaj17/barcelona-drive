@@ -11,6 +11,7 @@ import { getWorldElevationOffset } from '../elevationOffset.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
+import { applyGroundLayer } from './groundLayers.js';
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -193,10 +194,8 @@ function getPanotMaterial() {
   _panotMaterial = patchRoadWash(new THREE.MeshLambertMaterial({
     map: panotTexture,
     color: 0xffffff,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
   }));
+  applyGroundLayer(_panotMaterial, 'sidewalk');
   return _panotMaterial;
 }
 
@@ -216,10 +215,8 @@ function getBikeLaneMaterial() {
   if (_bikeLaneMaterial) return _bikeLaneMaterial;
   _bikeLaneMaterial = new THREE.MeshLambertMaterial({
     color: _decalNight ? 0x55906b : BCN_COLORS.PAINT_BIKE_GREEN,   // night lift — see setRoadDecalNightMode
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
   });
+  applyGroundLayer(_bikeLaneMaterial, 'bikeLane');
   return _bikeLaneMaterial;
 }
 
@@ -227,12 +224,12 @@ function getBikeLaneMaterial() {
 function getBikePictogramMaterial() {
   if (_bikePictogramMaterial) return _bikePictogramMaterial;
   const { bikePictogramTexture } = createRoadTextures();
-  _bikePictogramMaterial = new THREE.MeshBasicMaterial({
+  _bikePictogramMaterial = applyGroundLayer(new THREE.MeshBasicMaterial({
     map: bikePictogramTexture,
     transparent: true,
     alphaTest: 0.1,
     depthWrite: false,
-  });
+  }), 'stencil');
   return _bikePictogramMaterial;
 }
 
@@ -291,10 +288,8 @@ function getSharedRoadMaterial() {
     metalness: 0,
     depthWrite: true,
     side: THREE.DoubleSide,  // visible from below bridges
-    polygonOffset: true,     // push road surface toward camera to prevent z-fighting with bridge slab
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
   }));
+  applyGroundLayer(sharedRoadMaterial, 'road');   // above terrain/greens, below all paint
   return sharedRoadMaterial;
 }
 
@@ -992,17 +987,17 @@ const MARK_DAY = 0x8a8a8a, MARK_NIGHT = 0x565b62;
 /** Shared unlit material for all lane lines + zebra crosswalks (created once, night-state-aware). */
 function getMarkingMaterial() {
   if (!_mergedMarkingMaterial) {
-    _mergedMarkingMaterial = new THREE.MeshBasicMaterial({
+    _mergedMarkingMaterial = applyGroundLayer(new THREE.MeshBasicMaterial({
       color: _markingNight ? MARK_NIGHT : MARK_DAY,
-      vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    });
+      vertexColors: true,
+    }), 'marking');
   }
   return _mergedMarkingMaterial;
 }
 let _mergedPedestrianMaterial = null;
 function getWhiteLineMaterial() {
   if (!whiteLineMaterial) {
-    whiteLineMaterial = new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    whiteLineMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false }), 'marking');
   }
   return whiteLineMaterial;
 }
@@ -1011,7 +1006,7 @@ function getWhiteLineMaterial() {
 let yellowLineMaterial = null;
 function getYellowLineMaterial() {
   if (!yellowLineMaterial) {
-    yellowLineMaterial = new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    yellowLineMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false }), 'marking');
   }
   return yellowLineMaterial;
 }
@@ -2078,13 +2073,13 @@ function getZona30Texture() {
 let _zona30Material = null;
 function getZona30Material() {
   if (_zona30Material) return _zona30Material;
-  _zona30Material = new THREE.MeshBasicMaterial({
+  _zona30Material = applyGroundLayer(new THREE.MeshBasicMaterial({
     map: getZona30Texture(),
     transparent: true,
     alphaTest: 0.05,
     depthWrite: false,
     side: THREE.DoubleSide,
-  });
+  }), 'stencil');
   return _zona30Material;
 }
 
@@ -2189,12 +2184,9 @@ function getTactileTexture() {
 let _tactileMat = null;
 function getTactileMaterial() {
   if (_tactileMat) return _tactileMat;
-  _tactileMat = new THREE.MeshLambertMaterial({
+  _tactileMat = applyGroundLayer(new THREE.MeshLambertMaterial({
     map: getTactileTexture(),
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  }), 'tactile');
   return _tactileMat;
 }
 
@@ -2305,12 +2297,9 @@ const STRIPE_W        = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10m
 let _noParkingMaterial = null;
 function getNoParkingMaterial() {
   if (_noParkingMaterial) return _noParkingMaterial;
-  _noParkingMaterial = new THREE.MeshLambertMaterial({
+  _noParkingMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: BCN_COLORS.PAINT_YELLOW,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  }), 'parkingZone');
   return _noParkingMaterial;
 }
 
@@ -2395,12 +2384,9 @@ function buildNoParkingStripes(roads, options) {
 let _blueZoneMaterial = null;
 function getBlueZoneMaterial() {
   if (_blueZoneMaterial) return _blueZoneMaterial;
-  _blueZoneMaterial = new THREE.MeshLambertMaterial({
+  _blueZoneMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: _decalNight ? 0x3a6ea8 : BCN_COLORS.PAINT_BLUE,   // night lift — see setRoadDecalNightMode
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  }), 'parkingZone');
   return _blueZoneMaterial;
 }
 
@@ -4745,15 +4731,13 @@ let goreMaterial = null;
 function getGoreMaterial() {
   if (goreMaterial) return goreMaterial;
   // Same dark asphalt grey as road surface, slightly lighter to hint at paint/hatch
-  goreMaterial = new THREE.MeshStandardMaterial({
+  goreMaterial = applyGroundLayer(new THREE.MeshStandardMaterial({
     color: 0x556270,
     roughness: 0.92,
     metalness: 0,
     side: THREE.DoubleSide,
     depthWrite: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -1, // draw on top of terrain, below road markings
-  });
+  }), 'gore');   // on asphalt, below all paint
   return goreMaterial;
 }
 
@@ -4810,12 +4794,9 @@ let _chamferMaterial = null;
 function getChamferMaterial() {
   if (_chamferMaterial) return _chamferMaterial;
   // Match gore polygon style — solid asphalt, slightly above terrain
-  _chamferMaterial = new THREE.MeshLambertMaterial({
+  _chamferMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: 0x4a4a4a,   // BCN_COLORS.ASPHALT_BASE
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
+  }), 'gore');   // junction chamfer fill: same slot as gores — asphalt-plane fills under paint
   return _chamferMaterial;
 }
 
