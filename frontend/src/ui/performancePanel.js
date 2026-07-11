@@ -71,17 +71,19 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     const minFps = worstMs > 0 ? Math.round(1000 / worstMs) : fps;
     const gpuMs = context?.gpuMs;
 
-    // External frame-cap detector: FPS pinned near 30 while BOTH the GPU and our tracked CPU work
-    // are far under budget means the browser/OS isn't scheduling frames (Chrome Energy Saver,
-    // macOS Low Power Mode) — not the game. Cost us a whole debugging session once (2026-07-11);
-    // now STATS names it. Three consecutive windows so streaming hitches don't false-positive.
+    // External frame-cap detector: low FPS while the frame interval dwarfs BOTH the GPU time and
+    // our tracked CPU work = the browser/OS isn't scheduling frames (Chrome Energy Saver, macOS
+    // Low Power Mode) — the machine is idling, not struggling. Ratio-based (v2 — the v1 hard
+    // thresholds missed real captures at gpu 12.4/17ms): frame interval > 1.7× the busiest
+    // measured component, sustained 3 windows so streaming hitches don't false-positive.
     const rep = context?.cpuTimer?.report?.();
-    const cpuSum = rep?.avg ? (rep.avg.match(/\d+\.\d+/g) || []).reduce((s, n) => s + parseFloat(n), 0) : 99;
-    const looksCapped = fps >= 24 && fps <= 38 && typeof gpuMs === 'number' && gpuMs > 0 && gpuMs < 12 && cpuSum < 12;
+    const cpuSum = rep?.avg ? (rep.avg.match(/\d+\.\d+/g) || []).reduce((s, n) => s + parseFloat(n), 0) : 0;
+    const busiest = Math.max(typeof gpuMs === 'number' ? gpuMs : 0, cpuSum);
+    const looksCapped = fps > 0 && fps < 46 && busiest > 0 && (1000 / fps) > busiest * 1.7;
     capWindows = looksCapped ? capWindows + 1 : 0;
 
     vFps.textContent = (minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`)
-      + (capWindows >= 3 ? '  ⚠ 30Hz cap? (browser/OS)' : '');
+      + (capWindows >= 3 ? '  ⚠ frames idle — external cap?' : '');
     // colour cue: green ≥55, amber ≥40, red below
     vFps.style.color = fps >= 55 ? '#7dff9a' : fps >= 40 ? '#ffd23f' : '#ff6b6b';
     frameCount = 0; worstMs = 0;
