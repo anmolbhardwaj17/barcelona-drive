@@ -83,7 +83,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     capWindows = looksCapped ? capWindows + 1 : 0;
 
     vFps.textContent = (minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`)
-      + (capWindows >= 3 ? '  ⚠ frames idle — external cap?' : '');
+      + (capWindows >= 3 ? '  ⚠ frames idle — browser throttled (thermal?)' : '');
     // colour cue: green ≥55, amber ≥40, red below
     vFps.style.color = fps >= 55 ? '#7dff9a' : fps >= 40 ? '#ffd23f' : '#ff6b6b';
     frameCount = 0; worstMs = 0;

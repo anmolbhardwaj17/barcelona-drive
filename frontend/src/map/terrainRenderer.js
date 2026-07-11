@@ -563,8 +563,16 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     if (svfAt) {
       // Guard: some vertices carry NaN positions (G-06 elevation grid holes) — NaN would ride the
       // attribute into the shader and black out triangles. Fall back to "no AO".
+      // SLOPE SCALE: steep faces (trench walls along the Rondas, Montjuïc cuts) are already
+      // side-lit dark by Lambert — full AO on top read as broad chocolate bands flanking the
+      // trenched carriageways (the long "dark border lines" hunt). Walls get ~35% of the AO.
       const svf = svfAt(vx, vz);
-      aoAttr[i] = Number.isFinite(svf) ? aoMultiplier(svf, AO_TERRAIN_STRENGTH) : 1;
+      if (Number.isFinite(svf)) {
+        const slopeK = 0.35 + 0.65 * Math.max(0, ny);   // ny = vertex normal Y (1 = flat ground)
+        aoAttr[i] = 1 - (1 - aoMultiplier(svf, AO_TERRAIN_STRENGTH)) * slopeK;
+      } else {
+        aoAttr[i] = 1;
+      }
     }
     const ny = normAttr ? normAttr.getY(i) : 1;
     // t: 0 at ground (Y=0), negative below, positive above
