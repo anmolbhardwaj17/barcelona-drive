@@ -137,6 +137,75 @@ function geoAttrKey(geo) {
   return names.map(n => `${n}:${geo.attributes[n].itemSize}`).join(',');
 }
 
+/**
+ * Frame-budgeted replacement for BufferGeometryUtils.mergeGeometries: copies buffers
+ * geometry-by-geometry with yields between sources, so a big road-family bucket never runs as one
+ * 20-36ms synchronous chunk (the measured p1 roads/terrain vsync-misses — fps-diagnosis). Also
+ * pre-computes boundingBox/Sphere from the copy pass, killing three's lazy (synchronous)
+ * computeBoundingSphere on first render of a 100k-vert merge.
+ * Returns null on shapes it doesn't handle (interleaved attrs, mixed indexing) — caller falls
+ * back to the sync merge for those rare buckets.
+ */
+async function mergeGeometriesChunked(geos, yieldFn) {
+  const first = geos[0];
+  const attrNames = Object.keys(first.attributes);
+  const indexed = !!first.index;
+  let totalVerts = 0, totalIdx = 0;
+  for (const g of geos) {
+    if (!!g.index !== indexed) return null;
+    for (const name of attrNames) {
+      const a = g.attributes[name];
+      if (!a || a.isInterleavedBufferAttribute) return null;
+      if (a.itemSize !== first.attributes[name].itemSize) return null;
+    }
+    if (Object.keys(g.attributes).length !== attrNames.length) return null;
+    totalVerts += g.attributes.position.count;
+    totalIdx += indexed ? g.index.count : 0;
+  }
+  const out = new THREE.BufferGeometry();
+  const targets = {};
+  for (const name of attrNames) {
+    const src = first.attributes[name];
+    targets[name] = new src.array.constructor(totalVerts * src.itemSize);
+  }
+  const idxArr = indexed ? new Uint32Array(totalIdx) : null;
+  let vOff = 0, iOff = 0;
+  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const g of geos) {
+    const n = g.attributes.position.count;
+    for (const name of attrNames) {
+      const src = g.attributes[name];
+      const want = n * src.itemSize;
+      targets[name].set(src.array.length === want ? src.array : src.array.subarray(0, want), vOff * src.itemSize);
+    }
+    if (indexed) {
+      const si = g.index.array;
+      for (let i = 0; i < si.length; i++) idxArr[iOff + i] = si[i] + vOff;
+      iOff += si.length;
+    }
+    const p = g.attributes.position.array;
+    for (let i = 0, e = n * 3; i < e; i += 3) {
+      const x = p[i], y = p[i + 1], z = p[i + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    vOff += n;
+    if (yieldFn) await yieldFn();
+  }
+  for (const name of attrNames) {
+    const attr = new THREE.BufferAttribute(targets[name], first.attributes[name].itemSize);
+    attr.normalized = first.attributes[name].normalized;
+    out.setAttribute(name, attr);
+  }
+  if (indexed) out.setIndex(new THREE.BufferAttribute(idxArr, 1));
+  out.boundingBox = new THREE.Box3(new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, maxY, maxZ));
+  const _c = new THREE.Vector3();
+  out.boundingBox.getCenter(_c);
+  out.boundingSphere = new THREE.Sphere(_c.clone(), out.boundingBox.getSize(new THREE.Vector3()).length() / 2 + 1e-4);
+  return out;
+}
+
 async function mergeMeshesByMaterial(meshes, yieldFn) {
   if (!meshes || meshes.length <= 1) return meshes;
 
@@ -177,7 +246,10 @@ async function mergeMeshesByMaterial(meshes, yieldFn) {
 
     let merged;
     try {
-      merged = mergeGeometries(bucket.geos, false);
+      // Chunked (yielding) merge first — the sync mergeGeometries on a big bucket was a measured
+      // 20-36ms vsync-miss. Sync path stays as the fallback for exotic attribute layouts.
+      merged = await mergeGeometriesChunked(bucket.geos, yieldFn);
+      if (!merged) merged = mergeGeometries(bucket.geos, false);
     } catch {
       // Merge failed — keep originals
       result.push(...bucket.srcMeshes);
@@ -2448,7 +2520,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // wall boxes), so adding many in one synchronous burst jolts the frame. Yield every few bodies.
       for (let i = 0; i < entry.sceneryBodies.length; i++) {
         world.addBody(entry.sceneryBodies[i]);
-        if ((i & 7) === 7) { await yieldToMain(); if (aborted()) return entry; }
+        // yield check EVERY body — it's a no-op under budget, and one multi-shape body's AABB
+        // recompute can alone chew several ms (fps-diagnosis: chunks must stay ≤~10ms)
+        { await yieldToMain(); if (aborted()) return entry; }
       }
       await yieldToMain();
       if (aborted()) return entry;
@@ -2459,7 +2533,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (aborted()) return entry;
       for (let i = 0; i < entry.buildingBodies.length; i++) {
         world.addBody(entry.buildingBodies[i]);
-        if ((i & 3) === 3) { await yieldToMain(); if (aborted()) return entry; }
+        // every body (see scenery loop note) — a building body can hold hundreds of wall boxes
+        { await yieldToMain(); if (aborted()) return entry; }
       }
     }
 
