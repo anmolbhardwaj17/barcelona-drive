@@ -620,8 +620,11 @@ function getFacadeMaterial(hexColor, category) {
       color: hexColor,
       vertexColors: true,
       map: getWindowTexture(baseCategory),
-      specular: 0x8899AA,
-      shininess: 60,
+      // Softened (user report): 0x8899AA/60 painted a giant white sun-streak up the CURVED bullet
+      // towers at grazing angles — smooth revolves focus specular into one hot stripe. Keep a
+      // gentle sheen so glass still reads glossy vs the matte masonry.
+      specular: 0x2e3a44,
+      shininess: 22,
       reflectivity: 0.4,
       side: BUILDING_SIDE,
       ...emis,
