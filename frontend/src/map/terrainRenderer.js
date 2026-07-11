@@ -464,6 +464,41 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   });
   const coastEnabled = beachPolys.length > 0 || (Number.isFinite(elevation.min) && elevation.min <= SEA_RAW);
   const coastAttr = new Float32Array(vCount);
+
+  // Distance-to-sea grid (in cells) for the AUTO-BEACH band: OSM beach polygons are sparse, so any
+  // low-lying land within ~16 m of open sea gets sand even without a polygon (user call — "be
+  // smart, have some beach next to sea"). 5-pass dilation over the 128×128 grid, ~4 m/cell.
+  const SEA_DIST_MAX = 5;
+  let seaDist = null, distRC = null;
+  if (coastEnabled && Number.isFinite(elevation.min) && elevation.min <= SEA_RAW) {
+    const res = elevation.gridCols, resR = elevation.gridRows;
+    const src = elevation.elevations;
+    seaDist = new Uint8Array(resR * res).fill(255);
+    for (let i = 0; i < seaDist.length; i++) if (src[i] != null && src[i] <= SEA_RAW) seaDist[i] = 0;
+    for (let pass = 1; pass <= SEA_DIST_MAX; pass++) {
+      for (let rr = 0; rr < resR; rr++) {
+        for (let cc = 0; cc < res; cc++) {
+          const k = rr * res + cc;
+          if (seaDist[k] !== 255) continue;
+          const n0 = rr > 0 ? seaDist[k - res] : 255, n1 = rr < resR - 1 ? seaDist[k + res] : 255;
+          const n2 = cc > 0 ? seaDist[k - 1] : 255, n3 = cc < res - 1 ? seaDist[k + 1] : 255;
+          if (Math.min(n0, n1, n2, n3) === pass - 1) seaDist[k] = pass;
+        }
+      }
+    }
+    // world → grid (row, col) affine — same linearization as aoSampler (exact to <0.1% per tile).
+    const swW = latLonToWorld(elevation.south, elevation.west);
+    const seW = latLonToWorld(elevation.south, elevation.east);
+    const nwW = latLonToWorld(elevation.north, elevation.west);
+    const colPerX = (res - 1) / (seW.x - swW.x);
+    const rowPerZ = (resR - 1) / (nwW.z - swW.z);
+    distRC = (wx, wz) => {
+      let c = (wx - swW.x) * colPerX, r = (wz - swW.z) * rowPerZ;
+      if (c < 0) c = 0; else if (c > res - 1) c = res - 1;
+      if (r < 0) r = 0; else if (r > resR - 1) r = resR - 1;
+      return seaDist[Math.round(r) * res + Math.round(c)];
+    };
+  }
   const inBeachPoly = (x, z) => {
     for (const bp of beachPolys) {
       if (x < bp.minX || x > bp.maxX || z < bp.minZ || z > bp.maxZ) continue;
@@ -607,8 +642,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         g = 0.165 + sn;
         b = 0.270 + sn;
         coastAttr[i] = 1;
-      } else if (inBeachPoly(vx, vz)) {
-        // Dry sand, blending toward wet sand as it approaches the waterline.
+      } else if (inBeachPoly(vx, vz) || (distRC && raw < 2.2 && distRC(vx, vz) <= 4)) {
+        // Dry sand, blending toward wet sand as it approaches the waterline. Two triggers:
+        // an OSM beach polygon, OR the auto-beach band (low land within ~16 m of open sea —
+        // OSM's beach coverage is too sparse to rely on alone).
         const wet = raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0;
         const sn = terrainNoise(vx, vz, 0.09, 11.0) * 0.045;
         const dr = 0.545 + sn, dg = 0.480 + sn * 0.8, db = 0.335 + sn * 0.5;

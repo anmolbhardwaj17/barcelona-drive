@@ -34,9 +34,20 @@ function districts() {
 // Mediterranean coastline (NE→SW, [lat,lon]). The baked data only has port/marina water polygons — no
 // open sea — so we fill the sea ourselves: trace the shore, then extend far offshore (SE) to close a big
 // polygon. Canvas clips it per tile, so it only paints the seaward side of the coast.
+// v2 trace (2026-07-11): the old 8-point line cut ACROSS the Barceloneta peninsula (sea painted over
+// Passeig de Joan de Borbó — user report) and left land wedges jutting into blue at the sparse port
+// stretch. This one follows the beaches, wraps the peninsula tip, and hugs the outer port breakwater.
 const SEA_COAST = [
-  [41.4210, 2.2300], [41.3960, 2.2050], [41.3860, 2.1955], [41.3775, 2.1918],
-  [41.3700, 2.1810], [41.3540, 2.1640], [41.3350, 2.1470], [41.3180, 2.1320],
+  [41.4210, 2.2300],                                        // Besòs end
+  [41.4110, 2.2210], [41.4040, 2.2120],                     // Llevant / Mar Bella
+  [41.3985, 2.2060], [41.3935, 2.2020],                     // Bogatell / Nova Icària
+  [41.3878, 2.1990], [41.3855, 2.1965],                     // Port Olímpic breakwater
+  [41.3810, 2.1945], [41.3765, 2.1920],                     // Somorrostro / Barceloneta beach
+  [41.3722, 2.1905], [41.3688, 2.1898],                     // Sant Sebastià → W-hotel spit tip
+  [41.3672, 2.1870], [41.3665, 2.1820],                     // wrap the peninsula tip seaward side
+  [41.3630, 2.1750], [41.3585, 2.1690],                     // outer commercial-port breakwater
+  [41.3510, 2.1610], [41.3420, 2.1530],
+  [41.3300, 2.1430], [41.3180, 2.1320],                     // Zona Franca end
 ];
 // Sea name label, placed out in the open water (SE of the city).
 const SEA_LABEL = { text: 'MAR MEDITERRÀNIA', lat: 41.352, lon: 2.212 };
@@ -77,6 +88,7 @@ const STYLE = {
     ground:    '#edefeb',   // very light grey urban base
     park:      '#aacd90',   // muted green
     water:     '#66b3e6',   // lighter bright blue
+    sand:      '#efe3b8',   // beach sand
     building:  '#f7f8f5',   // near-white blocks
     buildingEdge: '#e1e3de',
     casing:    '#d7d9d4',   // light casing — just enough to define the white roads on the light land
@@ -89,6 +101,7 @@ const STYLE = {
     ground:    '#212a40',   // lighter night land (was #141b2f — too dark)
     park:      '#33543a',
     water:     '#2b5378',   // lighter night sea (was #1d3555)
+    sand:      '#57503c',   // beach sand, moonlit
     seaLabel:  '#9fc4e4', seaHalo: 'rgba(10,20,38,0.85)',
     building:  '#28304a',
     buildingEdge: '#1b2236',
@@ -149,12 +162,13 @@ export function createCustomMap() {
       };
       const water = unpackPolys(wCoords, wOffsets);
       const parks = unpackPolys(pCoords, pOffsets);
+      const sands = (tileData.bCoords && tileData.bOffsets) ? unpackPolys(tileData.bCoords, tileData.bOffsets) : [];
       const tbb = [Infinity, Infinity, -Infinity, -Infinity];
-      for (const f of [...roads, ...water, ...parks]) {
+      for (const f of [...roads, ...water, ...parks, ...sands]) {
         if (f.bbox[0] < tbb[0]) tbb[0] = f.bbox[0]; if (f.bbox[1] < tbb[1]) tbb[1] = f.bbox[1];
         if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
       }
-      store.set(key, { roads, water, parks, builds: [], lite: true, tbb });
+      store.set(key, { roads, water, parks, sands, builds: [], lite: true, tbb });
       if (!quiet) _onChange?.();
       return;
     }
@@ -171,16 +185,18 @@ export function createCustomMap() {
     for (const f of tileData.water || []) { const pts = f.polygon; if (pts && pts.length >= 3) water.push({ pts, bbox: bboxOf(pts) }); }
     const parks = [];
     for (const f of tileData.greens || []) { const pts = f.polygon; if (pts && pts.length >= 3) parks.push({ pts, bbox: bboxOf(pts) }); }
+    const sands = [];
+    for (const f of tileData.beaches || []) { const pts = f.polygon; if (!f.isLine && pts && pts.length >= 3) sands.push({ pts, bbox: bboxOf(pts) }); }
     const builds = [];
     if (!lite) for (const b of tileData.buildings || []) { const pts = b.footprint; if (pts && pts.length >= 3) builds.push({ pts, bbox: bboxOf(pts) }); }
     // Tile-level bbox (union of everything) → drawTile can skip a whole tile in one check instead of
     // testing every feature. Critical once the entire city (426 tiles) is loaded.
     const tbb = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const f of [...roads, ...water, ...parks, ...builds]) {
+    for (const f of [...roads, ...water, ...parks, ...sands, ...builds]) {
       if (f.bbox[0] < tbb[0]) tbb[0] = f.bbox[0]; if (f.bbox[1] < tbb[1]) tbb[1] = f.bbox[1];
       if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
     }
-    store.set(key, { roads, water, parks, builds, lite, tbb });
+    store.set(key, { roads, water, parks, sands, builds, lite, tbb });
     if (!quiet) _onChange?.();
   }
 
@@ -253,7 +269,9 @@ export function createCustomMap() {
       ctx.fill();
     }
 
-    // 1. parks + water fills (under the roads)
+    // 1. sand + parks + water fills (under the roads). Sand first: beach polys overlap the sea
+    // fill at the waterline and the water polys (harbour basins) must win over both.
+    for (const t of vis) if (t.sands) fillPoly(t.sands, S.sand);
     for (const t of vis) fillPoly(t.parks, S.park);
     for (const t of vis) fillPoly(t.water, S.water);
 

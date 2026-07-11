@@ -1788,7 +1788,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const options = getElevationAt ? { getElevationAt, elevationOffset, getWorldElevation, getGroundY, buildings: buildings || [] } : { elevationOffset, getGroundY, buildings: buildings || [] };
     if (data.bakedRoads) options.bakedRoads = data.bakedRoads;
     if (data.bakedSidewalks) options.bakedSidewalks = data.bakedSidewalks;   // v8 — pre-baked sidewalks/curbs
-    const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [] };
+    const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [], beaches: data.beaches || [] };
     if (data.bakedVegetation) tileData.bakedVegetation = data.bakedVegetation;
 
     _perfMark('tunnels+setup');

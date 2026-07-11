@@ -43,7 +43,7 @@ function packRings(features, key) {
 // (mapLoader `_worker.onmessage`) the #1 allocator (~64% of GC) AND a synchronous mid-frame burst that
 // stuttered driving. Typed arrays transfer zero-copy, so the receive costs nothing; ingestTile re-inflates
 // on the idle-paced side. Road width/type/name stay as plain arrays (few, string-interned → cheap to clone).
-function packLite(roads, water, greens) {
+function packLite(roads, water, greens, beaches) {
   const road = packRings(roads, 'points');
   const nR = road.offsets.length - 1;
   const rWidth = new Float32Array(nR);
@@ -59,11 +59,13 @@ function packLite(roads, water, greens) {
   }
   const wat = packRings(water, 'polygon');
   const grn = packRings(greens, 'polygon');
+  const bch = packRings(beaches || [], 'polygon');
   return {
     packed: true,
     rCoords: road.coords, rOffsets: road.offsets, rWidth, rType, rName,
     wCoords: wat.coords, wOffsets: wat.offsets,
     pCoords: grn.coords, pOffsets: grn.offsets,
+    bCoords: bch.coords, bOffsets: bch.offsets,
   };
 }
 
@@ -94,7 +96,10 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
 
   // LITE parse (custom-map background load): only the 2D features it draws. Skips buildings, the heavy
   // elevation grid (Array.from a Float32 grid — the #1 allocator), vegetation, terrain, and all POIs.
-  if (lite) return packLite(roads, water, greens);
+  if (lite) {
+    const liteBeaches = header.beaches ? readAreaFeatures(header.beaches, buffer, binOffset) : [];
+    return packLite(roads, water, greens, liteBeaches.filter((b) => !b.isLine));
+  }
 
   const buildings = header.buildings
     ? readBuildings(header.buildings, buffer, binOffset)
