@@ -11,6 +11,7 @@ import { getWorldElevationOffset } from '../elevationOffset.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
+import { applyGroundLayer } from './groundLayers.js';
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -136,14 +137,14 @@ function getSidewalkWidthForRoad(highwayType) {
 
 /** Asphalt colors by highway type (hex) — unified dark asphalt. */
 const COLOR_BY_TYPE = {
-  motorway: 0x61768C,
-  trunk: 0x61768C,
-  primary: 0x61768C,
-  secondary: 0x61768C,
-  tertiary: 0x61768C,
-  residential: 0x61768C,
-  service: 0x61768C,
-  unclassified: 0x61768C,
+  motorway: 0x3A414B,
+  trunk: 0x3A414B,
+  primary: 0x3A414B,
+  secondary: 0x3A414B,
+  tertiary: 0x3A414B,
+  residential: 0x3A414B,
+  service: 0x3A414B,
+  unclassified: 0x3A414B,
 };
 
 /** Road width (m) by highway type. Used when road.width is not set.
@@ -190,13 +191,11 @@ function getPanotMaterial() {
   if (_panotMaterial) return _panotMaterial;
   const { panotTexture } = createRoadTextures();
   panotTexture.anisotropy = _maxAnisotropy;
-  _panotMaterial = new THREE.MeshLambertMaterial({
+  _panotMaterial = patchRoadWash(new THREE.MeshLambertMaterial({
     map: panotTexture,
     color: 0xffffff,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
+  }));
+  applyGroundLayer(_panotMaterial, 'sidewalk');
   return _panotMaterial;
 }
 
@@ -215,11 +214,9 @@ function getCurbMaterial() {
 function getBikeLaneMaterial() {
   if (_bikeLaneMaterial) return _bikeLaneMaterial;
   _bikeLaneMaterial = new THREE.MeshLambertMaterial({
-    color: BCN_COLORS.PAINT_BIKE_GREEN,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
+    color: _decalNight ? 0x55906b : BCN_COLORS.PAINT_BIKE_GREEN,   // night lift — see setRoadDecalNightMode
   });
+  applyGroundLayer(_bikeLaneMaterial, 'bikeLane');
   return _bikeLaneMaterial;
 }
 
@@ -227,12 +224,12 @@ function getBikeLaneMaterial() {
 function getBikePictogramMaterial() {
   if (_bikePictogramMaterial) return _bikePictogramMaterial;
   const { bikePictogramTexture } = createRoadTextures();
-  _bikePictogramMaterial = new THREE.MeshBasicMaterial({
+  _bikePictogramMaterial = applyGroundLayer(new THREE.MeshBasicMaterial({
     map: bikePictogramTexture,
     transparent: true,
     alphaTest: 0.1,
     depthWrite: false,
-  });
+  }), 'stencil');
   return _bikePictogramMaterial;
 }
 
@@ -251,20 +248,48 @@ let sharedMaterials = null;
 let sidewalkMaterial = null;
 let edgeStripMaterial = null;
 
+// ── Night building-glow wash on road surfaces ────────────────────────────────
+// Roads near buildings pick up the same warm ground-glow the facades' lower floors have, so lit
+// blocks and their streets merge at night; away from buildings the wash factor (per-vertex aWash,
+// baked by tileManager from building proximity) falls to 0 and the road fades to plain dark.
+// ONE shared uniform drives every patched road material; geometry without aWash reads 0 (no wash).
+const _roadWashUniform = { value: 0 };
+export function setRoadNightWash(isNight) { _roadWashUniform.value = isNight ? 0.045 : 0; }
+
+// Deep-albedo road decals crush to BLACK under the blue night rig (PAINT_BLUE's red channel is 0;
+// the bike-lane green is dark) — the "black patches" on night streets. Lift to moonlit variants.
+let _decalNight = false;
+export function setRoadDecalNightMode(isNight) {
+  _decalNight = isNight;
+  if (_blueZoneMaterial) _blueZoneMaterial.color.setHex(isNight ? 0x3a6ea8 : BCN_COLORS.PAINT_BLUE);
+  if (_bikeLaneMaterial) _bikeLaneMaterial.color.setHex(isNight ? 0x55906b : BCN_COLORS.PAINT_BIKE_GREEN);
+}
+function patchRoadWash(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNightWash = _roadWashUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
+      .replace('#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
+  };
+  return mat;
+}
+
 /** Asphalt road material with vertex color variation (stylized mode). */
 function getSharedRoadMaterial() {
   if (sharedRoadMaterial) return sharedRoadMaterial;
-  sharedRoadMaterial = new THREE.MeshStandardMaterial({
+  sharedRoadMaterial = patchRoadWash(new THREE.MeshStandardMaterial({
     color: 0xffffff,       // white base — actual color comes from vertex colors
     vertexColors: true,
     roughness: 0.9,
     metalness: 0,
     depthWrite: true,
     side: THREE.DoubleSide,  // visible from below bridges
-    polygonOffset: true,     // push road surface toward camera to prevent z-fighting with bridge slab
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
+  }));
+  applyGroundLayer(sharedRoadMaterial, 'road');   // above terrain/greens, below all paint
   return sharedRoadMaterial;
 }
 
@@ -328,12 +353,12 @@ function getSharedMaterials() {
   if (sharedMaterials) return sharedMaterials;
   sharedMaterials = {};
   for (const [type, hex] of Object.entries(COLOR_BY_TYPE)) {
-    sharedMaterials[type] = new THREE.MeshStandardMaterial({
+    sharedMaterials[type] = patchRoadWash(new THREE.MeshStandardMaterial({
       color: hex,
       roughness: 0.9,
       metalness: 0,
       flatShading: false,
-    });
+    }));
   }
   return sharedMaterials;
 }
@@ -341,11 +366,84 @@ function getSharedMaterials() {
 /** Flat beige sidewalk material (stylized mode — no textures). */
 function getSidewalkMaterial() {
   if (sidewalkMaterial) return sidewalkMaterial;
-  sidewalkMaterial = new THREE.MeshLambertMaterial({
+  sidewalkMaterial = patchRoadWash(new THREE.MeshLambertMaterial({
     color: 0xb8bab5,
     depthWrite: true,
-  });
+  }));
   return sidewalkMaterial;
+}
+
+/**
+ * Bake the per-vertex building-proximity wash factor (aWash) into ground meshes. Sources are the
+ * buildings' footprint OUTLINE points (not just centroids — big blocks would starve their kerb),
+ * hashed into a coarse grid; each vertex takes 1 − d/RANGE to its nearest source. Streets flanked
+ * by buildings glow with the facades at night; empty stretches read 0 → plain dark. ~1 grid lookup
+ * per vertex; call it through the tile builder's yield budget.
+ */
+const WASH_RANGE = 18, WASH_R2 = WASH_RANGE * WASH_RANGE, WASH_CELL = 24;  // CELL ≥ RANGE → ±1-cell query
+
+/** Hash grid of building footprint outline points — shared by road, sidewalk AND vegetation washes.
+ *  Points are thinned to ≥5 m spacing: a dense Eixample tile put 100+ points per cell, turning each
+ *  washAt into ~900 distance checks (measured: 55 ms wash chunks). The wash is a soft 18 m gradient —
+ *  5 m source spacing is visually identical. */
+export function buildWashGrid(buildings) {
+  const grid = new Map();
+  const MIN_SPACING_SQ = 5 * 5;
+  for (const b of buildings) {
+    const fp = b.footprint;
+    if (!fp || fp.length < 3) continue;
+    let lx = Infinity, lz = Infinity;
+    for (let i = 0; i < fp.length; i++) {
+      const px = fp[i].x, pz = fp[i].y;
+      const dx = px - lx, dz = pz - lz;
+      if (dx * dx + dz * dz < MIN_SPACING_SQ) continue;   // too close to the previous kept point
+      lx = px; lz = pz;
+      const k = Math.floor(px / WASH_CELL) * 100003 + Math.floor(pz / WASH_CELL);
+      let a = grid.get(k);
+      if (!a) grid.set(k, a = []);
+      a.push(px, pz);
+    }
+  }
+  return grid.size ? grid : null;
+}
+
+/** 1 at a building wall → 0 beyond WASH_RANGE. */
+export function washAt(grid, x, z) {
+  const gx = Math.floor(x / WASH_CELL), gz = Math.floor(z / WASH_CELL);
+  let best = WASH_R2;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const a = grid.get((gx + dx) * 100003 + (gz + dz));
+      if (!a) continue;
+      for (let j = 0; j < a.length; j += 2) {
+        const ddx = a[j] - x, ddz = a[j + 1] - z;
+        const d2 = ddx * ddx + ddz * ddz;
+        if (d2 < best) best = d2;
+      }
+    }
+  }
+  return best < WASH_R2 ? 1 - Math.sqrt(best) / WASH_RANGE : 0;
+}
+
+export async function bakeRoadWash(meshes, buildings, yieldFn) {
+  const grid = buildWashGrid(buildings);
+  if (!grid) return;
+
+  for (const mesh of meshes) {
+    const pos = mesh?.geometry?.getAttribute?.('position');
+    if (!pos) continue;
+    const n = pos.count;
+    const wash = new Float32Array(n);
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      const w = washAt(grid, pos.getX(i), pos.getZ(i));
+      if (w > 0) { wash[i] = w; any = true; }
+      // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts
+      if (yieldFn && (i & 8191) === 8191) await yieldFn();
+    }
+    if (any) mesh.geometry.setAttribute('aWash', new THREE.BufferAttribute(wash, 1));
+    if (yieldFn) await yieldFn();
+  }
 }
 
 function getEdgeStripMaterial() {
@@ -854,6 +952,10 @@ function getOffsetPolyline(points, offset) {
 export function createRoadMesh(road, options, taperedWidths) {
   const pts = road.points;
   if (!pts || pts.length < 2) return null;
+  // Marked crossings (footway=crossing etc., flagged at bake — bake-surface-clipping.md Phase 1):
+  // no ribbon. They live INSIDE the carriageway; the zebra decals come from buildCrosswalks and
+  // the polyline stays available to gameplay systems.
+  if (road.crossing) return null;
   const widthOrWidths = taperedWidths || (
     Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
@@ -885,17 +987,17 @@ const MARK_DAY = 0x8a8a8a, MARK_NIGHT = 0x565b62;
 /** Shared unlit material for all lane lines + zebra crosswalks (created once, night-state-aware). */
 function getMarkingMaterial() {
   if (!_mergedMarkingMaterial) {
-    _mergedMarkingMaterial = new THREE.MeshBasicMaterial({
+    _mergedMarkingMaterial = applyGroundLayer(new THREE.MeshBasicMaterial({
       color: _markingNight ? MARK_NIGHT : MARK_DAY,
-      vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    });
+      vertexColors: true,
+    }), 'marking');
   }
   return _mergedMarkingMaterial;
 }
 let _mergedPedestrianMaterial = null;
 function getWhiteLineMaterial() {
   if (!whiteLineMaterial) {
-    whiteLineMaterial = new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    whiteLineMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false }), 'marking');
   }
   return whiteLineMaterial;
 }
@@ -904,7 +1006,7 @@ function getWhiteLineMaterial() {
 let yellowLineMaterial = null;
 function getYellowLineMaterial() {
   if (!yellowLineMaterial) {
-    yellowLineMaterial = new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    yellowLineMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false }), 'marking');
   }
   return yellowLineMaterial;
 }
@@ -1565,6 +1667,63 @@ function buildSidewalks(roads, options) {
 }
 
 /**
+ * Materialize PRE-BAKED sidewalk + curb geometry (v8 tiles, sidewalkBaker.js blobs).
+ * Blob Y is RAW DEM elevation (+CURB_HEIGHT baked in) — normalized here exactly like the
+ * bakedRoads fast path: y' = (y − elevationOffset) × vertExag + ROAD_VISUAL_ABOVE_TERRAIN.
+ */
+function buildBakedSidewalkMeshes(bs, bakedOffset, bakedVertExag) {
+  const toGeom = (blob, withUv) => {
+    if (!blob?.positions || !blob?.indices) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(
+      blob.positions instanceof Float32Array ? blob.positions : new Float32Array(blob.positions), 3));
+    if (blob.normals) {
+      g.setAttribute('normal', new THREE.BufferAttribute(
+        blob.normals instanceof Float32Array ? blob.normals : new Float32Array(blob.normals), 3));
+    }
+    if (withUv && blob.uvs) {
+      g.setAttribute('uv', new THREE.BufferAttribute(
+        blob.uvs instanceof Float32Array ? blob.uvs : new Float32Array(blob.uvs), 2));
+    }
+    g.setIndex(new THREE.BufferAttribute(
+      blob.indices instanceof Uint32Array ? blob.indices : new Uint32Array(blob.indices), 1));
+    if (!g.getAttribute('normal')) g.computeVertexNormals();
+    if (bakedVertExag !== 1) g.scale(1, bakedVertExag, 1);
+    g.translate(0, -bakedOffset * bakedVertExag + ROAD_VISUAL_ABOVE_TERRAIN, 0);
+    return g;
+  };
+
+  let sidewalkMesh = null;
+  const swGeom = toGeom(bs.sidewalk, true);
+  if (swGeom) {
+    sidewalkMesh = new THREE.Mesh(swGeom, getPanotMaterial());
+    sidewalkMesh.castShadow = false;
+    sidewalkMesh.receiveShadow = true;
+    sidewalkMesh.frustumCulled = false;
+    sidewalkMesh.userData = { sharedMaterial: true, type: 'sidewalk', noMerge: true };
+  }
+
+  let curbMesh = null;
+  const curbGeoms = [toGeom(bs.curbTop, false), toGeom(bs.curbFace, false)].filter(Boolean);
+  if (curbGeoms.length) {
+    let merged = curbGeoms[0];
+    if (curbGeoms.length > 1) {
+      try { merged = mergeGeometries(curbGeoms); curbGeoms.forEach((g) => { if (g !== merged) g.dispose(); }); }
+      catch { merged = curbGeoms[0]; }
+    }
+    if (merged) {
+      curbMesh = new THREE.Mesh(merged, getCurbMaterial());
+      curbMesh.castShadow = false;
+      curbMesh.receiveShadow = false;
+      curbMesh.frustumCulled = false;
+      curbMesh.userData = { sharedMaterial: true, type: 'curb', noMerge: true };
+    }
+  }
+
+  return { sidewalkMesh, curbMesh };
+}
+
+/**
  * Build granite curb L-profile between road edge and sidewalk.
  * Two quads per segment: top face (horizontal) + outer vertical face (facing road).
  * Only generated for roads that have sidewalks (same eligibility as buildSidewalks).
@@ -1914,13 +2073,13 @@ function getZona30Texture() {
 let _zona30Material = null;
 function getZona30Material() {
   if (_zona30Material) return _zona30Material;
-  _zona30Material = new THREE.MeshBasicMaterial({
+  _zona30Material = applyGroundLayer(new THREE.MeshBasicMaterial({
     map: getZona30Texture(),
     transparent: true,
     alphaTest: 0.05,
     depthWrite: false,
     side: THREE.DoubleSide,
-  });
+  }), 'stencil');
   return _zona30Material;
 }
 
@@ -2025,12 +2184,9 @@ function getTactileTexture() {
 let _tactileMat = null;
 function getTactileMaterial() {
   if (_tactileMat) return _tactileMat;
-  _tactileMat = new THREE.MeshLambertMaterial({
+  _tactileMat = applyGroundLayer(new THREE.MeshLambertMaterial({
     map: getTactileTexture(),
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  }), 'tactile');
   return _tactileMat;
 }
 
@@ -2141,12 +2297,9 @@ const STRIPE_W        = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10m
 let _noParkingMaterial = null;
 function getNoParkingMaterial() {
   if (_noParkingMaterial) return _noParkingMaterial;
-  _noParkingMaterial = new THREE.MeshLambertMaterial({
+  _noParkingMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: BCN_COLORS.PAINT_YELLOW,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  }), 'parkingZone');
   return _noParkingMaterial;
 }
 
@@ -2231,12 +2384,9 @@ function buildNoParkingStripes(roads, options) {
 let _blueZoneMaterial = null;
 function getBlueZoneMaterial() {
   if (_blueZoneMaterial) return _blueZoneMaterial;
-  _blueZoneMaterial = new THREE.MeshLambertMaterial({
-    color: BCN_COLORS.PAINT_BLUE,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  _blueZoneMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
+    color: _decalNight ? 0x3a6ea8 : BCN_COLORS.PAINT_BLUE,   // night lift — see setRoadDecalNightMode
+  }), 'parkingZone');
   return _blueZoneMaterial;
 }
 
@@ -4496,9 +4646,17 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   const { sidewalkMesh, edgeStripMesh } = buildSidewalkAndEdgeMeshes(roads, options);
   const crosswalkMesh      = buildCrosswalks(roads, options);
   const onewayArrowMesh    = buildOnewayArrows(roads, options);
-  // Phase 3 Barcelona (OSM-driven sidewalks, curbs, bike infrastructure)
-  const bcnSidewalkMesh    = buildSidewalks(roads, options);
-  const bcnCurbMesh        = buildCurbs(roads, options);
+  // Phase 3 Barcelona (OSM-driven sidewalks, curbs, bike infrastructure).
+  // v8 tiles carry PRE-BAKED sidewalk/curb geometry (sidewalkBaker.js — pre-clipped, zero build
+  // cost); v7 tiles fall back to the runtime generators, which must stay behaviour-identical.
+  let bcnSidewalkMesh, bcnCurbMesh;
+  if (options?.bakedSidewalks) {
+    ({ sidewalkMesh: bcnSidewalkMesh, curbMesh: bcnCurbMesh } =
+      buildBakedSidewalkMeshes(options.bakedSidewalks, bakedOffset, bakedVertExag));
+  } else {
+    bcnSidewalkMesh = buildSidewalks(roads, options);
+    bcnCurbMesh     = buildCurbs(roads, options);
+  }
   const bcnBikeLaneMesh    = buildBikeLanes(roads, options);
   const bcnBikePictoMesh   = buildBikePictograms(roads, options);
   // Phase 4A Barcelona (tram handled in tileManager via createTramMeshes; no-parking stripes here)
@@ -4573,15 +4731,13 @@ let goreMaterial = null;
 function getGoreMaterial() {
   if (goreMaterial) return goreMaterial;
   // Same dark asphalt grey as road surface, slightly lighter to hint at paint/hatch
-  goreMaterial = new THREE.MeshStandardMaterial({
+  goreMaterial = applyGroundLayer(new THREE.MeshStandardMaterial({
     color: 0x556270,
     roughness: 0.92,
     metalness: 0,
     side: THREE.DoubleSide,
     depthWrite: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -1, // draw on top of terrain, below road markings
-  });
+  }), 'gore');   // on asphalt, below all paint
   return goreMaterial;
 }
 
@@ -4638,12 +4794,9 @@ let _chamferMaterial = null;
 function getChamferMaterial() {
   if (_chamferMaterial) return _chamferMaterial;
   // Match gore polygon style — solid asphalt, slightly above terrain
-  _chamferMaterial = new THREE.MeshLambertMaterial({
+  _chamferMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: 0x4a4a4a,   // BCN_COLORS.ASPHALT_BASE
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
+  }), 'gore');   // junction chamfer fill: same slot as gores — asphalt-plane fills under paint
   return _chamferMaterial;
 }
 

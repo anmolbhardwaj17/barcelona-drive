@@ -81,6 +81,14 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
   // stays put instead of being wiped and replaced), cull only those who've left range, and top up new
   // ones out in the distance. Full wipe-and-respawn was the cause of pedestrians vanishing on approach.
   const NEAR_SPAWN_2 = 30 * 30; // don't spawn newcomers within 30m of the player (avoids pop-in nearby)
+  // Cache a segment's invariant walk metadata once (on seg._pedMeta). null = not walkable.
+  function computePedMeta(seg) {
+    if (!WALKABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) return null;
+    const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
+    let minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
+    for (const p of seg.points) { if (p.x < minWx) minWx = p.x; if (p.x > maxWx) maxWx = p.x; if (p.y < minWy) minWy = p.y; if (p.y > maxWy) maxWy = p.y; }
+    return { off: halfW + SIDEWALK_PAD, minWx, maxWx, minWy, maxWy };
+  }
   function reassign(playerPx, playerPz) {
     const segs = getRoadSegments?.();
     if (!segs || !nVar) return;   // keep existing crowd if road data is momentarily unavailable
@@ -96,16 +104,20 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       if ((cx - playerPx) ** 2 + (cz - playerPz) ** 2 > R2) peds.splice(i, 1);
     }
 
+    // Player in world frame (roads stored world-frame). Once, not per segment.
+    const pwx = origin.x - playerPx, pwy = playerPz + origin.z;
     const cand = [];
     for (const seg of segs) {
-      if (!WALKABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) continue;
-      const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
-      const off = halfW + SIDEWALK_PAD;
-      // Whole-segment bbox cull (physics frame) — skip far roads before the inner walk + getGroundY calls.
-      let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
-      for (const p of seg.points) { const x = -(p.x - origin.x), z = p.y - origin.z; if (x < mnX) mnX = x; if (x > mxX) mxX = x; if (z < mnZ) mnZ = z; if (z > mxZ) mxZ = z; }
-      const cddx = Math.max(mnX - playerPx, 0, playerPx - mxX), cddz = Math.max(mnZ - playerPz, 0, playerPz - mxZ);
-      if (cddx * cddx + cddz * cddz > R2) continue;
+      // Cache the segment's invariant walkability + sidewalk offset + world bbox (roads don't move), so a
+      // far segment costs only the cheap cached-bbox test — not a full point-walk + getGroundY calls every
+      // 40 m. This was the twin of the parked-car `ent` stutter.
+      let meta = seg._pedMeta;
+      if (meta === undefined) { meta = computePedMeta(seg); seg._pedMeta = meta; }
+      if (!meta) continue;
+      const cddx = Math.max(meta.minWx - pwx, 0, pwx - meta.maxWx);
+      const cddy = Math.max(meta.minWy - pwy, 0, pwy - meta.maxWy);
+      if (cddx * cddx + cddy * cddy > R2) continue;
+      const off = meta.off;
       for (let s = 0; s < seg.points.length - 1; s++) {
         const ax = -(seg.points[s].x - origin.x), az = seg.points[s].y - origin.z;
         const bx = -(seg.points[s + 1].x - origin.x), bz = seg.points[s + 1].y - origin.z;

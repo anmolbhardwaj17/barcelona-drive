@@ -16,14 +16,26 @@ import { worldToLatLon } from '../projection.js';
 const KICK_TOP   = 0.42;   // top of the stallriser (bottom solid band)
 const GLASS_TOP  = 2.55;   // top of the display glass (below the ~2.9 m awning back)
 const LINTEL_TOP = 2.80;   // top of the header band
-const DOOR_H     = 2.20;   // door height
-const DOOR_W     = 1.10;   // door width
 const FRAME      = 0.13;   // mullion / frame bar width
 const SEG_LEN    = 3.4;    // one storefront ≈ one shop (matches the awning segmentation)
 const SEG_GAP    = 0.4;
 const EDGE_MARGIN = 0.5;
 const MIN_EDGE   = 6;
 const SEG_CAP    = 260;
+const MAX_SEGS_PER_BUILDING = 4;   // long facades don't become an unbroken shop wall
+
+// Deterministic per-segment skip (~35%) so shop rows breathe. MUST stay IDENTICAL to
+// awningRenderer's copy — both renderers segment the same edge with the same indices, and a
+// skipped storefront must also skip its awning.
+export function shopSegSkipped(cx, cz, s) {
+  let h = ((Math.round(cx * 10) * 73856093) ^ (Math.round(cz * 10) * 19349663) ^ ((s + 1) * 83492791)) >>> 0;
+  return (h % 1000) < 350;
+}
+
+// Quantize ground height to 0.75 m steps — IDENTICAL in awningRenderer. Adjacent narrow buildings
+// with sub-step elevation differences share one level, so a shop row doesn't jitter up/down;
+// genuine slopes still step.
+export function shopGroundY(y) { return Math.round(y / 0.75) * 0.75; }
 
 const C_FRAME = 0x26262b;  // dark frame / mullions / lintel
 const C_KICK  = 0x595961;  // stone stallriser
@@ -99,13 +111,13 @@ export function buildShopfrontMeshes(buildings, opts = {}) {
     let groundY = 0;
     if (getElevationAt) {
       const { lat, lon } = worldToLatLon(mx, mz);
-      groundY = (getElevationAt(lat, lon) ?? 0) * vertExag;
+      groundY = shopGroundY((getElevationAt(lat, lon) ?? 0) * vertExag);
     }
 
     const usable = edgeLen - 2 * EDGE_MARGIN;
     if (usable < SEG_LEN * 0.6) continue;
     const stride = SEG_LEN + SEG_GAP;
-    const n = Math.max(1, Math.floor((usable + SEG_GAP) / stride));
+    const n = Math.min(MAX_SEGS_PER_BUILDING, Math.max(1, Math.floor((usable + SEG_GAP) / stride)));
     const rowLen = n * SEG_LEN + (n - 1) * SEG_GAP;
     let t = EDGE_MARGIN + (usable - rowLen) / 2;
 
@@ -113,21 +125,17 @@ export function buildShopfrontMeshes(buildings, opts = {}) {
     const GO = 0.03, FO = 0.07;   // glass recessed, frame proud
 
     for (let s = 0; s < n && segCount < SEG_CAP; s++, t += stride) {
+      if (shopSegSkipped(cx, cz, s)) continue;
       const t0 = t, t1 = t + SEG_LEN;
-      const doorC = (t0 + t1) / 2, dL = doorC - DOOR_W / 2, dR = doorC + DOOR_W / 2;
 
-      // ── glass panes ──
-      // door
-      quad(gPos, gIdx, null, ax, az, dx, dz, nx, nz, GO, dL, dR, 0.02, DOOR_H, groundY);
-      // left + right display windows (skip if too narrow)
-      if (dL - FRAME - (t0 + FRAME) > 0.35) quad(gPos, gIdx, null, ax, az, dx, dz, nx, nz, GO, t0 + FRAME, dL - FRAME, KICK_TOP, GLASS_TOP, groundY);
-      if (t1 - FRAME - (dR + FRAME) > 0.35) quad(gPos, gIdx, null, ax, az, dx, dz, nx, nz, GO, dR + FRAME, t1 - FRAME, KICK_TOP, GLASS_TOP, groundY);
+      // ── glass: ONE uniform display band per storefront (no lower centre "entrance" pane — the
+      //    stepped door glass made the night glow read as uneven heights) ──
+      quad(gPos, gIdx, null, ax, az, dx, dz, nx, nz, GO, t0 + FRAME, t1 - FRAME, KICK_TOP, GLASS_TOP, groundY);
 
-      // ── frame: kickplate under the windows, lintel across the top, vertical mullions ──
-      if (dL - (t0) > 0.3) quad(fPos, fIdx, fCol, ax, az, dx, dz, nx, nz, FO, t0, dL, 0, KICK_TOP, groundY, C_KICK);
-      if (t1 - dR > 0.3)   quad(fPos, fIdx, fCol, ax, az, dx, dz, nx, nz, FO, dR, t1, 0, KICK_TOP, groundY, C_KICK);
+      // ── frame: full-width kickplate, lintel across the top, edge mullions ──
+      quad(fPos, fIdx, fCol, ax, az, dx, dz, nx, nz, FO, t0, t1, 0, KICK_TOP, groundY, C_KICK);
       quad(fPos, fIdx, fCol, ax, az, dx, dz, nx, nz, FO, t0, t1, GLASS_TOP, LINTEL_TOP, groundY, C_FRAME);  // lintel
-      for (const mt of [t0, dL, dR, t1]) {  // vertical mullions
+      for (const mt of [t0, t1]) {  // vertical mullions at the segment edges
         quad(fPos, fIdx, fCol, ax, az, dx, dz, nx, nz, FO, mt - FRAME / 2, mt + FRAME / 2, 0, GLASS_TOP, groundY, C_FRAME);
       }
       segCount++;

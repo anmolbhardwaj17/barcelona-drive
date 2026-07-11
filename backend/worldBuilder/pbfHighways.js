@@ -16,6 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const KEEP_TAGS = ['highway', 'bridge', 'tunnel', 'layer', 'lanes', 'surface', 'incline', 'name', 'service', 'junction',
                    'oneway', 'sidewalk', 'cycleway', 'maxspeed',
+                   'footway', 'path', 'crossing',   // marked-crossing detection (bake-surface-clipping.md Phase 1)
                    'parking:lane:left', 'parking:lane:right', 'parking:lane:both',   // Phase 4A: no-parking stripes
                    // Phase 4C-B: Barcelona's primary parking restriction schema
                    'parking:left:restriction', 'parking:right:restriction', 'parking:both:restriction',

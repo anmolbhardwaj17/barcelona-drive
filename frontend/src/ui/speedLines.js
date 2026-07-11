@@ -5,8 +5,9 @@
  */
 
 const POOL_SIZE = 80;
-const MIN_SPEED = 40;
-const FULL_SPEED = 140;
+const MIN_SPEED = 32;    // lines start appearing here
+const FULL_SPEED = 98;   // full intensity by ~98 km/h (top speed is 110) — recalibrated from 140 so the
+                         // trimmed top end still streaks convincingly. See carPhysics GEAR_TOP_SPEEDS.
 
 export function createSpeedLines() {
   const canvas = document.createElement('canvas');

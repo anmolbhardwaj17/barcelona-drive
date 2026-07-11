@@ -3,6 +3,7 @@
  * Follows terrain elevation; Y offset 0.05; merge geometry per tile by type; one material per type.
  */
 import * as THREE from 'three';
+import { applyGroundLayer } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { worldToLatLon } from '../projection.js';
 import { CONFIG } from '../config.js';
@@ -10,22 +11,22 @@ import { CONFIG } from '../config.js';
 const GREEN_OFFSET_Y = 0.01;
 
 const TYPE_COLORS = {
-  park: 0x4a7c23,
-  garden: 0x5a9c2e,
+  park: 0x33591b,
+  garden: 0x3f7020,
   forest: 0x2d5a1a,
-  grass: 0x6b9e3a,
-  playground: 0x7cb342,
-  scrub: 0x558b2f,
-  generic_green: 0x558b2f,
+  grass: 0x497328,
+  playground: 0x568030,
+  scrub: 0x3c6421,
+  generic_green: 0x3c6421,
 };
 
 function getMaterialForType(type) {
   const color = TYPE_COLORS[type] ?? TYPE_COLORS.generic_green;
-  return new THREE.MeshStandardMaterial({
+  return applyGroundLayer(new THREE.MeshStandardMaterial({
     color,
     roughness: 0.95,
     metalness: 0,
-  });
+  }), 'green');   // ground-layer table: above terrain, below roads/paint
 }
 
 /**

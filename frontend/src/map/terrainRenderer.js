@@ -452,10 +452,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
     // ── Large soft grass color patches (4 colors blended via low-freq noise) ──
     // Cooler, fresher greens (was dusty warm Delhi olive → read yellowish/weird against the art-of-rally palette).
-    const GRASS_A = [0.30, 0.50, 0.28]; // fresh green
-    const GRASS_B = [0.25, 0.43, 0.24]; // mid green
-    const GRASS_C = [0.20, 0.37, 0.20]; // darker green
-    const GRASS_D = [0.28, 0.47, 0.27]; // sage green
+    const GRASS_A = [0.21, 0.41, 0.21]; // fresh green (deep — warm sun + ACES washes lighter values yellow)
+    const GRASS_B = [0.17, 0.35, 0.18]; // mid green
+    const GRASS_C = [0.13, 0.29, 0.15]; // darker green
+    const GRASS_D = [0.19, 0.38, 0.20]; // sage green
 
     // Very low frequency noise → large blobs (~30-60m patches)
     const patchNoise1 = terrainNoise(vx, vz, 0.007, 3.0);  // huge patches
@@ -622,45 +622,47 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
       vec2 wPos = vWorldPos.xz;
 
-      // ── Delhi terrain palette — harsh, distinct patches ──
-      vec3 dustyGrass = vec3(0.58, 0.54, 0.35);  // dusty khaki
-      vec3 dryStraw   = vec3(0.72, 0.65, 0.40);  // dry yellow straw
-      vec3 bareSoil   = vec3(0.48, 0.40, 0.26);  // dark exposed earth
-      vec3 darkDirt   = vec3(0.40, 0.34, 0.22);  // very dark packed soil
-      vec3 shadeGreen = vec3(0.38, 0.44, 0.22);  // dull shade green
-      vec3 roadDirt   = vec3(0.44, 0.38, 0.26);  // road-edge packed dirt
+      // ── Lush Mediterranean park palette (replaces the DELHI dust palette — its khaki/dry-straw at 75%
+      //    dominance over vertex colours WAS the persistent yellow ground; no CPU-side green survived it) ──
+      // RICH saturated greens (low-poly reference: olive-lime highlights → deep forest shadow) —
+      // green channel dominant, red/blue suppressed. Plain uniform darkening just read as dimmed.
+      vec3 lushGrass = vec3(0.20, 0.42, 0.13);
+      vec3 midGreen  = vec3(0.15, 0.34, 0.11);
+      vec3 deepGreen = vec3(0.09, 0.24, 0.08);
+      vec3 sageGreen = vec3(0.25, 0.39, 0.13);   // olive-lime accent
+      vec3 drySoil   = vec3(0.36, 0.31, 0.205);  // sparse worn patches only
+      vec3 roadDirt  = vec3(0.32, 0.29, 0.205);
 
-      // ── 1. Macro: large 80-150m biome patches — harsh transitions ──
+      // ── 1. Macro: large 80-150m patches — deep vs lush green ──
       float macroN = terrainFBM(wPos * 0.007 + 17.0);
-      // Hard-step the noise for distinct patch boundaries
       float macroHard = smoothstep(0.30, 0.42, macroN);
-      vec3 terrainBase = mix(shadeGreen, dryStraw, macroHard);
-      // Second macro layer for dusty vs bare patches
+      vec3 terrainBase = mix(deepGreen, lushGrass, macroHard);
+      // Second macro layer: sage variation
       float macro2 = terrainFBM(wPos * 0.004 + 43.0);
-      float dustHard = smoothstep(0.35, 0.50, macro2);
-      terrainBase = mix(terrainBase, dustyGrass, dustHard * 0.7);
+      float sageHard = smoothstep(0.35, 0.50, macro2);
+      terrainBase = mix(terrainBase, sageGreen, sageHard * 0.5);
 
-      // ── 2. Medium patches: 20-40m — visible from aerial ──
+      // ── 2. Medium patches: 20-40m — mid-green mottling ──
       float medN = terrainFBM(wPos * 0.03 + 71.0);
       float medHard = smoothstep(0.35, 0.55, medN);
-      terrainBase = mix(terrainBase, bareSoil, medHard * 0.50);
+      terrainBase = mix(terrainBase, midGreen, medHard * 0.6);
 
-      // ── 3. Micro variation: 5-10m patchiness ──
+      // ── 3. Micro variation: 5-10m patchiness (gentle — lawns, not scrubland) ──
       float microN = terrainFBM(wPos * 0.10 + 53.0);
-      terrainBase *= 0.82 + microN * 0.36;
+      terrainBase *= 0.88 + microN * 0.24;
 
-      // ── 4. Dark soil blotches: irregular bare ground ──
+      // ── 4. Sparse worn-soil blotches ──
       float soilN = terrainFBM(wPos * 0.018 + 91.0);
-      float soilBlend = smoothstep(0.48, 0.68, soilN) * 0.60;
-      terrainBase = mix(terrainBase, darkDirt, soilBlend);
+      float soilBlend = smoothstep(0.55, 0.75, soilN) * 0.22;
+      terrainBase = mix(terrainBase, drySoil, soilBlend);
 
       // ── 5. Blend with vertex colors — procedural dominates at 75% ──
       // CPU vertex colors carry road-edge brown, tree shadow, water shore
       diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75);
 
-      // ── 6. Detect CPU road-edge dark tint and amplify ──
+      // ── 6. Detect CPU road-edge dark tint and amplify (softened) ──
       float vertLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.50;
+      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35;
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
       // ── 7. Fiber texture micro-detail ── (rally keeps the ground flat/clean, so skip the per-pixel
@@ -672,7 +674,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
            diffuseColor.rgb *= 0.70 + fiber * 0.52;`}`
     );
   };
-  material.customProgramCacheKey = () => 'terrainDelhiProcedural' + (isRallyStyle() ? '_rally' : '');
+  material.customProgramCacheKey = () => 'terrainBcnLush' + (isRallyStyle() ? '_rally' : '');
 
   const mesh = new THREE.Mesh(geometry, material);
   if (useBaked) {

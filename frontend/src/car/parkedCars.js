@@ -113,6 +113,24 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     }
   }
 
+  // Compute a segment's invariant parking metadata once (cached on seg._pcMeta). Returns null if the
+  // segment can never hold parked cars (not drivable, too narrow, or too short).
+  function computeSegMeta(seg) {
+    if (!DRIVABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) return null;
+    const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
+    if (halfW * 2 < MIN_PARK_WIDTH) return null; // tight street → no parked cars
+    const pts = seg.points;
+    let totalLen = 0, minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
+    for (let s = 0; s < pts.length; s++) {
+      if (s < pts.length - 1) totalLen += Math.hypot(pts[s + 1].x - pts[s].x, pts[s + 1].y - pts[s].y);
+      const px = pts[s].x, py = pts[s].y;
+      if (px < minWx) minWx = px; if (px > maxWx) maxWx = px;
+      if (py < minWy) minWy = py; if (py > maxWy) maxWy = py;
+    }
+    if (totalLen < JUNCTION_GAP * 2 + SPACING) return null;
+    return { halfW, offset: halfW - 0.2, totalLen, minWx, maxWx, minWy, maxWy };
+  }
+
   function rebuild(playerPx, playerPz) {
     if (!nVar) { _pending = { x: playerPx, z: playerPz }; return; }
     const segs = getRoadSegments?.();
@@ -122,31 +140,27 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     tailCount = 0; headCount = 0;
     const rangeSq = RANGE * RANGE;
 
+    // Player position in world frame (roads are stored world-frame). Computed once, not per segment.
+    const pwx = origin.x - playerPx, pwy = playerPz + origin.z;
+
     for (const seg of segs) {
-      if (!DRIVABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) continue;
-      const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
-      if (halfW * 2 < MIN_PARK_WIDTH) continue; // tight street → no parked cars
-      const offset = halfW - 0.2;
+      // Per-segment metadata (eligibility + static bbox + total length) is INVARIANT — roads don't move —
+      // so compute it ONCE and cache it on the segment. Previously this walked every point of all ~4000
+      // segments on EVERY rebuild (every 35 m) → the ~11 ms `ent` stutter. Now a far segment costs just the
+      // cheap cached-bbox test below; only near segments run the placement walk. (`null` = ineligible.)
+      let meta = seg._pcMeta;
+      if (meta === undefined) { meta = computeSegMeta(seg); seg._pcMeta = meta; }
+      if (!meta) continue;
+
+      // Cheap static-bbox cull against the (cached) segment bounds.
+      const ddx = Math.max(meta.minWx - pwx, 0, pwx - meta.maxWx);
+      const ddy = Math.max(meta.minWy - pwy, 0, pwy - meta.maxWy);
+      if (ddx * ddx + ddy * ddy > rangeSq) continue;
+
+      const halfW = meta.halfW, offset = meta.offset, totalLen = meta.totalLen;
       const pts = seg.points;
       let seed = (seg.id | 0) % 997; if (seed < 0) seed += 997;
       let acc = (seed % 5) / 5 * SPACING;
-
-      let totalLen = 0;
-      let minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
-      for (let s = 0; s < pts.length; s++) {
-        if (s < pts.length - 1) totalLen += Math.hypot(pts[s + 1].x - pts[s].x, pts[s + 1].y - pts[s].y);
-        const px = pts[s].x, py = pts[s].y;
-        if (px < minWx) minWx = px; if (px > maxWx) maxWx = px;
-        if (py < minWy) minWy = py; if (py > maxWy) maxWy = py;
-      }
-      if (totalLen < JUNCTION_GAP * 2 + SPACING) continue;
-      // Segment-level cull: skip the whole road unless the player is within RANGE of its bbox. Without this
-      // the rebuild walks ALL ~4000 segments (the per-car RANGE test is inside the walk) → an 18 ms hitch
-      // every REBUILD_DIST metres. Player world-frame = (origin.x - playerPx, playerPz + origin.z).
-      const pwx = origin.x - playerPx, pwy = playerPz + origin.z;
-      const ddx = Math.max(minWx - pwx, 0, pwx - maxWx);
-      const ddy = Math.max(minWy - pwy, 0, pwy - maxWy);
-      if (ddx * ddx + ddy * ddy > rangeSq) continue;
       let roadDistBase = 0;
 
       for (let s = 0; s < pts.length - 1; s++) {

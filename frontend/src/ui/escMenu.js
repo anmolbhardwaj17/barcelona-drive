@@ -1,5 +1,5 @@
 /**
- * ESC menu — full-screen game settings, Brawl-Stars style (chunky 3D buttons, Lilita One, bright colours).
+ * ESC menu — full-screen game settings, art-of-rally style (blue-dark surface, Inter, flat controls, coral accent).
  *
  * Single scrolling page: Spawn location (search + landmark buttons), Car colour, Display (Stats-for-nerds
  * toggle), Controls. Day/night stays in its top-right pill. Opens/closes on ESC. Changing spawn reloads
@@ -22,83 +22,91 @@ import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Lilita+One&display=swap');
-#dd-esc-overlay { position:fixed; inset:0; z-index:5000; display:none; color:#fff;
-  font-family:'Lilita One',-apple-system,BlinkMacSystemFont,sans-serif;
-  background:radial-gradient(130% 100% at 50% -5%, #1e2637, #121722 62%, #080a10); }
+/* Art-of-rally ESC menu — cool blue-dark surface, Inter, flat controls, one coral accent. */
+#dd-esc-overlay { position:fixed; inset:0; z-index:5000; display:none; color:#f3ede1;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  background:radial-gradient(135% 105% at 50% -8%, #1e2637, #121a26 64%, #090d14); }
 #dd-esc-overlay::before { content:''; position:absolute; inset:0; pointer-events:none;
-  background:radial-gradient(55% 38% at 50% 6%, rgba(255,80,70,0.08), transparent 70%); }
-#dd-esc-overlay.open { display:block; animation:ddPop .22s cubic-bezier(.2,.9,.25,1.15); }
-@keyframes ddPop { from{opacity:0; transform:scale(.96)} to{opacity:1; transform:none} }
+  background:radial-gradient(60% 42% at 50% 4%, rgba(215,106,79,0.10), transparent 72%); }
+#dd-esc-overlay.open { display:block; animation:ddPop .22s cubic-bezier(.2,.9,.25,1.05); }
+@keyframes ddPop { from{opacity:0; transform:scale(.98)} to{opacity:1; transform:none} }
 .dd-esc-wrap { position:relative; height:100%; padding:24px 6vw 28px; box-sizing:border-box; display:flex; flex-direction:column; }
 .dd-esc-top { display:flex; align-items:center; justify-content:space-between; }
-.dd-esc-logoimg { height:96px; filter:drop-shadow(0 5px 6px rgba(0,0,0,0.5)); }
-/* proper car colour swatches (the re-parented picker, enlarged + game-styled) */
+.dd-esc-logoimg { height:88px; filter:drop-shadow(0 4px 7px rgba(0,0,0,0.45)); }
+/* car colour swatches (the re-parented picker) */
 #dd-car-color-panel { gap:14px !important; align-items:center !important; }
-#dd-car-color-panel span { display:none !important; } /* hide the small "Car" label — section header covers it */
-#dd-car-color-panel > div[style*="50%"] { width:44px !important; height:44px !important; border:3px solid rgba(255,255,255,0.3) !important;
-  box-shadow:0 5px 0 rgba(0,0,0,0.35); transition:transform .1s, box-shadow .1s; }
+#dd-car-color-panel span { display:none !important; }
+#dd-car-color-panel > div[style*="50%"] { width:42px !important; height:42px !important; border:2px solid rgba(243,237,225,0.22) !important;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:transform .12s, box-shadow .12s, border-color .12s; }
 #dd-car-color-panel > div[style*="50%"]:hover { transform:translateY(-2px); }
-#dd-car-color-panel > div[style*="50%"].sel { border-color:#ffd23f !important; box-shadow:0 0 0 4px rgba(255,210,63,0.4), 0 5px 0 rgba(0,0,0,0.35) !important; }
-#dd-car-color-panel > div:not([style*="50%"]) { display:none !important; } /* hide the little speaker btn — Sound section handles it */
-.dd-esc-range { -webkit-appearance:none; appearance:none; width:240px; height:10px; border-radius:6px; background:rgba(255,255,255,0.18); border:2px solid rgba(255,255,255,0.14); outline:none; box-shadow:inset 0 1px 3px rgba(0,0,0,0.35); }
-.dd-esc-range::-webkit-slider-thumb { -webkit-appearance:none; width:26px; height:26px; border-radius:50%; background:linear-gradient(#ffe07a,#f5b32a); border:2px solid rgba(0,0,0,0.2); box-shadow:0 4px 0 #c88a10; cursor:pointer; }
-.dd-esc-range::-moz-range-thumb { width:24px; height:24px; border-radius:50%; background:#f5b32a; border:2px solid rgba(0,0,0,0.2); cursor:pointer; }
-.dd-esc-val { min-width:52px; color:#ffd23f; font-size:19px; text-shadow:0 2px 0 rgba(0,0,0,0.28); }
+#dd-car-color-panel > div[style*="50%"].sel { border-color:#d76a4f !important; box-shadow:0 0 0 3px rgba(215,106,79,0.4) !important; }
+#dd-car-color-panel > div:not([style*="50%"]) { display:none !important; }
+.dd-esc-range { -webkit-appearance:none; appearance:none; width:240px; height:9px; border-radius:5px; background:rgba(243,237,225,0.18); border:none; outline:none; }
+.dd-esc-range::-webkit-slider-thumb { -webkit-appearance:none; width:20px; height:20px; border-radius:50%; background:#d76a4f; border:2px solid #121a26; box-shadow:0 1px 4px rgba(0,0,0,0.4); cursor:pointer; }
+.dd-esc-range::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:#d76a4f; border:2px solid #121a26; cursor:pointer; }
+.dd-esc-val { min-width:52px; color:#e08a6f; font-size:17px; font-weight:600; }
 .dd-esc-body { flex:1; display:flex; gap:34px; min-height:0; padding:12px 0; }
 .dd-esc-left { flex:1 1 54%; overflow-y:auto; overflow-x:hidden; padding-right:10px; min-width:0; }
 .dd-esc-page { width:100%; max-width:660px; }
-/* Right column — the live 3D car turntable resting directly on the light menu background (NO box) */
-.dd-esc-showcase { flex:1 1 46%; position:relative; min-width:0; align-self:stretch; overflow:hidden; }
-.dd-esc-showcase::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:10px; text-align:center;
-  font-size:12px; letter-spacing:3px; color:rgba(255,255,255,0.4); pointer-events:none; }
-.dd-esc-showcase canvas { position:absolute; inset:0; }
+/* Right column — "your car": the live turntable up top, then the paint + balance garage strip below. */
+.dd-esc-showcase { flex:1 1 46%; min-width:0; align-self:stretch; display:flex; flex-direction:column; }
+.dd-esc-carstage { flex:1 1 auto; position:relative; min-height:0; overflow:hidden; }
+.dd-esc-carstage::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:8px; text-align:center;
+  font-size:11px; font-weight:600; letter-spacing:1.5px; color:rgba(243,237,225,0.34); pointer-events:none; }
+.dd-esc-carstage canvas { position:absolute; inset:0; }
+.dd-esc-garage { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:11px; padding:14px 0 4px; }
+.dd-esc-glabel { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:rgba(243,237,225,0.46); }
+.dd-esc-wallet { font:600 18px 'Inter',system-ui,sans-serif; color:#e08a6f; }
 @media (max-width:900px){ .dd-esc-body{ flex-direction:column; } .dd-esc-showcase{ min-height:260px; flex:0 0 260px; } }
-.dd-esc-sec { display:flex; align-items:center; gap:14px; margin:24px 0 13px; font-size:19px; letter-spacing:1.5px;
-  text-transform:uppercase; color:#ffd23f; text-shadow:0 2px 0 rgba(0,0,0,0.3); }
-.dd-esc-sec::after { content:''; flex:1; height:3px; border-radius:2px; background:rgba(255,210,63,0.2); }
+.dd-esc-sec { display:flex; align-items:center; gap:14px; margin:24px 0 13px; font-size:14px; font-weight:600; letter-spacing:0.02em;
+  text-transform:uppercase; color:#f3ede1; }
+.dd-esc-sec::after { content:''; flex:1; height:1px; border-radius:1px; background:rgba(243,237,225,0.14); }
 .dd-esc-line { display:flex; align-items:center; gap:16px; margin:14px 0; }
 .dd-esc-searchrow { display:flex; gap:12px; }
-.dd-esc-input { flex:1; background:rgba(0,0,0,0.32); border:3px solid rgba(255,255,255,0.16); color:#fff;
-  border-radius:18px; padding:15px 20px; font-family:inherit; font-size:19px; letter-spacing:0.5px; outline:none; }
-.dd-esc-input:focus { border-color:#ffd23f; }
-.dd-esc-input::placeholder { color:rgba(255,255,255,0.42); }
-/* chunky 3D buttons (press = sink into the shadow) */
-.dd-esc-go, .dd-esc-chip, .dd-esc-x, .dd-esc-back, .dd-esc-fab { cursor:pointer; user-select:none; transition:transform .05s, box-shadow .05s; }
-.dd-esc-go { display:flex; align-items:center; padding:0 32px; border-radius:18px; font-family:inherit; font-size:21px; letter-spacing:1px; color:#123008;
-  background:linear-gradient(#84e56f,#54c247); border:3px solid rgba(0,0,0,0.16); box-shadow:0 7px 0 #369a2c, 0 11px 16px rgba(0,0,0,0.4); text-shadow:0 2px 0 rgba(255,255,255,0.35); }
-.dd-esc-go:active { transform:translateY(6px); box-shadow:0 1px 0 #369a2c; }
-.dd-esc-go:disabled { opacity:.55; }
-.dd-esc-err { margin-top:12px; min-height:22px; font-size:17px; color:#ff9a9a; text-shadow:0 2px 0 rgba(0,0,0,0.3); } .dd-esc-err.ok { color:#9dffb0; }
-.dd-esc-chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(184px,1fr)); gap:15px; margin-top:16px; }
-.dd-esc-chip { text-align:center; padding:15px 12px; border-radius:16px; font-size:17px; letter-spacing:0.5px; color:#e9eef6; text-shadow:0 2px 0 rgba(0,0,0,0.4);
-  background:linear-gradient(#3c4658,#2a323f); border:2px solid rgba(0,0,0,0.28); box-shadow:0 5px 0 #171d26, 0 8px 12px rgba(0,0,0,0.35); }
-.dd-esc-chip:hover { border-color:#ffd23f; color:#fff; }
-.dd-esc-chip:active { transform:translateY(5px); box-shadow:0 1px 0 #171d26; }
-.dd-esc-chip.sel { border-color:#ffd23f; color:#fff; box-shadow:0 0 0 3px rgba(255,210,63,0.4), 0 5px 0 #171d26, 0 8px 12px rgba(0,0,0,0.35); }
-.dd-esc-toggle { width:52px; height:28px; border-radius:16px; background:#5a4a8a; border:3px solid rgba(0,0,0,0.2);
-  position:relative; cursor:pointer; box-shadow:inset 0 2px 5px rgba(0,0,0,0.35); transition:.15s; flex:0 0 auto; }
-.dd-esc-toggle .k { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:12px; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.35); transition:.15s; }
-.dd-esc-toggle.on { background:linear-gradient(#84e56f,#54c247); border-color:rgba(0,0,0,0.16); }
-.dd-esc-toggle.on .k { left:26px; }
-.dd-esc-tlabel { font-size:16px; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,0.28); }
+.dd-esc-input { flex:1; background:rgba(243,237,225,0.06); border:1px solid rgba(243,237,225,0.18); color:#f3ede1;
+  border-radius:11px; padding:14px 18px; font-family:inherit; font-size:17px; letter-spacing:0.3px; outline:none; transition:border-color .16s, background .16s; }
+.dd-esc-input:focus { border-color:#d76a4f; background:rgba(243,237,225,0.09); }
+.dd-esc-input::placeholder { color:rgba(243,237,225,0.4); }
+/* flat buttons */
+.dd-esc-go, .dd-esc-chip, .dd-esc-x, .dd-esc-back, .dd-esc-fab { cursor:pointer; user-select:none; transition:transform .1s, background .16s, border-color .16s, color .16s; }
+.dd-esc-go { display:flex; align-items:center; padding:0 30px; border-radius:11px; font-family:inherit; font-size:16px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:#f3ede1;
+  background:#d76a4f; border:1px solid transparent; }
+.dd-esc-go:hover { background:#e0785c; }
+.dd-esc-go:active { transform:scale(0.97); }
+.dd-esc-go:disabled { opacity:.4; }
+.dd-esc-err { margin-top:12px; min-height:22px; font-size:15px; color:#e88f76; } .dd-esc-err.ok { color:#93c47d; }
+.dd-esc-chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(184px,1fr)); gap:12px; margin-top:16px; }
+.dd-esc-chip { text-align:center; padding:14px 12px; border-radius:11px; font-size:15px; font-weight:500; letter-spacing:0.3px; color:rgba(243,237,225,0.82);
+  background:rgba(243,237,225,0.05); border:1px solid rgba(243,237,225,0.12); }
+.dd-esc-chip:hover { border-color:rgba(215,106,79,0.6); color:#f3ede1; background:rgba(243,237,225,0.09); }
+.dd-esc-chip:active { transform:scale(0.98); }
+.dd-esc-chip.sel { border-color:#d76a4f; color:#f3ede1; background:rgba(215,106,79,0.18); }
+.dd-esc-toggle { width:46px; height:26px; border-radius:14px; background:rgba(243,237,225,0.2); border:none;
+  position:relative; cursor:pointer; transition:.16s; flex:0 0 auto; }
+.dd-esc-toggle .k { position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#f3ede1; box-shadow:0 1px 3px rgba(0,0,0,0.4); transition:.16s; }
+.dd-esc-toggle.on { background:#d76a4f; }
+.dd-esc-toggle.on .k { left:23px; }
+.dd-esc-tlabel { font-size:15px; color:rgba(243,237,225,0.82); }
 /* Compact toggle grid — several per row to save vertical space */
 .dd-esc-checkrow { display:flex; flex-wrap:wrap; gap:6px 26px; margin:8px 0 4px; }
 .dd-esc-checkrow .dd-esc-line { margin:5px 0; gap:10px; }
-.dd-esc-key { display:flex; align-items:center; justify-content:space-between; padding:11px 4px; }
-.dd-esc-key .d { font-size:19px; color:rgba(255,255,255,0.88); text-shadow:0 2px 0 rgba(0,0,0,0.25); }
-.dd-esc-key .k { background:linear-gradient(#ffe07a,#f5b32a); color:#3a2a00; border:3px solid rgba(0,0,0,0.15);
-  box-shadow:0 5px 0 #c88a10; border-radius:14px; padding:9px 18px; font-size:17px; letter-spacing:1px; }
+.dd-esc-key { display:flex; align-items:center; justify-content:space-between; padding:10px 4px; }
+.dd-esc-key .d { font-size:16px; color:rgba(243,237,225,0.82); }
+.dd-esc-key .k { background:rgba(243,237,225,0.08); color:#f3ede1; border:1px solid rgba(243,237,225,0.2);
+  border-radius:8px; padding:7px 15px; font-size:14px; font-weight:600; letter-spacing:0.02em; }
 .dd-esc-bottom { padding-top:14px; }
-.dd-esc-back { display:inline-flex; align-items:center; gap:8px; padding:14px 26px; border-radius:18px; font-family:inherit; font-size:20px; letter-spacing:1px; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,0.35);
-  background:linear-gradient(#ff8a63,#ff5a4d); border:3px solid rgba(0,0,0,0.16); box-shadow:0 7px 0 #c8342a, 0 11px 14px rgba(0,0,0,0.35); }
-.dd-esc-back:active { transform:translateY(6px); box-shadow:0 1px 0 #c8342a; }
-.dd-esc-x { width:52px; height:52px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff;
-  background:linear-gradient(#ff8a63,#ff5a4d); border:3px solid rgba(0,0,0,0.16); box-shadow:0 6px 0 #c8342a, 0 9px 12px rgba(0,0,0,0.35); }
-.dd-esc-x:active { transform:translateY(5px); box-shadow:0 1px 0 #c8342a; }
-.dd-esc-fab { position:fixed; top:12px; left:12px; z-index:1500; width:50px; height:50px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:24px; color:#3a2a00;
-  background:linear-gradient(#ffe07a,#f2a626); border:3px solid rgba(0,0,0,0.15); box-shadow:0 6px 0 #c88010, 0 9px 12px rgba(0,0,0,0.35); }
-.dd-esc-fab:active { transform:translateY(5px); box-shadow:0 1px 0 #c88010; }
+.dd-esc-back { display:inline-flex; align-items:center; gap:8px; padding:13px 24px; border-radius:11px; font-family:inherit; font-size:15px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:#f3ede1;
+  background:rgba(243,237,225,0.07); border:1px solid rgba(243,237,225,0.2); }
+.dd-esc-back:hover { background:rgba(243,237,225,0.12); }
+.dd-esc-back:active { transform:scale(0.97); }
+.dd-esc-x { width:46px; height:46px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:22px; color:#f3ede1;
+  background:rgba(243,237,225,0.07); border:1px solid rgba(243,237,225,0.2); }
+.dd-esc-x:hover { background:rgba(243,237,225,0.12); }
+.dd-esc-x:active { transform:scale(0.95); }
+.dd-esc-fab { position:fixed; top:14px; left:14px; z-index:1500; width:46px; height:46px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:20px; color:#f3ede1; cursor:pointer;
+  background:rgba(28,25,22,0.44); backdrop-filter:blur(15px) saturate(1.08); -webkit-backdrop-filter:blur(15px) saturate(1.08); border:1px solid rgba(243,237,225,0.16); box-shadow:0 3px 12px rgba(0,0,0,0.20); transition:background .18s ease, border-color .18s ease, transform .1s ease; }
+.dd-esc-fab:hover { background:rgba(243,237,225,0.14); }
+.dd-esc-fab:active { transform:translateY(1px) scale(0.97); }
 `;
 
 function el(t, c, h) { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
@@ -143,8 +151,11 @@ export function createEscMenu(refs = {}) {
   const bodyEl = el('div', 'dd-esc-body'); wrap.appendChild(bodyEl);
   const leftCol = el('div', 'dd-esc-left'); bodyEl.appendChild(leftCol);
   const page = el('div', 'dd-esc-page'); leftCol.appendChild(page);
-  // Right column — live 3D car turntable (created lazily so its WebGL context only exists once opened).
+  // Right column — "your car": live 3D turntable (created lazily so its WebGL context only exists once
+  // opened) up top, then the garage strip (paint swatches + wallet) below it.
   const showcaseCol = el('div', 'dd-esc-showcase'); bodyEl.appendChild(showcaseCol);
+  const carStage = el('div', 'dd-esc-carstage'); showcaseCol.appendChild(carStage);
+  const garagePanel = el('div', 'dd-esc-garage'); showcaseCol.appendChild(garagePanel);
   let showcase = null;
 
   // ── Game Mode (switch modes in-game; chosen first on the title screen) ──
@@ -190,27 +201,26 @@ export function createEscMenu(refs = {}) {
   for (const p of PRESETS) { const c = el('div', 'dd-esc-chip', p.name); c.addEventListener('click', () => { uiSound.click(); spawnAt(p.lat, p.lon); }); chips.appendChild(c); }
   page.appendChild(chips);
 
-  // ── Garage — global wallet balance + car-colour shop (re-parented) ──
-  page.appendChild(sec('Garage'));
-  const walletLine = el('div');
-  walletLine.style.cssText = 'font:800 22px "Lilita One",system-ui,sans-serif;color:#ffd23f;margin:2px 0 10px 2px;text-shadow:0 2px 0 rgba(0,0,0,0.35);';
-  const _updWallet = () => { walletLine.textContent = `💰 $${wallet.balance()}`; };
-  _updWallet();
-  wallet.onChange(_updWallet);
-  page.appendChild(walletLine);
-
+  // ── Garage — lives on the RIGHT, directly under the live car, so paint changes show on the model
+  //    immediately (the swatch is right next to the thing it colours). Wallet balance sits below it.
+  garagePanel.appendChild(el('div', 'dd-esc-glabel', 'Paint your car'));
   const colorPanel = refs.colorPanelElement || document.getElementById('dd-car-color-panel');
   if (colorPanel) {
-    Object.assign(colorPanel.style, { position: 'static', top: 'auto', left: 'auto', background: 'transparent', padding: '0', flexWrap: 'wrap' });
-    const holder = el('div'); holder.style.padding = '2px 0 6px 2px'; holder.appendChild(colorPanel); page.appendChild(holder);
+    Object.assign(colorPanel.style, { position: 'static', top: 'auto', left: 'auto', background: 'transparent', padding: '0', flexWrap: 'wrap', justifyContent: 'center' });
+    garagePanel.appendChild(colorPanel);
     // Selection + buying are handled by the car model's swatches; just add the menu click blip here.
     colorPanel.querySelectorAll('div[style*="50%"]').forEach((s) => s.addEventListener('click', () => uiSound.click()));
   } else {
     const hint = el('div');
-    hint.textContent = 'Start driving to paint your car — the money you earn is yours across every mode.';
-    hint.style.cssText = 'opacity:.6;font:13px system-ui,sans-serif;margin:0 0 6px 2px;line-height:1.4;';
-    page.appendChild(hint);
+    hint.textContent = 'Start driving to unlock paints.';
+    hint.style.cssText = "opacity:.6;font:400 13px 'Inter',system-ui,sans-serif;text-align:center;";
+    garagePanel.appendChild(hint);
   }
+  const walletLine = el('div', 'dd-esc-wallet');
+  const _updWallet = () => { walletLine.textContent = `💰 $${wallet.balance()}`; };
+  _updWallet();
+  wallet.onChange(_updWallet);
+  garagePanel.appendChild(walletLine);
 
   // ── Display toggles (day/night stays in the top-right pill, not here) ──
   page.appendChild(sec('Display'));
@@ -234,12 +244,12 @@ export function createEscMenu(refs = {}) {
     }, 120);
   }));
 
-  // ── Sound ──
+  // ── Sound ── (master on/off toggle first, then the volume sliders)
   page.appendChild(sec('Sound'));
+  page.appendChild(check('Sound on', !audio.isMuted(), (v) => audio.setMuted(!v)));
   page.appendChild(slider('Master', Math.round(audio.getVolume() * 100), (n) => `${n}%`, (n) => audio.setVolume(n / 100)));
   page.appendChild(slider('Car', Math.round(audio.getCarVolume() * 100), (n) => `${n}%`, (n) => audio.setCarVolume(n / 100)));
   page.appendChild(slider('SFX', Math.round(audio.getSfxVolume() * 100), (n) => `${n}%`, (n) => audio.setSfxVolume(n / 100)));
-  page.appendChild(check('Sound on', !audio.isMuted(), (v) => audio.setMuted(!v)));
 
   // ── Controls ──
   page.appendChild(sec('Controls'));
@@ -286,7 +296,7 @@ export function createEscMenu(refs = {}) {
   let open = false;
   function sizeShowcase() {
     if (!showcase) return;
-    const r = showcaseCol.getBoundingClientRect();
+    const r = carStage.getBoundingClientRect();
     if (r.width > 0 && r.height > 0) showcase.setSize(r.width, r.height);
   }
   function setOpen(v) {
@@ -295,7 +305,7 @@ export function createEscMenu(refs = {}) {
     setInputBlocked(v);                    // pause car/recover/horn input while the menu is open
     if (v) {
       for (const s of syncers) s();        // refresh live toggle states on open
-      if (!showcase) { showcase = createCarShowcase(); showcaseCol.appendChild(showcase.element); }
+      if (!showcase) { showcase = createCarShowcase(); carStage.appendChild(showcase.element); }
       // wait a frame so the overlay is laid out before measuring the showcase panel
       requestAnimationFrame(() => { sizeShowcase(); showcase.start(); });
     } else if (showcase) {

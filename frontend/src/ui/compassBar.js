@@ -131,11 +131,11 @@ function _drawFrame(heading) {
       ctx.textBaseline = 'top';
 
       if (isCardinal) {
-        ctx.font = `bold ${isPrimary ? 13 : 10}px Futura PT, system-ui, sans-serif`;
+        ctx.font = `bold ${isPrimary ? 13 : 10}px Inter, system-ui, sans-serif`;
         const baseOp = 0.9 * edgeFade;
         ctx.fillStyle = `rgba(255, 255, 255, ${baseOp.toFixed(3)})`;
       } else {
-        ctx.font = '9px Futura PT, system-ui, sans-serif';
+        ctx.font = '9px Inter, system-ui, sans-serif';
         ctx.fillStyle = `rgba(255, 255, 255, ${(0.5 * edgeFade).toFixed(3)})`;
       }
       ctx.fillText(text, x, 3);
@@ -167,7 +167,7 @@ function _drawFrame(heading) {
   const degText = `${Math.round(((heading % 360) + 360) % 360)}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 13px Futura PT, system-ui, sans-serif';
+  ctx.font = 'bold 13px Inter, system-ui, sans-serif';
   ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
   ctx.fillText(degText, centerX, labelY);
 

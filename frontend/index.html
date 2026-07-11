@@ -43,7 +43,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Barcelona Drive" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Poppins:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
       * { margin: 0; padding: 0; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e15; }
@@ -70,17 +70,17 @@
       }
       #dd-loading .bar i {
         display: block; height: 100%; width: 42%; border-radius: 6px;
-        background: #ff7a1a;
+        background: #d76a4f;
         animation: ddSlide 1.25s ease-in-out infinite;
       }
       @keyframes ddSlide { 0% { transform: translateX(-130%); } 100% { transform: translateX(360%); } }
       #dd-loading .factlabel {
-        font-family: 'Lilita One', sans-serif;
-        color: #ffd23f; letter-spacing: 2px; font-size: 16px;
-        text-transform: uppercase; margin-top: 34px; text-shadow: 0 2px 0 rgba(0,0,0,0.3);
+        font-family: 'Inter', -apple-system, sans-serif; font-weight: 700;
+        color: #e08a6f; letter-spacing: 1px; font-size: 15px;
+        text-transform: uppercase; margin-top: 34px;
       }
       #dd-loading .fact {
-        font-family: 'Poppins', -apple-system, sans-serif; font-weight: 500;
+        font-family: 'Inter', -apple-system, sans-serif; font-weight: 600;
         max-width: min(620px, 84vw); text-align: center; color: rgba(255,255,255,0.9);
         font-size: 18px; line-height: 1.6; min-height: 58px; padding: 0 24px;
         transition: opacity .3s ease;
@@ -90,93 +90,216 @@
         font-weight: 600; text-transform: uppercase;
       }
 
-      /* ── Title / start screen (shown first; PLAY drops into the game) ── */
+      /* ── Title / start screen — dark, flat, Inter + one coral accent (matches the ESC menu) ── */
       #dd-title {
         position: fixed; inset: 0; z-index: 10000; overflow: hidden;
-        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
-        background: #24406a; transition: opacity .5s ease;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+        background: radial-gradient(135% 105% at 50% -8%, #1e2637, #121a26 64%, #090d14);
+        font-family: 'Inter', -apple-system, sans-serif;
+        transition: opacity .5s ease;
       }
       #dd-title.hide { opacity: 0; pointer-events: none; }
-      /* two stacked background layers: grayscale base + full-colour on top, revealed by an expanding
-         radial MASK from the centre (feels nicer than a flat fade). Both share the breathing zoom. */
+      /* LIVE state — the world has loaded behind the title. main.js then flies the camera DOWN from above
+         the cloud deck into the city (the .clouds overlay opacity is driven per-frame in sync with the
+         descent), settling into a slow orbit under the logo/PLAY. */
+      #dd-title::before, #dd-title::after { transition: opacity 2.2s ease; }
+      #dd-title.live { background: transparent; }
+      #dd-title.live .bg { opacity: 0; }
+      #dd-title.live::before { opacity: 0.35; }
+      /* keep the soft light backdrop behind the logo/tagline/PLAY column readable over the live city */
+      #dd-title.live::after { opacity: 0.9; }
+      /* Choose screen: always a flat dark-grey backdrop (not the navy title radial, not the live 3D
+         city). These come after the .live rules so they win at equal specificity. */
+      #dd-title.choose, #dd-title.live.choose { background: linear-gradient(#1a1d23, #111318); }
+      #dd-title.choose::before, #dd-title.choose::after { opacity: 0; }
+      /* Boot loader — a clean black screen with a counting percentage. Covers everything (incl. the logo)
+         until the 3D world is ready; main.js then snaps it to 100, fades it, and reveals the live title. */
+      #dd-title .boot { position: absolute; inset: 0; z-index: 5;
+        display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 12px;
+        padding: 0 0 52px 58px; background: #0b0e15; transition: opacity .9s ease; }
+      #dd-title .boot.done { opacity: 0; pointer-events: none; }
+      #dd-title .boot .pct { font-size: 96px; font-weight: 800; letter-spacing: -0.01em; color: #f3ede1;
+        font-variant-numeric: tabular-nums; line-height: 1; }
+      #dd-title .boot .pct::after { content: '%'; font-size: 34px; font-weight: 600; color: rgba(243,237,225,0.45); margin-left: 8px; }
+      #dd-title .boot .cap { font-size: 12px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase;
+        color: rgba(243,237,225,0.5); }
+      #dd-title .boot .bbar { width: min(300px, 60vw); height: 3px; border-radius: 2px; background: rgba(243,237,225,0.14); overflow: hidden; }
+      #dd-title .boot .bbar i { display: block; height: 100%; width: 0%; background: #d76a4f; transition: width .3s ease; }
+      /* Mode-select loader — same look as the boot counter. Covers the dive + spawn-area stream-in
+         after picking a mode; main.js calls window._ddModeLoadDone() once the world around the CAR
+         is genuinely ready (ground under it + tile queue drained), then this fades out. */
+      #dd-modeload { position: fixed; inset: 0; z-index: 10001;
+        display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 12px;
+        padding: 0 0 52px 58px; background: #0b0e15; transition: opacity .7s ease;
+        font-family: 'Inter', -apple-system, sans-serif; }
+      #dd-modeload.done { opacity: 0; pointer-events: none; }
+      #dd-modeload .pct { font-size: 96px; font-weight: 800; letter-spacing: -0.01em; color: #f3ede1;
+        font-variant-numeric: tabular-nums; line-height: 1; }
+      #dd-modeload .pct::after { content: '%'; font-size: 34px; font-weight: 600; color: rgba(243,237,225,0.45); margin-left: 8px; }
+      #dd-modeload .cap { font-size: 12px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase;
+        color: rgba(243,237,225,0.5); }
+      #dd-modeload .bbar { width: min(300px, 60vw); height: 3px; border-radius: 2px; background: rgba(243,237,225,0.14); overflow: hidden; }
+      #dd-modeload .bbar i { display: block; height: 100%; width: 0%; background: #d76a4f; transition: width .3s ease; }
+      /* Staged entrance for the title content once the boot fades */
+      #dd-title .logo, #dd-title .tagline, #dd-title .play { opacity: 0; transform: translateY(14px); }
+      #dd-title.reveal .logo    { opacity: 1; transform: none; transition: opacity .8s ease .15s, transform .8s ease .15s; }
+      #dd-title.reveal .tagline { opacity: 1; transform: none; transition: opacity .8s ease .45s, transform .8s ease .45s; }
+      #dd-title.reveal .play    { opacity: 1; transform: none; transition: opacity .8s ease .7s,  transform .8s ease .7s; }
+      /* Background image layer (swap /title-bg.png for the dark artwork when ready). Kept dim + slightly
+         desaturated under a dark scrim so the screen reads dark-mode even with a bright source image. */
       #dd-title .bg {
         position: absolute; inset: -3%; z-index: 0; transform-origin: center;
-        background: url('/title-bg.png') center / cover no-repeat;
-        animation: ddBreathe 20s ease-in-out infinite;
+        background: url('/title-bg.webp') center / cover no-repeat;
+        filter: brightness(0.85);
+        animation: ddBreathe 24s ease-in-out infinite;
       }
-      #dd-title .bg.gray { filter: grayscale(1) brightness(0.78); }
-      #dd-title .bg.color {
-        -webkit-mask: radial-gradient(circle at 50% 46%, #000 45%, transparent 78%) center / 0% 0% no-repeat;
-        mask: radial-gradient(circle at 50% 46%, #000 45%, transparent 78%) center / 0% 0% no-repeat;
-        animation: ddBreathe 20s ease-in-out infinite, ddReveal 2.6s ease-out forwards;
-      }
-      @keyframes ddReveal {
-        0%   { -webkit-mask-size: 0% 0%;     mask-size: 0% 0%; }
-        100% { -webkit-mask-size: 280% 280%; mask-size: 280% 280%; }
-      }
-      @keyframes ddBreathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.12); } }
-      /* vignette on top of the background */
+      #dd-title .bg.color { display: none; }   /* single dim layer now — no grayscale reveal */
+      @keyframes ddBreathe { 0%,100% { transform: scale(1.02); } 50% { transform: scale(1.1); } }
+      /* dark scrim + vignette over the background */
       #dd-title::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
-        background: radial-gradient(circle at 50% 44%, transparent 34%, rgba(8,12,24,0.28) 72%, rgba(6,9,18,0.6) 100%); }
+        background:
+          radial-gradient(circle at 50% 44%, transparent 30%, rgba(9,13,20,0.22) 70%, rgba(9,13,20,0.5) 100%),
+          linear-gradient(rgba(9,13,20,0.08), rgba(9,13,20,0.26)); }
+      /* Soft light backdrop behind the logo column — blends to transparent outward so the logo reads
+         clearly over the busy aerial artwork without boxing it in. */
+      #dd-title::after { content: ''; position: absolute; z-index: 1; pointer-events: none;
+        left: 50%; top: 41%; width: min(880px, 94vw); height: min(600px, 84vh);
+        transform: translate(-50%, -50%);
+        background: radial-gradient(closest-side, rgba(244,238,226,0.32), rgba(244,238,226,0.15) 48%, transparent 74%);
+      }
       #dd-title .logo {
-        position: relative; z-index: 2; width: min(600px, 82vw);
-        filter: drop-shadow(0 10px 16px rgba(0,0,0,0.45));
-        animation: ddBob 2.8s ease-in-out infinite;
+        position: relative; z-index: 2; width: min(560px, 78vw);
+        filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
+        animation: ddBob 3.4s ease-in-out infinite;
       }
       #dd-title .tagline {
-        position: relative; z-index: 2; font-family: 'Poppins', -apple-system, sans-serif; font-weight: 700;
-        font-size: 20px; letter-spacing: 0.3px; color: #fff; margin-top: -6px;
-        padding: 10px 36px; background: #000;
-        clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%); /* parallelogram */
+        position: relative; z-index: 2; font-weight: 600;
+        font-size: 12px; letter-spacing: 0.32em; text-transform: uppercase;
+        color: rgba(243,237,225,0.92); margin-top: -2px;
+        padding: 10px 22px 10px 26px; border-radius: 999px;
+        background: rgba(14,18,26,0.6);
+        border: 1px solid rgba(243,237,225,0.12);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
       }
       #dd-title .play {
         position: relative; z-index: 2; cursor: pointer; user-select: none;
-        font-family: 'Lilita One', sans-serif; font-size: 34px; letter-spacing: 3px; color: #3a2a00;
-        padding: 16px 76px; border-radius: 24px; border: 3px solid rgba(0,0,0,0.18);
-        background: linear-gradient(#ffe07a, #f5b32a);
-        box-shadow: 0 10px 0 #c8871a, 0 16px 24px rgba(0,0,0,0.4);
-        text-shadow: 0 2px 0 rgba(255,255,255,0.4);
-        transition: transform .06s, box-shadow .06s; margin-top: 6px;
+        font-family: inherit; font-size: 17px; font-weight: 600; letter-spacing: 0.22em; color: #f3ede1;
+        padding: 16px 84px; border-radius: 13px;
+        border: 1px solid rgba(243,237,225,0.14);
+        background: rgba(14,18,26,0.72);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+        transition: background .16s, transform .1s, border-color .16s, box-shadow .16s; margin-top: 8px;
       }
-      #dd-title .play:hover { filter: brightness(1.06); }
-      #dd-title .play:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
+      #dd-title .play:hover {
+        border-color: rgba(215,106,79,0.75); background: rgba(215,106,79,0.2);
+        box-shadow: 0 8px 32px rgba(215,106,79,0.28);
+      }
+      #dd-title .play:active { transform: scale(0.97); }
 
-      /* ── Mode picker (revealed after PLAY) ── */
-      #dd-title .modes { display: none; flex-direction: column; align-items: center; gap: 16px; position: relative; z-index: 2; }
+      /* ── Mode picker (revealed after PLAY) — full-height character-select panels ──
+         Each card is a tall portrait art panel (/modes/mode-<key>.jpg when present; themed
+         gradient placeholder underneath) with the label BELOW the art. No icons/emoji. */
+      #dd-title .modes { display: none; flex-direction: column; align-items: stretch; position: relative; z-index: 2; width: 100vw; flex: 1 1 auto; min-height: 0; }
       #dd-title .modes.show { display: flex; animation: ddModesIn .32s ease-out; }
       @keyframes ddModesIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-      #dd-title .modes-row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
-      #dd-title .mode {
-        cursor: pointer; user-select: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
-        font-family: 'Lilita One', sans-serif; font-size: 18px; letter-spacing: 1px; color: #241a08;
-        width: 172px; padding: 22px 14px; border-radius: 16px; border: 3px solid rgba(0,0,0,0.16);
-        background: linear-gradient(#ffe07a, #f5b32a); box-shadow: 0 8px 0 #c8871a, 0 12px 20px rgba(0,0,0,0.4);
-        text-shadow: 0 2px 0 rgba(255,255,255,0.35); transition: transform .06s, box-shadow .06s, filter .1s;
+      /* Choose state: header bar — big bold "Choose Your Mode" on the LEFT, small logo on the RIGHT,
+         panels fill everything below, full-bleed */
+      #dd-title.choose { justify-content: flex-start; gap: 0; padding-top: 86px; }
+      #dd-title.choose .logo {
+        position: absolute; top: 10px; right: 24px; z-index: 2;
+        width: min(88px, 13vw); animation: none;
       }
-      #dd-title .mode .ic { font-size: 38px; line-height: 1; }
-      #dd-title .mode:hover { filter: brightness(1.06); }
-      #dd-title .mode:active { transform: translateY(8px); box-shadow: 0 2px 0 #c8871a; }
-      #dd-title .mode[data-mode="free"] { background: linear-gradient(#bcd0ff, #7aa0f5); box-shadow: 0 8px 0 #3f5fc8, 0 12px 20px rgba(0,0,0,0.4); color: #0a1633; }
-      #dd-title .mode[data-mode="dash"] { background: linear-gradient(#ffd23f, #f5a623); box-shadow: 0 8px 0 #b9791a, 0 12px 20px rgba(0,0,0,0.4); }
-      #dd-title .mode[data-mode="taxi"] { background: linear-gradient(#8ef0b0, #2ee06a); box-shadow: 0 8px 0 #1c9c48, 0 12px 20px rgba(0,0,0,0.4); color: #0b2417; }
-      #dd-title .mode[data-mode="delivery"] { background: linear-gradient(#ffc07a, #ff8a33); box-shadow: 0 8px 0 #c25e12, 0 12px 20px rgba(0,0,0,0.4); color: #2a1400; }
-      #dd-title .mode[data-mode="police"] { background: linear-gradient(#ff8a8a, #e2362d); box-shadow: 0 8px 0 #9c1b16, 0 12px 20px rgba(0,0,0,0.4); }
+      /* the tagline element becomes the header title — same voice as the game-mode names */
+      #dd-title.choose .tagline {
+        position: absolute; top: 26px; left: 28px; z-index: 2;
+        background: none; border: none; padding: 0;
+        backdrop-filter: none; -webkit-backdrop-filter: none;
+        text-transform: none;
+        font-size: clamp(22px, 2.2vw, 30px); font-weight: 800; letter-spacing: 0;
+        color: #f6f1e6;
+      }
+      #dd-title .modes-row {
+        display: flex; gap: 0; justify-content: stretch; align-items: stretch;
+        flex: 1 1 auto; min-height: 0; width: 100%; padding: 0;
+      }
+      #dd-title .mode {
+        cursor: pointer; user-select: none; position: relative;
+        display: block; padding: 0; overflow: hidden;
+        font-family: inherit; color: #f3ede1; text-align: right;
+        flex: 1 1 0; border: none; border-radius: 0;
+        background: #141a26;
+        transition: filter .18s ease;
+      }
+      /* thin separator line between adjacent panels */
+      #dd-title .mode + .mode { border-left: 1px solid rgba(243,237,225,0.18); }
+      #dd-title .mode .art {
+        position: absolute; inset: 0;
+        background-color: #1a2230;
+        background-size: cover; background-position: center top;
+        transition: transform .25s ease;
+        /* darken the lower edge so the name overlay stays readable on any art */
+        box-shadow: inset 0 -130px 90px -60px rgba(8,11,17,0.88);
+      }
+      /* Themed placeholder gradients — replaced automatically once the /modes images exist
+         (image layer is painted ON TOP of the gradient). */
+      #dd-title .mode[data-mode="free"]     .art { background-image: url('/modes/mode-free.png'),     linear-gradient(168deg, #8fc4ec 0%, #4a7fae 52%, #2c4a6a 100%); }
+      #dd-title .mode[data-mode="dash"]     .art { background-image: url('/modes/mode-dash.png'),     linear-gradient(168deg, #e0785c 0%, #b4523a 52%, #6e2f22 100%); }
+      #dd-title .mode[data-mode="taxi"]     .art { background-image: url('/modes/mode-taxi.png'),     linear-gradient(168deg, #e6c25c 0%, #b48d3a 52%, #6e5322 100%); }
+      #dd-title .mode[data-mode="delivery"] .art { background-image: url('/modes/mode-delivery.png'), linear-gradient(168deg, #6cbf96 0%, #3f8a66 52%, #24513c 100%); }
+      #dd-title .mode[data-mode="police"]   .art { background-image: url('/modes/mode-police.png'),   linear-gradient(168deg, #7a8fc0 0%, #46578a 52%, #262f4e 100%); }
+      #dd-title .mode .label {
+        position: absolute; right: 0; bottom: 0; z-index: 2;
+        display: block; padding: 0 22px 20px 12px;
+        font-size: clamp(16px, 1.5vw, 21px); font-weight: 700; letter-spacing: 0;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+      }
+      #dd-title .mode .sub {
+        display: block; margin-top: 5px;
+        font-size: clamp(10px, 0.85vw, 12px); font-weight: 500; letter-spacing: 0.01em;
+        color: rgba(243,237,225,0.62);
+      }
+      #dd-title .mode:hover { filter: brightness(1.12); }
+      #dd-title .mode:hover .art { transform: scale(1.04); }
+      #dd-title .mode:hover::after {
+        content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+        box-shadow: inset 0 0 0 2px rgba(215,106,79,0.85), inset 0 -3px 0 0 #d76a4f;
+      }
+      #dd-title .mode:active .art { transform: scale(1.02); }
     </style>
   </head>
   <body>
     <div id="dd-title">
-      <div class="bg gray"></div>
-      <div class="bg color"></div>
+      <div class="boot">
+        <div class="pct">0</div>
+        <div class="cap">Loading Barcelona</div>
+        <div class="bbar"><i></i></div>
+      </div>
       <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
       <div id="dd-modes" class="modes">
         <div class="modes-row">
-          <button class="mode" data-mode="free"><span class="ic">🗺️</span>Free Roam</button>
-          <button class="mode" data-mode="dash"><span class="ic">🏁</span>Checkpoint Dash</button>
-          <button class="mode" data-mode="taxi"><span class="ic">🚕</span>City Cab</button>
-          <button class="mode" data-mode="delivery"><span class="ic">📦</span>Rush Hour</button>
-          <button class="mode" data-mode="police"><span class="ic">🚨</span>Heat</button>
+          <button class="mode" data-mode="free">
+            <span class="art"></span>
+            <span class="label">Free Roam<span class="sub">Cruise the open city</span></span>
+          </button>
+          <button class="mode" data-mode="dash">
+            <span class="art"></span>
+            <span class="label">Checkpoint Dash<span class="sub">Beat the clock gate to gate</span></span>
+          </button>
+          <button class="mode" data-mode="taxi">
+            <span class="art"></span>
+            <span class="label">City Cab<span class="sub">Pick up. Drop off. Get paid</span></span>
+          </button>
+          <button class="mode" data-mode="delivery">
+            <span class="art"></span>
+            <span class="label">Rush Hour<span class="sub">Deliveries against the clock</span></span>
+          </button>
+          <button class="mode" data-mode="police">
+            <span class="art"></span>
+            <span class="label">Heat<span class="sub">Outrun the patrol</span></span>
+          </button>
         </div>
       </div>
     </div>
@@ -287,9 +410,10 @@
         var title = document.getElementById('dd-title');
         if (!title) return;
         var params = new URLSearchParams(location.search);
-        var played = false;
-        try { played = sessionStorage.getItem('dd_played') === '1'; } catch (e) {}
-        var inGame = /\/game\/?$/.test(location.pathname) || params.has('spawn') || played;
+        // In-game is decided by the URL ONLY (/game path or a ?spawn reload from the ESC place
+        // search) — NOT by a session flag. Typing the bare origin into the address bar must always
+        // land back on the title screen ("home"), even after playing.
+        var inGame = /\/game\/?$/.test(location.pathname) || params.has('spawn');
         if (inGame) { title.remove(); return; } // already in-game → straight to the loading/game view
 
         var play = document.getElementById('dd-play');
@@ -299,17 +423,65 @@
         // Enter the game with the chosen mode (stored for main.js to auto-start).
         function enter(mode) {
           try { sessionStorage.setItem('dd_mode', mode); } catch (e) {}
-          try { sessionStorage.setItem('dd_played', '1'); } catch (e) {}
           try { history.replaceState({}, '', '/game' + location.search); } catch (e) {}
+
+          // Full-screen loader while the world builds around the car — the intro streamed the CITY
+          // view, not the spawn area, so entering directly would show an empty world (and drop the
+          // car). main.js calls window._ddModeLoadDone() when the spawn area is actually ready.
+          var ld = document.createElement('div');
+          ld.id = 'dd-modeload';
+          ld.innerHTML = '<div class="pct">0</div><div class="cap">Loading Barcelona</div><div class="bbar"><i></i></div>';
+          document.body.appendChild(ld);
+          var mlPctEl = ld.querySelector('.pct'), mlBarEl = ld.querySelector('.bbar i');
+          var mlPct = 0, mlDone = false;
+          var mlTick = setInterval(function () {
+            if (mlDone) return clearInterval(mlTick);
+            mlPct = Math.min(92, mlPct + Math.max(0.4, (92 - mlPct) * 0.045));
+            mlPctEl.textContent = String(Math.floor(mlPct));
+            mlBarEl.style.width = mlPct + '%';
+          }, 120);
+          window._ddModeLoadDone = function () {
+            if (mlDone) return; mlDone = true;
+            window._ddModeLoadDone = null;
+            mlPctEl.textContent = '100'; mlBarEl.style.width = '100%';
+            setTimeout(function () { ld.classList.add('done'); setTimeout(function () { ld.remove(); }, 800); }, 260);
+          };
+          setTimeout(function () { if (window._ddModeLoadDone) window._ddModeLoadDone(); }, 25000);  // safety net
+
           title.classList.add('hide');
           setTimeout(function () { if (title) title.remove(); }, 550);
         }
 
+        // Boot counter — eases toward 92% while the world builds; main.js snaps it to 100 and fades the
+        // boot when the scene is ready (window._ddBootDone). 30s safety net so it can never stick black.
+        var bootEl = title.querySelector('.boot');
+        var pctEl = title.querySelector('.boot .pct');
+        var barEl = title.querySelector('.boot .bbar i');
+        var pct = 0, bootDone = false;
+        var tick = setInterval(function () {
+          if (bootDone) return clearInterval(tick);
+          // ease: fast early, crawls near the cap — reads like real work
+          pct = Math.min(92, pct + Math.max(0.4, (92 - pct) * 0.045));
+          if (pctEl) pctEl.textContent = String(Math.floor(pct));
+          if (barEl) barEl.style.width = pct + '%';
+        }, 120);
+        window._ddBootDone = function () {
+          if (bootDone) return; bootDone = true;
+          if (pctEl) pctEl.textContent = '100';
+          if (barEl) barEl.style.width = '100%';
+          setTimeout(function () {
+            if (bootEl) bootEl.classList.add('done');
+            title.classList.add('reveal');
+          }, 320);
+        };
+        setTimeout(function () { if (window._ddBootDone) window._ddBootDone(); }, 30000);
+
         // PLAY just reveals the mode picker; picking a mode drops into the game.
         if (play) play.addEventListener('click', function () {
           play.style.display = 'none';
-          if (tagline) tagline.textContent = 'Choose your mode';
+          if (tagline) tagline.textContent = 'Choose Your Mode';
           if (modesBox) modesBox.classList.add('show');
+          title.classList.add('choose');   // shrink the hero — the panels take the vertical space
         });
         if (modesBox) modesBox.querySelectorAll('.mode').forEach(function (b) {
           b.addEventListener('click', function () { enter(b.getAttribute('data-mode')); });

@@ -561,8 +561,9 @@ const _nightTexCache = new Map();
  * Generate night emissive textures. We create a larger atlas (4x4 tile grid = 1024x1024)
  * so the repeating pattern is much less obvious. Only ~12% of windows are lit.
  */
-function getNightEmissiveTexture(category) {
-  if (_nightTexCache.has(category)) return _nightTexCache.get(category);
+export function getNightEmissiveTexture(category, hero = false) {
+  const cacheKey = category + (hero ? '#hero' : '');
+  if (_nightTexCache.has(cacheKey)) return _nightTexCache.get(cacheKey);
 
   const style = WINDOW_STYLES[category] || WINDOW_STYLES.residential;
   // 4x4 grid of the base tile pattern — reduces visible tiling
@@ -597,24 +598,25 @@ function getNightEmissiveTexture(category) {
       const oy = gy * BASE;
       for (let y = oy + BASE - marginB - winH; y >= oy; y -= periodV) {
         for (let x = ox + marginL; x + winW <= ox + BASE; x += periodH) {
-          // ~16% chance to be lit — a bit denser so the night skyline reads as alive (was 12%)
-          if (rnd() > 0.16) continue;
+          // ~20% of windows lit (hero buildings: half on — dense enough to read as THE lit tower
+          // from afar without becoming a blazing wall at street level).
+          if (rnd() > (hero ? 0.5 : 0.20)) continue;
 
           const warmth = rnd();
-          // Vary color: warm yellow, cool white, or orange
-          const type = rnd();
+          // Colour mix leans WARM (the night look is warm amber vs blue); heroes are all-warm.
+          const type = hero ? 0 : rnd();
           let r, g, b;
-          if (type < 0.6) {
+          if (type < 0.7) {
             // Warm yellow
             r = 255; g = 190 + Math.round(warmth * 40); b = 70 + Math.round(warmth * 30);
           } else if (type < 0.85) {
-            // Cool white (fluorescent)
+            // Cool white (fluorescent) — kept rare
             r = 200 + Math.round(warmth * 40); g = 210 + Math.round(warmth * 30); b = 220 + Math.round(warmth * 20);
           } else {
             // Warm orange (dim lamp)
             r = 240; g = 150 + Math.round(warmth * 40); b = 40 + Math.round(warmth * 30);
           }
-          const alpha = 0.6 + rnd() * 0.4;
+          const alpha = hero ? 0.8 + rnd() * 0.2 : 0.6 + rnd() * 0.4;
           ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
           ctx.fillRect(x + edge, y + edge, winW - edge * 2, winH - edge * 2);
         }
@@ -630,12 +632,13 @@ function getNightEmissiveTexture(category) {
   tex.magFilter = THREE.LinearFilter;
   // Scale UVs so 4x4 atlas maps to 4x4 tile repeats
   tex.repeat.set(1 / GRID, 1 / GRID);
-  _nightTexCache.set(category, tex);
+  _nightTexCache.set(cacheKey, tex);
   return tex;
 }
 
 let _buildingNightMode = false;
-const NIGHT_EMISSIVE_INTENSITY = 1.4; // window-glow strength at night
+export const NIGHT_EMISSIVE_INTENSITY = 1.5;  // window-glow strength at night (crisp squares, soft bloom edge)
+export const HERO_EMISSIVE_INTENSITY  = 1.7;  // hero towers read denser-lit, NOT brighter-per-window (2.4 bloomed into yellow diamonds)
 
 /**
  * Toggle building window glow for night mode.
@@ -785,22 +788,8 @@ function getFacadeMaterial(hexColor, category = 'residential') {
   } else {
     mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, map: faceMap, flatShading: rally, side: THREE.DoubleSide, ...emis });
   }
-  // Inject extra distance-based fade toward fog color so distant buildings soften
-  mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <fog_fragment>',
-      `#ifdef USE_FOG
-        float fogDepth = vFogDepth;
-        #ifdef FOG_EXP2
-          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);
-        #else
-          float fogFactor = smoothstep(fogNear, fogFar, fogDepth);
-        #endif
-        // Clean fade to fog — no warm desaturation
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-      #endif`
-    );
-  };
+  // (Old custom fog-fade injection removed — the GLOBAL aerial-perspective fog chunk in scene.js now
+  //  handles distance fade for every material, so buildings fog consistently with roads/terrain.)
   // If night mode is already active, apply emissive to this new material
   if (_buildingNightMode) {
     applyNightToMaterial(mat, category, true);
@@ -2549,13 +2538,14 @@ export function renderLODBuildings(buildings, getWorldElevation) {
   let vertCount = 0;
   const MAX_LOD_VERTS = 18000;
 
-  // Shared color palette for LOD buildings (muted urban tones)
+  // Shared color palette for LOD buildings — kept in sync with the worker's terracotta ROOF_PALETTES
+  // (from above, LOD boxes read as ROOFS: the distant fabric must stay clay-orange, not beige).
   const LOD_COLORS = [
-    [0.78, 0.76, 0.72], // warm grey
-    [0.74, 0.73, 0.70], // cool grey
-    [0.80, 0.78, 0.74], // light beige
-    [0.72, 0.70, 0.68], // medium grey
-    [0.76, 0.74, 0.70], // taupe
+    [0.58, 0.34, 0.23], // brick-brown clay
+    [0.54, 0.31, 0.19], // deeper clay
+    [0.62, 0.38, 0.26], // lighter aged clay
+    [0.74, 0.73, 0.70], // cool grey (modern blocks)
+    [0.49, 0.27, 0.17], // dark brick-brown
   ];
 
   for (let bi = 0; bi < buildings.length; bi++) {

@@ -394,42 +394,74 @@ export function setCloudNightMode(isNight) {
   }
 }
 
-/** Cloud sprites + their relative offsets so we can re-center around camera. */
-let _cloudSprites = [];  // { sprite, dx, y, dz }
+/** Single instanced cloud batch (ONE draw call for the whole sky — was ~53 individual Sprites,
+ *  one draw each). Per-cloud offsets kept for the parallax re-centering in updateClouds. */
+let _cloudIM = null;
+let _cloudOffsets = [];  // { dx, y, dz }
 
 function addClouds(scene, spawnX, spawnZ) {
-  // Generate several unique cloud textures
-  const NUM_TEXTURES = 8;
-  const materials = [];
+  // 8 unique cloud canvases composed into one 4×2 atlas → one texture, one material, one draw.
+  const TILE = 256, COLS = 4, ROWS = 2, NUM_TEXTURES = 8;
+  const atlas = document.createElement('canvas');
+  atlas.width = TILE * COLS; atlas.height = TILE * ROWS;
+  const actx = atlas.getContext('2d');
   for (let i = 0; i < NUM_TEXTURES; i++) {
     const tex = createCloudTexture(100 + i * 77);
-    materials.push(new THREE.SpriteMaterial({
-      map: tex,
-      transparent: true,
-      depthWrite: false,
-      depthTest: true,
-      fog: false,
-      opacity: 0.85,
-      color: 0xd8dce0,  // slightly grey — stays below bloom threshold
-    }));
+    actx.drawImage(tex.image, (i % COLS) * TILE, ((i / COLS) | 0) * TILE);
   }
-  _cloudMaterials = materials;
-  _cloudSprites = [];
+  const atlasTex = new THREE.CanvasTexture(atlas);
+  atlasTex.colorSpace = THREE.SRGBColorSpace;
 
-  // Fuller sky — several populated rings from near-mid out to high wisps (sprites are cheap, so we can afford
-  // a lot). Each ring wraps 360° with jitter; large distVar staggers them so they don't read as tidy rings.
+  const mat = new THREE.MeshBasicMaterial({
+    map: atlasTex,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    opacity: 0.85,
+    color: 0xd8dce0,  // slightly grey — stays below bloom threshold
+    side: THREE.DoubleSide,
+  });
+  // Camera-facing quads + per-instance atlas tile (same technique as the tree impostors): put the
+  // instance origin in view space, then push the quad corners out in view-plane XY scaled by the
+  // instance matrix's column lengths (w/h live in the matrix scale — no extra scale attribute needed).
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aCloudTile;\nvarying float vCloudTile;')
+      .replace('#include <project_vertex>', [
+        'vCloudTile = aCloudTile;',
+        'vec2 iScale = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));',
+        'vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);',
+        'mvPosition.xy += position.xy * iScale;',
+        'gl_Position = projectionMatrix * mvPosition;',
+      ].join('\n'));
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vCloudTile;')
+      .replace('#include <map_fragment>', [
+        `vec2 cloudUv = (vMapUv + vec2(mod(vCloudTile, ${COLS}.0), floor(vCloudTile / ${COLS}.0))) / vec2(${COLS}.0, ${ROWS}.0);`,
+        'diffuseColor *= texture2D( map, cloudUv );',
+      ].join('\n'));
+  };
+  _cloudMaterials = [mat];   // setCloudNightMode tints through this list
+
+  // Fuller sky — several populated rings from near-mid out to high wisps. Each ring wraps 360° with
+  // jitter; large distVar staggers them so they don't read as tidy rings.
   const rings = [
     { count: 14, dist: 1100, distVar: 900,  y: 300,  yVar: 130,  w: 230, wVar: 150 },   // near-mid, plentiful
     { count: 12, dist: 1900, distVar: 1100, y: 470,  yVar: 190,  w: 320, wVar: 190 },   // mid, big
     { count: 11, dist: 2900, distVar: 1300, y: 700,  yVar: 260,  w: 380, wVar: 210 },   // upper, big
     { count: 16, dist: 4200, distVar: 1900, y: 1020, yVar: 460,  w: 210, wVar: 130 },   // high, many small wisps
   ];
+  const total = rings.reduce((n, r) => n + r.count, 0);
+
+  _cloudIM = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, total);
+  const tiles = new Float32Array(total);
+  _cloudOffsets = [];
+  const _m = new THREE.Matrix4();
+  let idx = 0;
 
   for (const ring of rings) {
     for (let i = 0; i < ring.count; i++) {
-      const mat = materials[(Math.random() * materials.length) | 0];   // random texture per cloud → less repetition
-      const sprite = new THREE.Sprite(mat);
-
       // Even 360° spacing + jitter that grows with count so denser rings still look scattered, not gridded.
       const angle = (i / ring.count) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI * 2 / ring.count) * 0.9;
       const dist = ring.dist + (Math.random() - 0.5) * ring.distVar;
@@ -440,27 +472,34 @@ function addClouds(scene, spawnX, spawnZ) {
       const w = ring.w + Math.random() * ring.wVar;
       const h = w * (0.4 + Math.random() * 0.2);  // slightly taller ratio for cartoon look
 
-      sprite.frustumCulled = false;
-      sprite.renderOrder = 1;
-      sprite.position.set(spawnX + dx, y, spawnZ + dz);
-      sprite.scale.set(w, h, 1);
-
-      scene.add(sprite);
-      _cloudSprites.push({ sprite, dx, y, dz });
+      _m.makeScale(w, h, 1).setPosition(spawnX + dx, y, spawnZ + dz);
+      _cloudIM.setMatrixAt(idx, _m);
+      tiles[idx] = (Math.random() * NUM_TEXTURES) | 0;   // random atlas tile per cloud → less repetition
+      _cloudOffsets.push({ dx, y, dz });
+      idx++;
     }
   }
+
+  _cloudIM.geometry.setAttribute('aCloudTile', new THREE.InstancedBufferAttribute(tiles, 1));
+  _cloudIM.frustumCulled = false;
+  _cloudIM.renderOrder = 1;
+  scene.add(_cloudIM);
 }
 
 /** Re-center clouds around camera with parallax — higher clouds track slower. */
 export function updateClouds(camX, camZ) {
-  for (const c of _cloudSprites) {
+  if (!_cloudIM) return;
+  const arr = _cloudIM.instanceMatrix.array;
+  for (let i = 0; i < _cloudOffsets.length; i++) {
     // Parallax: clouds follow camera slowly (0.05–0.15) based on height.
     // Low clouds drift a bit more, high clouds barely move — feels natural.
+    const c = _cloudOffsets[i];
     const t = Math.min(1, c.y / 2000);           // 0 at ground, 1 at 2000m
     const follow = 0.15 - t * 0.10;              // low=0.15, high=0.05
-    c.sprite.position.x = camX * follow + c.dx;
-    c.sprite.position.z = camZ * follow + c.dz;
+    arr[i * 16 + 12] = camX * follow + c.dx;     // translation X/Z live at elements 12/14
+    arr[i * 16 + 14] = camZ * follow + c.dz;
   }
+  _cloudIM.instanceMatrix.needsUpdate = true;
 }
 
 export function createScene(container) {
@@ -485,7 +524,7 @@ export function createScene(container) {
   // the whole frame (bright skies/lights no longer clip to flat white). Exposure bumped to preserve the airy
   // high-key look. Tunable: swap to THREE.NeutralToneMapping for a gentler, more colour-preserving curve.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = isRallyStyle() ? 1.9 : 1.55;
+  renderer.toneMappingExposure = isRallyStyle() ? 1.6 : 1.45;
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
   // PCFShadowMap: three r183 deprecated PCFSoftShadowMap and auto-swaps it to this on first render anyway —
   // set it directly so output is identical but without the console deprecation warning.
@@ -577,8 +616,11 @@ export function createScene(container) {
   const ambientLight = new THREE.AmbientLight(ambColor, _rally ? 0.92 : 0.55);
   scene.add(ambientLight);
 
-  // Hemisphere light removed — simpler two-light setup
-  const hemiLight = null;
+  // Hemisphere light (L1 golden-hour fill): cool sky-blue from above + warm ground bounce from below —
+  // the warm-key/cool-shadow colour separation that GI gives for free offline. Actual colours/intensity
+  // are owned by the envToggle DAY/NIGHT presets; these are just sane creation defaults.
+  const hemiLight = new THREE.HemisphereLight(0xa3c0e4, 0xd08a4e, 0.5);
+  scene.add(hemiLight);
 
   // Directional sun light — always created so the env toggle can control it. Rally: warmer + stronger
   // key for crisp light/shade on flat facets.
@@ -607,6 +649,59 @@ export function createScene(container) {
     // Density 0.005: reads as atmosphere without aggressively culling near tiles.
     // Rally style: a touch denser (0.0075) so distance melts into a soft haze — the diorama depth.
     scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0025 : 0.005);
+
+    // ── L2: AERIAL PERSPECTIVE (visual-target-analysis §5.4) ─────────────────
+    // Globally patch the fog shader chunks (compiles lazily on first render, so patching here catches every
+    // fogged material, including worker-built/shared singletons). Replaces the flat single-colour veil with
+    // real atmosphere: distance progressively DESATURATES the scene, the haze BLUE-SHIFTS far away, warms
+    // into a golden wedge toward the sun azimuth, and THINS with fragment altitude (rooftops/aerial shots
+    // sit above the haze layer). All colours derive from fogColor, so day/night/title tints keep working.
+    THREE.ShaderChunk.fog_pars_vertex = /* glsl */`
+      #ifdef USE_FOG
+        varying float vFogDepth;
+        varying vec3 vDdFogWorldPos;
+      #endif`;
+    THREE.ShaderChunk.fog_vertex = /* glsl */`
+      #ifdef USE_FOG
+        vFogDepth = - mvPosition.z;
+        // World position reconstructed from mvPosition (rigid inverse of viewMatrix) — works for EVERY
+        // material including sprites/points, which have no 'transformed' or instanceMatrix in scope.
+        vDdFogWorldPos = transpose( mat3( viewMatrix ) ) * ( mvPosition.xyz - viewMatrix[ 3 ].xyz );
+      #endif`;
+    THREE.ShaderChunk.fog_pars_fragment = /* glsl */`
+      #ifdef USE_FOG
+        uniform vec3 fogColor;
+        varying float vFogDepth;
+        varying vec3 vDdFogWorldPos;
+        #ifdef FOG_EXP2
+          uniform float fogDensity;
+        #else
+          uniform float fogNear;
+          uniform float fogFar;
+        #endif
+      #endif`;
+    THREE.ShaderChunk.fog_fragment = /* glsl */`
+      #ifdef USE_FOG
+        #ifdef FOG_EXP2
+          float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+        #else
+          float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+        #endif
+        // altitude thinning — high fragments rise above the haze layer
+        fogFactor *= exp( - max( vDdFogWorldPos.y, 0.0 ) * 0.0045 );
+        // aerial desaturation before the tint (distance greys colour long before it hides shape)
+        float ddLum = dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( ddLum ), fogFactor * 0.4 );
+        // haze colour: blue-shifts with distance; warms toward the sun near the horizon (day only —
+        // the warm wedge scales with the haze brightness so night stays clean)
+        vec3 ddViewDir = normalize( vDdFogWorldPos - cameraPosition );
+        const vec3 ddSunDir = vec3( -0.2802, 0.5736, -0.7698 );  // az 200°, elev 35° — matches scene.js sun
+        float ddSun = pow( max( dot( ddViewDir, ddSunDir ), 0.0 ), 6.0 );
+        float ddDay = smoothstep( 0.15, 0.4, dot( fogColor, vec3( 0.333 ) ) );
+        vec3 ddFog = mix( fogColor, fogColor * vec3( 0.88, 0.97, 1.14 ), smoothstep( 0.25, 1.0, fogFactor ) );
+        ddFog = mix( ddFog, fogColor * vec3( 1.22, 1.03, 0.82 ), ddSun * ddDay * 0.6 );
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, ddFog, fogFactor );
+      #endif`;
   }
 
   // Physics world (cannon-es)

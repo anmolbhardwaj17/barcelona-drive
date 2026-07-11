@@ -43,7 +43,7 @@ export function fxConfetti(n = 26, colors = CONFETTI, originY = 0.4) {
 export function fxBanner(html, { duration = 1800, top = '34%' } = {}) {
   const b = document.createElement('div');
   b.style.cssText = `position:absolute;top:${top};left:50%;transform:translate(-50%,-50%);text-align:center;` +
-    "font-family:'Lilita One',system-ui,sans-serif;color:#fff;text-shadow:0 4px 16px rgba(0,0,0,.55);white-space:nowrap;line-height:1.15;";
+    "font-family:'Inter',system-ui,sans-serif;color:#fff;text-shadow:0 4px 16px rgba(0,0,0,.55);white-space:nowrap;line-height:1.15;";
   b.innerHTML = html;
   layer().appendChild(b);
   b.animate([

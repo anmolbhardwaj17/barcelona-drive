@@ -61,10 +61,13 @@ const TRUNK_RADIAL_SEGMENTS = 3;   // 3 sides sufficient at game scale
 // V5 cohesion: warmed toward olive (R up, B up a touch, G eased) so foliage sits in the same
 // warm palette family as the buildings under ACES — pure vivid greens were popping/clashing.
 const FOLIAGE_COLORS = [
-  [0x5C7C3A, 0x6C8C44, 0x7C9B50],  // Plane tree — warm olive mid green
-  [0x688943, 0x7C9B50, 0x94A85C],  // Elm/lime — lighter olive-gold highlights
-  [0x3C5E2E, 0x486C34, 0x58783E],  // Cypress/pine — deep warm green
-  [0x6C8C44, 0x7C9B50, 0x96A458],  // Jacaranda/mixed — warm varied olive
+  // Deep forest-olive — another ×0.75 AND green purity reduced (the rally grade re-saturates
+  // ×1.52, so pure greens bounce back to neon; olive-shifted deep tones survive it).
+  // Billboards derive from these automatically.
+  [0x22421C, 0x2A4E23, 0x33592B],  // Plane tree
+  [0x264A20, 0x33592B, 0x3D6533],  // Elm/lime
+  [0x18321A, 0x1E3D1C, 0x244721],  // Cypress/pine — darkest
+  [0x2A4E23, 0x33592B, 0x3B6130],  // Jacaranda/mixed
 ];
 const TRUNK_COLOR = 0x7A7158;      // London-plane bark: muted grey-olive-brown (was 0x877662 — too pale/orange, read fake)
 const DUST_COLOR = 0x9B8B6E;
@@ -213,9 +216,41 @@ export function getProceduralMaterial() {
       transformed.x += windGust * windInfluence * uWindStrength;
       transformed.z += windSway * windInfluence * uWindStrength * 0.6;`
     );
+
+    patchVegWash(shader);   // urban-glow wash (see below) — shares the same compile pass
   };
 
   return proceduralMaterial;
+}
+
+// ── Vegetation "urban glow" wash (night) ─────────────────────────────────────
+// Street trees/bushes near buildings pick up the same warm ground-glow as the facades and roads;
+// park/empty-area vegetation stays dark. The per-instance factor lives in the ALPHA channel of the
+// BatchedMesh colours texture (written by the veg pools from building proximity at tile build) and
+// is read here via getBatchingColor(). One shared uniform gates it to night.
+const _vegWashUniform = { value: 0 };
+// FOLIAGE_COLORS were deepened ~×0.64 total for DAYLIGHT (grade re-saturation); the night look was
+// already user-approved BEFORE that change, so undo the deepening on the shared material after dark.
+const TREE_NIGHT_RESTORE = 1.55;
+export function setVegNightWash(isNight) {
+  _vegWashUniform.value = isNight ? 0.04 : 0;
+  if (proceduralMaterial) proceduralMaterial.color.setScalar(isNight ? TREE_NIGHT_RESTORE : 1);
+}
+function patchVegWash(shader) {
+  shader.uniforms.uVegWash = _vegWashUniform;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vVegWash;')
+    .replace('#include <batching_vertex>', [
+      '#include <batching_vertex>',
+      'vVegWash = 0.0;',
+      '#ifdef USE_BATCHING_COLOR',
+      'vVegWash = getBatchingColor( getIndirectIndex( gl_DrawID ) ).a;',
+      '#endif',
+    ].join('\n'));
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uVegWash;\nvarying float vVegWash;')
+    .replace('#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vVegWash * uVegWash);');
 }
 
 /**
@@ -269,7 +304,7 @@ const TREE_ROAD_TYPES = new Set([
 
 function getGreenMaterial() {
   if (sharedGreenMaterial) return sharedGreenMaterial;
-  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x54703e, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
+  sharedGreenMaterial = new THREE.MeshStandardMaterial({ color: 0x2F5C28, roughness: 0.95, metalness: 0 }); // V5: warmed toward olive to match foliage/buildings (was 0x4a6e38)
   return sharedGreenMaterial;
 }
 
@@ -728,7 +763,7 @@ async function createTreeMesh(positions, typeIndex, getElevationAt, getWorldElev
   const tintColor = new THREE.Color();
   const vertExag = Number.isFinite(CONFIG.ELEVATION_VERTICAL_EXAGGERATION)
     ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION : 1;
-  const tintPalette = [0x5E7F3A, 0x6A8A3F, 0x7A8B4A, 0x8A8F5A];
+  const tintPalette = [0x30602B, 0x3A6B32, 0x45763A, 0x518245];
 
   const LEAN_MAX = (4 * Math.PI) / 180;
   for (let i = 0; i < positions.length; i++) {
@@ -785,15 +820,26 @@ function getTreeBillboardAtlas() {
   canvas.height = cellH;
   const ctx = canvas.getContext('2d');
 
-  // Silhouette specs — matched to the DAY-LIT appearance of the 3D trees (fresh Mediterranean greens,
-  // FOLIAGE_COLORS). Night matching is handled separately by darkening the material (setTreeBillboardNightMode),
-  // since these are unlit and won't dim with the scene like the lit 3D trees do.
-  const specs = [
-    { trunk: '#6E6252', fol: '#5E8C3E', folD: '#4C7632', fw: 0.55, fh: 0.45, ty: 0.38 }, // Plane
-    { trunk: '#6E6252', fol: '#6E9C48', folD: '#5A8A3C', fw: 0.48, fh: 0.42, ty: 0.40 }, // Elm
-    { trunk: '#6E6252', fol: '#3F6E32', folD: '#33602A', fw: 0.30, fh: 0.52, ty: 0.32 }, // Cypress
-    { trunk: '#6E6252', fol: '#5E8C3E', folD: '#4C7A38', fw: 0.60, fh: 0.44, ty: 0.36 }, // Mixed
+  // Silhouette colours are DERIVED from the live 3-D tree palette (FOLIAGE_COLORS) so the impostors
+  // always match the near trees, even when the palette is retuned. The impostors are unlit, so we
+  // approximate the day-lit appearance: albedo × warm-sun lift (empirical for the current sun+ACES).
+  // Night matching is handled separately by darkening the material (setTreeBillboardNightMode).
+  const lit = (hex, f = 1) => {
+    const r = Math.min(255, Math.round(((hex >> 16) & 255) * 1.55 * f));
+    const g = Math.min(255, Math.round(((hex >> 8) & 255) * 1.45 * f));
+    const b = Math.min(255, Math.round((hex & 255) * 1.25 * f));
+    return `rgb(${r},${g},${b})`;
+  };
+  const shapes = [
+    { fw: 0.55, fh: 0.45, ty: 0.38 }, // Plane
+    { fw: 0.48, fh: 0.42, ty: 0.40 }, // Elm
+    { fw: 0.30, fh: 0.52, ty: 0.32 }, // Cypress
+    { fw: 0.60, fh: 0.44, ty: 0.36 }, // Mixed
   ];
+  const specs = shapes.map((sh, i) => {
+    const pal = FOLIAGE_COLORS[i] ?? FOLIAGE_COLORS[0];
+    return { trunk: lit(TRUNK_COLOR, 0.8), fol: lit(pal[1]), folD: lit(pal[0], 0.9), ...sh };
+  });
 
   for (let i = 0; i < specs.length; i++) {
     const s = specs[i];
@@ -837,7 +883,11 @@ function getTreeBillboardAtlas() {
 // Tree billboards are unlit (MeshBasic), so they won't dim with the scene at night like the lit 3D
 // trees do → distant trees glow pale. Darken the material by hand so LOD matches the near trees.
 let _bbNight = false;   // persisted so billboards created after a night toggle come up darkened
-function _applyBbNight(m) { m.color.setRGB(_bbNight ? 0.34 : 1, _bbNight ? 0.38 : 1, _bbNight ? 0.40 : 1); }
+// Night tint approximates the lit 3-D trees under the deep-blue night rig: the baked atlas is
+// day-lit appearance, so divide the day sun back out and multiply the blue ambient in — darker
+// with a blue lean. Includes the ×1.55 TREE_NIGHT_RESTORE (atlas derives from the day-deepened
+// palette; night look predates that deepening).
+function _applyBbNight(m) { m.color.setRGB(_bbNight ? 0.37 : 1, _bbNight ? 0.43 : 1, _bbNight ? 0.68 : 1); }
 export function setTreeBillboardNightMode(isNight) {
   _bbNight = isNight;
   for (const m of _bbMaterials) { if (m) _applyBbNight(m); }
@@ -878,9 +928,18 @@ export function getTreeBillboardMaterial(variantIndex) {
     shader.vertexShader = shader.vertexShader.replace(
       '#include <project_vertex>',
       `
+      // Per-instance matrix: instanceMatrix on an InstancedMesh (legacy per-tile path) or
+      // batchingMatrix inside the global BatchedMesh pools (computed by <batching_vertex> above).
+      #if defined( USE_BATCHING )
+      mat4 bbIM = batchingMatrix;
+      #elif defined( USE_INSTANCING )
+      mat4 bbIM = instanceMatrix;
+      #else
+      mat4 bbIM = mat4( 1.0 );
+      #endif
       // Instance world position via modelMatrix (accounts for worldGroup.scale.x=-1)
-      vec4 bbWP = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-      float bbS = length(instanceMatrix[0].xyz);
+      vec4 bbWP = modelMatrix * bbIM * vec4(0.0, 0.0, 0.0, 1.0);
+      float bbS = length(bbIM[0].xyz);
 
       // Camera right vector projected to XZ plane (cylindrical billboard)
       vec3 bbR = normalize(vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]));
@@ -1124,6 +1183,7 @@ export function getBushGeometry() {
 export function getBushMaterial() {
   if (_bushMat) return _bushMat;
   _bushMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  _bushMat.onBeforeCompile = (shader) => { patchVegWash(shader); };   // urban-glow wash at night
   return _bushMat;
 }
 

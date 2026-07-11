@@ -9,6 +9,37 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
+import { warmupBegin, warmupEnd } from './map/gpuWarmup.js';
+
+// DEV-only physics benchmark: cannon-es vs Rapier on a tile-world-like load. Dynamic import + DEV gate ⇒
+// never in the production bundle. Trigger with ?bench=physics, or window._benchPhysics() from the console.
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('bench') === 'physics') {
+  import('./bench/physicsBench.js').then((m) => m.benchPhysics()).catch((e) => console.warn('[bench] failed', e));
+}
+// DEV-only draw-call audit for the BatchedMesh migration: groups every visible mesh (≈1 draw each) by
+// material signature so we know exactly which families dominate the ~700 draws. Run window._drawAudit().
+if (import.meta.env.DEV) {
+  window._drawAudit = () => {
+    const by = new Map();
+    let total = 0;
+    scene.traverse((o) => {
+      if ((!o.isMesh && !o.isSprite) || o.visible === false) return;
+      total++;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      const kind = o.isInstancedMesh ? 'INST ' : o.isBatchedMesh ? 'BATCH ' : '';
+      const key = kind + (m?.type || '?')
+        + (m?.map ? '+map' : '')
+        + (m?.vertexColors ? '+vc' : '')
+        + ' #' + (m?.color?.getHexString?.() || '------')
+        + (o.name ? ' [' + o.name.slice(0, 24) + ']' : '');
+      by.set(key, (by.get(key) || 0) + 1);
+    });
+    const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 35);
+    console.warn('[drawAudit] total mesh/sprite objects:', total, '| distinct material signatures:', by.size);
+    for (const [k, n] of top) console.warn(String(n).padStart(5), ' ', k);
+    return { total, distinct: by.size, top };
+  };
+}
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
@@ -62,6 +93,8 @@ import { updateDebugColliders } from './debugColliders.js';
 import { initTunnelDebug, updateTunnelDebug } from './tunnelDebugOverlay.js';
 import { initCollisionDebug, updateCollisionDebug } from './collisionDebug.js';
 import { initWorkerPool } from './workers/workerPool.js';
+import { warmAllBuildingMaterials } from './workers/meshMaterializer.js';
+import { getWaterMaterial } from './map/waterRenderer.js';
 
 const container = document.getElementById('app');
 container.tabIndex = 0;
@@ -99,7 +132,8 @@ const perfLogger = createPerfLogger();
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
   isRallyStyle() ? 0.28 : 0.5, // strength — rally keeps bloom restrained/clean
-  0.4,    // radius — soft spread
+  0.15,   // radius — TIGHT: bright core with a crisp edge (reference-render glow character);
+          // the old 0.4 smeared every emissive into a wide fuzzy orb
   1.1,    // threshold — above sky/clouds (~1.0 max) but reachable by car light emissives
 );
 composer.addPass(bloomPass);
@@ -177,6 +211,30 @@ if (ENABLE_CAR !== CONFIG.ENABLE_CAR) {
 let tileManager;
 let freeCameraControls;
 let carDriver = null;
+let rapierAdapter = null;   // set when ?physics=rapier — streams the collider working set around the car
+
+// ── Live title screen ─────────────────────────────────────────────────────
+// Once the spawn area has built, the static title artwork crossfades away (#dd-title.live) and a slow
+// cinematic camera orbits the REAL city under the logo/PLAY. Picking a mode hands the camera to carCam,
+// whose lerp glides it down behind the car (the "dive"). HUD elements are hidden while the title is live.
+let _titleLive = false;
+let _titleOrbit = null;     // { x, y, z } — point (physics/scene frame) the cinematic orbits — the CITY
+                            //   view (old Diagonal spawn), independent of where the car spawns
+let _titleT0 = 0;           // when the descent-from-the-clouds began (performance.now)
+// The title cinematic always frames the classic city view even when the CAR spawns elsewhere (e.g. the
+// beach). While the title is up, tile streaming follows this point instead of the car, and the car's
+// physics is frozen (its own ground tiles may be unloaded); after PLAY the stream snaps back to the car
+// and physics stays frozen until the ground under it has streamed back in.
+const TITLE_ORBIT_LATLON = { lat: 41.3948, lon: 2.1602 };   // Avinguda Diagonal — the old spawn
+let _carHold = false;       // car physics frozen (title up, or ground not yet rebuilt under the car)
+let _carHoldT = 0;          // post-PLAY hold timer — safety cap so a missing tile can't freeze us forever
+let _titleSky = null;       // saved sky-dome horizon/mid colors (biased bluer during the aerial title)
+const _titleFogLanded = new THREE.Color(0x9fd0f2);   // light horizon haze the descent settles into
+const TITLE_DESCENT_MS = 5200;   // fall time from cloud level to orbit height
+const TITLE_HUD_SELECTOR = '#minimap-frame, #controls-strip, #street-display, #env-toggle, .dd-esc-fab, #performance-panel, #compass-bar, #metrics-panel, #speed-display';
+function _setHudHidden(hidden) {
+  document.querySelectorAll(TITLE_HUD_SELECTOR).forEach((el) => { el.style.visibility = hidden ? 'hidden' : ''; });
+}
 let dashMode = null;
 let taxiMode = null;
 let deliveryMode = null;
@@ -316,6 +374,14 @@ spawnTileReady.finally(() => {
   injectGated.then(async () => {
     const origin = getOriginOffset();
 
+    // Live-title cinematic centre — the classic city view (old Diagonal spawn), NOT the car spawn
+    // (they can be km apart). Set before car creation so the streaming override kicks in immediately.
+    // y starts at 0 and is re-sampled from the loaded terrain each frame while the cinematic runs.
+    if (ENABLE_CAR) {
+      const _tow = latLonToWorld(TITLE_ORBIT_LATLON.lat, TITLE_ORBIT_LATLON.lon);
+      _titleOrbit = { x: -(_tow.x - origin.x), y: 0, z: _tow.z - origin.z };
+    }
+
     if (ENABLE_CAR) {
       // Find nearest major road for proper on-road spawn
       const spawnResult = findRoadSpawn(spawnTileData, spawnCenter);
@@ -331,7 +397,35 @@ spawnTileReady.finally(() => {
         z: spawnResult.wz - origin.z,
       };
       try {
-        carDriver = await createCarDriver(scene, world, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading);
+        // ── Rapier (WASM) physics — opt in with ?physics=rapier. The car runs on Rapier; the cannon world
+        //    is never stepped (inert). tileManager keeps adding CANNON collider bodies to `world`, and we
+        //    MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain as a NATIVE Rapier
+        //    heightfield (convention probed at runtime, trimesh fallback). Zero tileManager changes.
+        let _rapier = null, _physicsWorld = world;
+        if (new URLSearchParams(location.search).get('physics') === 'rapier') {
+          try {
+            _rapier = (await import('@dimforge/rapier3d-compat')).default;
+            await _rapier.init();
+            const rw = new _rapier.World({ x: 0, y: -9.82, z: 0 });
+            rw.timestep = 1 / 60;
+            // Deep safety backstop only — terrain + road colliders are the real surface now. Placed far
+            // below (−60 m) so it never lifts the car off a road/terrain that dips below spawn height; it
+            // just catches a catastrophic fall (freefall-recovery is the primary backstop).
+            const gb = rw.createRigidBody(_rapier.RigidBodyDesc.fixed().setTranslation(spawnLocalPos.x, spawnLocalPos.y - 60, spawnLocalPos.z));
+            rw.createCollider(_rapier.ColliderDesc.cuboid(4000, 1, 4000).setFriction(1.0), gb);
+            _physicsWorld = rw;
+            const { createRapierWorldAdapter } = await import('./physics/rapierWorldAdapter.js');
+            const _adapter = createRapierWorldAdapter(rw, _rapier);
+            for (const b of [...world.bodies]) { try { _adapter.addBody(b); } catch {} }   // register already-loaded tiles
+            const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // register future tiles
+            world.addBody = (b) => { _oAdd(b); try { _adapter.addBody(b); } catch {} };
+            world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
+            rapierAdapter = _adapter;   // animate() streams the working set around the car each frame
+            window._rapierWorld = rw;   // dev: _rapierWorld.colliders.len() shows the live working set
+            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies.`);
+          } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
+        }
+        carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier, cpuTimer });
         contactShadows = createContactShadows({ scene });
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
@@ -405,17 +499,19 @@ spawnTileReady.finally(() => {
         // "Press R" hint that appears when the car flips over (recover key is otherwise undiscoverable).
         recoverHint = document.createElement('div');
         recoverHint.style.cssText = 'position:fixed;bottom:118px;left:50%;transform:translateX(-50%);z-index:1200;display:none;' +
-          'font:800 15px Poppins,system-ui,sans-serif;color:#fff;background:rgba(176,42,30,.9);padding:9px 16px;border-radius:12px;' +
-          'box-shadow:0 4px 16px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap;';
-        recoverHint.innerHTML = '🔄 Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px">R</b> to recover';
+          "font-family:'Inter',system-ui,sans-serif;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;" +
+          'color:#f3ede1;background:rgba(215,106,79,0.92);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);padding:9px 16px;border-radius:11px;' +
+          'box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;white-space:nowrap;';
+        recoverHint.innerHTML = 'Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px;letter-spacing:0">R</b> to recover';
         document.body.appendChild(recoverHint);
-        // Subtle controls hint, bottom-centre, small font.
+        // Subtle controls hint, bottom-centre — thin uppercase Futura, wide tracking (art-of-rally caption).
         const controlsStrip = document.createElement('div');
         controlsStrip.id = 'controls-strip';
-        controlsStrip.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;' +
-          'font:500 13px Poppins,system-ui,sans-serif;color:rgba(255,255,255,.8);' +
-          'pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.4px;';
-        controlsStrip.innerHTML = 'WASD-DRIVE &nbsp;·&nbsp; SPACE-DRIFT &nbsp;·&nbsp; H-HORN &nbsp;·&nbsp; L-LIGHTS &nbsp;·&nbsp; R-RECOVER &nbsp;·&nbsp; M-MAP &nbsp;·&nbsp; ESC-MENU';
+        controlsStrip.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:900;' +
+          "font-family:'Inter',system-ui,sans-serif;font-size:11.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;" +
+          'color:rgba(243,237,225,.68);text-shadow:0 1px 4px rgba(0,0,0,.4);' +
+          'pointer-events:none;user-select:none;white-space:nowrap;';
+        controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
         document.body.appendChild(controlsStrip);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
@@ -472,21 +568,75 @@ spawnTileReady.finally(() => {
     let _polls = 0;
     const _pollLoad = setInterval(() => {
       _polls++;
+      window._ddGate = { polls: _polls, complete: !!(tileManager?.isInitialLoadComplete?.()), car: !!carDriver, orbit: !!_titleOrbit, title: document.getElementById('dd-title')?.className ?? 'gone' };
       if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) {
         clearInterval(_pollLoad); _hideLoader();
+        // Go LIVE behind the title: crossfade the static artwork to the real city + start the cinematic
+        // orbit (only in car mode, and only if the player hasn't already entered the game).
+        try { window._ddBootDone?.(); } catch {}   // boot loader → 100% + fade, reveal the title content
+        try {
+          const titleEl = document.getElementById('dd-title');
+          if (titleEl && !titleEl.classList.contains('hide') && carDriver && _titleOrbit) {
+            titleEl.classList.add('live');
+            _titleLive = true;
+            _titleT0 = performance.now();   // begin the descent from the clouds
+            _setHudHidden(true);
+            // Full-detail 3×3 set for the aerial shot (photo mode also disables the LOD/distance fades,
+            // so the periphery isn't flat boxes). Was 5×5, but 25 full-detail tiles (geometry + physics
+            // colliders) held ~1 GB while idling on the title; 3×3 keeps the framing — the camera orbits
+            // looking at the CENTRE and the ring edge sits under the descent haze. Restored on entering.
+            try { tileManager.setPhotoRadius(1); tileManager.setPhotoMode(true); } catch {}
+            // From altitude the camera only sees the sky dome's near-white HORIZON band, and the street-level
+            // pastel palette reads dead grey up there. Give the cinematic its own decisive blues (all three
+            // stops saved + restored on entering the game).
+            try {
+              const su = sky?.material?.uniforms;
+              if (su?.uHorizon && su?.uMid && su?.uZenith) {
+                _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone(),
+                              f: scene.fog ? scene.fog.color.clone() : null };
+                su.uHorizon.value.set(0x9fd0f2);
+                su.uMid.value.set(0x54a4e8);
+                su.uZenith.value.set(0x2b78d2);
+                if (scene.fog) scene.fog.color.set(0x9fd0f2);   // haze reads as sky-blue, not grey
+              }
+            } catch {}
+          }
+        } catch {}
         // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
         try { envToggle?.reapply?.(); } catch {}
         // Warm the GPU shader programs once now (materials are shared singletons, so this compiles almost
         // every program the session will ever use). Kills the first-render compile stall as new tiles
         // stream in at speed. compileAsync runs off the render path (KHR_parallel_shader_compile).
-        try { renderer.compileAsync?.(scene, camera); } catch {}
-        // Auto-start the mode chosen on the title screen (roads are loaded now, so gates/fares can place).
+        // The warm set includes every buildable material VARIANT (all facade categories × hero,
+        // roof, details) on tiny hidden triangles — otherwise the first tile introducing a new
+        // variant sync-compiles mid-drive (one-off ~100 ms render frames, forensics-confirmed).
         try {
-          const chosen = sessionStorage.getItem('dd_mode');
-          if (chosen === 'dash') dashMode?.start?.();
-          else if (chosen === 'taxi') taxiMode?.start?.();
-          else if (chosen === 'delivery') deliveryMode?.start?.();
-          else if (chosen === 'police') policeMode?.start?.();
+          const _warmMats = [...warmAllBuildingMaterials(), getWaterMaterial()];
+          const _wg = new THREE.BufferGeometry();
+          _wg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0.01, 0, 0.01, 0, 0], 3));
+          _wg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+          _wg.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0], 2));
+          _wg.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+          _wg.setAttribute('aWash', new THREE.Float32BufferAttribute([0, 0, 0], 1));
+          const _warmGrp = new THREE.Group();
+          for (const m of _warmMats) { const wm = new THREE.Mesh(_wg, m); wm.frustumCulled = false; _warmGrp.add(wm); }
+          _warmGrp.position.set(0, -5000, 0);
+          scene.add(_warmGrp);
+          const _p = renderer.compileAsync?.(scene, camera);
+          if (_p?.then) _p.then(() => scene.remove(_warmGrp)); else scene.remove(_warmGrp);
+        } catch {}
+        // Auto-start the chosen mode — but ONLY on reload flows where the title never existed
+        // (/game path or ?spawn). On the fresh title flow the mode-select loader in animate()
+        // starts the mode once the spawn area has streamed in (this gate fires while the player
+        // is still on the title, before they've picked anything).
+        try {
+          if (!document.getElementById('dd-title')) {
+            const chosen = sessionStorage.getItem('dd_mode');
+            if (chosen === 'dash') dashMode?.start?.();
+            else if (chosen === 'taxi') taxiMode?.start?.();
+            else if (chosen === 'delivery') deliveryMode?.start?.();
+            else if (chosen === 'police') policeMode?.start?.();
+          }
         } catch {}
       }
     }, 150);
@@ -501,9 +651,10 @@ spawnTileReady.finally(() => {
 setTimeout(() => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); } }, 20000);
 
 let lastTime = 0;
-// FPS cap (default 60). Override with ?fpscap=N (e.g. ?fpscap=0 uncapped, ?fpscap=72). Cuts per-second
-// engine garbage + evens frame pacing on high-refresh displays. Small 0.5ms slack so we don't miss the cap.
-const _fpsCapVal = (() => { const p = new URLSearchParams(location.search).get('fpscap'); return p == null ? 60 : Math.max(0, parseInt(p, 10) || 0); })();
+// FPS cap (default 120 — lets high-refresh displays breathe past 60; was 60 to cut GC, but the big
+// per-frame allocators are being killed off so we can afford more frames). Override with ?fpscap=N
+// (e.g. ?fpscap=0 uncapped, ?fpscap=60). Small 0.5ms slack so we don't miss the cap.
+const _fpsCapVal = (() => { const p = new URLSearchParams(location.search).get('fpscap'); return p == null ? 120 : Math.max(0, parseInt(p, 10) || 0); })();
 const _fpsCapMs = _fpsCapVal > 0 ? (1000 / _fpsCapVal) - 0.5 : 0;
 let _lastRenderT = 0;
 const _camDir = new THREE.Vector3();
@@ -536,17 +687,93 @@ function animate(time = 0) {
   // Fog is atmospheric — only meaningful at ground level in drive mode.
   // In drone/free-camera mode, disable fog so the aerial view stays clear.
   if (CONFIG.ENABLE_FOG && scene.fog) {
-    scene.fog.density = carDriver ? 0.005 : 0;
+    // Ground-level fog washes out the aerial title cinematic (camera at ~115m+ in 0.005 fog = white soup),
+    // so it's nearly off while the title is live — like drone mode — and restored on entering the game.
+    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005) : 0;
   }
+
+  // Title-up detection: while the title screen is visible the world streams around the CINEMATIC
+  // centre (see the viewer override below), so the car's own ground may be unloaded.
+  const _titleEl = document.getElementById('dd-title');
+  const _titleUp = !!(_titleEl && !_titleEl.classList.contains('hide'));
 
   if (carDriver) {
     // ── Car driving mode ──────────────────────────────────────────────────────
+    // While the title is up the car's physics is frozen entirely (its ground may not exist). After
+    // PLAY, stay frozen until the ground under the car has streamed back in (capped so it can't stick).
+    if (_titleUp && _titleOrbit) { _carHold = true; _carHoldT = 0; }
+    else if (_carHold) {
+      _carHoldT += frameDt;
+      const _clp = carDriver.getLocalPosition();
+      const _cs = tileManager?.getSurfaceHeightAt?.(-_clp.lx, _clp.lz);
+      if ((_cs && Number.isFinite(_cs.surfaceY)) || _carHoldT > 12) _carHold = false;
+    }
+
+    // Mode-select loader (created by the title's enter()): lift it only when the world around the
+    // car is genuinely ready — car unfrozen (ground underneath) AND the streaming queue drained.
+    // This is also the right moment to start the chosen game mode (roads exist for gates/fares).
+    if (window._ddModeLoadDone && !_titleUp && !_carHold && tileManager?.isInitialLoadComplete?.()) {
+      try { window._ddModeLoadDone(); } catch {}
+      window._ddModeLoadDone = null;
+      try {
+        const _chosen = sessionStorage.getItem('dd_mode');
+        if (_chosen === 'dash') dashMode?.start?.();
+        else if (_chosen === 'taxi') taxiMode?.start?.();
+        else if (_chosen === 'delivery') deliveryMode?.start?.();
+        else if (_chosen === 'police') policeMode?.start?.();
+      } catch {}
+    }
     // Skip the chase camera while the taxi mode is playing a pickup/drop-off cinematic (it drives the
-    // camera itself, in taxiMode.update below).
-    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()));
+    // camera itself, in taxiMode.update below) or while the title cinematic owns the camera. The freeze
+    // flag additionally skips the physics step (car pinned; carCam still glides post-PLAY).
+    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp, _carHold);
+
+    // Live title: descend FROM the cloud deck into the city (clouds part in sync), then settle into a
+    // slow orbit under the logo/PLAY. Picking a mode releases the camera — carCam's lerp glides it down
+    // behind the car (the dive-in).
+    if (_titleLive) {
+      // Orbit height rides on the real terrain under the cinematic centre (the centre is normalized to
+      // the CAR spawn's elevation frame, so a hillside city view can sit tens of metres above y=0).
+      const _ogy = tileManager?.getTerrainHeightAt?.(-_titleOrbit.x, _titleOrbit.z);
+      if (Number.isFinite(_ogy)) _titleOrbit.y = _ogy;
+      const _p = Math.min(1, (performance.now() - _titleT0) / TITLE_DESCENT_MS);
+      const _ease = _p * _p * (3 - 2 * _p);              // smoothstep fall — quick drop, soft landing
+      const _ta = time * 0.001 * 0.045;                  // ~2.3 min per orbit — unhurried
+      const _tr = 200, _th = 115, _cloudAlt = 340;       // orbit height + starting altitude above it
+      camera.position.set(
+        _titleOrbit.x + Math.cos(_ta) * _tr,
+        _titleOrbit.y + _th + (1 - _ease) * _cloudAlt + Math.sin(_ta * 0.5) * 8,
+        _titleOrbit.z + Math.sin(_ta) * _tr,
+      );
+      // Aim slightly above the ground so the frame includes real sky + the drifting 3D clouds — pure
+      // top-down framing showed only the dome's washed horizon band ("dead sky").
+      camera.lookAt(_titleOrbit.x, _titleOrbit.y + 55, _titleOrbit.z);
+      // Light altitude haze that clears as we land — kept SUBTLE (a heavy start read as a grey wall);
+      // the city should be visible the whole way down, just softened at the top of the drop. The haze
+      // COLOUR sweeps from a rich sunny sky-blue at the top of the fall to the light horizon haze on
+      // landing, so the transition reads sky→ground instead of a grey veil.
+      if (scene.fog) {
+        scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.006;
+        scene.fog.color.setHex(0x62b4f0).lerp(_titleFogLanded, _ease);
+      }
+      const _te = document.getElementById('dd-title');
+      if (!_te || _te.classList.contains('hide')) {
+        _titleLive = false;
+        _setHudHidden(false);
+        try { tileManager.setPhotoMode(false); } catch {}   // back to the normal streaming radius
+        try {   // restore the gameplay sky gradient
+          const su = sky?.material?.uniforms;
+          if (_titleSky && su?.uHorizon && su?.uMid && su?.uZenith) {
+            su.uHorizon.value.copy(_titleSky.h); su.uMid.value.copy(_titleSky.m); su.uZenith.value.copy(_titleSky.z);
+            if (scene.fog && _titleSky.f) scene.fog.color.copy(_titleSky.f);
+          }
+        } catch {}
+      }
+    }
     cpuTimer.lap('phys');
 
     const lp = carDriver.getLocalPosition();
+    rapierAdapter?.tick(lp.lx, lp.lz);   // stream the Rapier collider working set around the car
     // Physics / scene X is mirrored relative to world/map X (worldGroup.scale.x = -1),
     // so convert back to world coordinates by negating X (same convention as free camera).
     viewerWx = -lp.lx;
@@ -556,10 +783,12 @@ function animate(time = 0) {
     // AI traffic + parked cars + pedestrians — player position is in the physics frame (lp.lx, lp.lz).
     if (contactShadows) contactShadows.begin();
     if (trafficSystem) trafficSystem.update(lp.lx, lp.lz, frameDt, speedKmh);
+    cpuTimer.lap('traffic');
     if (parkedCars) parkedCars.update(lp.lx, lp.lz);
+    cpuTimer.lap('parked');
     if (pedestrians) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
-    cpuTimer.lap('ent');
+    cpuTimer.lap('peds');
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
     if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
     if (deliveryMode) deliveryMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
@@ -583,6 +812,16 @@ function animate(time = 0) {
     headingDeg = (Math.atan2(_camDir.x, _camDir.z) * 180) / Math.PI;
 
     if (groundMesh) groundMesh.position.set(viewerWx, 0, viewerWz);
+  }
+
+  // While the title screen is up (car mode), stream tiles around the CINEMATIC centre — the classic
+  // city view — not the car, which may be parked kilometres away (beach spawn) and sits frozen until
+  // PLAY brings the stream back to it.
+  if (_titleUp && _titleOrbit && ENABLE_CAR) {
+    viewerWx = -_titleOrbit.x;
+    viewerWz = _titleOrbit.z;
+    headingDeg = 0;
+    speedKmh = 0;
   }
 
   tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });
@@ -658,16 +897,21 @@ function animate(time = 0) {
   updateTreeWind(time / 1000);
   cpuTimer.lap('ui'); // hud/minimap/shadow-follow/wind/infra since the last lap
 
-  // Radial edge blur scales with speed — skip the full-screen pass entirely below 40 km/h (a free frame)
+  // Radial edge blur scales with speed — skip the full-screen pass entirely below ~30 km/h (a free frame).
   const blurSpd = Math.abs(speedKmh || 0);
-  // Edge speed-blur starts earlier now (37 vs 42) and ramps over a shorter range — with top speed at 150,
-  // the cue should live in the 37-110 city range so 40-90 reads as fast.
-  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 35) / 75));
-  radialBlurPass.enabled = blurSpd > 37;
+  // Top speed is now 110, so the cue is recalibrated into 30-95: it starts sooner and hits FULL strength by
+  // ~95 km/h, so the trimmed top end still reads as genuinely fast (bought-back sense of speed).
+  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 30) / 65));
+  radialBlurPass.enabled = blurSpd > 30;
   renderer.info.reset();
   gpuTimer.poll();       // read back a previously-issued GPU timer query (async, resolves a few frames later)
   gpuTimer.begin();      // time the actual GPU work this frame → "capable FPS" even when vsync caps display at 60
+  // GPU pre-upload: force a few queued (prefetched, off-screen) tile meshes through this render so their
+  // vertex buffers upload NOW, spread over frames — instead of all at once when the tile reveals (the
+  // "stutter driving into a new tile"). Restore culling right after. See map/gpuWarmup.js.
+  warmupBegin(3);
   composer.render();
+  warmupEnd();
   gpuTimer.end();
   cpuTimer.lap('rend'); // CPU cost of submitting draws (not GPU exec — that's the gpuTimer)
   if (perfLogger.recording) {
@@ -717,7 +961,7 @@ const _captureBtn = document.createElement('button');
 _captureBtn.id = 'photo-capture-btn';
 _captureBtn.textContent = '📷 Capture';
 _captureBtn.style.cssText = 'position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:6000;display:none;' +
-  'cursor:pointer;font:800 16px Poppins,system-ui,sans-serif;color:#141414;padding:12px 28px;border:none;border-radius:14px;' +
+  'cursor:pointer;font:800 16px Inter,system-ui,sans-serif;color:#141414;padding:12px 28px;border:none;border-radius:14px;' +
   'background:linear-gradient(#ffffff,#e4e4e4);box-shadow:0 6px 0 #b4b4b4,0 10px 18px rgba(0,0,0,.4);letter-spacing:.5px;';
 _captureBtn.onmousedown = () => { _captureBtn.style.transform = 'translateX(-50%) translateY(4px)'; _captureBtn.style.boxShadow = '0 2px 0 #b4b4b4'; };
 const _captureBtnUp = () => { _captureBtn.style.transform = 'translateX(-50%)'; _captureBtn.style.boxShadow = '0 6px 0 #b4b4b4,0 10px 18px rgba(0,0,0,.4)'; };
@@ -729,7 +973,7 @@ document.body.appendChild(_captureBtn);
 const _photoInfo = document.createElement('div');
 _photoInfo.id = 'photo-info';
 _photoInfo.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:6000;display:none;' +
-  'font:700 13px Poppins,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);padding:8px 16px;border-radius:12px;' +
+  'font:700 13px Inter,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);padding:8px 16px;border-radius:12px;' +
   'pointer-events:none;user-select:none;letter-spacing:.3px;text-align:center;';
 document.body.appendChild(_photoInfo);
 function _updatePhotoInfo() {

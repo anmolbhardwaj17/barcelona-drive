@@ -13,9 +13,10 @@ import { COLLISION_GROUP_GROUND, COLLISION_GROUP_VEHICLE, COLLISION_GROUP_WORLD,
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
-import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs } from './roadRenderer.js';
+import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
-import { buildStreetlights } from './streetlightRenderer.js';
+import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
+import { createVegPoolSet } from './vegPools.js';
 import { buildShoulderMesh } from './shoulderRenderer.js';
 import { buildTerrainMesh, buildTerrainHeightfield, getHeightfieldWorldAABB, darkenTerrainAroundTrees } from './terrainRenderer.js';
 import { renderWater } from './waterRenderer.js';
@@ -23,6 +24,7 @@ import { createRailwayMeshes, createTramMeshes } from './railwayRenderer.js';
 import { createGreensMeshes } from './greensRenderer.js';
 import { buildBarrierMeshes, buildBarrierColliders } from './barrierRenderer.js';
 import { buildBusStopMeshes } from './busStopRenderer.js';
+import { queueWarmup } from './gpuWarmup.js';
 import { buildParkingMeshes } from './parkingRenderer.js';
 import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildAwningMesh } from './awningRenderer.js';
@@ -45,7 +47,7 @@ import { renderLODBuildings } from './buildingRenderer.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createFastElevation } from './fastElevation.js';
 import { initWorkerPool, processBuildings as workerProcessBuildings, processVegetation as workerProcessVegetation, processGrass as workerProcessGrass, cancelTile } from '../workers/workerPool.js';
-import { materializeBuildingMeshes, materializeVegetationMeshes, materializeGrassMeshes } from '../workers/meshMaterializer.js';
+import { materializeBuildingMeshes, materializeVegetationMeshes, materializeGrassMeshes, getVegPools } from '../workers/meshMaterializer.js';
 
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
@@ -95,15 +97,28 @@ function meshHasNaN(mesh) {
   return false;
 }
 
+// Meshes at/above this vertex count are worth pre-uploading to the GPU (queueWarmup) — below it, the
+// VBO upload on first render is negligible and not worth an extra draw. Buildings/roads/terrain/veg
+// (the big merged meshes) clear this easily; small props (streetlights, reflectors) don't.
+const WARMUP_MIN_VERTS = 1500;
+
+/** Queue any sufficiently-large mesh children of a group for GPU pre-upload. */
+function queueGroupWarmup(group) {
+  group.traverse((o) => {
+    if (o.isMesh && (o.geometry?.attributes?.position?.count || 0) >= WARMUP_MIN_VERTS) queueWarmup(o);
+  });
+}
+
 /** Safe scene.add that skips meshes with NaN positions to prevent render errors. */
 function safeSceneAdd(scene, mesh) {
   if (!mesh) return false;
-  if (mesh.isGroup) { scene.add(mesh); return true; }
+  if (mesh.isGroup) { scene.add(mesh); queueGroupWarmup(mesh); return true; }
   if (meshHasNaN(mesh)) {
     mesh.geometry.dispose();
     return false;
   }
   scene.add(mesh);
+  if ((mesh.geometry?.attributes?.position?.count || 0) >= WARMUP_MIN_VERTS) queueWarmup(mesh);
   return true;
 }
 
@@ -1228,6 +1243,38 @@ function createTerrainTrimesh(elevation, world, roadMaterial, tunnelRoads, baked
  */
 export function createTileManager(scene, createRoadMeshes, createBuildingMeshes, createSpatialIndex, renderVegetation, camera = null, world = null, groundBody = null) {
   const tileManagerState = { numHeightfieldBodies: 0 };
+  // Global cross-tile vegetation pools (trees/shadows/bushes as 3 shared BatchedMeshes).
+  // Tiles add instances via handles in Phase 3 and release them on unload.
+  const vegPools = CONFIG.ENABLE_TREES ? getVegPools(scene) : null;
+
+  // ── Streetlight/traffic-light pooling adapter ───────────────────────────────
+  // The builders keep producing per-tile InstancedMeshes (battle-tested placement code); this
+  // strips their instance data into global pool sets keyed by part name. Pools are created
+  // lazily from the FIRST mesh's geometry/material (all shared singletons), so the adapter
+  // needs no knowledge of the renderer's internals.
+  const _lightPools = {};
+  async function poolLightIM(part, im) {
+    if (!im || !im.count) return null;
+    if (!_lightPools[part]) {
+      _lightPools[part] = createVegPoolSet({
+        name: `light_${part}`, geometries: [im.geometry], material: im.material,
+        capacity: 4096, castShadow: !!im.castShadow, receiveShadow: !!im.receiveShadow,
+        renderOrder: im.renderOrder || 0,
+      }, scene);
+    }
+    return _lightPools[part].add([{
+      geoIndex: 0,
+      count: im.count,
+      matrices: im.instanceMatrix.array,
+      colors: im.instanceColor ? im.instanceColor.array : undefined,
+    }], yieldToMain);
+  }
+
+  function releaseVegHandles(entry) {
+    if (!entry?.vegPoolHandles) return;
+    for (const h of entry.vegPoolHandles) h.pool.remove(h);
+    entry.vegPoolHandles = [];
+  }
   let currentTx = 0;
   let currentTy = 0;
   let inFlightCount = 0;
@@ -1250,19 +1297,38 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   // finalizing concurrently share the same budget — total tile work per frame is capped no matter how
   // many tiles entered range at once. This is what keeps new areas from stuttering: work spreads across
   // frames instead of several tiles materializing in one frame. Kept small so the render always has headroom.
-  const FRAME_BUDGET_MS = 4;      // baseline ms of tile build work per frame when the frame rate is healthy
-  const BUDGET_MIN = 1.2, BUDGET_MAX = 5;
+  const FRAME_BUDGET_MS = 3;      // baseline ms of tile build work per frame when the frame rate is healthy
+  const BUDGET_MIN = 1.0, BUDGET_MAX = 3.5; // capped low: a finalizing tile can't brush the 16.6ms frame limit
+                                            // and drop a frame. Tiles appear a touch slower; driving stays smooth.
   let _budgetMs = FRAME_BUDGET_MS; // ADAPTIVE: shrinks when frames run long (heavy streaming at speed),
                                    //           grows back when they're smooth — so build never compounds a slow frame
   let _lastUpdateAt = 0;
   const _wantedSet = new Set();   // reused every frame in update() to avoid per-frame Set allocation
   let _frameBudgetStart = performance.now();
 
+  // ── Build-chunk overrun attribution (diagnoses the STATS "other" stalls) ───
+  // A synchronous op inside a build chunk that blows straight through the frame budget can't be
+  // seen by the frame-loop cpuTimer — it lands as unattributed "other" time. The builder labels
+  // its current phase; when a yield finds the budget badly overrun, the label takes the blame.
+  // NOTE: `elapsed` is measured from the shared frame-budget start, so it includes the frame's own
+  // work — treat the numbers as relative attribution, not exact chunk cost.
+  const _buildOverruns = {};
+  let _buildPhase = 'idle';
+  const buildPhase = (label) => { _buildPhase = label; };
+  function takeBuildOverruns() {
+    const out = { ..._buildOverruns };
+    for (const k in _buildOverruns) delete _buildOverruns[k];
+    return out;
+  }
+
   const yieldToMain = () => {
     const elapsed = performance.now() - _frameBudgetStart;
     if (elapsed < _budgetMs) {
       // Budget not exhausted this frame — continue working without yielding
       return Promise.resolve();
+    }
+    if (elapsed > _budgetMs + 3 && !(_buildOverruns[_buildPhase] >= elapsed)) {
+      _buildOverruns[_buildPhase] = +elapsed.toFixed(1);
     }
     // Budget exceeded — yield to the browser for rendering. Do NOT reset _frameBudgetStart here;
     // update() owns the per-frame reset so concurrent tiles keep sharing one budget.
@@ -1394,6 +1460,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 1: Terrain + Roads + Physics (appear immediately)
     // -----------------------------------------------------------------------
+    buildPhase('p1 roads/terrain');
 
     // Performance instrumentation — tracks max single-chunk time (the stutter metric)
     const _perfT0 = performance.now();
@@ -1685,6 +1752,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const getWorldElevation = elevation ? createFastElevation(elevation, elevationOffset) : null;
     const options = getElevationAt ? { getElevationAt, elevationOffset, getWorldElevation, getGroundY, buildings: buildings || [] } : { elevationOffset, getGroundY, buildings: buildings || [] };
     if (data.bakedRoads) options.bakedRoads = data.bakedRoads;
+    if (data.bakedSidewalks) options.bakedSidewalks = data.bakedSidewalks;   // v8 — pre-baked sidewalks/curbs
     const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [] };
     if (data.bakedVegetation) tileData.bakedVegetation = data.bakedVegetation;
 
@@ -1697,6 +1765,15 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     const roadMeshes = await mergeMeshesByMaterial(roadMeshesRaw, _perfYield);
     roadMeshes._pillarPositions = pillarPositions;
+
+    // Night building-glow wash: bake the per-vertex building-proximity factor (aWash) into the
+    // road surfaces so streets flanked by buildings glow warm with the facades at night, and
+    // empty stretches fade smoothly to dark (factor → 0 away from any footprint).
+    if (tileData.buildings?.length && roadMeshes.length) {
+      buildPhase('p1 road-wash');
+      await bakeRoadWash(roadMeshes, tileData.buildings, _perfYield);
+    }
+
     roadMeshes.forEach((m) => { m.visible = true; safeSceneAdd(scene, m); });
 
     // Track crosswalk mesh separately for 80m LOD culling (Phase 1 Barcelona road overhaul).
@@ -1838,6 +1915,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 2: Buildings + Railways (next frame)
     // -----------------------------------------------------------------------
+    buildPhase('p2 buildings');
 
     // Vegetation mask (needed for Phase 3)
     {
@@ -1944,6 +2022,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 3: Trees + Zone vegetation (next frame)
     // -----------------------------------------------------------------------
+    buildPhase('p3 vegetation');
 
     const vegetationMeshes = [];
     let vegTreePositions = [];
@@ -1973,16 +2052,16 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         );
 
         if (!aborted()) {
-          // Materialize main trees + zone trees
-          const mainVeg = await materializeVegetationMeshes(vegWorkerResult, yieldToMain);
+          // Materialize main trees + zone trees — solid trees/shadows/bushes go into the GLOBAL pools
+          // (handles on the entry); only billboards remain per-tile meshes.
+          entry.vegPoolHandles = [];
+          const mainVeg = await materializeVegetationMeshes(vegWorkerResult, yieldToMain, vegPools);
           vegTreePositions = mainVeg.treePositions || [];
           vegTreePositionsFlat = vegWorkerResult.treePositions; // keep flat version for grass
 
           const vegMeshBatch = [];
-          (mainVeg.treeMeshes || []).forEach((m) => { vegMeshBatch.push(m); vegetationMeshes.push(m); });
+          (mainVeg.poolHandles || []).forEach((h) => entry.vegPoolHandles.push(h));
           (mainVeg.treeBillboardMeshes || []).forEach((m) => { vegMeshBatch.push(m); vegetationMeshes.push(m); });
-          if (mainVeg.shadowMesh) { vegMeshBatch.push(mainVeg.shadowMesh); vegetationMeshes.push(mainVeg.shadowMesh); }
-          if (mainVeg.bushMesh) { vegMeshBatch.push(mainVeg.bushMesh); vegetationMeshes.push(mainVeg.bushMesh); }
 
           // Zone vegetation (included in same worker result)
           if (vegWorkerResult.zoneTreeVariants) {
@@ -1991,11 +2070,29 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
               shadowInstances: vegWorkerResult.zoneShadowInstances,
               bushInstances: vegWorkerResult.zoneBushInstances,
               treePositions: null,
-            }, yieldToMain);
-            (zoneResult.treeMeshes || []).forEach((m) => { vegMeshBatch.push(m); vegetationMeshes.push(m); });
-            if (zoneResult.shadowMesh) { vegMeshBatch.push(zoneResult.shadowMesh); vegetationMeshes.push(zoneResult.shadowMesh); }
-            if (zoneResult.bushMesh) { vegMeshBatch.push(zoneResult.bushMesh); vegetationMeshes.push(zoneResult.bushMesh); }
+            }, yieldToMain, vegPools);
+            (zoneResult.poolHandles || []).forEach((h) => entry.vegPoolHandles.push(h));
           }
+
+          // Area-aware night wash for vegetation: trees/bushes near buildings pick up the warm
+          // urban glow; park/empty-area vegetation stays dark (same building-proximity rule as the
+          // roads). ALWAYS written — the pool colour texture's default alpha is 1 (= full glow).
+          {
+            buildPhase('p3 veg-wash');
+            const washGrid = tileData.buildings?.length ? buildWashGrid(tileData.buildings) : null;
+            for (const h of entry.vegPoolHandles) {
+              if (h.kind !== 'tree' && h.kind !== 'bush') continue;
+              for (let wi = 0; wi < h.count; wi++) {
+                h.pool.setWashAt(h.ids[wi], washGrid ? washAt(washGrid, h.xs[wi], h.zs[wi]) : 0);
+                if ((wi & 511) === 511) await yieldToMain();   // frame-budgeted — thousands of instances/tile
+              }
+            }
+            await yieldToMain();
+          }
+
+          // If the tile got cancelled while we were adding instances, release them immediately —
+          // the unload sweep may already have run for this entry.
+          if (aborted()) releaseVegHandles(entry);
 
           // Spread GPU uploads across frames
           for (let vi = 0; vi < vegMeshBatch.length; vi++) {
@@ -2025,6 +2122,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 4: Grass + Water + Props + Infra + Details (background)
     // -----------------------------------------------------------------------
+    buildPhase('p4 grass/detail');
 
     // Grass (off main thread) — skipped entirely when disabled (no worker cost either).
     if (!skipNonRoad && (CONFIG.MAX_GRASS_PER_TILE ?? 0) > 0) {
@@ -2093,10 +2191,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     await yieldToMain();
 
-    // Traffic lights
+    // Traffic lights — pooled like the streetlight parts (was 1 InstancedMesh per tile)
     if (!skipNonRoad && CONFIG.ENABLE_TRAFFIC_LIGHTS) {
-      entry.trafficLightMesh = renderTrafficLights(tileData, key);
-      if (entry.trafficLightMesh) safeSceneAdd(scene, entry.trafficLightMesh);
+      const tlMesh = renderTrafficLights(tileData, key);
+      if (tlMesh) {
+        const h = await poolLightIM('trafficLight', tlMesh);
+        if (h) { h.kind = 'light'; (entry.vegPoolHandles = entry.vegPoolHandles || []).push(h); }
+      }
     }
 
     // Shoulders + Dividers + Streetlights
@@ -2113,20 +2214,37 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       const jp = getJunctionPoints(roads, 2);
       const sl = buildStreetlights(roads, jp, options);
       if (sl) {
-        entry.streetlightPoleMesh = sl.poleMesh;
-        entry.streetlightArmMesh = sl.armMesh;
-        entry.streetlightLampMesh = sl.lampMesh;
-        entry.streetlightPoolMesh = sl.poolMesh;
-        entry.streetlightPoleShadowMesh = sl.poleShadowMesh;
+        // POOLED (draw audit: 6-9 IMs/tile ≈ 76+ draws citywide → ~9 global pool sets): the build
+        // still produces per-tile InstancedMeshes; we strip their instance data into global pools
+        // and DISCARD the meshes (never scene-added). Handles ride entry.vegPoolHandles → the
+        // existing LOD fade / fog-zero / unload-release lifecycle applies unchanged. Also fixes
+        // the old mirror-mesh leak (mirrors were scene-added but never tracked for unload).
+        entry.vegPoolHandles = entry.vegPoolHandles || [];
+        const poleHandle = await poolLightIM('pole', sl.poleMesh);
+        for (const [part, im] of [['arm', sl.armMesh], ['lamp', sl.lampMesh], ['poolDecal', sl.poolMesh],
+                                  ['poleShadow', sl.poleShadowMesh], ['mirrorDisc', sl.mirrorDiscMesh],
+                                  ['mirrorRim', sl.mirrorRimMesh], ['mirrorBack', sl.mirrorBackMesh]]) {
+          const h = await poolLightIM(part, im);
+          if (h) { h.kind = 'light'; entry.vegPoolHandles.push(h); }
+        }
+        if (poleHandle) {
+          poleHandle.kind = 'light';
+          entry.vegPoolHandles.push(poleHandle);
+          // Bridge tricolor night cycling, pooled: address the i-th ADDED pole via rawIds.
+          if (sl.bridgeIndices?.length) {
+            const bridgeCb = (isNight) => {
+              if (poleHandle.dead) { unregisterBridgeNightCallback(bridgeCb); return; }
+              for (let bi = 0; bi < sl.bridgeIndices.length; bi++) {
+                const id = poleHandle.rawIds[sl.bridgeIndices[bi]];
+                poleHandle.pool.setColorAt(id, isNight ? BRIDGE_NIGHT_COLORS[Math.floor(bi / 2) % 3] : DAY_POLE_COLOR);
+              }
+            };
+            registerBridgeNightCallback(bridgeCb);
+          }
+        }
         entry.streetlightPositions = sl.positions;
         entry.streetlightWireMesh = sl.wireMesh || null;
-        entry.setBridgeNightMode = sl.setBridgeNightMode || null;
-        safeSceneAdd(scene, sl.poleMesh); safeSceneAdd(scene, sl.armMesh); safeSceneAdd(scene, sl.lampMesh);
-        safeSceneAdd(scene, sl.poolMesh); safeSceneAdd(scene, sl.poleShadowMesh);
         if (sl.wireMesh) safeSceneAdd(scene, sl.wireMesh);
-        if (sl.mirrorDiscMesh) safeSceneAdd(scene, sl.mirrorDiscMesh);
-        if (sl.mirrorRimMesh) safeSceneAdd(scene, sl.mirrorRimMesh);
-        if (sl.mirrorBackMesh) safeSceneAdd(scene, sl.mirrorBackMesh);
       }
     }
 
@@ -2502,6 +2620,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         collectArrayAndRemove(entry.buildingMeshes);
         collectAndRemove(entry.lodBuildingMesh);
         collectArrayAndRemove(entry.vegetationMeshes);
+        releaseVegHandles(entry);   // free this tile's instances in the global veg pools
         // Green meshes built in Phase 1 may not be in vegetationMeshes if aborted early
         if (entry.greenMeshes) {
           for (const m of entry.greenMeshes) {
@@ -2515,7 +2634,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         collectAndRemove(entry.waterMesh);
         if (entry.waterIds) (entry.waterIds).forEach((id) => renderedWaterIds.delete(id));
         collectAndRemove(entry.trafficLightMesh);
-        for (const meshKey of ['shoulderMesh', 'dividerMesh', 'streetlightPoleMesh', 'streetlightArmMesh', 'streetlightLampMesh', 'streetlightPoolMesh', 'streetlightPoleShadowMesh', 'streetlightWireMesh']) {
+        for (const meshKey of ['shoulderMesh', 'dividerMesh', 'streetlightWireMesh'] /* streetlight parts live in global pools now */) {
           collectAndRemove(entry[meshKey]);
         }
         if (entry.crosswalkMesh)    { scene.remove(entry.crosswalkMesh);    allMeshes.push(entry.crosswalkMesh); }
@@ -2657,6 +2776,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (nearEdgeDist > FOG_FULL_DIST) {
         const hideAll = (meshes) => { if (meshes) for (const m of meshes) m.visible = false; };
         hideAll(entry.vegetationMeshes);
+        if (entry.vegPoolHandles) for (const h of entry.vegPoolHandles) h.pool.setVisibleCount(h, 0);
         hideAll(entry.buildingMeshes);
         hideAll(entry.roadInfraMeshes);
         hideAll(entry.barrierMeshes);
@@ -2687,7 +2807,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.trafficLightMesh) entry.trafficLightMesh.visible = false;
         if (entry.shoulderMesh) entry.shoulderMesh.visible = false;
         if (entry.dividerMesh) entry.dividerMesh.visible = false;
-        for (const mk of ['streetlightPoleMesh', 'streetlightArmMesh', 'streetlightLampMesh', 'streetlightPoolMesh', 'streetlightPoleShadowMesh', 'streetlightWireMesh']) {
+        for (const mk of ['streetlightWireMesh'] /* streetlight parts live in global pools now */) {
           if (entry[mk]) entry[mk].visible = false;
         }
         // Keep road meshes visible (roads extend into fog for continuity)
@@ -2697,6 +2817,24 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // ── Close tile: ensure terrain + water are visible (may have been fog-hidden) ──
       if (entry.terrainMesh) entry.terrainMesh.visible = true;
       if (entry.waterMesh) entry.waterMesh.visible = true;
+
+      // Global veg pools: per-tile count fade by nearest-edge distance (nearest-first id order —
+      // same semantics the per-tile meshes had). Shadows/bushes ride the same fraction as trees;
+      // billboard impostors use the inverse band (visible only past where the 3D trees fade out).
+      if (entry.vegPoolHandles && entry.vegPoolHandles.length > 0) {
+        const frac = nearEdgeDist <= treeFullDist ? 1
+          : nearEdgeDist >= treeMaxDist ? 0
+          : 1 - (nearEdgeDist - treeFullDist) / treeFadeRange;
+        const bbStart = treeMaxDist;          // where the 3D trees are fully gone
+        const bbEnd = treeMaxDist + 300;      // billboard fade-out
+        const bbFrac = (nearEdgeDist <= bbStart || nearEdgeDist >= bbEnd) ? 0
+          : 1 - (nearEdgeDist - bbStart) / (bbEnd - bbStart);
+        for (const h of entry.vegPoolHandles) {
+          const f = h.kind === 'billboard' ? bbFrac : frac;
+          const target = f <= 0 ? 0 : f >= 1 ? h.count : Math.max(1, Math.floor(f * h.count));
+          h.pool.setVisibleCount(h, target);
+        }
+      }
 
       if (entry.vegetationMeshes) {
         for (const m of entry.vegetationMeshes) {
@@ -2814,7 +2952,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
       // Streetlights (6 mesh types)
       const showLights = nearEdgeDist <= lightDist;
-      for (const meshKey of ['streetlightPoleMesh', 'streetlightArmMesh', 'streetlightLampMesh', 'streetlightPoolMesh', 'streetlightPoleShadowMesh', 'streetlightWireMesh']) {
+      for (const meshKey of ['streetlightWireMesh'] /* streetlight parts live in global pools now */) {
         if (entry[meshKey]) entry[meshKey].visible = showLights;
       }
 
@@ -2944,8 +3082,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           if (m.userData.isTreeBatchedMesh) treesCount += (m.userData._lastVisibleCount || 0);
         }
       }
+      if (entry.vegPoolHandles) {
+        for (const h of entry.vegPoolHandles) {
+          if (h.kind === 'tree') treesCount += h.visCount;
+        }
+      }
       if (entry.roadInfraMeshes) roadInfraCount += entry.roadInfraMeshes.length;
-      if (entry.streetlightPoleMesh) streetlightCount++;
+      if (entry.streetlightPositions?.length) streetlightCount += entry.streetlightPositions.length;
       if (entry.barrierBody) physicsBodyCount++;
       if (entry.crashBarrierBody) physicsBodyCount++;
       if (entry.guardRailBody) physicsBodyCount++;
@@ -3219,6 +3362,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   return {
     update,
     isInitialLoadComplete,
+    takeBuildOverruns,
     getLoadedRoadSegments,
     injectSpawnTile,
     setPhotoMode,

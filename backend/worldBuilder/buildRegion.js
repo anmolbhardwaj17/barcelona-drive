@@ -100,6 +100,8 @@ import { resolveRamps } from './roads/RampResolver.js';
 import { resolveBridgeToBridge } from './roads/BridgeToBridgeResolver.js';
 import { fixOsmData } from './roads/OsmDataFixer.js';
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
+import { clipPathsAgainstCarriageways } from './roads/pathCoverageClipper.js';
+import { bakeSidewalks } from './sidewalkBaker.js';
 import { classifyJunctions } from './junctions/JunctionClassifier.js';
 import { buildMergeGeometry } from './junctions/MergeGeometryBuilder.js';
 import { tileToBBox, latLonToTile, mercatorToWorld, worldToMercator, mercatorToLatLon, getOriginMercator, latLonToMercator } from '../projection.js';
@@ -519,6 +521,18 @@ async function main() {
   }
   console.log(`  Phase 2 tag lookup built: ${phase2ById.size} roads`);
 
+  // Marked crossings (footway=crossing etc.) — exempt from the path-coverage clipper (they live
+  // INSIDE the carriageway by definition) and flagged in the tile payload so the runtime skips
+  // drawing their ribbon (zebra decals come from the road side; polyline stays for gameplay).
+  const crossingIds = new Set();
+  for (const road of drivableRoads) {
+    const t = road.tags || {};
+    if (t.footway === 'crossing' || t.cycleway === 'crossing' || t.path === 'crossing' || t.crossing) {
+      crossingIds.add(road.id);
+    }
+  }
+  console.log(`  Marked crossings: ${crossingIds.size}`);
+
   advancePhase(); // Phase 0 (PBF) done → Phase 1 (graph)
 
   const enriched = drivableRoads.map((road) => {
@@ -551,14 +565,26 @@ async function main() {
   advancePhase(); // Phase 1 (graph) done → Phase 2 (simplify+index)
 
   console.log('[5/8] Simplifying (Douglas-Peucker, tolerance:', simplifyTolerance, 'm)...');
-  const simplified = cleanRoadPipeline
+  const simplifiedRaw = cleanRoadPipeline
     ? roadsToSimplify.filter((r) => r.points.length >= 2)
     : roadsToSimplify.map((road) => {
         const pts = douglasPeucker(road.points, simplifyTolerance);
         return { ...road, points: pts };
       }).filter((r) => r.points.length >= 2);
   if (cleanRoadPipeline) console.log('  Clean pipeline: skipping simplify, using raw OSM geometry');
-  console.log('  Roads:', simplified.length);
+  console.log('  Roads:', simplifiedRaw.length);
+
+  // Bake Phase 1 (docs/context/bake-surface-clipping.md): clip path-family polylines out of
+  // same-layer carriageway coverage so footpaths/cycleways never overlap drivable ribbons.
+  // Region-wide (cross-tile consistent); runs emit with the SAME id like tile splitting does,
+  // so EVERYTHING downstream (spatial index, trench flags, per-tile subsets) sees the clipped set.
+  const midLat = (bbox.minLat + bbox.maxLat) / 2;
+  const clipResult = clipPathsAgainstCarriageways(simplifiedRaw, {
+    cosLat: Math.cos((midLat * Math.PI) / 180),
+    skipIds: crossingIds,
+  });
+  const simplified = clipResult.roads;
+  console.log('  Path-coverage clip:', JSON.stringify(clipResult.stats));
 
   console.log('[6/8] Building spatial index...');
   const roadIndex = buildRoadIndex(simplified);
@@ -1366,6 +1392,8 @@ async function main() {
           isRamp: r.isRamp === true,
           isRoundabout: r.isRoundabout === true,
           crossesTrench: r.crossesTrench === true, // OPTION L: deck colliders over daylighted corridors
+          // Marked crossing — runtime skips the ribbon (bake-surface-clipping.md Phase 1)
+          crossing: crossingIds.has(r.id) || null,
           // Phase 2 OSM fields via phase2ById lookup
           oneway:   p2.oneway   ?? null,
           lanes:    p2.lanes    ?? null,
@@ -1559,6 +1587,11 @@ async function main() {
     if (bakedRoads && bakedRoads.layers.length > 0) {
       payload.bakedRoads = bakedRoads;
     }
+
+    // ── Pre-bake sidewalk + curb geometry (v8) ──────────────────────────
+    // Frontend uses these instead of the runtime generator when present (v7 tiles fall back).
+    const bakedSidewalks = bakeSidewalks(payload);
+    if (bakedSidewalks) payload.bakedSidewalks = bakedSidewalks;
 
     const binBuf = convertTile(payload);
     fs.writeFileSync(filePath, binBuf);

@@ -565,15 +565,15 @@ export async function createCarModel(scene) {
     buyPop.innerHTML =
       // Branded header
       `<div style="background:linear-gradient(#ffd23f,#f0b31a);padding:9px 0 8px;position:relative">` +
-        `<div style="font:800 13px 'Lilita One',system-ui;letter-spacing:2px;color:#3a2a00">🚗 BARCELONA DRIVE · GARAGE</div>` +
+        `<div style="font:800 13px 'Inter',system-ui;letter-spacing:2px;color:#3a2a00">🚗 BARCELONA DRIVE · GARAGE</div>` +
         `<div class="dd-buy-x" style="position:absolute;top:6px;right:12px;cursor:pointer;font:700 15px system-ui;color:#5a4200">✕</div>` +
       `</div>` +
       `<div style="padding:18px 20px 0;display:flex;flex-direction:column;align-items:center;gap:9px">` +
         `<div style="width:52px;height:52px;border-radius:50%;background:${p.hex};border:3px solid rgba(255,255,255,0.55);box-shadow:0 5px 0 rgba(0,0,0,0.4)"></div>` +
-        `<div style="font:800 23px 'Lilita One',system-ui;letter-spacing:.5px">${p.name.toUpperCase()}</div>` +
+        `<div style="font:800 23px 'Inter',system-ui;letter-spacing:.5px">${p.name.toUpperCase()}</div>` +
         (afford
-          ? `<button class="dd-buy" style="margin-top:4px;background:linear-gradient(#5fe790,#2ec46a);color:#08240f;border:none;border-radius:13px;padding:12px 26px;font:800 18px 'Lilita One',system-ui;letter-spacing:.5px;cursor:pointer;box-shadow:0 5px 0 #1c8f47">UNLOCK &nbsp;🪙 ${p.price}</button>`
-          : `<div style="font:800 17px 'Lilita One',system-ui;color:#ff7d7d">NEED 🪙 ${p.price - wallet.balance()} MORE</div>` +
+          ? `<button class="dd-buy" style="margin-top:4px;background:linear-gradient(#5fe790,#2ec46a);color:#08240f;border:none;border-radius:13px;padding:12px 26px;font:800 18px 'Inter',system-ui;letter-spacing:.5px;cursor:pointer;box-shadow:0 5px 0 #1c8f47">UNLOCK &nbsp;🪙 ${p.price}</button>`
+          : `<div style="font:800 17px 'Inter',system-ui;color:#ff7d7d">NEED 🪙 ${p.price - wallet.balance()} MORE</div>` +
             `<div style="opacity:.6;font:12px system-ui">Drive City Cab fares to earn</div>`) +
       `</div>`;
     buyPop.style.display = 'block';

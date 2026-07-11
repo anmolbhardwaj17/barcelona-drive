@@ -21,8 +21,10 @@ const EDGE_OFFSET    = 0.6;   // pole close to curb
 const JUNCTION_SKIP  = 10;
 const LAYER_HEIGHT_STEP = 6;
 
-const POOL_SIZE      = 9;     // m diameter of ground light pool
-const POOL_Y_OFFSET  = 0.34;  // clear the curb/sidewalk (~0.2m) too — the pool sits at road level but the
+const POOL_SIZE      = 16;    // m diameter — falloff room without an 18 m plane that fights slopes
+const POOL_Y_OFFSET  = 0.38;  // just above the road+curb+sidewalk stack (0.52 floated at tyre height on
+                              // flat streets; 0.34 got sliced by lifted sidewalk decks) — the pool plane is
+                              // flat, so slopes will always clip ONE edge slightly; smaller pool helps
                               // lamp stands on the higher sidewalk, so the curb was clipping half the glow.
 
 // Base shadow length for pole contact shadow
@@ -88,6 +90,18 @@ let _poolOpacity = 0.0;             // day default — no ground light pools in 
 let _bridgeNightMode = false;
 const _bridgeNightCallbacks = new Set();
 
+// Pole colours (module scope — shared by the build loop and tileManager's pooled bridge cycler)
+export const DAY_POLE_COLOR = new THREE.Color(0x6a6a6a);
+// Indian tricolor for bridge poles at night — very overbright so they visibly glow
+export const BRIDGE_NIGHT_COLORS = [
+  new THREE.Color(6.0, 1.2, 0.05),  // saffron / deep orange (minimal green to stay orange)
+  new THREE.Color(5.0, 5.0, 5.0),   // white
+  new THREE.Color(0.3, 3.0, 0.1),   // green
+];
+/** Pool-era bridge night hookup: tileManager registers per-tile pooled colour cyclers here. */
+export function registerBridgeNightCallback(cb) { _bridgeNightCallbacks.add(cb); if (_bridgeNightMode) cb(true); }
+export function unregisterBridgeNightCallback(cb) { _bridgeNightCallbacks.delete(cb); }
+
 /** Update lamp emissive on all current and future tiles (shared material). */
 export function setLampEmissiveIntensity(v) {
   _lampEmissiveIntensity = v;
@@ -116,18 +130,34 @@ export function setBridgePoleNightMode(isNight) {
 let _streetlightPoolTex = null;
 function createPoolTexture() {
   if (_streetlightPoolTex) return _streetlightPoolTex;
-  const size = 128;
+  const size = 256;   // 128 upscaled to a 14 m decal showed soft-banding; 256 stays smooth
   const canvas = document.createElement('canvas');
   canvas.width  = size;
   canvas.height = size;
   const ctx  = canvas.getContext('2d');
   const cx = size / 2, cy = size / 2, r = size / 2;
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  grad.addColorStop(0,   'rgba(255, 210, 70, 0.19)');
-  grad.addColorStop(0.4, 'rgba(255, 200, 50, 0.10)');
-  grad.addColorStop(1,   'rgba(255, 180, 30, 0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
+  // Warm sodium pool — computed per-pixel inverse-square-ish falloff instead of a stepped canvas
+  // gradient: bright tight core, long smooth tail, zero banding (the old 3-stop radial read as a
+  // flat "sticker"). Colour shifts from warm white-amber at the core to deep sodium orange at the
+  // fringe, like a real lamp's spectrum spreading.
+  const img = ctx.createImageData(size, size);
+  const d = img.data;
+  for (let yy = 0; yy < size; yy++) {
+    for (let xx = 0; xx < size; xx++) {
+      const dx = (xx - cx) / r, dy = (yy - cy) / r;
+      const rr = Math.min(1, Math.hypot(dx, dy));
+      // gentle core shaping × inverse-square tail, stretched so the glow breathes all the way to
+      // the rim; ±1-step alpha dither kills the banding rings 8-bit alpha produces in the tail
+      const I = Math.pow(1 - rr, 1.6) / (1 + 3.5 * rr * rr);
+      const a = 0.36 * I + (Math.random() - 0.5) / 255;
+      const i4 = (yy * size + xx) * 4;
+      d[i4]     = 255;
+      d[i4 + 1] = Math.round(210 - 55 * rr);   // 210 core → 155 fringe (amber → sodium orange)
+      d[i4 + 2] = Math.round(140 - 100 * rr);  // 140 core → 40 fringe
+      d[i4 + 3] = Math.max(0, Math.round(a * 255));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   _streetlightPoolTex = new THREE.CanvasTexture(canvas);
   _streetlightPoolTex.userData.sharedTexture = true;
   return _streetlightPoolTex;
@@ -191,6 +221,9 @@ function getSharedResources() {
       opacity: _poolOpacity,
       depthWrite: false,
       side: THREE.DoubleSide,
+      // Light ADDS onto the surface it hits (real photometric behaviour) — normal alpha blending
+      // mixed the glow toward grey at the edges and read as a translucent sticker.
+      blending: THREE.AdditiveBlending,
     });
     sharedPoolMat.userData.sharedMaterial = true;
   }
@@ -514,14 +547,6 @@ export function buildStreetlights(roads, junctionPoints, options) {
   const lampHeadPositions = [];
   const bridgeIndices = [];   // indices of instances on bridges (for tricolor night mode)
   const _poleColor = new THREE.Color();
-  const DAY_POLE_COLOR = new THREE.Color(0x6a6a6a);
-
-  // Indian tricolor for bridge poles at night — very overbright so they visibly glow
-  const BRIDGE_NIGHT_COLORS = [
-    new THREE.Color(6.0, 1.2, 0.05),  // saffron / deep orange (minimal green to stay orange)
-    new THREE.Color(5.0, 5.0, 5.0),   // white
-    new THREE.Color(0.3, 3.0, 0.1),   // green
-  ];
 
   let bridgeCounter = 0; // running counter across all bridge poles for color cycling
 
@@ -699,5 +724,5 @@ export function buildStreetlights(roads, junctionPoints, options) {
 
   return { poleMesh, armMesh, lampMesh, poolMesh, poleShadowMesh, wireMesh,
            mirrorDiscMesh, mirrorRimMesh: mirrorRimMeshOut, mirrorBackMesh,
-           positions: lampHeadPositions, setBridgeNightMode };
+           positions: lampHeadPositions, setBridgeNightMode, bridgeIndices };
 }

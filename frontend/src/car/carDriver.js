@@ -12,6 +12,7 @@
  *   driver.dispose()
  */
 import { createCarPhysics } from './carPhysics.js';
+import { createCarPhysicsRapier } from './carPhysicsRapier.js';
 import { createCarControls } from './carControls.js';
 import { createCarCamera }   from './carCamera.js';
 import { createCarModel }    from './carModel.js';
@@ -24,14 +25,15 @@ import { audio }             from '../audio/audioManager.js';
 // Pre-allocated for getHeadingDeg — no alloc in hot path
 const _hq = { x: 0, y: 0, z: 0, w: 1 };
 
-export async function createCarDriver(scene, world, groundMesh, camera, spawnLocalPos, _domElement, groundBody, spawnHeading) {
+export async function createCarDriver(scene, world, groundMesh, camera, spawnLocalPos, _domElement, groundBody, spawnHeading, opts = {}) {
 
   // ── Sub-systems ───────────────────────────────────────────────────────────
-  const physics  = createCarPhysics(world, {
-    x: spawnLocalPos.x,
-    y: spawnLocalPos.y + 2,    // drop from 2 m above surface; physics settles it
-    z: spawnLocalPos.z,
-  }, spawnHeading);
+  const _spawn = { x: spawnLocalPos.x, y: spawnLocalPos.y + 2, z: spawnLocalPos.z }; // drop 2 m; settles
+  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (?physics=rapier), else cannon-es.
+  const physics  = opts.rapier
+    ? createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading)
+    : createCarPhysics(world, _spawn, spawnHeading);
+  const _ct = opts.cpuTimer || null;   // optional: splits the STATS 'phys' lap into step (pure physics) + phys (car visuals)
   const controls = createCarControls();
   const carCam   = createCarCamera(camera, _domElement);
   const model    = await createCarModel(scene);
@@ -57,8 +59,11 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   if (colorPanel) colorPanel._onSoundToggle = () => sound.setMuted(!sound.isMuted());
   const sound    = createCarSound();
 
-  // Start audio on first user interaction (required by browsers)
+  // Start audio on first user interaction (required by browsers) — but NOT while the title screen is up
+  // (clicking PLAY was arming the engine idle under the menu). The first interaction in-game starts it.
   const _startAudio = () => {
+    const t = document.getElementById('dd-title');
+    if (t && !t.classList.contains('hide')) return;   // still on the title — stay silent, keep listening
     sound.ensureStarted();
     window.removeEventListener('keydown', _startAudio);
     window.removeEventListener('click', _startAudio);
@@ -88,27 +93,60 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   };
   let _crumbTimer = 0;
   let _resetCooldown = 0;
-  const _onRecoverKey = (e) => {
-    if (e.code !== 'KeyR' || _resetCooldown > 0 || isInputBlocked() || isTypingTarget()) return;
-    _resetCooldown = 1.0;
+  // Shared teleport used by both the R key and the freefall auto-recovery below.
+  const _recoverToCrumb = () => {
     const b = physics.chassisBody;
     b.position.set(_crumb.x, _crumb.y + 0.8, _crumb.z);
     b.quaternion.set(_crumb.qx, _crumb.qy, _crumb.qz, _crumb.qw);
     b.velocity.set(0, 0, 0);
     b.angularVelocity.set(0, 0, 0);
   };
+  const _onRecoverKey = (e) => {
+    if (e.code !== 'KeyR' || _resetCooldown > 0 || isInputBlocked() || isTypingTarget()) return;
+    _resetCooldown = 1.0;
+    _recoverToCrumb();
+  };
   window.addEventListener('keydown', _onRecoverKey);
 
-  // ── Per-frame update ──────────────────────────────────────────────────────
-  function update(dt, cinematic = false) {
-    // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter)
-    world.step(1 / 60, Math.min(dt, 0.035), 3);
+  // ── Freefall auto-recovery ───────────────────────────────────────────────
+  // If terrain tiles fail to stream in, the car can drop through the void. We ONLY want to fire on that
+  // genuine plunge — never on normal driving, bumps, jumps or slopes (an earlier version false-fired and
+  // yanked the car back to spawn). So we require ALL THREE at once, measured from the instant the wheels
+  // left the ground: airborne a while, dropped a long way, and STILL falling fast. Real driving never
+  // satisfies all three; a void-fall always does.
+  const VOID_MIN_AIR_S  = 1.2;    // must have been airborne at least this long
+  const VOID_MIN_DROP_M = 30;     // ...and dropped at least this far below where the wheels left ground
+  const VOID_MIN_FALL_V = 14;     // ...and still be falling faster than this (m/s downward)
+  const FALL_FLOOR_Y    = spawnLocalPos.y - 400;  // last-resort sentinel, far below any real terrain
+  const HOLD_MAX_S      = 2.0;    // hard cap on the hover-hold so the car can NEVER get stuck floating
+  let _airTime    = 0;            // seconds since wheels last touched ground
+  let _airStartY  = spawnLocalPos.y; // chassis Y at the moment we last became airborne
+  let _wasGrounded = true;
+  let _holdGround = false;
+  let _holdTimer  = 0;
 
-    // 2. Read inputs → apply to vehicle. During a game-mode cinematic, ignore input and pin the car in
-    //    place (zero velocities) so it can't creep while the b-roll plays. (state stays function-scoped —
-    //    it's used by effects.update below.)
+  // DEV-only: force a void-fall from the console to verify auto-recovery. Stripped from prod builds.
+  if (import.meta.env.DEV) {
+    window._testFreefall = (depth = 60) => {
+      physics.chassisBody.position.y -= depth;
+      physics.chassisBody.velocity.set(0, -8, 0);
+      console.log(`[test] dropped car ${depth}m — freefall auto-recovery should fire within ~0.6s`);
+    };
+  }
+
+  // ── Per-frame update ──────────────────────────────────────────────────────
+  function update(dt, cinematic = false, freeze = false) {
+    // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter).
+    //    `freeze` skips the step entirely — used while the title screen streams tiles around the
+    //    cinematic centre (the car's own ground may be unloaded; stepping would drop it into the void).
+    if (!freeze) { if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3); }
+    _ct?.lap('step');   // pure physics-step cost; the remainder of this update lands in main's 'phys' lap
+
+    // 2. Read inputs → apply to vehicle. During a game-mode cinematic (or while frozen), ignore input
+    //    and pin the car in place (zero velocities) so it can't creep while the b-roll plays. (state
+    //    stays function-scoped — it's used by effects.update below.)
     const state = controls.getState();
-    if (cinematic) {
+    if (cinematic || freeze) {
       physics.chassisBody.velocity.set(0, 0, 0);
       physics.chassisBody.angularVelocity.set(0, 0, 0);
     } else {
@@ -131,21 +169,63 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     // 5. Chase camera (pass speed for reverse camera flip). Skipped while a game mode drives a cinematic.
     if (!cinematic) carCam.update(physics.chassisBody, dt, physics.getSpeedKmh());
 
-    // 5b. Recovery breadcrumb: record pose when upright + ≥3 wheels grounded (every 2 s)
+    // 5b. Recovery breadcrumb + freefall auto-recovery.
     _resetCooldown = Math.max(0, _resetCooldown - dt);
-    _crumbTimer += dt;
-    if (_crumbTimer >= 2) {
-      _crumbTimer = 0;
-      const wheelsOn = physics.vehicle.wheelInfos.filter((w) => w.isInContact).length;
-      const q = physics.chassisBody.quaternion;
-      // chassis up-axis Y component: 1 - 2(qx² + qz²) — upright when close to 1
-      const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
-      if (wheelsOn >= 3 && upY > 0.8) {
-        const bp = physics.chassisBody.position;
+    {
+      const cb = physics.chassisBody;
+      // Count grounded wheels without allocating a filtered array every frame (this runs at 60 Hz).
+      let wheelsOn = 0;
+      const _wi = physics.vehicle.wheelInfos;
+      for (let wj = 0; wj < _wi.length; wj++) if (_wi[wj].isInContact) wheelsOn++;
+      const q = cb.quaternion;
+      const upY = 1 - 2 * (q.x * q.x + q.z * q.z); // chassis up-axis Y: ~1 when upright
+
+      // Breadcrumb: keep it FRESH. Record the last upright, grounded pose continuously (throttled to
+      // ~3/s) whenever ≥2 wheels touch and we're roughly upright — so "recover" never sends us all the
+      // way back to spawn (the earlier bug: a strict ≥3-wheel/2s gate rarely fired → stale crumb).
+      _crumbTimer += dt;
+      if (wheelsOn >= 2 && upY > 0.6 && _crumbTimer >= 0.3) {
+        _crumbTimer = 0;
+        const bp = cb.position;
         _crumb.x = bp.x; _crumb.y = bp.y; _crumb.z = bp.z;
         _crumb.qx = 0; _crumb.qy = q.y; _crumb.qz = 0; _crumb.qw = q.w; // yaw only
         const n = Math.hypot(_crumb.qy, _crumb.qw) || 1;
         _crumb.qy /= n; _crumb.qw /= n;
+      }
+
+      if (!cinematic && !freeze) {
+        // Track airborne time + how far we've dropped since the wheels left the ground.
+        if (wheelsOn > 0) {
+          _airTime = 0; _wasGrounded = true; _holdGround = false; _holdTimer = 0;
+        } else {
+          if (_wasGrounded) { _airStartY = cb.position.y; _wasGrounded = false; }
+          _airTime += dt;
+        }
+        const fellDist  = _airStartY - cb.position.y;     // metres dropped since going airborne
+        const fallingV  = -cb.velocity.y;                 // downward speed (m/s), positive = falling
+        // Genuine void-fall = airborne long enough AND dropped far AND still plummeting. All three.
+        const voidFall  = !_wasGrounded && _airTime >= VOID_MIN_AIR_S &&
+                          fellDist >= VOID_MIN_DROP_M && fallingV >= VOID_MIN_FALL_V;
+
+        if ((voidFall || cb.position.y < FALL_FLOOR_Y) && !_holdGround) {
+          _recoverToCrumb();
+          _holdGround = true;   // brief hover-hold until terrain is confirmed underfoot
+          _holdTimer = 0;
+        }
+
+        // Hover-hold: pin at the recover point until a wheel touches — but NEVER longer than HOLD_MAX_S,
+        // so a bad crumb can't leave the car floating forever (release and let physics take over).
+        if (_holdGround) {
+          _holdTimer += dt;
+          if (wheelsOn > 0 || _holdTimer >= HOLD_MAX_S) {
+            _holdGround = false;
+          } else {
+            cb.velocity.set(0, 0, 0);
+            cb.angularVelocity.set(0, 0, 0);
+            const restY = _crumb.y + 0.8;
+            if (cb.position.y < restY) cb.position.y = restY;
+          }
+        }
       }
     }
 

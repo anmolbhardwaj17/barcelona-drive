@@ -3,11 +3,13 @@
  * Mutates only lights, fog, sky visibility and material params — no geometry rebuild.
  */
 import * as THREE from 'three';
-import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode } from '../map/roadRenderer.js';
+import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, setRoadNightWash, setRoadDecalNightMode } from '../map/roadRenderer.js';
 import { setDividerNightMode } from '../map/dividerRenderer.js';
 import { setShoulderNightMode } from '../map/shoulderRenderer.js';
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
+import { setVegNightWash } from '../map/vegetationRenderer.js';
 import { setBuildingNightMode } from '../map/buildingRenderer.js';
+import { setFacadeNightMode, setHeroSpillNight } from '../workers/meshMaterializer.js';
 import { setBusStopNightMode } from '../map/busStopRenderer.js';
 import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
 import { setVendorCartNightMode } from '../map/vendorCartRenderer.js';
@@ -15,24 +17,27 @@ import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetli
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
+import { UI, iconButton, injectUITheme } from './theme.js';
 
 const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
 export function onNightModeChange(cb) { _nightModeCallbacks.push(cb); }
 
 const DAY = {
-  ambientColor:     0xc8dce8,
-  ambientIntensity: 0.46,   // lifted → open, sunny shadows (was too dark/crushed at 0.32)
-  hemiSkyColor:     0xaab8d0,
-  hemiGroundColor:  0xcc7733,
-  hemiIntensity:    0.50,   // more sky fill so shadows stay bright
-  dirIntensity:     3.0,    // sun a touch softer → less harsh contrast
-  dirColor:         0xffeada, // warm afternoon sun, but not orange-heavy
+  // L1 golden-hour split: the hemi (now a REAL light — cool sky fill + warm ground bounce) carries the
+  // colour separation; ambient drops to a neutral base so the fill isn't doubled. Sun warmed slightly.
+  ambientColor:     0xd4e2ec,
+  ambientIntensity: 0.30,
+  hemiSkyColor:     0xa3c0e4, // cool blue sky-light → shadows read cool
+  hemiGroundColor:  0xc4966a, // warm ground bounce, eased (0xd08a4e washed facades too golden)
+  hemiIntensity:    0.55,
+  dirIntensity:     2.7,
+  dirColor:         0xffe3c2, // warm key, one notch whiter (0xffdcae read too yellow on cream walls)
   fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
   fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,
   bgColor:          null,
-  toneMappingExposure: 1.9,   // matches scene.js ACES exposure — keeps the airy daylight when toggled to day
+  toneMappingExposure: 1.6,   // pulled from 1.9 — the scene was overexposed, washing every surface colour pale
   lampEmissive:     0.25,   // subtle glow in daylight
   poolOpacity:      0.04,   // barely visible in daylight
   bloomStrength:    0.5,    // subtle bloom by day (only the sun/bright highlights)
@@ -41,24 +46,26 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x8c8f97,  // desaturated cool-grey fill — ACES amplified the old saturated blue (0x6a7398)
-                               // into a blue road; this keeps a faint night coolness without tinting surfaces blue
-  ambientIntensity: 1.15,      // slight trim (1.25→1.15) — the higher ACES exposure already lifts night
-  hemiSkyColor:     0x515c85,  // brighter blue sky fill
-  hemiGroundColor:  0x2a2438,  // lifted warm-ish ground bounce
-  hemiIntensity:    0.5,       // note: only takes effect if a hemi light exists; ambient carries the fill
-  dirIntensity:     0.85,      // moonlight — more form on the tops
-  dirColor:         0xcdd6f0,  // near-neutral cool moonlight (less blue)
-  fogColor:         0x121a34,
-  fogDensity:       0.0045,     // thin night haze so the distance keeps depth, not grey murk
+  // Reference-matched night (low-poly cinematic renders): the WHOLE albedo palette collapses into a
+  // narrow dark blue-charcoal band — day colours must NOT survive (no vivid greens / bright cream
+  // facades after dark). Fill light is deep desaturated blue at LOW intensity; the warm emissives
+  // (windows, streetlamps, signs) carry all the contrast and pop against it via bloom.
+  ambientColor:     0x6b7a9e,  // desaturated blue fill — the blue TINT (not darkness) is what sells night
+  ambientIntensity: 1.0,       // readable floor: geometry must survive as blue-charcoal masses, not voids
+  hemiSkyColor:     0x46567e,  // dark blue sky dome light
+  hemiGroundColor:  0x232a3a,  // dark ground bounce
+  hemiIntensity:    0.6,
+  dirIntensity:     0.7,       // soft moon — form on rooftops/facades
+  dirColor:         0x8fa6d8,  // cool moonlight
+  fogColor:         0x101a2e,  // deep navy haze
+  fogDensity:       0.0045,    // thin night haze so the distance keeps depth, not grey murk
   skyVisible:       false,
-  bgColor:          0x0e1730,  // deeper blue night sky (was too washed/grey)
-  toneMappingExposure: 1.75,   // lifted for ACES (filmic curve crushes darks harder than Linear did) — the
-                               // dimmer moonlight/ambient still reads as night, this just rescues it from black
-  lampEmissive:     8.5,       // hotter streetlamp glow → warm pops punch through the deep blue
+  bgColor:          0x0a1224,  // deep navy sky
+  toneMappingExposure: 1.5,    // 1.75 read as day; darkness now comes from the blue rig + grade, not exposure
+  lampEmissive:     9.0,       // hotter streetlamp glow → warm pops punch through the deep blue
   poolOpacity:      1.0,
-  bloomStrength:    0.95,      // stronger glow at night
-  bloomThreshold:   0.62,      // lower threshold → lamps/windows/signs/shopfronts all bloom
+  bloomStrength:    0.55,      // soft halo only — 1.0 turned every window into a fuzzy ball
+  bloomThreshold:   0.72,      // just the truly bright emissives bloom (lamps, window cores)
   lightsOn:         true,
 };
 
@@ -150,6 +157,11 @@ export function createEnvToggle(refs) {
     setMoonNightMode(isNight);
     setStarsNightMode(isNight);
     setBuildingNightMode(isNight);
+    setFacadeNightMode(isNight);   // the LIVE facade materials (worker/materializer path) — window glow
+    setHeroSpillNight(isNight);    // hero-building warm ground-glow decals
+    setRoadNightWash(isNight);     // building-proximity warm wash on road surfaces
+    setVegNightWash(isNight);      // same wash on street trees/bushes (parks stay dark)
+    setRoadDecalNightMode(isNight); // bike-lane green + blue-zone stripes crush to black otherwise
     setBusStopNightMode(isNight);
     setFuelStationNightMode(isNight);
     setVendorCartNightMode(isNight);
@@ -213,42 +225,20 @@ export function createEnvToggle(refs) {
   const savedMode = (() => { try { return localStorage.getItem('dd_dayNight') || 'day'; } catch { return 'day'; } })();
   applyMode(savedMode, true);
 
-  // ── Toggle switch (chunky gamified pill — matches the settings toggles) ─────
-  const TRACK_W = 74, TRACK_H = 40, KNOB_SIZE = 32, KNOB_PAD = 4;
-
-  // press-down effect (inline styles can't do :active)
-  const _st = document.createElement('style');
-  _st.textContent = '#env-toggle:active { transform: translateY(5px); }';
-  document.head.appendChild(_st);
-
+  // ── Day / night toggle — flat frosted icon button (art-of-rally chrome) ─────
+  injectUITheme();
   const toggle = document.createElement('div');
   toggle.id = 'env-toggle';
-  toggle.style.cssText = `
-    position: fixed; top: 14px; right: 14px; z-index: 1000;
-    width: ${TRACK_W}px; height: ${TRACK_H}px; border-radius: 22px;
-    cursor: pointer; user-select: none;
-    border: 3px solid rgba(0,0,0,0.18);
-    transition: background .35s ease, box-shadow .06s, transform .06s;
-  `;
-
-  const knob = document.createElement('div');
-  knob.style.cssText = `
-    width: ${KNOB_SIZE}px; height: ${KNOB_SIZE}px; border-radius: 50%;
-    position: absolute; top: ${(TRACK_H - KNOB_SIZE) / 2}px; background: #fff;
-    transition: left .3s ease;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-  `;
-  toggle.appendChild(knob);
+  toggle.className = 'dd-btn';
+  toggle.title = 'Toggle day / night';
+  toggle.style.cssText = iconButton({ size: 46 }) + 'position:fixed;top:14px;right:14px;z-index:1000;';
 
   function updateToggle() {
     const isNight = mode === 'night';
-    toggle.style.background = isNight ? 'linear-gradient(#4a6ea5,#284872)' : 'linear-gradient(#ffe07a,#f5b32a)';
-    toggle.style.boxShadow = (isNight ? '0 6px 0 #16304f' : '0 6px 0 #c8871a') + ', 0 9px 12px rgba(0,0,0,0.35)';
-    knob.style.left = isNight ? `${TRACK_W - KNOB_SIZE - KNOB_PAD}px` : `${KNOB_PAD}px`;
-    knob.innerHTML = isNight
-      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="#3a5a8a"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
-      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5931f" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+    // Simple, single-weight line icon in warm cream — sun by day, moon by night.
+    toggle.innerHTML = isNight
+      ? `<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="${UI.cream}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
+      : `<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="${UI.cream}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`;
   }
   updateToggle();
 

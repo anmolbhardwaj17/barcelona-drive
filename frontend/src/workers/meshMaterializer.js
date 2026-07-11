@@ -15,6 +15,8 @@ import {
   getBushMaterial,
   getTreeBillboardMaterial,
 } from '../map/vegetationRenderer.js';
+import { createVegPoolSet } from '../map/vegPools.js';
+import { getNightEmissiveTexture, NIGHT_EMISSIVE_INTENSITY, HERO_EMISSIVE_INTENSITY } from '../map/buildingRenderer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -545,26 +547,11 @@ function getPipeMaterial() {
 // =============================================================================
 
 /**
- * Inject fog shader modification into a material so distant buildings
- * fade cleanly toward the fog color.
+ * (No-op since L2.) The old per-material "clean fade" fog replacement is retired — the GLOBAL
+ * aerial-perspective fog chunk in scene.js now handles distance fade for every material, so buildings
+ * fog consistently with roads/terrain (desaturation + blue-shift + sun-side warmth + altitude thinning).
  */
-function injectFogShader(mat) {
-  mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <fog_fragment>',
-      `#ifdef USE_FOG
-        float fogDepth = vFogDepth;
-        #ifdef FOG_EXP2
-          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);
-        #else
-          float fogFactor = smoothstep(fogNear, fogFar, fogDepth);
-        #endif
-        // Clean fade to fog -- no warm desaturation
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-      #endif`
-    );
-  };
-}
+function injectFogShader(_mat) {}
 
 // Building winding is INCONSISTENT across the worker's geometry (some facades/roofs are wound CW, some
 // CCW), so NO single side renders every building correctly — FrontSide left some buildings inside-out
@@ -576,41 +563,101 @@ const BUILDING_SIDE = THREE.DoubleSide;
  * Create or retrieve a facade material by category and hex color.
  * Matches the logic in buildingRenderer.js getFacadeMaterial().
  */
+// Night state for the facade materials THIS module creates (the live path — tileManager builds
+// buildings through materializeBuildingMeshes, NOT through buildingRenderer's legacy cache, so the
+// window night-glow must be baked in HERE or windows never light up after dark).
+let _facadeNight = false;
+const FACADE_WASH_NIGHT = 0.05;   // strength of the warm ground-glow wash on lower floors at night (0.22→0.09→0.05; keep subtle)
+// Near-black detail materials crush to VOID-black under the blue night rig (balcony rails/gates
+// read as floating black boxes). Lift them to moonlit blue-grey at night; day colours untouched.
+const DETAIL_NIGHT_LIFT = { balconyRail: 0x4b5468, gate: 0x424a5c, acFan: 0x3d4a5e, signboard: 0x3f5a74 };
+export function setFacadeNightMode(isNight) {
+  _facadeNight = isNight;
+  for (const [type, nightHex] of Object.entries(DETAIL_NIGHT_LIFT)) {
+    const mat = _detailMaterialCache.get(type);
+    if (mat) mat.color.setHex(isNight ? nightHex : DETAIL_MATERIAL_DEFS[type].color);
+  }
+  // The peach roof palette (raised blue channel, user-approved by day) multiplies with the BLUE
+  // night rig into pink-maroon. Counter on the shared roof material at night only: pull blue back
+  // and ease red so roofs fall into neutral dark clay after dark. White (identity) by day.
+  for (const mat of _roofMaterialCache.values()) {
+    if (isNight) mat.color.setHex(mat.userData._dayHex ?? 0xffffff).multiply(_ROOF_NIGHT_TINT);
+    else mat.color.setHex(mat.userData._dayHex ?? 0xffffff);
+  }
+  for (const [cacheKey, mat] of _facadeMaterialCache.entries()) {
+    if (mat.userData._uNightWash) mat.userData._uNightWash.value = isNight ? FACADE_WASH_NIGHT : 0;
+    if (!mat.emissiveMap) continue;
+    mat.emissiveIntensity = isNight
+      ? (cacheKey.includes('#hero') ? HERO_EMISSIVE_INTENSITY : NIGHT_EMISSIVE_INTENSITY)
+      : 0;
+  }
+}
+
 function getFacadeMaterial(hexColor, category) {
   const cacheKey = hexColor + '_' + category;
   if (_facadeMaterialCache.has(cacheKey)) return _facadeMaterialCache.get(cacheKey);
 
-  const isGlass  = (category === 'commercial_glass');
-  const isTemple = (category === 'religious');
+  // '#hero' marker (set by the building worker on a sparse set of tall buildings): same day look,
+  // dense all-warm windows + stronger glow at night.
+  const hero = category.endsWith('#hero');
+  const baseCategory = hero ? category.slice(0, -5) : category;
+
+  const isGlass  = (baseCategory === 'commercial_glass');
+  const isTemple = (baseCategory === 'religious');
+  // Bake the night window-glow emissiveMap in at creation (intensity 0 by day) — adding an
+  // emissiveMap to an already-compiled shared material later doesn't recompile it.
+  const emis = {
+    emissive: new THREE.Color(0xffffff),
+    emissiveMap: getNightEmissiveTexture(baseCategory, hero),
+    emissiveIntensity: _facadeNight ? (hero ? HERO_EMISSIVE_INTENSITY : NIGHT_EMISSIVE_INTENSITY) : 0,
+  };
   let mat;
 
   if (isGlass) {
     mat = new THREE.MeshPhongMaterial({
       color: hexColor,
       vertexColors: true,
-      map: getWindowTexture(category),
+      map: getWindowTexture(baseCategory),
       specular: 0x8899AA,
       shininess: 60,
       reflectivity: 0.4,
       side: BUILDING_SIDE,
+      ...emis,
     });
   } else if (isTemple) {
     mat = new THREE.MeshPhongMaterial({
       color: hexColor,
       vertexColors: true,
-      map: getWindowTexture(category),
+      map: getWindowTexture(baseCategory),
       specular: 0x442211,
       shininess: 12,
       side: BUILDING_SIDE,
+      ...emis,
     });
   } else {
     mat = new THREE.MeshLambertMaterial({
       color: hexColor,
       vertexColors: true,
-      map: getWindowTexture(category),
+      map: getWindowTexture(baseCategory),
       side: BUILDING_SIDE,
+      ...emis,
     });
   }
+
+  // Warm ground-glow wash on the LOWER FLOORS at night — reads as street light reflecting up the
+  // facade (per-vertex aWash factor baked by the building worker: 1 at base → 0 by ~7 m). Geometry
+  // without the attribute reads 0 (WebGL default) → no wash, so shared use elsewhere is safe.
+  mat.userData._uNightWash = { value: _facadeNight ? FACADE_WASH_NIGHT : 0 };
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNightWash = mat.userData._uNightWash;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
+      .replace('#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
+  };
 
   injectFogShader(mat);
   _facadeMaterialCache.set(cacheKey, mat);
@@ -620,10 +667,14 @@ function getFacadeMaterial(hexColor, category) {
 /**
  * Create or retrieve a roof material (simple Lambert with vertexColors).
  */
+const _ROOF_NIGHT_TINT = new THREE.Color(0.9, 0.97, 0.78);   // counters the peach palette going pink under blue night light
+
 function getRoofMaterial(hexColor) {
   if (hexColor == null) hexColor = 0xD9CFC1;
   if (_roofMaterialCache.has(hexColor)) return _roofMaterialCache.get(hexColor);
   const mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, side: BUILDING_SIDE });
+  mat.userData._dayHex = hexColor;
+  if (_facadeNight) mat.color.multiply(_ROOF_NIGHT_TINT);
   _roofMaterialCache.set(hexColor, mat);
   return mat;
 }
@@ -754,6 +805,7 @@ function materializeGroup(group, material, shadowsOn) {
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(group.normals, 3));
   if (group.uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(group.uvs, 2));
   if (group.colors) geo.setAttribute('color', new THREE.Float32BufferAttribute(group.colors, 3));
+  if (group.wash) geo.setAttribute('aWash', new THREE.Float32BufferAttribute(group.wash, 1));
   if (group.indices) geo.setIndex(new THREE.Uint32BufferAttribute(group.indices, 1));
 
   const mesh = new THREE.Mesh(geo, material);
@@ -849,12 +901,152 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     meshes.push(pipeMesh);
   }
 
+  // ── Building warm ground-spill decals (night-only) ──────────────────────────
+  // A soft amber gradient at EVERY building's base (heroes wider + stronger via per-instance
+  // colour) — fakes the "buildings light the street around them" look of the reference renders
+  // without any real lights (same trick as the streetlight pools). Hidden by day (setHeroSpillNight).
+  if (workerResult.heroSpills && workerResult.heroSpills.length >= 5) {
+    const spills = workerResult.heroSpills;
+    const count = spills.length / 5;
+    const spillMesh = new THREE.InstancedMesh(getHeroSpillGeometry(), getHeroSpillMaterial(), count);
+    const _m = new THREE.Matrix4();
+    const _c = new THREE.Color();
+    for (let i = 0; i < count; i++) {
+      const r = spills[i * 5 + 3];
+      const strength = spills[i * 5 + 4];
+      // +0.42: clear of the sidewalk/curb decks (extruded above the building's ground elevation) —
+      // at +0.14 the decal sat UNDER the pavement and lost the depth test (invisible).
+      _m.makeScale(r * 2, 1, r * 2).setPosition(spills[i * 5], spills[i * 5 + 1] + 0.42, spills[i * 5 + 2]);
+      spillMesh.setMatrixAt(i, _m);
+      // warm-tinted brightness scale — a plain grey scalar washed the amber texture into pale ghost discs
+      spillMesh.setColorAt(i, _c.setRGB(strength, strength * 0.82, strength * 0.6));
+    }
+    spillMesh.frustumCulled = false;   // unit-plane bounds don't cover the scaled instances
+    spillMesh.castShadow = false;
+    spillMesh.receiveShadow = false;
+    spillMesh.renderOrder = 2;         // over the road surface decals
+    spillMesh.visible = _heroSpillNight;
+    spillMesh.userData.sharedGeometry = true;
+    spillMesh.userData.sharedMaterial = true;
+    _heroSpillMeshes.add(spillMesh);
+    spillMesh.addEventListener('removed', () => _heroSpillMeshes.delete(spillMesh));
+    meshes.push(spillMesh);
+  }
+
   return meshes;
+}
+
+/**
+ * Pre-create every facade/roof/detail material VARIANT the tile builder can ever produce, so the
+ * boot-time renderer.compileAsync warm-up compiles them all. Without this, the first tile that
+ * introduces a new variant (e.g. a '#hero' facade of a category not yet seen) triggers a
+ * SYNCHRONOUS shader compile mid-drive — measured as one-off ~100 ms render frames.
+ */
+export function warmAllBuildingMaterials() {
+  const cats = ['residential', 'commercial', 'office', 'hospital', 'school', 'industrial', 'religious', 'commercial_glass'];
+  const mats = [];
+  for (const c of cats) {
+    mats.push(getFacadeMaterial(0xFFFFFF, c));
+    mats.push(getFacadeMaterial(0xFFFFFF, c + '#hero'));
+  }
+  mats.push(getRoofMaterial(0xFFFFFF));
+  for (const type of Object.keys(DETAIL_MATERIAL_DEFS)) mats.push(getDetailMaterial(type));
+  // One-off singletons that otherwise sync-compile on FIRST appearance (mall district, industrial
+  // area) — each is a distinct shader-define combo, so one hidden triangle each covers it.
+  mats.push(getMallSignMaterial(), getTankMaterial(), getPipeMaterial());
+  return mats;
+}
+
+// ── Hero spill shared resources + night toggle ───────────────────────────────
+const _heroSpillMeshes = new Set();
+let _heroSpillNight = false;
+let _heroSpillGeo = null;
+let _heroSpillMat = null;
+
+function getHeroSpillGeometry() {
+  if (_heroSpillGeo) return _heroSpillGeo;
+  _heroSpillGeo = new THREE.PlaneGeometry(1, 1);
+  _heroSpillGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+  return _heroSpillGeo;
+}
+
+function getHeroSpillMaterial() {
+  if (_heroSpillMat) return _heroSpillMat;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const cx = size / 2, r = size / 2;
+  const grad = ctx.createRadialGradient(cx, cx, 0, cx, cx, r);
+  grad.addColorStop(0,    'rgba(255, 196, 110, 0.42)');
+  grad.addColorStop(0.35, 'rgba(255, 178, 80, 0.20)');
+  grad.addColorStop(0.7,  'rgba(255, 160, 50, 0.07)');
+  grad.addColorStop(1,    'rgba(255, 150, 40, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  _heroSpillMat = new THREE.MeshBasicMaterial({
+    map: new THREE.CanvasTexture(canvas),
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+  });
+  return _heroSpillMat;
+}
+
+/** Show/hide the hero building ground-glow decals (night only). */
+export function setHeroSpillNight(isNight) {
+  _heroSpillNight = isNight;
+  for (const m of _heroSpillMeshes) m.visible = isNight;
 }
 
 // =============================================================================
 //  VEGETATION MATERIALIZER
 // =============================================================================
+
+// ── Global vegetation pools (one BatchedMesh per kind for ALL tiles) ─────────
+// Created once, added to the tile parent group; tiles add/remove instances via handles.
+// Collapses ~3 scene objects per resident tile (trees/shadows/bushes ×[main+zone]) to 3 total,
+// plus up to 4 billboard-impostor meshes per tile to 4 total (one pool per variant material).
+let _bbPoolGeo = null;
+function getBillboardPoolGeometry() {
+  if (_bbPoolGeo) return _bbPoolGeo;
+  const BB_W = 5, BB_H = 7;
+  _bbPoolGeo = new THREE.PlaneGeometry(BB_W, BB_H);
+  const pa = _bbPoolGeo.getAttribute('position');
+  for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) + BB_H / 2);
+  return _bbPoolGeo;
+}
+
+let _vegPools = null;
+export function getVegPools(parentGroup) {
+  if (_vegPools) return _vegPools;
+  // POOL SETS with FIXED 16384 capacity (data textures stay 256²/1 MB): when a pool fills, a
+  // sibling pool spawns instead of growing in place — in-place growth reallocated + re-uploaded
+  // all textures (60-110ms stalls), and bigger caps quadrupled the per-upload cost to 4 MB.
+  _vegPools = {
+    trees: createVegPoolSet({
+      name: 'trees', geometries: buildProceduralTreeGeometries(), material: getProceduralMaterial(),
+      capacity: 16384, castShadow: false, receiveShadow: true,
+      // castShadow stays false — blob shadows ground the trees; the directional shadow depth pass
+      // over 100k+ tree verts was the single biggest tree GPU cost.
+    }, parentGroup),
+    shadows: createVegPoolSet({
+      name: 'treeShadows', geometries: [getShadowGeometry()], material: getShadowMaterial(),
+      capacity: 16384, castShadow: false, receiveShadow: false, renderOrder: -1,
+    }, parentGroup),
+    bushes: createVegPoolSet({
+      name: 'bushes', geometries: [getBushGeometry()], material: getBushMaterial(),
+      capacity: 16384, castShadow: false, receiveShadow: true,
+    }, parentGroup),
+    // Billboard impostors — one pool set per variant (each has its own atlas-offset material).
+    billboards: [0, 1, 2, 3].map((vi) => createVegPoolSet({
+      name: `treeBillboards${vi}`, geometries: [getBillboardPoolGeometry()],
+      material: getTreeBillboardMaterial(vi),
+      capacity: 4096, castShadow: false, receiveShadow: false,
+    }, parentGroup)),
+  };
+  return _vegPools;
+}
 
 /**
  * Takes the output from processVegetationInWorker and creates Three.js
@@ -863,8 +1055,9 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
  * @param {object} workerResult - Output from vegetation worker
  * @returns {{ treeMeshes: THREE.InstancedMesh[], shadowMesh: THREE.InstancedMesh|null, bushMesh: THREE.InstancedMesh|null, treePositions: {x:number, y:number}[] }}
  */
-export async function materializeVegetationMeshes(workerResult, yieldFn) {
+export async function materializeVegetationMeshes(workerResult, yieldFn, pools = null) {
   const treeMeshes = [];
+  const poolHandles = [];
   const YIELD_EVERY = 600; // instances between cooperative yields (keeps this off the critical frame)
 
   // ── Tree BatchedMesh: all 4 variants in a single draw call ─────────────
@@ -875,7 +1068,14 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
     v => v.count > 0 && v.variantIndex >= 0 && v.variantIndex < geometries.length
   );
 
-  if (variants.length > 0) {
+  if (pools && variants.length > 0) {
+    // Global-pool path: instances go into the shared cross-tile BatchedMesh instead of a per-tile one.
+    const h = await pools.trees.add(
+      variants.map((v) => ({ geoIndex: v.variantIndex, count: v.count, matrices: v.matrices, colors: v.colors })),
+      yieldFn,
+    );
+    if (h) { h.kind = 'tree'; poolHandles.push(h); }
+  } else if (variants.length > 0) {
     // Compute totals for BatchedMesh allocation
     let totalInstances = 0;
     let totalVertices = 0;
@@ -956,7 +1156,11 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
 
   // ── Shadow mesh ───────────────────────────────────────────────────────────
   let shadowMesh = null;
-  if (workerResult.shadowInstances && workerResult.shadowInstances.count > 0) {
+  if (pools && workerResult.shadowInstances && workerResult.shadowInstances.count > 0) {
+    const s = workerResult.shadowInstances;
+    const h = await pools.shadows.add([{ geoIndex: 0, count: s.count, matrices: s.matrices }], yieldFn);
+    if (h) { h.kind = 'shadow'; poolHandles.push(h); }
+  } else if (workerResult.shadowInstances && workerResult.shadowInstances.count > 0) {
     const { matrices, count } = workerResult.shadowInstances;
     shadowMesh = new THREE.InstancedMesh(getShadowGeometry(), getShadowMaterial(), count);
     shadowMesh.instanceMatrix = new THREE.InstancedBufferAttribute(
@@ -975,7 +1179,11 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
 
   // ── Bush mesh ─────────────────────────────────────────────────────────────
   let bushMesh = null;
-  if (CONFIG.ENABLE_BUSHES !== false && workerResult.bushInstances && workerResult.bushInstances.count > 0) {
+  if (pools && CONFIG.ENABLE_BUSHES !== false && workerResult.bushInstances && workerResult.bushInstances.count > 0) {
+    const b = workerResult.bushInstances;
+    const h = await pools.bushes.add([{ geoIndex: 0, count: b.count, matrices: b.matrices, colors: b.colors }], yieldFn);
+    if (h) { h.kind = 'bush'; poolHandles.push(h); }
+  } else if (CONFIG.ENABLE_BUSHES !== false && workerResult.bushInstances && workerResult.bushInstances.count > 0) {
     const { matrices, colors, count } = workerResult.bushInstances;
     bushMesh = new THREE.InstancedMesh(getBushGeometry(), getBushMaterial(), count);
     bushMesh.instanceMatrix = new THREE.InstancedBufferAttribute(
@@ -1019,8 +1227,6 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
   for (const variant of workerResult.treeVariants || []) {
     if (variant.count === 0) continue;
     const vi = variant.variantIndex;
-    const bbMat = getTreeBillboardMaterial(vi);
-    const bbMesh = new THREE.InstancedMesh(getBBGeo(), bbMat, variant.count);
 
     // Reuse instance matrices but strip rotation (billboard shader handles facing)
     const srcMat = variant.matrices instanceof Float32Array ? variant.matrices : new Float32Array(variant.matrices);
@@ -1044,6 +1250,15 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
       if (yieldFn && (i % YIELD_EVERY) === (YIELD_EVERY - 1)) await yieldFn();
     }
 
+    if (pools && vi >= 0 && vi < pools.billboards.length) {
+      // Global-pool path: added HIDDEN — billboards only show in their 500–800 m band once the
+      // tile LOD pass runs (default-visible would double-draw over the 3D trees).
+      const h = await pools.billboards[vi].add([{ geoIndex: 0, count: variant.count, matrices: bbMatrices }], yieldFn, false);
+      if (h) { h.kind = 'billboard'; poolHandles.push(h); }
+      continue;
+    }
+
+    const bbMesh = new THREE.InstancedMesh(getBBGeo(), getTreeBillboardMaterial(vi), variant.count);
     bbMesh.instanceMatrix = new THREE.InstancedBufferAttribute(bbMatrices, 16);
     bbMesh.count = variant.count;
     bbMesh.frustumCulled = false; // billboard shader moves verts
@@ -1059,7 +1274,7 @@ export async function materializeVegetationMeshes(workerResult, yieldFn) {
     treeBillboardMeshes.push(bbMesh);
   }
 
-  return { treeMeshes, treeBillboardMeshes, shadowMesh, bushMesh, treePositions };
+  return { treeMeshes, treeBillboardMeshes, shadowMesh, bushMesh, treePositions, poolHandles };
 }
 
 // =============================================================================
