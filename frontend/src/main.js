@@ -700,7 +700,12 @@ function animate(time = 0) {
   if (CONFIG.ENABLE_FOG && scene.fog) {
     // Ground-level fog washes out the aerial title cinematic (camera at ~115m+ in 0.005 fog = white soup),
     // so it's nearly off while the title is live — like drone mode — and restored on entering the game.
-    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005) : 0;
+    // ALTITUDE FADE (user report: "huge blur at certain angles" from the in-car drone view): the
+    // same white-soup applies whenever the camera climbs, so full density only below ~40 m,
+    // fading to near-none by ~180 m. Ground driving is unchanged (camera ≈ 5 m).
+    const _camAlt = camera?.position?.y ?? 0;
+    const _fogAltFade = Math.max(0.08, Math.min(1, 1 - (_camAlt - 40) / 140));
+    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005 * _fogAltFade) : 0;
   }
 
   // Title-up detection: while the title screen is visible the world streams around the CINEMATIC
