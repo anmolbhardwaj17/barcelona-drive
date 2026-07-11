@@ -693,20 +693,40 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         g = 0.345 * (1 - t) + sg * t;
         b = 0.245 * (1 - t) + sb * t;
         coastAttr[i] = 1;
-      } else if (inBeach || shoreD <= 20 || (raw < 2.2 && dSea <= 4)) {
-        // Dry sand, blending toward wet sand as it approaches the waterline. Triggers: an OSM
-        // beach polygon, proximity to the traced shoreline (~20 m auto-beach band — OSM's beach
-        // coverage is too sparse to rely on alone), or the sunk-basin distance band.
-        const wet = Math.max(
-          raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0,
-          shoreD < 24 ? 1 - shoreD / 24 : 0,
-        );
-        const sn = terrainNoise(vx, vz, 0.09, 11.0) * 0.045;
-        const dr = 0.545 + sn, dg = 0.480 + sn * 0.8, db = 0.335 + sn * 0.5;
-        r = dr * (1 - wet) + 0.400 * wet;
-        g = dg * (1 - wet) + 0.345 * wet;
-        b = db * (1 - wet) + 0.245 * wet;
-        coastAttr[i] = 1;
+      } else if (inBeach || shoreD <= 32 || (raw < 2.2 && dSea <= 4)) {
+        // Sand coverage 0..1 with SOFT edges — the binary in/out test read as a stepped cutout
+        // against the grass (user report). Beach-polygon edges use 5-point coverage sampling;
+        // the shore band fades out over ~8 m with a noise-jittered boundary so the grass line
+        // wanders organically instead of tracing the polygon.
+        let sandF = 0;
+        if (inBeach) {
+          let hits = 1;
+          if (inBeachPoly(vx + 3.5, vz)) hits++;
+          if (inBeachPoly(vx - 3.5, vz)) hits++;
+          if (inBeachPoly(vx, vz + 3.5)) hits++;
+          if (inBeachPoly(vx, vz - 3.5)) hits++;
+          sandF = hits / 5;
+        }
+        const edgeJitter = terrainNoise(vx, vz, 0.05, 17.0) * 5;
+        if (shoreD < 26 + edgeJitter) {
+          sandF = Math.max(sandF, Math.min(1, (26 + edgeJitter - shoreD) / 8));
+        }
+        if (!sandF && raw < 2.2 && dSea <= 4) sandF = 1;   // sunk-basin band (harbours)
+        if (sandF > 0) {
+          const wet = Math.max(
+            raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0,
+            shoreD < 24 ? 1 - shoreD / 24 : 0,
+          );
+          const sn = terrainNoise(vx, vz, 0.09, 11.0) * 0.045;
+          const dr = 0.545 + sn, dg = 0.480 + sn * 0.8, db = 0.335 + sn * 0.5;
+          const sr = dr * (1 - wet) + 0.400 * wet;
+          const sg2 = dg * (1 - wet) + 0.345 * wet;
+          const sb2 = db * (1 - wet) + 0.245 * wet;
+          r = r * (1 - sandF) + sr * sandF;
+          g = g * (1 - sandF) + sg2 * sandF;
+          b = b * (1 - sandF) + sb2 * sandF;
+          coastAttr[i] = sandF;
+        }
       } else if (raw < SEA_RAW + 0.6) {
         // Non-beach waterline (port aprons, breakwaters) — partial wet-grey blend so the sea
         // doesn't butt straight into bright green.
