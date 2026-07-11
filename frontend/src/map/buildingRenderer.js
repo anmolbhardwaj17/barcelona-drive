@@ -836,6 +836,13 @@ const TYPE_TO_CATEGORY = {
  * @returns {string} one of the FACADE_PRESETS keys
  */
 function getBuildingCategory(building, roads, worldX, worldZ) {
+  // Tall towers are GLASS — MUST MATCH buildingWorker.getBuildingCategory (LOD buildings would
+  // otherwise flip masonry↔glass at the LOD boundary). ≥55m or explicit glass tag, churches exempt.
+  const _mat = (building.material || '').toLowerCase();
+  if (building.type !== 'church' && building.type !== 'cathedral'
+      && ((Number.isFinite(building.height) && building.height >= 55) || _mat === 'glass' || _mat === 'mirror')) {
+    return 'commercial_glass';
+  }
   const mapped = TYPE_TO_CATEGORY[building.type];
   if (mapped) return mapped;
   // generic / null (the bulk of Barcelona's OSM, building=yes) → warm Eixample MASONRY by default.

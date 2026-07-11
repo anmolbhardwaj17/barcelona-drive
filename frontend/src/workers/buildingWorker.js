@@ -306,6 +306,15 @@ function findNearestRoadSegment(roads, worldX, worldZ) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function getBuildingCategory(building, roads, worldX, worldZ) {
+  // TALL TOWERS ARE GLASS (user call, 2026-07-11): Barcelona's high-rises (Torre Mapfre, Hotel
+  // Arts, Agbar, Diagonal Mar…) are all modern glass — masonry textures on a 100m+ slab read
+  // wrong. ≥55m → glass curtain wall regardless of OSM type; explicit glass material tags too.
+  // (religious spires keep their stone — Sagrada Família is 170m of not-glass.)
+  const mat = (building.material || '').toLowerCase();
+  if (building.type !== 'church' && building.type !== 'cathedral'
+      && ((Number.isFinite(building.height) && building.height >= 55) || mat === 'glass' || mat === 'mirror')) {
+    return 'commercial_glass';
+  }
   const mapped = TYPE_TO_CATEGORY[building.type];
   if (mapped) return mapped;
   // Barcelona: generic/untagged → warm Eixample MASONRY (residential) by default, NOT commercial/glass.
