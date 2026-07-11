@@ -768,6 +768,28 @@ export function processBuildingsInWorker(data, config) {
     // Skip underground structures
     if (b.layer != null && b.layer < 0) continue;
 
+    // ── Anti-z-fight inset ──────────────────────────────────────────────────
+    // Adjacent OSM buildings share EXACTLY coplanar walls (row houses share the lot line), which
+    // z-fight/shimmer when both facades render. Pull every footprint inward by a tiny
+    // per-building deterministic amount (1–4.5 cm — invisible at gameplay distances) so no two
+    // buildings' walls are ever depth-coincident. Applied once, up front, so walls, roof, and all
+    // later uses of the footprint stay mutually consistent.
+    if (b.footprint && b.footprint.length >= 3 && !b._insetApplied) {
+      b._insetApplied = true;
+      const fpIn = b.footprint;
+      let icx = 0, icy = 0;
+      for (const p of fpIn) { icx += p.x; icy += p.y; }
+      icx /= fpIn.length; icy /= fpIn.length;
+      const inset = 0.01 + (deterministicIndex(b.id) % 8) * 0.005;
+      b.footprint = fpIn.map((p) => {
+        const dx = icx - p.x, dy = icy - p.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 0.5) return { ...p };                        // degenerate/tiny — leave
+        const t = Math.min(inset, d * 0.2) / d;              // never collapse thin slivers
+        return { ...p, x: p.x + dx * t, y: p.y + dy * t };
+      });
+    }
+
     let cx, cy;
     if (b.center != null) {
       cx = b.center.x;
