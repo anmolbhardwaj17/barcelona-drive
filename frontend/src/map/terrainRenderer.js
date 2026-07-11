@@ -12,7 +12,7 @@ import { WATER_DEPTH, pointInWaterPolygon, polygonArea } from './waterRenderer.j
 const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
 import { isRallyStyle } from '../rallyStyle.js';
-import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH } from './aoSampler.js';
+import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH, bindAoScaleUniform } from './aoSampler.js';
 
 /** No-op stubs kept for API compatibility. */
 export function loadTerrainGroundTextures() { return Promise.resolve([]); }
@@ -585,6 +585,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   material.onBeforeCompile = (shader) => {
     shader.uniforms.terrainDetailTex = { value: terrainDetailTex };
     shader.uniforms.detailScale = { value: 0.07 };
+    bindAoScaleUniform(shader);
 
     // --- Vertex: pass world position + baked AO to fragment ---
     shader.vertexShader = shader.vertexShader.replace(
@@ -607,6 +608,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       `#include <common>
       varying float vAo;
       varying vec3 vWorldPos;
+      uniform float uAoScale;
       uniform sampler2D terrainDetailTex;
       uniform float detailScale;
 
@@ -691,7 +693,8 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
            diffuseColor.rgb *= 0.70 + fiber * 0.52;`}
 
       // ── 8. Baked sky-visibility AO (v9) — street canyons darken, plazas stay bright ──
-      diffuseColor.rgb *= vAo;`
+      // vAo is a MULTIPLIER (1 = open sky); uAoScale softens it under the night rig.
+      diffuseColor.rgb *= (1.0 - (1.0 - vAo) * uAoScale);`
     );
   };
   material.customProgramCacheKey = () => 'terrainBcnLush' + (isRallyStyle() ? '_rally' : '');

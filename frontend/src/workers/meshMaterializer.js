@@ -16,6 +16,7 @@ import {
   getTreeBillboardMaterial,
 } from '../map/vegetationRenderer.js';
 import { createVegPoolSet } from '../map/vegPools.js';
+import { bindAoScaleUniform, AO_FRAG_APPLY } from '../map/aoSampler.js';
 import { getNightEmissiveTexture, NIGHT_EMISSIVE_INTENSITY, HERO_EMISSIVE_INTENSITY } from '../map/buildingRenderer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -650,15 +651,16 @@ function getFacadeMaterial(hexColor, category) {
   mat.userData._uNightWash = { value: _facadeNight ? FACADE_WASH_NIGHT : 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNightWash = mat.userData._uNightWash;
+    bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aWash;\nattribute float aAO;\nvarying float vWash;\nvarying float vAoDark;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;\nvarying float vAoDark;')
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nuniform float uAoScale;\nvarying float vWash;\nvarying float vAoDark;')
       // Baked sky-AO darkening (v9): street-canyon facades shade at the base. Attribute stores the
       // DARKENING amount, so geometry without it (default 0) is untouched — never black.
-      .replace('#include <color_fragment>',
-        '#include <color_fragment>\ndiffuseColor.rgb *= (1.0 - vAoDark);')
+      // uAoScale softens AO under the night rig (aoSampler.setAoNightScale).
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`)
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
   };

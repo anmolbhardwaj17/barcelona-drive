@@ -85,6 +85,19 @@ export function aoDarkening(svf, strength) {
 }
 
 /**
+ * ONE shared uniform scales every AO consumer at runtime (attributes stay baked): the night rig is
+ * already dark, so full-strength AO on top can crush canyon floors to black. envToggle sets this
+ * via setAoNightScale; tune AO_NIGHT_SCALE from night screenshots — instant, no tile rebuild.
+ */
+export const AO_NIGHT_SCALE = 0.55;
+const _aoScaleUniform = { value: 1 };
+export function setAoNightScale(isNight) { _aoScaleUniform.value = isNight ? AO_NIGHT_SCALE : 1; }
+
+/** GLSL for the shared AO fragment multiply — used by every patch site so they stay identical. */
+export const AO_FRAG_APPLY = 'diffuseColor.rgb *= (1.0 - vAoDark * uAoScale);';
+export function bindAoScaleUniform(shader) { shader.uniforms.uAoScale = _aoScaleUniform; }
+
+/**
  * Patch any built-in material to consume the per-vertex `aAO` DARKENING attribute (default 0 →
  * untouched). Same shader fragment as roadRenderer's patchRoadWash AO half, for materials that
  * don't need the night-wash machinery (e.g. greens). Identical patch source on every call → three
@@ -92,12 +105,13 @@ export function aoDarkening(svf, strength) {
  */
 export function patchAoDarkening(mat) {
   mat.onBeforeCompile = (shader) => {
+    bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vAoDark;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= (1.0 - vAoDark);');
+      .replace('#include <common>', '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;')
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`);
   };
   return mat;
 }

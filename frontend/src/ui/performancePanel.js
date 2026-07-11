@@ -57,6 +57,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   const vBuild = el.querySelector('#perf-build');
 
   let frameCount = 0, lastUpdate = 0, worstMs = 0;
+  let capWindows = 0;   // consecutive 1s windows that look like an external 30Hz frame cap
 
   function tick(time, frameDt, context) {
     frameCount += 1;
@@ -68,12 +69,23 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
 
     const fps = frameCount;
     const minFps = worstMs > 0 ? Math.round(1000 / worstMs) : fps;
-    vFps.textContent = minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`;
+    const gpuMs = context?.gpuMs;
+
+    // External frame-cap detector: FPS pinned near 30 while BOTH the GPU and our tracked CPU work
+    // are far under budget means the browser/OS isn't scheduling frames (Chrome Energy Saver,
+    // macOS Low Power Mode) — not the game. Cost us a whole debugging session once (2026-07-11);
+    // now STATS names it. Three consecutive windows so streaming hitches don't false-positive.
+    const rep = context?.cpuTimer?.report?.();
+    const cpuSum = rep?.avg ? (rep.avg.match(/\d+\.\d+/g) || []).reduce((s, n) => s + parseFloat(n), 0) : 99;
+    const looksCapped = fps >= 24 && fps <= 38 && typeof gpuMs === 'number' && gpuMs > 0 && gpuMs < 12 && cpuSum < 12;
+    capWindows = looksCapped ? capWindows + 1 : 0;
+
+    vFps.textContent = (minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`)
+      + (capWindows >= 3 ? '  ⚠ 30Hz cap? (browser/OS)' : '');
     // colour cue: green ≥55, amber ≥40, red below
     vFps.style.color = fps >= 55 ? '#7dff9a' : fps >= 40 ? '#ffd23f' : '#ff6b6b';
     frameCount = 0; worstMs = 0;
 
-    const gpuMs = context?.gpuMs;
     vGpu.textContent = (typeof gpuMs === 'number' && gpuMs > 0) ? `~${Math.round(1000 / gpuMs)} fps · ${gpuMs.toFixed(1)}ms` : 'n/a';
 
     const info = renderer.info;
@@ -85,8 +97,8 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
       : 'n/a';
 
     // CPU section breakdown (ms/frame), per-section allocation (MB/frame — the GC-stutter culprit), and the
-    // single worst frame this second (what a stutter was made of). Powered by cpuTimer.report().
-    const rep = context?.cpuTimer?.report?.();
+    // single worst frame this second (what a stutter was made of). Powered by cpuTimer.report()
+    // (rep computed above for the frame-cap detector).
     if (rep) {
       vCpu.textContent = `cpu   ${rep.avg}`;
       vAlloc.textContent = `alloc ${rep.heap}`;
