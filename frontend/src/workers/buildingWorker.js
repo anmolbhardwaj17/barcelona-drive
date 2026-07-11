@@ -522,6 +522,53 @@ function createPolygonWallBuffers(building, baseY) {
 }
 
 /**
+ * BULLET TOWER (Torre Agbar reference, user call 2026-07-11): a revolve whose profile is
+ * near-cylindrical for the lower ~55% then converges into a rounded dome — for a deterministic
+ * subset of tall glass towers. Proper facade UVs (u = arc-metres/12, v = metres/10) so the glass
+ * mosaic texture wraps cleanly; caller skips the flat roof (the crown closes itself).
+ */
+function createBulletTowerBuffers(building, baseY, cx, cy) {
+  let R = 0;
+  for (const p of building.footprint) R = Math.max(R, Math.hypot(p.x - cx, p.y - cy));
+  R = Math.max(8, Math.min(R * 0.92, 22));
+  const H = building.height;
+  const SEGS = 18, RINGS = 16;
+  const profile = (t) => t < 0.55 ? (0.94 + 0.06 * Math.sin((t / 0.55) * Math.PI / 2))
+                                  : Math.max(0.10, Math.pow(Math.cos(((t - 0.55) / 0.45) * Math.PI / 2), 0.75));
+  const positions = [], uvs = [], indices = [];
+  for (let ri = 0; ri <= RINGS; ri++) {
+    const t = ri / RINGS;
+    const r = R * profile(t);
+    const y = baseY + t * H;
+    for (let s = 0; s <= SEGS; s++) {                     // +1 duplicated seam vertex for clean UV wrap
+      const a = (s / SEGS) * Math.PI * 2;
+      positions.push(cx + Math.cos(a) * r, y, cy + Math.sin(a) * r);
+      uvs.push((s / SEGS) * ((2 * Math.PI * R) / WALL_REPEAT_HORIZONTAL_M), (t * H) / FLOOR_HEIGHT);
+    }
+  }
+  const row = SEGS + 1;
+  for (let ri = 0; ri < RINGS; ri++) {
+    for (let s = 0; s < SEGS; s++) {
+      const a0 = ri * row + s, b0 = a0 + 1, a1 = a0 + row, b1 = b0 + row;
+      indices.push(a0, a1, b0, b0, a1, b1);
+    }
+  }
+  // Cap the crown with a small fan.
+  const topCenter = positions.length / 3;
+  positions.push(cx, baseY + H + R * 0.02, cy);
+  uvs.push(0.5, (H) / FLOOR_HEIGHT);
+  const lastRing = RINGS * row;
+  for (let s = 0; s < SEGS; s++) indices.push(lastRing + s, topCenter, lastRing + s + 1);
+  const buffers = {
+    positions: new Float32Array(positions),
+    uvs: new Float32Array(uvs),
+    indices: new Uint32Array(indices),
+  };
+  buffers.normals = computeVertexNormals(buffers.positions, buffers.indices);
+  return buffers;
+}
+
+/**
  * Create wall geometry for a cylinder building.
  */
 function createCylinderWallBuffers(building, baseY) {
@@ -919,9 +966,11 @@ export function processBuildingsInWorker(data, config) {
       const crownH = WT_H * 0.20;
       const crown = createCylinderFull(wtR * 1.26, wtR * 1.26, crownH, SEGS);   // overhanging colonnade drum
       applyTranslation(crown, cx, baseY + shaftH + 0.6 + crownH / 2, cy); put(crown, CREAM);
-      const spireH = WT_H * 0.26;
-      const spire = createCylinderFull(0.05, wtR * 1.16, spireH, SEGS);         // conical cap to a point
+      const spireH = WT_H * 0.17;                                               // squat cone (0.26 was "too pointy" — user)
+      const spire = createCylinderFull(wtR * 0.30, wtR * 1.16, spireH, SEGS);   // truncated conical cap
       applyTranslation(spire, cx, baseY + shaftH + 0.6 + crownH + spireH / 2, cy); put(spire, TERRA);
+      const finial = createCylinderFull(wtR * 0.10, wtR * 0.26, WT_H * 0.05, SEGS);  // small blunt finial
+      applyTranslation(finial, cx, baseY + shaftH + 0.6 + crownH + spireH + WT_H * 0.025, cy); put(finial, TRIM);
       const wtMerged = mergeBufferSets(parts);
       if (wtMerged) {
         ensureUvs(wtMerged);
@@ -985,8 +1034,15 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // ── Wall geometry ──
+    // Bullet crown (Agbar look) for a deterministic THIRD of tall glass towers, and any round-
+    // footprint glass tower — the rest stay rectangular slabs (user: "some curved, some proper
+    // rectangles"). The revolve converges at the top, so these skip the flat roof below.
+    const isBulletTower = category === 'commercial_glass' && b.height >= 60 && b.footprint?.length >= 3
+      && (b.shapeType === 'cylinder' || deterministicIndex(b.id) % 3 === 0);
     let wallBuffers = null;
-    if (b.shapeType === 'cylinder') {
+    if (isBulletTower) {
+      wallBuffers = createBulletTowerBuffers(b, baseY, cx, cy);
+    } else if (b.shapeType === 'cylinder') {
       wallBuffers = createCylinderWallBuffers(b, baseY);
     } else {
       wallBuffers = createPolygonWallBuffers(b, baseY);
@@ -1063,10 +1119,12 @@ export function processBuildingsInWorker(data, config) {
       heroSpills.push(cx, baseY, cy, Math.min(34, Math.max(14, maxR * 1.7)), 1.0);
     }
 
-    // ── Roof cap ──
-    let roofBuffers = b.shapeType === 'cylinder'
-      ? createCylinderRoofBuffers(b, baseY)
-      : createPolygonRoofBuffers(b, baseY);
+    // ── Roof cap ── (bullet towers close their own crown — a flat roof would float above it)
+    let roofBuffers = isBulletTower
+      ? null
+      : (b.shapeType === 'cylinder'
+        ? createCylinderRoofBuffers(b, baseY)
+        : createPolygonRoofBuffers(b, baseY));
 
     const setbackFootprint = originalFootprint ? b.footprint.map(p => ({ x: p.x, y: p.y })) : null;
 
