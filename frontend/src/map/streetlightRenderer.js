@@ -90,6 +90,18 @@ let _poolOpacity = 0.0;             // day default — no ground light pools in 
 let _bridgeNightMode = false;
 const _bridgeNightCallbacks = new Set();
 
+// Pole colours (module scope — shared by the build loop and tileManager's pooled bridge cycler)
+export const DAY_POLE_COLOR = new THREE.Color(0x6a6a6a);
+// Indian tricolor for bridge poles at night — very overbright so they visibly glow
+export const BRIDGE_NIGHT_COLORS = [
+  new THREE.Color(6.0, 1.2, 0.05),  // saffron / deep orange (minimal green to stay orange)
+  new THREE.Color(5.0, 5.0, 5.0),   // white
+  new THREE.Color(0.3, 3.0, 0.1),   // green
+];
+/** Pool-era bridge night hookup: tileManager registers per-tile pooled colour cyclers here. */
+export function registerBridgeNightCallback(cb) { _bridgeNightCallbacks.add(cb); if (_bridgeNightMode) cb(true); }
+export function unregisterBridgeNightCallback(cb) { _bridgeNightCallbacks.delete(cb); }
+
 /** Update lamp emissive on all current and future tiles (shared material). */
 export function setLampEmissiveIntensity(v) {
   _lampEmissiveIntensity = v;
@@ -535,14 +547,6 @@ export function buildStreetlights(roads, junctionPoints, options) {
   const lampHeadPositions = [];
   const bridgeIndices = [];   // indices of instances on bridges (for tricolor night mode)
   const _poleColor = new THREE.Color();
-  const DAY_POLE_COLOR = new THREE.Color(0x6a6a6a);
-
-  // Indian tricolor for bridge poles at night — very overbright so they visibly glow
-  const BRIDGE_NIGHT_COLORS = [
-    new THREE.Color(6.0, 1.2, 0.05),  // saffron / deep orange (minimal green to stay orange)
-    new THREE.Color(5.0, 5.0, 5.0),   // white
-    new THREE.Color(0.3, 3.0, 0.1),   // green
-  ];
 
   let bridgeCounter = 0; // running counter across all bridge poles for color cycling
 
@@ -720,5 +724,5 @@ export function buildStreetlights(roads, junctionPoints, options) {
 
   return { poleMesh, armMesh, lampMesh, poolMesh, poleShadowMesh, wireMesh,
            mirrorDiscMesh, mirrorRimMesh: mirrorRimMeshOut, mirrorBackMesh,
-           positions: lampHeadPositions, setBridgeNightMode };
+           positions: lampHeadPositions, setBridgeNightMode, bridgeIndices };
 }

@@ -15,7 +15,8 @@ import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
-import { buildStreetlights } from './streetlightRenderer.js';
+import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
+import { createVegPoolSet } from './vegPools.js';
 import { buildShoulderMesh } from './shoulderRenderer.js';
 import { buildTerrainMesh, buildTerrainHeightfield, getHeightfieldWorldAABB, darkenTerrainAroundTrees } from './terrainRenderer.js';
 import { renderWater } from './waterRenderer.js';
@@ -1245,6 +1246,30 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   // Global cross-tile vegetation pools (trees/shadows/bushes as 3 shared BatchedMeshes).
   // Tiles add instances via handles in Phase 3 and release them on unload.
   const vegPools = CONFIG.ENABLE_TREES ? getVegPools(scene) : null;
+
+  // ── Streetlight/traffic-light pooling adapter ───────────────────────────────
+  // The builders keep producing per-tile InstancedMeshes (battle-tested placement code); this
+  // strips their instance data into global pool sets keyed by part name. Pools are created
+  // lazily from the FIRST mesh's geometry/material (all shared singletons), so the adapter
+  // needs no knowledge of the renderer's internals.
+  const _lightPools = {};
+  async function poolLightIM(part, im) {
+    if (!im || !im.count) return null;
+    if (!_lightPools[part]) {
+      _lightPools[part] = createVegPoolSet({
+        name: `light_${part}`, geometries: [im.geometry], material: im.material,
+        capacity: 4096, castShadow: !!im.castShadow, receiveShadow: !!im.receiveShadow,
+        renderOrder: im.renderOrder || 0,
+      }, scene);
+    }
+    return _lightPools[part].add([{
+      geoIndex: 0,
+      count: im.count,
+      matrices: im.instanceMatrix.array,
+      colors: im.instanceColor ? im.instanceColor.array : undefined,
+    }], yieldToMain);
+  }
+
   function releaseVegHandles(entry) {
     if (!entry?.vegPoolHandles) return;
     for (const h of entry.vegPoolHandles) h.pool.remove(h);
@@ -2166,10 +2191,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     await yieldToMain();
 
-    // Traffic lights
+    // Traffic lights — pooled like the streetlight parts (was 1 InstancedMesh per tile)
     if (!skipNonRoad && CONFIG.ENABLE_TRAFFIC_LIGHTS) {
-      entry.trafficLightMesh = renderTrafficLights(tileData, key);
-      if (entry.trafficLightMesh) safeSceneAdd(scene, entry.trafficLightMesh);
+      const tlMesh = renderTrafficLights(tileData, key);
+      if (tlMesh) {
+        const h = await poolLightIM('trafficLight', tlMesh);
+        if (h) { h.kind = 'light'; (entry.vegPoolHandles = entry.vegPoolHandles || []).push(h); }
+      }
     }
 
     // Shoulders + Dividers + Streetlights
@@ -2186,20 +2214,37 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       const jp = getJunctionPoints(roads, 2);
       const sl = buildStreetlights(roads, jp, options);
       if (sl) {
-        entry.streetlightPoleMesh = sl.poleMesh;
-        entry.streetlightArmMesh = sl.armMesh;
-        entry.streetlightLampMesh = sl.lampMesh;
-        entry.streetlightPoolMesh = sl.poolMesh;
-        entry.streetlightPoleShadowMesh = sl.poleShadowMesh;
+        // POOLED (draw audit: 6-9 IMs/tile ≈ 76+ draws citywide → ~9 global pool sets): the build
+        // still produces per-tile InstancedMeshes; we strip their instance data into global pools
+        // and DISCARD the meshes (never scene-added). Handles ride entry.vegPoolHandles → the
+        // existing LOD fade / fog-zero / unload-release lifecycle applies unchanged. Also fixes
+        // the old mirror-mesh leak (mirrors were scene-added but never tracked for unload).
+        entry.vegPoolHandles = entry.vegPoolHandles || [];
+        const poleHandle = await poolLightIM('pole', sl.poleMesh);
+        for (const [part, im] of [['arm', sl.armMesh], ['lamp', sl.lampMesh], ['poolDecal', sl.poolMesh],
+                                  ['poleShadow', sl.poleShadowMesh], ['mirrorDisc', sl.mirrorDiscMesh],
+                                  ['mirrorRim', sl.mirrorRimMesh], ['mirrorBack', sl.mirrorBackMesh]]) {
+          const h = await poolLightIM(part, im);
+          if (h) { h.kind = 'light'; entry.vegPoolHandles.push(h); }
+        }
+        if (poleHandle) {
+          poleHandle.kind = 'light';
+          entry.vegPoolHandles.push(poleHandle);
+          // Bridge tricolor night cycling, pooled: address the i-th ADDED pole via rawIds.
+          if (sl.bridgeIndices?.length) {
+            const bridgeCb = (isNight) => {
+              if (poleHandle.dead) { unregisterBridgeNightCallback(bridgeCb); return; }
+              for (let bi = 0; bi < sl.bridgeIndices.length; bi++) {
+                const id = poleHandle.rawIds[sl.bridgeIndices[bi]];
+                poleHandle.pool.setColorAt(id, isNight ? BRIDGE_NIGHT_COLORS[Math.floor(bi / 2) % 3] : DAY_POLE_COLOR);
+              }
+            };
+            registerBridgeNightCallback(bridgeCb);
+          }
+        }
         entry.streetlightPositions = sl.positions;
         entry.streetlightWireMesh = sl.wireMesh || null;
-        entry.setBridgeNightMode = sl.setBridgeNightMode || null;
-        safeSceneAdd(scene, sl.poleMesh); safeSceneAdd(scene, sl.armMesh); safeSceneAdd(scene, sl.lampMesh);
-        safeSceneAdd(scene, sl.poolMesh); safeSceneAdd(scene, sl.poleShadowMesh);
         if (sl.wireMesh) safeSceneAdd(scene, sl.wireMesh);
-        if (sl.mirrorDiscMesh) safeSceneAdd(scene, sl.mirrorDiscMesh);
-        if (sl.mirrorRimMesh) safeSceneAdd(scene, sl.mirrorRimMesh);
-        if (sl.mirrorBackMesh) safeSceneAdd(scene, sl.mirrorBackMesh);
       }
     }
 
@@ -2589,7 +2634,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         collectAndRemove(entry.waterMesh);
         if (entry.waterIds) (entry.waterIds).forEach((id) => renderedWaterIds.delete(id));
         collectAndRemove(entry.trafficLightMesh);
-        for (const meshKey of ['shoulderMesh', 'dividerMesh', 'streetlightPoleMesh', 'streetlightArmMesh', 'streetlightLampMesh', 'streetlightPoolMesh', 'streetlightPoleShadowMesh', 'streetlightWireMesh']) {
+        for (const meshKey of ['shoulderMesh', 'dividerMesh', 'streetlightWireMesh'] /* streetlight parts live in global pools now */) {
           collectAndRemove(entry[meshKey]);
         }
         if (entry.crosswalkMesh)    { scene.remove(entry.crosswalkMesh);    allMeshes.push(entry.crosswalkMesh); }
@@ -2762,7 +2807,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.trafficLightMesh) entry.trafficLightMesh.visible = false;
         if (entry.shoulderMesh) entry.shoulderMesh.visible = false;
         if (entry.dividerMesh) entry.dividerMesh.visible = false;
-        for (const mk of ['streetlightPoleMesh', 'streetlightArmMesh', 'streetlightLampMesh', 'streetlightPoolMesh', 'streetlightPoleShadowMesh', 'streetlightWireMesh']) {
+        for (const mk of ['streetlightWireMesh'] /* streetlight parts live in global pools now */) {
           if (entry[mk]) entry[mk].visible = false;
         }
         // Keep road meshes visible (roads extend into fog for continuity)
@@ -2907,7 +2952,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
       // Streetlights (6 mesh types)
       const showLights = nearEdgeDist <= lightDist;
-      for (const meshKey of ['streetlightPoleMesh', 'streetlightArmMesh', 'streetlightLampMesh', 'streetlightPoolMesh', 'streetlightPoleShadowMesh', 'streetlightWireMesh']) {
+      for (const meshKey of ['streetlightWireMesh'] /* streetlight parts live in global pools now */) {
         if (entry[meshKey]) entry[meshKey].visible = showLights;
       }
 
@@ -3043,7 +3088,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         }
       }
       if (entry.roadInfraMeshes) roadInfraCount += entry.roadInfraMeshes.length;
-      if (entry.streetlightPoleMesh) streetlightCount++;
+      if (entry.streetlightPositions?.length) streetlightCount += entry.streetlightPositions.length;
       if (entry.barrierBody) physicsBodyCount++;
       if (entry.crashBarrierBody) physicsBodyCount++;
       if (entry.guardRailBody) physicsBodyCount++;

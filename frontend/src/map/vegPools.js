@@ -135,7 +135,9 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     }
 
     if (!startVisible) { for (let i = 0; i < di; i++) bm.setVisibleAt(sortedIds[i], false); }
-    return { ids: sortedIds, xs: sortedXs, zs: sortedZs, count: di, visCount: startVisible ? di : 0, dead: false, pool: api };
+    // rawIds = ADDITION-ORDER ids (pre-sort) — for callers that must address "the i-th instance I
+    // added" (e.g. bridge-pole night colour cycling). `ids` stays nearest-first for LOD fading.
+    return { ids: sortedIds, rawIds: ids, xs: sortedXs, zs: sortedZs, count: di, visCount: startVisible ? di : 0, dead: false, pool: api };
   }
 
   /** Release a tile's instances (slots recycled by our own free list — see note above). */
@@ -174,7 +176,12 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     handle.visCount = t;
   }
 
-  const api = { name, mesh: bm, add, remove, setVisibleCount, setWashAt, freeSlots };
+  /** Per-instance colour (BatchedMesh colours texture) — e.g. bridge-pole night cycling. */
+  function setColorAt(instanceId, color) {
+    bm.setColorAt(instanceId, color);
+  }
+
+  const api = { name, mesh: bm, add, remove, setVisibleCount, setWashAt, setColorAt, freeSlots };
   return api;
 }
 
