@@ -887,7 +887,9 @@ let _bbNight = false;   // persisted so billboards created after a night toggle 
 // day-lit appearance, so divide the day sun back out and multiply the blue ambient in — darker
 // with a blue lean. Includes the ×1.55 TREE_NIGHT_RESTORE (atlas derives from the day-deepened
 // palette; night look predates that deepening).
-function _applyBbNight(m) { m.color.setRGB(_bbNight ? 0.37 : 1, _bbNight ? 0.43 : 1, _bbNight ? 0.68 : 1); }
+// (the ×1.55 restore was folded in here too and overshot — billboards read pale mint against the
+//  dark 3-D trees; deepened + de-blued to sit in the same night band as the near canopy)
+function _applyBbNight(m) { m.color.setRGB(_bbNight ? 0.22 : 1, _bbNight ? 0.28 : 1, _bbNight ? 0.40 : 1); }
 export function setTreeBillboardNightMode(isNight) {
   _bbNight = isNight;
   for (const m of _bbMaterials) { if (m) _applyBbNight(m); }
