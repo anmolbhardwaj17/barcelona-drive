@@ -618,6 +618,33 @@ function countVertices(meshes) {
 /** @type {Map<string, { roads: object[], buildings: object[], roadMeshes?: THREE.Mesh[], buildingMeshes?: THREE.Mesh[], spatialIndex?: object }>} */
 const tileCache = new Map();
 
+// Dev: window._findWhiteTiles() — hunts the "white terrain tile" (identify v2: 16384-vert Lambert
+// white). Scans every loaded terrain mesh's colour/aAO/aCoast attributes for NaN or near-white
+// and names the tile keys — the producing branch gets fixed from that.
+if (typeof window !== 'undefined') {
+  window._findWhiteTiles = () => {
+    const out = [];
+    for (const [key, e] of tileCache.entries()) {
+      const g = e.terrainMesh?.geometry;
+      if (!g) continue;
+      const rep = { key };
+      for (const [name, comps] of [['color', 3], ['aAO', 1], ['aCoast', 1]]) {
+        const a = g.getAttribute(name);
+        if (!a) { rep[name] = 'MISSING'; continue; }
+        let nan = 0, sum = 0, n = a.count * comps;
+        for (let i = 0; i < n; i++) { const v = a.array[i]; if (Number.isNaN(v)) nan++; else sum += v; }
+        rep[name] = `${nan ? 'NaN×' + nan + ' ' : ''}mean ${(sum / Math.max(1, n - nan)).toFixed(3)}`;
+      }
+      const suspicious = /MISSING|NaN/.test(rep.color + rep.aAO + rep.aCoast)
+        || parseFloat(String(rep.color).replace(/^.*mean /, '')) > 0.8;
+      if (suspicious) out.push(rep);
+    }
+    console.warn('[whiteTiles]', out.length ? '' : 'none suspicious of ' + tileCache.size + ' tiles');
+    for (const r of out) console.warn('[whiteTiles]', r.key, '| color', r.color, '| aAO', r.aAO, '| aCoast', r.aCoast);
+    return out;
+  };
+}
+
 // Dev: window._aoDebug() — ground truth on whether baked-AO attributes are live in the running
 // session. Reports, per surface family, how many loaded meshes carry aAO and the darkening stats.
 if (typeof window !== 'undefined') {
