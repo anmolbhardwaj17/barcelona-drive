@@ -28,15 +28,19 @@ const B = {
   maxLon: REGION_BBOX.maxLon - INSET_DEG_LON,
 };
 
-/** Is this physics-frame position (lx, lz) inside the playable area? (px = −worldX convention.) */
-export function isInsidePlayArea(lx, lz) {
-  const { lat, lon } = worldToLatLon(-lx, lz);
+/**
+ * Is this ABSOLUTE-world position inside the playable area? Callers must convert from the physics
+ * frame the same way the HUD does: wx = −lx + originOffset.x, wz = lz + originOffset.z.
+ * (v1 skipped the origin term → the whole city read out-of-bounds → respawn loop. User report.)
+ */
+export function isInsidePlayArea(wx, wz) {
+  const { lat, lon } = worldToLatLon(wx, wz);
   return lat >= B.minLat && lat <= B.maxLat && lon >= B.minLon && lon <= B.maxLon;
 }
 
-/** How far (deg→~metres) past the boundary this physics-frame position is; 0 = inside. */
-export function outOfBoundsM(lx, lz) {
-  const { lat, lon } = worldToLatLon(-lx, lz);
+/** How far (~metres) past the boundary this ABSOLUTE-world position is; 0 = inside. */
+export function outOfBoundsM(wx, wz) {
+  const { lat, lon } = worldToLatLon(wx, wz);
   const dLat = Math.max(0, B.minLat - lat, lat - B.maxLat) * 111000;
   const dLon = Math.max(0, B.minLon - lon, lon - B.maxLon) * 111000 * Math.cos((lat * Math.PI) / 180);
   return Math.max(dLat, dLon);

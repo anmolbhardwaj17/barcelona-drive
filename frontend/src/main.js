@@ -106,6 +106,28 @@ const { scene, camera, renderer, world, groundBody, groundMesh, worldGroup, spaw
 setRendererAnisotropy(renderer.capabilities.getMaxAnisotropy());
 window._ddRenderer = renderer; // expose for env map generation in carModel
 window._clearTileCache = clearTileCache; // dev: call after re-bake to flush IndexedDB cache
+// Dev: _identify() then CLICK any surface — logs what mesh/material it is (mystery-geometry killer:
+// four look-alike "dark band" systems later, naming the thing beats guessing).
+window._identify = () => {
+  console.log('[identify] click on the thing…');
+  const rc = new THREE.Raycaster();
+  const onClick = (e) => {
+    window.removeEventListener('click', onClick, true);
+    const mv = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    rc.setFromCamera(mv, camera);
+    const hits = rc.intersectObjects(scene.children, true).slice(0, 6);
+    if (!hits.length) { console.log('[identify] nothing hit'); return; }
+    for (const h of hits) {
+      const o = h.object;
+      console.log('[identify]', o.type,
+        '| userData:', JSON.stringify(o.userData || {}),
+        '| mat:', o.material?.type || '-', o.material?.color ? '#' + o.material.color.getHexString() : '',
+        o.material?.map ? '(textured)' : '',
+        '| renderOrder', o.renderOrder, '| dist', h.distance.toFixed(1));
+    }
+  };
+  window.addEventListener('click', onClick, true);
+};
 
 // Initialize Web Worker pool for off-thread tile geometry computation
 initWorkerPool();
@@ -433,7 +455,11 @@ spawnTileReady.finally(() => {
           rapier: _rapier, cpuTimer,
           // World boundary: never record a recovery breadcrumb outside the baked region — the
           // out-of-bounds teleport returns to the crumb, so the crumb must stay in-bounds.
-          isCrumbSafe: (lx, lz) => isInsidePlayArea(lx, lz),
+          // Physics → ABSOLUTE world uses the HUD convention (−lx + originOffset).
+          isCrumbSafe: (lx, lz) => {
+            const o = getOriginOffset();
+            return isInsidePlayArea(-lx + o.x, lz + o.z);
+          },
         });
         boundaryHaze = createBoundaryHaze(worldGroup);
         contactShadows = createContactShadows({ scene });
@@ -807,10 +833,14 @@ function animate(time = 0) {
     rapierAdapter?.tick(lp.lx, lp.lz);   // stream the Rapier collider working set around the car
     // World boundary: past the haze curtains + grace band → return to the last in-bounds road
     // (breadcrumb teleport — same mechanism as the R key). Cooldown prevents rapid-fire loops.
+    // ABSOLUTE world = HUD convention (−lx + originOffset) — v1 skipped the offset → respawn loop.
     _boundaryCooldown = Math.max(0, _boundaryCooldown - frameDt);
-    if (_boundaryCooldown === 0 && outOfBoundsM(lp.lx, lp.lz) > BOUNDARY_GRACE_M) {
-      _boundaryCooldown = 2.5;
-      carDriver.recoverToCrumb?.();
+    if (_boundaryCooldown === 0) {
+      const _bo = getOriginOffset();
+      if (outOfBoundsM(-lp.lx + _bo.x, lp.lz + _bo.z) > BOUNDARY_GRACE_M) {
+        _boundaryCooldown = 2.5;
+        carDriver.recoverToCrumb?.();
+      }
     }
     // Physics / scene X is mirrored relative to world/map X (worldGroup.scale.x = -1),
     // so convert back to world coordinates by negating X (same convention as free camera).
