@@ -260,6 +260,8 @@ function createMoonGlowTexture() {
   return tex;
 }
 
+let _moonDx = 0, _moonDz = 0, _moonH = 800;
+
 function addMoon(scene, spawnX, spawnZ) {
   // Position: low on horizon, SE direction (azimuth ~135°)
   const azimuth = Math.PI * 0.75; // SE
@@ -268,6 +270,7 @@ function addMoon(scene, spawnX, spawnZ) {
 
   const dx = Math.cos(azimuth) * dist;
   const dz = Math.sin(azimuth) * dist;
+  _moonDx = dx; _moonDz = dz; _moonH = height;
 
   // Moon disc
   const moonMat = new THREE.SpriteMaterial({
@@ -310,20 +313,19 @@ export function setMoonNightMode(isNight) {
 }
 
 /** Move moon to follow camera (parallax — barely moves). */
-export function updateMoon(camX, camZ) {
-  if (!_moonSprite) return;
-  const azimuth = Math.PI * 0.75;
-  const dist = 8000;
-  const dx = Math.cos(azimuth) * dist;
-  const dz = Math.sin(azimuth) * dist;
-  // Very slow parallax — moon barely moves
-  const follow = 0.02;
-  const mx = camX * follow + dx;
-  const mz = camZ * follow + dz;
-  _moonSprite.position.x = mx;
-  _moonSprite.position.z = mz;
-  _moonGlowSprite.position.x = mx;
-  _moonGlowSprite.position.z = mz;
+/**
+ * Keep the moon CELESTIAL: re-anchor BOTH sprites a fixed 8 km from the camera every frame,
+ * in the CAMERA'S OWN frame. The old 2% "parallax follow" (fed world-frame coords, sprites in
+ * scene frame) let photo/fly mode travel right up to the sprite — the 900 m glow texture at
+ * close range was the screen-filling white blob (user reports ×3, day shot was fog/curtains).
+ * Pass camera.position.x/z — NOT viewerWx/Wz (X-mirror frame mismatch).
+ */
+export function updateMoon(camSceneX, camSceneZ) {
+  if (!_moonSprite || !_moonSprite.visible) return;
+  const mx = camSceneX + _moonDx;
+  const mz = camSceneZ + _moonDz;
+  _moonSprite.position.set(mx, _moonH, mz);
+  _moonGlowSprite.position.set(mx, _moonH, mz);
 }
 
 // ---------------------------------------------------------------------------

@@ -900,7 +900,7 @@ function animate(time = 0) {
   tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });
   cpuTimer.lap('tiles');
   updateClouds(viewerWx, viewerWz);
-  updateMoon(viewerWx, viewerWz);
+  updateMoon(camera.position.x, camera.position.z);   // camera SCENE frame — see scene.updateMoon
   updateStars(viewerWx, viewerWz);
 
   const origin = getOriginOffset();
