@@ -12,6 +12,7 @@
  */
 
 import { latLonToWorld } from '../projection.js';
+import { seaPolygonWorld } from '../map/coastline.js';
 
 // Barcelona neighbourhoods/districts → bold overview labels (GTA-style), shown when zoomed out. Approx
 // centres; drawn wherever they fall, even over not-yet-loaded tiles, so the overview map reads as a city.
@@ -31,24 +32,9 @@ function districts() {
   return _districts;
 }
 
-// Mediterranean coastline (NE→SW, [lat,lon]). The baked data only has port/marina water polygons — no
-// open sea — so we fill the sea ourselves: trace the shore, then extend far offshore (SE) to close a big
-// polygon. Canvas clips it per tile, so it only paints the seaward side of the coast.
-// v2 trace (2026-07-11): the old 8-point line cut ACROSS the Barceloneta peninsula (sea painted over
-// Passeig de Joan de Borbó — user report) and left land wedges jutting into blue at the sparse port
-// stretch. This one follows the beaches, wraps the peninsula tip, and hugs the outer port breakwater.
-const SEA_COAST = [
-  [41.4210, 2.2300],                                        // Besòs end
-  [41.4110, 2.2210], [41.4040, 2.2120],                     // Llevant / Mar Bella
-  [41.3985, 2.2060], [41.3935, 2.2020],                     // Bogatell / Nova Icària
-  [41.3878, 2.1990], [41.3855, 2.1965],                     // Port Olímpic breakwater
-  [41.3810, 2.1945], [41.3765, 2.1920],                     // Somorrostro / Barceloneta beach
-  [41.3722, 2.1905], [41.3688, 2.1898],                     // Sant Sebastià → W-hotel spit tip
-  [41.3672, 2.1870], [41.3665, 2.1820],                     // wrap the peninsula tip seaward side
-  [41.3630, 2.1750], [41.3585, 2.1690],                     // outer commercial-port breakwater
-  [41.3510, 2.1610], [41.3420, 2.1530],
-  [41.3300, 2.1430], [41.3180, 2.1320],                     // Zona Franca end
-];
+// Mediterranean coastline: SHARED with the 3D terrain painter (coastline.js) so the map's sea and
+// the world's sea always agree — the baked data has no open-sea polygons and the DEM bakes the sea
+// at 2–5.8 m (useless), so this trace is THE sea signal. Nudge points there, not here.
 // Sea name label, placed out in the open water (SE of the city).
 const SEA_LABEL = { text: 'MAR MEDITERRÀNIA', lat: 41.352, lon: 2.212 };
 let _seaLabelPos = null;
@@ -60,10 +46,7 @@ function seaLabelPos() {
 let _sea = null, _seaBbox = null;
 function seaPolygon() {
   if (_sea) return _sea;
-  const pts = SEA_COAST.map(([lat, lon]) => { const w = latLonToWorld(lat, lon); return { x: w.x, y: w.z }; });
-  const OFF = 30000; // metres far offshore (east +X, south −Z) so the fill covers the whole visible sea
-  const sw = pts[pts.length - 1], ne = pts[0];
-  _sea = [...pts, { x: sw.x + OFF, y: sw.y - OFF }, { x: ne.x + OFF, y: ne.y - OFF }];
+  _sea = seaPolygonWorld().map((p) => ({ x: p.x, y: p.z }));   // map convention: y = world Z
   _seaBbox = [Infinity, Infinity, -Infinity, -Infinity];
   for (const p of _sea) { if (p.x < _seaBbox[0]) _seaBbox[0] = p.x; if (p.y < _seaBbox[1]) _seaBbox[1] = p.y; if (p.x > _seaBbox[2]) _seaBbox[2] = p.x; if (p.y > _seaBbox[3]) _seaBbox[3] = p.y; }
   return _sea;

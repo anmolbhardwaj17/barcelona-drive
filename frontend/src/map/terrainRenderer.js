@@ -13,6 +13,7 @@ const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
 import { isRallyStyle } from '../rallyStyle.js';
 import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH, bindAoScaleUniform } from './aoSampler.js';
+import { isSeaAt, shoreDistM, seaPolygonWorld } from './coastline.js';
 
 /** No-op stubs kept for API compatibility. */
 export function loadTerrainGroundTextures() { return Promise.resolve([]); }
@@ -462,7 +463,24 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     }
     return { polygon: f.polygon, minX, maxX, minZ, maxZ };
   });
-  const coastEnabled = beachPolys.length > 0 || (Number.isFinite(elevation.min) && elevation.min <= SEA_RAW);
+  // The DEM is USELESS for the open sea here (Copernicus GLO-30 bakes it at 2–5.8 m — measured),
+  // so the authoritative sea signal is the shared traced coastline (coastline.js — same polygon
+  // the map draws). Elevation-based detection stays only for SUNK harbour basins (baked to −2.5).
+  let seaTileGate = false;
+  {
+    const c1 = latLonToWorld(elevation.south, elevation.west);
+    const c2 = latLonToWorld(elevation.north, elevation.east);
+    const sp = seaPolygonWorld();
+    let sMinX = Infinity, sMaxX = -Infinity, sMinZ = Infinity, sMaxZ = -Infinity;
+    for (const p of sp) {
+      if (p.x < sMinX) sMinX = p.x; if (p.x > sMaxX) sMaxX = p.x;
+      if (p.z < sMinZ) sMinZ = p.z; if (p.z > sMaxZ) sMaxZ = p.z;
+    }
+    const tMinX = Math.min(c1.x, c2.x), tMaxX = Math.max(c1.x, c2.x);
+    const tMinZ = Math.min(c1.z, c2.z), tMaxZ = Math.max(c1.z, c2.z);
+    seaTileGate = tMaxX >= sMinX && tMinX <= sMaxX && tMaxZ >= sMinZ && tMinZ <= sMaxZ;
+  }
+  const coastEnabled = seaTileGate || beachPolys.length > 0 || (Number.isFinite(elevation.min) && elevation.min <= SEA_RAW);
   const coastAttr = new Float32Array(vCount);
 
   // Distance-to-sea grid (in cells) for the AUTO-BEACH band: OSM beach polygons are sparse, so any
@@ -658,7 +676,9 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       // Raw DEM metres: baked positions carry raw Y; the fallback path already applied offset+exag.
       const raw = useBaked ? y : (y / vertExag + offset);
       const dSea = distRC ? distRC(vx, vz) : 255;
-      if (dSea === 0 || raw <= SEA_RAW) {
+      const inBeach = inBeachPoly(vx, vz);
+      const shoreD = seaTileGate ? shoreDistM(vx, vz) : Infinity;
+      if ((seaTileGate && !inBeach && isSeaAt(vx, vz)) || dSea === 0 || raw <= SEA_RAW) {
         // Open sea — deep desaturated Mediterranean blue (mid-dark: the grade brightens), with a
         // whisper of large-scale variation so it doesn't read as one flat poster fill.
         const sn = terrainNoise(vx, vz, 0.012, 13.0) * 0.03;
@@ -666,11 +686,14 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         g = 0.165 + sn;
         b = 0.270 + sn;
         coastAttr[i] = 1;
-      } else if (inBeachPoly(vx, vz) || (raw < 2.2 && dSea <= 4)) {
-        // Dry sand, blending toward wet sand as it approaches the waterline. Two triggers:
-        // an OSM beach polygon, OR the auto-beach band (low land within ~16 m of open sea —
-        // OSM's beach coverage is too sparse to rely on alone).
-        const wet = raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0;
+      } else if (inBeach || shoreD <= 20 || (raw < 2.2 && dSea <= 4)) {
+        // Dry sand, blending toward wet sand as it approaches the waterline. Triggers: an OSM
+        // beach polygon, proximity to the traced shoreline (~20 m auto-beach band — OSM's beach
+        // coverage is too sparse to rely on alone), or the sunk-basin distance band.
+        const wet = Math.max(
+          raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0,
+          shoreD < 24 ? 1 - shoreD / 24 : 0,
+        );
         const sn = terrainNoise(vx, vz, 0.09, 11.0) * 0.045;
         const dr = 0.545 + sn, dg = 0.480 + sn * 0.8, db = 0.335 + sn * 0.5;
         r = dr * (1 - wet) + 0.400 * wet;
