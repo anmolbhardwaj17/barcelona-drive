@@ -542,6 +542,39 @@ function countVertices(meshes) {
 
 /** @type {Map<string, { roads: object[], buildings: object[], roadMeshes?: THREE.Mesh[], buildingMeshes?: THREE.Mesh[], spatialIndex?: object }>} */
 const tileCache = new Map();
+
+// Dev: window._aoDebug() — ground truth on whether baked-AO attributes are live in the running
+// session. Reports, per surface family, how many loaded meshes carry aAO and the darkening stats.
+if (typeof window !== 'undefined') {
+  window._aoDebug = () => {
+    const fam = {};
+    const scan = (mesh, name) => {
+      if (!mesh?.geometry) return;
+      const f = (fam[name] ||= { meshes: 0, withAO: 0, verts: 0, sum: 0, max: 0 });
+      f.meshes++;
+      const a = mesh.geometry.getAttribute('aAO');
+      if (!a) return;
+      f.withAO++;
+      for (let i = 0; i < a.count; i++) {
+        const v = a.getX(i);
+        f.verts++; f.sum += v; if (v > f.max) f.max = v;
+      }
+    };
+    for (const e of tileCache.values()) {
+      scan(e.terrainMesh, 'terrain');
+      (e.roadMeshes || []).forEach((m) => scan(m, 'roads'));
+      (e.greenMeshes || []).forEach((m) => scan(m, 'greens'));
+      (e.buildingMeshes || []).forEach((m) => scan(m, 'buildings'));
+    }
+    const out = {};
+    for (const [k, f] of Object.entries(fam)) {
+      out[k] = `${f.withAO}/${f.meshes} meshes with aAO · mean dark ${(f.verts ? f.sum / f.verts : 0).toFixed(3)} · max ${f.max.toFixed(3)}`;
+    }
+    // terrain stores a MULTIPLIER (≈1 = no AO), everything else stores DARKENING (0 = no AO)
+    console.table(out);
+    return out;
+  };
+}
 /** Tile keys currently being loaded – avoid starting duplicate requests */
 const loadingKeys = new Set();
 
