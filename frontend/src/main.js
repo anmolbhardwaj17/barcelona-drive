@@ -93,6 +93,7 @@ import { updateDebugColliders } from './debugColliders.js';
 import { initTunnelDebug, updateTunnelDebug } from './tunnelDebugOverlay.js';
 import { initCollisionDebug, updateCollisionDebug } from './collisionDebug.js';
 import { initWorkerPool } from './workers/workerPool.js';
+import { warmAllBuildingMaterials } from './workers/meshMaterializer.js';
 
 const container = document.getElementById('app');
 container.tabIndex = 0;
@@ -130,7 +131,8 @@ const perfLogger = createPerfLogger();
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
   isRallyStyle() ? 0.28 : 0.5, // strength — rally keeps bloom restrained/clean
-  0.4,    // radius — soft spread
+  0.15,   // radius — TIGHT: bright core with a crisp edge (reference-render glow character);
+          // the old 0.4 smeared every emissive into a wide fuzzy orb
   1.1,    // threshold — above sky/clouds (~1.0 max) but reachable by car light emissives
 );
 composer.addPass(bloomPass);
@@ -215,8 +217,16 @@ let rapierAdapter = null;   // set when ?physics=rapier — streams the collider
 // cinematic camera orbits the REAL city under the logo/PLAY. Picking a mode hands the camera to carCam,
 // whose lerp glides it down behind the car (the "dive"). HUD elements are hidden while the title is live.
 let _titleLive = false;
-let _titleOrbit = null;     // { x, y, z } — spawn point (physics/scene frame) the cinematic orbits
+let _titleOrbit = null;     // { x, y, z } — point (physics/scene frame) the cinematic orbits — the CITY
+                            //   view (old Diagonal spawn), independent of where the car spawns
 let _titleT0 = 0;           // when the descent-from-the-clouds began (performance.now)
+// The title cinematic always frames the classic city view even when the CAR spawns elsewhere (e.g. the
+// beach). While the title is up, tile streaming follows this point instead of the car, and the car's
+// physics is frozen (its own ground tiles may be unloaded); after PLAY the stream snaps back to the car
+// and physics stays frozen until the ground under it has streamed back in.
+const TITLE_ORBIT_LATLON = { lat: 41.3948, lon: 2.1602 };   // Avinguda Diagonal — the old spawn
+let _carHold = false;       // car physics frozen (title up, or ground not yet rebuilt under the car)
+let _carHoldT = 0;          // post-PLAY hold timer — safety cap so a missing tile can't freeze us forever
 let _titleSky = null;       // saved sky-dome horizon/mid colors (biased bluer during the aerial title)
 const _titleFogLanded = new THREE.Color(0x9fd0f2);   // light horizon haze the descent settles into
 const TITLE_DESCENT_MS = 5200;   // fall time from cloud level to orbit height
@@ -363,6 +373,14 @@ spawnTileReady.finally(() => {
   injectGated.then(async () => {
     const origin = getOriginOffset();
 
+    // Live-title cinematic centre — the classic city view (old Diagonal spawn), NOT the car spawn
+    // (they can be km apart). Set before car creation so the streaming override kicks in immediately.
+    // y starts at 0 and is re-sampled from the loaded terrain each frame while the cinematic runs.
+    if (ENABLE_CAR) {
+      const _tow = latLonToWorld(TITLE_ORBIT_LATLON.lat, TITLE_ORBIT_LATLON.lon);
+      _titleOrbit = { x: -(_tow.x - origin.x), y: 0, z: _tow.z - origin.z };
+    }
+
     if (ENABLE_CAR) {
       // Find nearest major road for proper on-road spawn
       const spawnResult = findRoadSpawn(spawnTileData, spawnCenter);
@@ -407,7 +425,6 @@ spawnTileReady.finally(() => {
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier, cpuTimer });
-        _titleOrbit = { x: spawnLocalPos.x, y: spawnLocalPos.y, z: spawnLocalPos.z };   // live-title cinematic centre
         contactShadows = createContactShadows({ scene });
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
@@ -550,6 +567,7 @@ spawnTileReady.finally(() => {
     let _polls = 0;
     const _pollLoad = setInterval(() => {
       _polls++;
+      window._ddGate = { polls: _polls, complete: !!(tileManager?.isInitialLoadComplete?.()), car: !!carDriver, orbit: !!_titleOrbit, title: document.getElementById('dd-title')?.className ?? 'gone' };
       if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) {
         clearInterval(_pollLoad); _hideLoader();
         // Go LIVE behind the title: crossfade the static artwork to the real city + start the cinematic
@@ -562,9 +580,11 @@ spawnTileReady.finally(() => {
             _titleLive = true;
             _titleT0 = performance.now();   // begin the descent from the clouds
             _setHudHidden(true);
-            // Widen streaming to a 5×5 full-detail set for the aerial shot (photo mode also disables the
-            // LOD/distance fades, so the periphery isn't flat boxes). Restored when the player enters.
-            try { tileManager.setPhotoRadius(2); tileManager.setPhotoMode(true); } catch {}
+            // Full-detail 3×3 set for the aerial shot (photo mode also disables the LOD/distance fades,
+            // so the periphery isn't flat boxes). Was 5×5, but 25 full-detail tiles (geometry + physics
+            // colliders) held ~1 GB while idling on the title; 3×3 keeps the framing — the camera orbits
+            // looking at the CENTRE and the ring edge sits under the descent haze. Restored on entering.
+            try { tileManager.setPhotoRadius(1); tileManager.setPhotoMode(true); } catch {}
             // From altitude the camera only sees the sky dome's near-white HORIZON band, and the street-level
             // pastel palette reads dead grey up there. Give the cinematic its own decisive blues (all three
             // stops saved + restored on entering the game).
@@ -586,14 +606,36 @@ spawnTileReady.finally(() => {
         // Warm the GPU shader programs once now (materials are shared singletons, so this compiles almost
         // every program the session will ever use). Kills the first-render compile stall as new tiles
         // stream in at speed. compileAsync runs off the render path (KHR_parallel_shader_compile).
-        try { renderer.compileAsync?.(scene, camera); } catch {}
-        // Auto-start the mode chosen on the title screen (roads are loaded now, so gates/fares can place).
+        // The warm set includes every buildable material VARIANT (all facade categories × hero,
+        // roof, details) on tiny hidden triangles — otherwise the first tile introducing a new
+        // variant sync-compiles mid-drive (one-off ~100 ms render frames, forensics-confirmed).
         try {
-          const chosen = sessionStorage.getItem('dd_mode');
-          if (chosen === 'dash') dashMode?.start?.();
-          else if (chosen === 'taxi') taxiMode?.start?.();
-          else if (chosen === 'delivery') deliveryMode?.start?.();
-          else if (chosen === 'police') policeMode?.start?.();
+          const _warmMats = warmAllBuildingMaterials();
+          const _wg = new THREE.BufferGeometry();
+          _wg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0.01, 0, 0.01, 0, 0], 3));
+          _wg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+          _wg.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0], 2));
+          _wg.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+          _wg.setAttribute('aWash', new THREE.Float32BufferAttribute([0, 0, 0], 1));
+          const _warmGrp = new THREE.Group();
+          for (const m of _warmMats) { const wm = new THREE.Mesh(_wg, m); wm.frustumCulled = false; _warmGrp.add(wm); }
+          _warmGrp.position.set(0, -5000, 0);
+          scene.add(_warmGrp);
+          const _p = renderer.compileAsync?.(scene, camera);
+          if (_p?.then) _p.then(() => scene.remove(_warmGrp)); else scene.remove(_warmGrp);
+        } catch {}
+        // Auto-start the chosen mode — but ONLY on reload flows where the title never existed
+        // (/game path or ?spawn). On the fresh title flow the mode-select loader in animate()
+        // starts the mode once the spawn area has streamed in (this gate fires while the player
+        // is still on the title, before they've picked anything).
+        try {
+          if (!document.getElementById('dd-title')) {
+            const chosen = sessionStorage.getItem('dd_mode');
+            if (chosen === 'dash') dashMode?.start?.();
+            else if (chosen === 'taxi') taxiMode?.start?.();
+            else if (chosen === 'delivery') deliveryMode?.start?.();
+            else if (chosen === 'police') policeMode?.start?.();
+          }
         } catch {}
       }
     }, 150);
@@ -649,16 +691,50 @@ function animate(time = 0) {
     scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005) : 0;
   }
 
+  // Title-up detection: while the title screen is visible the world streams around the CINEMATIC
+  // centre (see the viewer override below), so the car's own ground may be unloaded.
+  const _titleEl = document.getElementById('dd-title');
+  const _titleUp = !!(_titleEl && !_titleEl.classList.contains('hide'));
+
   if (carDriver) {
     // ── Car driving mode ──────────────────────────────────────────────────────
+    // While the title is up the car's physics is frozen entirely (its ground may not exist). After
+    // PLAY, stay frozen until the ground under the car has streamed back in (capped so it can't stick).
+    if (_titleUp && _titleOrbit) { _carHold = true; _carHoldT = 0; }
+    else if (_carHold) {
+      _carHoldT += frameDt;
+      const _clp = carDriver.getLocalPosition();
+      const _cs = tileManager?.getSurfaceHeightAt?.(-_clp.lx, _clp.lz);
+      if ((_cs && Number.isFinite(_cs.surfaceY)) || _carHoldT > 12) _carHold = false;
+    }
+
+    // Mode-select loader (created by the title's enter()): lift it only when the world around the
+    // car is genuinely ready — car unfrozen (ground underneath) AND the streaming queue drained.
+    // This is also the right moment to start the chosen game mode (roads exist for gates/fares).
+    if (window._ddModeLoadDone && !_titleUp && !_carHold && tileManager?.isInitialLoadComplete?.()) {
+      try { window._ddModeLoadDone(); } catch {}
+      window._ddModeLoadDone = null;
+      try {
+        const _chosen = sessionStorage.getItem('dd_mode');
+        if (_chosen === 'dash') dashMode?.start?.();
+        else if (_chosen === 'taxi') taxiMode?.start?.();
+        else if (_chosen === 'delivery') deliveryMode?.start?.();
+        else if (_chosen === 'police') policeMode?.start?.();
+      } catch {}
+    }
     // Skip the chase camera while the taxi mode is playing a pickup/drop-off cinematic (it drives the
-    // camera itself, in taxiMode.update below).
-    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive);
+    // camera itself, in taxiMode.update below) or while the title cinematic owns the camera. The freeze
+    // flag additionally skips the physics step (car pinned; carCam still glides post-PLAY).
+    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp, _carHold);
 
     // Live title: descend FROM the cloud deck into the city (clouds part in sync), then settle into a
     // slow orbit under the logo/PLAY. Picking a mode releases the camera — carCam's lerp glides it down
     // behind the car (the dive-in).
     if (_titleLive) {
+      // Orbit height rides on the real terrain under the cinematic centre (the centre is normalized to
+      // the CAR spawn's elevation frame, so a hillside city view can sit tens of metres above y=0).
+      const _ogy = tileManager?.getTerrainHeightAt?.(-_titleOrbit.x, _titleOrbit.z);
+      if (Number.isFinite(_ogy)) _titleOrbit.y = _ogy;
       const _p = Math.min(1, (performance.now() - _titleT0) / TITLE_DESCENT_MS);
       const _ease = _p * _p * (3 - 2 * _p);              // smoothstep fall — quick drop, soft landing
       const _ta = time * 0.001 * 0.045;                  // ~2.3 min per orbit — unhurried
@@ -735,6 +811,16 @@ function animate(time = 0) {
     headingDeg = (Math.atan2(_camDir.x, _camDir.z) * 180) / Math.PI;
 
     if (groundMesh) groundMesh.position.set(viewerWx, 0, viewerWz);
+  }
+
+  // While the title screen is up (car mode), stream tiles around the CINEMATIC centre — the classic
+  // city view — not the car, which may be parked kilometres away (beach spawn) and sits frozen until
+  // PLAY brings the stream back to it.
+  if (_titleUp && _titleOrbit && ENABLE_CAR) {
+    viewerWx = -_titleOrbit.x;
+    viewerWz = _titleOrbit.z;
+    headingDeg = 0;
+    speedKmh = 0;
   }
 
   tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });

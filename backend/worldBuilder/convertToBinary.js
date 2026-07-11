@@ -116,7 +116,8 @@ export function convertTile(jsonData) {
   }
 
   const header = {
-    version: 7,
+    version: 8,   // v8: + bakedSidewalks (baked sidewalk/curb geometry; frontend falls back to the
+                  //     runtime generator when the section is absent — v7 tiles keep working)
     tileId: jsonData.tileId,
   };
 
@@ -175,6 +176,7 @@ export function convertTile(jsonData) {
         pointsOffset: ref.offset,
       };
       if (road.crossesTrench)  entry.crossesTrench = true; // OPTION L: deck colliders over daylighted tunnel corridors
+      if (road.crossing)       entry.crossing = true;      // marked crossing — runtime skips the ribbon
       if (road.serviceSubtype) entry.serviceSubtype = road.serviceSubtype;
       if (road.name)           entry.name = road.name;
       if (road.oneway != null) entry.oneway = road.oneway;
@@ -670,6 +672,24 @@ export function convertTile(jsonData) {
       roadLayers.push(entry);
     }
     header.bakedRoads = { layers: roadLayers };
+  }
+
+  // ── bakedSidewalks (v8 — pre-baked sidewalk + curb geometry) ────────────
+  // Three blobs (sidewalk / curbTop / curbFace), each {positions[, normals][, uvs], indices}.
+  // Written like bakedRoads; the frontend uses them instead of the runtime generator when present.
+  if (jsonData.bakedSidewalks) {
+    const out = {};
+    for (const part of ['sidewalk', 'curbTop', 'curbFace']) {
+      const blob = jsonData.bakedSidewalks[part];
+      if (!blob || !blob.positions || blob.positions.length === 0) continue;
+      const entry = {};
+      { const ref = pushF32(Array.from(blob.positions)); entry.positionsOffset = ref.offset; entry.positionsCount = ref.count; }
+      if (blob.normals && blob.normals.length > 0) { const ref = pushF32(Array.from(blob.normals)); entry.normalsOffset = ref.offset; entry.normalsCount = ref.count; }
+      if (blob.uvs && blob.uvs.length > 0) { const ref = pushF32(Array.from(blob.uvs)); entry.uvsOffset = ref.offset; entry.uvsCount = ref.count; }
+      if (blob.indices && blob.indices.length > 0) { const ref = pushU32(Array.from(blob.indices)); entry.indicesOffset = ref.offset; entry.indicesCount = ref.count; }
+      out[part] = entry;
+    }
+    if (Object.keys(out).length > 0) header.bakedSidewalks = out;
   }
 
   // ── assemble binary ────────────────────────────────────────────────────

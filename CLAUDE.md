@@ -94,6 +94,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 | [vertical-model-foundation-spec.md](docs/context/vertical-model-foundation-spec.md) | LOCKED design for the vertical-model rebuild — Unstretch-X unit invariant (1 unit = 1 real metre on all axes), 3 staged gates (unit-fix → DEM-on → runtime Y cleanup), the purge test, and the drivable-surface-implies-floor assert. Governs all elevation/scale work; tunnel fall-through dissolves here |
 | [terrain-tunnel-rework-plan.md](docs/context/terrain-tunnel-rework-plan.md) | ACTIVE working tracker for the terrain & tunnel rework — 5 phases (survey → smoothing at source → re-validate → authored tunnels → polish), each gated by an on-screen drive test. Source of truth for rework scope/status |
 | [authored-tunnels-design.md](docs/context/authored-tunnels-design.md) | Phase 3 authored-tunnel design — open-cut trenches authored INTO the elevation grid vs covered sections with slab floors under untouched grid, the commit-blocking drivable-surface-implies-floor validator, portal-face cliff handling, 5 implementation slices |
+| [bake-surface-clipping.md](docs/context/bake-surface-clipping.md) | Bake-level ground-surface de-overlap — Phase 1 clips path-family polylines out of carriageway coverage (no format bump, crossing exception); Phase 2 bakes sidewalk polygons (v8). Fixes co-planar road/footpath stacking at the source |
 
 ---
 

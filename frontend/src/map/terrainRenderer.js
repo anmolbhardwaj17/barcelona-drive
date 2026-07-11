@@ -624,12 +624,14 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
       // ── Lush Mediterranean park palette (replaces the DELHI dust palette — its khaki/dry-straw at 75%
       //    dominance over vertex colours WAS the persistent yellow ground; no CPU-side green survived it) ──
-      vec3 lushGrass = vec3(0.24, 0.43, 0.18);   // rich lawn (reference mid-green under the soft rig)
-      vec3 midGreen  = vec3(0.18, 0.35, 0.15);
-      vec3 deepGreen = vec3(0.13, 0.28, 0.12);
-      vec3 sageGreen = vec3(0.26, 0.41, 0.20);
-      vec3 drySoil   = vec3(0.45, 0.39, 0.26);   // sparse worn patches only
-      vec3 roadDirt  = vec3(0.40, 0.36, 0.26);
+      // RICH saturated greens (low-poly reference: olive-lime highlights → deep forest shadow) —
+      // green channel dominant, red/blue suppressed. Plain uniform darkening just read as dimmed.
+      vec3 lushGrass = vec3(0.20, 0.42, 0.13);
+      vec3 midGreen  = vec3(0.15, 0.34, 0.11);
+      vec3 deepGreen = vec3(0.09, 0.24, 0.08);
+      vec3 sageGreen = vec3(0.25, 0.39, 0.13);   // olive-lime accent
+      vec3 drySoil   = vec3(0.36, 0.31, 0.205);  // sparse worn patches only
+      vec3 roadDirt  = vec3(0.32, 0.29, 0.205);
 
       // ── 1. Macro: large 80-150m patches — deep vs lush green ──
       float macroN = terrainFBM(wPos * 0.007 + 17.0);

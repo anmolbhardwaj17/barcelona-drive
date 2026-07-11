@@ -29,6 +29,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     <div class="perf-sub" id="perf-cpu">cpu —</div>
     <div class="perf-sub" id="perf-alloc">alloc —</div>
     <div class="perf-sub" id="perf-worst">worst —</div>
+    <div class="perf-sub" id="perf-build">build —</div>
   `;
   el.style.cssText = `
     position: fixed; top: 260px; right: 24px; z-index: 10; pointer-events: none;
@@ -53,6 +54,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   const vCpu = el.querySelector('#perf-cpu');
   const vAlloc = el.querySelector('#perf-alloc');
   const vWorst = el.querySelector('#perf-worst');
+  const vBuild = el.querySelector('#perf-build');
 
   let frameCount = 0, lastUpdate = 0, worstMs = 0;
 
@@ -90,7 +92,44 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
       vAlloc.textContent = `alloc ${rep.heap}`;
       vWorst.textContent = `worst ${rep.worst}`;
     }
+
+    // Tile-build chunk overruns this window — names the phase behind the "other" stalls (worst ms
+    // a build chunk of that phase held the main thread past its budget).
+    const ov = tileManager?.takeBuildOverruns?.();
+    const buildTop = ov ? Object.entries(ov).sort((a, b) => b[1] - a[1]).slice(0, 2) : [];
+    const buildStr = buildTop.length ? buildTop.map(([k, v]) => `${k} ${v}`).join(' · ') : '—';
+
+    // Long-task + GC forensics for UNATTRIBUTED stalls (build line empty but `other` huge):
+    // longtask count/max this window, plus heap delta — a large NEGATIVE heap step alongside a
+    // long task = major GC pause (the prime suspect at ~500 MB heaps); no heap drop = compile/upload.
+    const heapNow = performance?.memory?.usedJSHeapSize ?? 0;
+    const heapDropMB = _lastHeap > 0 ? Math.max(0, (_lastHeap - heapNow) / 1048576) : 0;
+    _lastHeap = heapNow;
+    let ltStr = '';
+    if (_ltMax > 0) {
+      ltStr = ` · longtask ×${_ltCount} max ${_ltMax.toFixed(0)}ms${heapDropMB > 20 ? ` (heap −${heapDropMB.toFixed(0)}MB → GC)` : ''}`;
+      _ltCount = 0; _ltMax = 0;
+    }
+    // Shader-program counter: `prog +N` alongside a rend spike = a synchronous shader compile
+    // slipped past the warm-up (tell Claude which area you entered when it happened).
+    const progs = renderer.info?.programs?.length ?? 0;
+    const progStr = progs !== _lastProgs && _lastProgs > 0 ? ` · prog +${progs - _lastProgs} (${progs})` : '';
+    _lastProgs = progs;
+    vBuild.textContent = `build ${buildStr}${ltStr}${progStr}`;
   }
 
   return { element: el, tick };
 }
+
+// ── Long-task observer (module-level, one per page) ──────────────────────────
+let _ltCount = 0, _ltMax = 0, _lastHeap = 0, _lastProgs = 0;
+try {
+  if (typeof PerformanceObserver !== 'undefined') {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        _ltCount++;
+        if (e.duration > _ltMax) _ltMax = e.duration;
+      }
+    }).observe({ entryTypes: ['longtask'] });
+  }
+} catch { /* longtask API unavailable — line simply stays quiet */ }

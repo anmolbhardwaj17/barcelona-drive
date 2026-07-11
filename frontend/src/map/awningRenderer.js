@@ -12,6 +12,7 @@
  */
 import * as THREE from 'three';
 import { worldToLatLon } from '../projection.js';
+import { shopSegSkipped, shopGroundY } from './shopfrontRenderer.js';
 
 const AWN_TOP_Y      = 2.9;    // back edge height on the building face (below the ~3.15 m sign fascia)
 const AWN_PROJECT    = 1.35;   // how far it reaches out over the sidewalk (metres)
@@ -114,21 +115,23 @@ export function buildAwningMesh(buildings, opts = {}) {
     let groundY = 0;
     if (getElevationAt) {
       const { lat, lon } = worldToLatLon(mx, mz);
-      groundY = (getElevationAt(lat, lon) ?? 0) * vertExag;
+      // quantized like the shopfronts so the awning row sits level with them (no per-building jitter)
+      groundY = shopGroundY((getElevationAt(lat, lon) ?? 0) * vertExag);
     }
 
     // lay segments along the edge, leaving a margin at each corner
     const usable = edgeLen - 2 * EDGE_MARGIN;
     if (usable < SEG_LEN * 0.6) continue;
     const stride = SEG_LEN + SEG_GAP;
-    const n = Math.max(1, Math.floor((usable + SEG_GAP) / stride));
+    // capped + sparsified IDENTICALLY to shopfrontRenderer — every awning must sit over a storefront
+    const n = Math.min(4, Math.max(1, Math.floor((usable + SEG_GAP) / stride)));
     // centre the row of awnings on the edge
     const rowLen = n * SEG_LEN + (n - 1) * SEG_GAP;
     let t = EDGE_MARGIN + (usable - rowLen) / 2;
 
     for (let s = 0; s < n && segCount < SEG_CAP; s++) {
       const color = COLORS[(rand() * COLORS.length) | 0];
-      pushSegment(a.x, a.y, dx, dz, nx, nz, t, t + SEG_LEN, groundY, color);
+      if (!shopSegSkipped(cx, cz, s)) pushSegment(a.x, a.y, dx, dz, nx, nz, t, t + SEG_LEN, groundY, color);
       t += stride;
     }
   }

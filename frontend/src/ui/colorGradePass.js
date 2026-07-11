@@ -43,8 +43,11 @@ const ColorGradeShader = {
 
       // 1. Saturation — RICHER streets (1.15); rally style is VIVID (art of rally is bright + saturated,
       //    NOT muted — the earlier "cohesive muted palette" was exactly backwards).
+      //    NIGHT: keep saturation — the reference night is RICH saturated navy + warm amber, never
+      //    grey. The night look comes from the blue light rig + the hue shift below, not from desat.
       float l0 = luma(c);
       float satAmt = mix(1.15, 1.52, uRally);   // a touch richer — counters ACES desaturating the highlights
+      satAmt = mix(satAmt, 1.05, uNight * (1.0 - smoothstep(0.22, 0.65, l0)));
       c = mix(c, mix(vec3(l0), c, satAmt), s);
 
       // 2. Gentle contrast S-curve.
@@ -53,11 +56,19 @@ const ColorGradeShader = {
       c = mix(c, (c - pivot) * con + pivot, s);
 
       // 3. Split-tone: warm highlights, faintly cool shadows (kept gentle in rally so it stays bright).
+      //    NIGHT: the warm side leans hard amber — everything a lamp or window touches glows warm
+      //    against the blue (the warm-vs-cool contrast IS the reference night look).
       float l1 = luma(c);
-      vec3 warm = vec3(1.045, 1.01, 0.95);
+      vec3 warm = mix(vec3(1.045, 1.01, 0.95), vec3(1.14, 1.02, 0.85), uNight);
       vec3 cool = vec3(0.98, 1.00, 1.03);
       vec3 tone = mix(cool, warm, smoothstep(0.12, 0.65, l1));
       c *= mix(vec3(1.0), tone, s);
+
+      // 3b. Night: pull shadows/mids toward deep blue (low-poly cinematic night reference) —
+      //     highlights untouched so streetlamp pools / lit windows stay warm against it.
+      //     Gentle: this is a HUE shift, not a darkener (the R crush at 0.80 was eating the frame).
+      vec3 nightCool = c * vec3(0.90, 0.95, 1.10);
+      c = mix(c, nightCool, uNight * (1.0 - smoothstep(0.30, 0.75, l1)) * s * 0.8);
 
       // 4. Lift blacks — keep MINIMAL so shadows stay deep. A bigger lift (even 0.055 at night) reads as a
       //    flat grey haze layer over the whole frame — never do that. Brightness comes from real light
@@ -69,8 +80,9 @@ const ColorGradeShader = {
       c *= mix(1.0, 1.06, uRally * s * (1.0 - uNight));
 
       // 6. Vignette — subtle by default; rally keeps it minimal so the frame stays open + bright.
+      //    Night leans darker at the edges (the reference renders vignette hard into near-black).
       float dist = length(vUv - vec2(0.5));
-      float vignette = 1.0 - smoothstep(0.36, 0.82, dist) * mix(0.15, 0.05, uRally) * s;
+      float vignette = 1.0 - smoothstep(0.36, 0.82, dist) * (mix(0.15, 0.05, uRally) + uNight * 0.14) * s;
       c *= vignette;
 
       gl_FragColor = vec4(max(c, 0.0), col.a);

@@ -20,15 +20,28 @@ export function createCpuTimer() {
   let winFrames = 0;
   let worstTotal = 0;
   let worstBreakdown = {};
+  let lastStart = 0;
 
-  function finalizeFrame() {
+  // `interval` is the WALL time since the previous frame's start. The gap between it and the sum of
+  // the measured sections ("other") is everything the section timers can't see: GC pauses, async
+  // tile-build/materialize chunks between frames, GPU texture uploads, browser work — plus normal
+  // vsync idle (~12ms at 60fps with light frames). A worst frame dominated by `other` means the
+  // stall lives OUTSIDE the profiled loop; sections only ever see their own slice.
+  function finalizeFrame(interval) {
     let total = 0;
     for (const k in frame) total += frame[k];
     if (total > 0) {
       winFrames += 1;
       for (const k in frame) winSum.set(k, (winSum.get(k) || 0) + frame[k]);
       for (const k in frameHeap) winHeap.set(k, (winHeap.get(k) || 0) + frameHeap[k]);
-      if (total > worstTotal) { worstTotal = total; worstBreakdown = { ...frame }; }
+      // Ignore absurd intervals (tab backgrounded/throttled) so they don't own the worst slot all window.
+      const wall = interval > 0 && interval < 500 ? interval : total;
+      if (wall > worstTotal) {
+        worstTotal = wall;
+        worstBreakdown = { ...frame };
+        const other = wall - total;
+        if (other > 0.05) worstBreakdown.other = other;
+      }
     }
     frame = {}; frameHeap = {};
   }
@@ -37,7 +50,12 @@ export function createCpuTimer() {
   const fmtMB = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(' · ');
 
   return {
-    start() { finalizeFrame(); t = performance.now(); h = mem(); },
+    start() {
+      const now = performance.now();
+      finalizeFrame(lastStart ? now - lastStart : 0);
+      lastStart = now;
+      t = now; h = mem();
+    },
     lap(name) {
       const now = performance.now();
       const hm = mem();

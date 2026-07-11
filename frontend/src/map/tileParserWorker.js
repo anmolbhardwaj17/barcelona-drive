@@ -225,6 +225,9 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
   if (header.bakedRoads) {
     result.bakedRoads = readBakedRoads(header.bakedRoads, buffer, binOffset);
   }
+  if (header.bakedSidewalks) {   // v8 — baked sidewalk/curb geometry (absent on v7 → runtime generator)
+    result.bakedSidewalks = readBakedSidewalks(header.bakedSidewalks, buffer, binOffset);
+  }
   if (header.roadOnlyMode) result.roadOnlyMode = true;
 
   return result;
@@ -275,6 +278,7 @@ function readRoads(rawRoads, buffer, binOffset, ox, oy) {
     };
     if (r.bridge !== undefined) out[i].bridge = r.bridge;
     if (r.crossesTrench !== undefined) out[i].crossesTrench = r.crossesTrench; // OPTION L: deck colliders over daylighted corridors
+    if (r.crossing !== undefined) out[i].crossing = r.crossing; // marked crossing — renderer skips the ribbon
     if (r.tunnel !== undefined) out[i].tunnel = r.tunnel;
     if (r.layer !== undefined) out[i].layer = r.layer;
     if (r.name !== undefined) out[i].name = r.name;
@@ -706,6 +710,28 @@ function readBakedRoads(br, buffer, binOffset) {
     layers.push(entry);
   }
   return { layers };
+}
+
+/** v8: baked sidewalk + curb blobs ({sidewalk, curbTop, curbFace}, each positions[/normals/uvs]+indices). */
+function readBakedSidewalks(bs, buffer, binOffset) {
+  if (!bs) return null;
+  const out = {};
+  for (const part of ['sidewalk', 'curbTop', 'curbFace']) {
+    const blob = bs[part];
+    if (!blob || blob.positionsOffset === undefined || !(blob.positionsCount > 0)) continue;
+    const entry = { positions: new Float32Array(buffer, binOffset + blob.positionsOffset, blob.positionsCount) };
+    if (blob.normalsOffset !== undefined && blob.normalsCount > 0) {
+      entry.normals = new Float32Array(buffer, binOffset + blob.normalsOffset, blob.normalsCount);
+    }
+    if (blob.uvsOffset !== undefined && blob.uvsCount > 0) {
+      entry.uvs = new Float32Array(buffer, binOffset + blob.uvsOffset, blob.uvsCount);
+    }
+    if (blob.indicesOffset !== undefined && blob.indicesCount > 0) {
+      entry.indices = new Uint32Array(buffer, binOffset + blob.indicesOffset, blob.indicesCount);
+    }
+    out[part] = entry;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

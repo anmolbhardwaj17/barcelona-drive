@@ -561,8 +561,9 @@ const _nightTexCache = new Map();
  * Generate night emissive textures. We create a larger atlas (4x4 tile grid = 1024x1024)
  * so the repeating pattern is much less obvious. Only ~12% of windows are lit.
  */
-function getNightEmissiveTexture(category) {
-  if (_nightTexCache.has(category)) return _nightTexCache.get(category);
+export function getNightEmissiveTexture(category, hero = false) {
+  const cacheKey = category + (hero ? '#hero' : '');
+  if (_nightTexCache.has(cacheKey)) return _nightTexCache.get(cacheKey);
 
   const style = WINDOW_STYLES[category] || WINDOW_STYLES.residential;
   // 4x4 grid of the base tile pattern — reduces visible tiling
@@ -597,24 +598,25 @@ function getNightEmissiveTexture(category) {
       const oy = gy * BASE;
       for (let y = oy + BASE - marginB - winH; y >= oy; y -= periodV) {
         for (let x = ox + marginL; x + winW <= ox + BASE; x += periodH) {
-          // ~16% chance to be lit — a bit denser so the night skyline reads as alive (was 12%)
-          if (rnd() > 0.16) continue;
+          // ~20% of windows lit (hero buildings: half on — dense enough to read as THE lit tower
+          // from afar without becoming a blazing wall at street level).
+          if (rnd() > (hero ? 0.5 : 0.20)) continue;
 
           const warmth = rnd();
-          // Vary color: warm yellow, cool white, or orange
-          const type = rnd();
+          // Colour mix leans WARM (the night look is warm amber vs blue); heroes are all-warm.
+          const type = hero ? 0 : rnd();
           let r, g, b;
-          if (type < 0.6) {
+          if (type < 0.7) {
             // Warm yellow
             r = 255; g = 190 + Math.round(warmth * 40); b = 70 + Math.round(warmth * 30);
           } else if (type < 0.85) {
-            // Cool white (fluorescent)
+            // Cool white (fluorescent) — kept rare
             r = 200 + Math.round(warmth * 40); g = 210 + Math.round(warmth * 30); b = 220 + Math.round(warmth * 20);
           } else {
             // Warm orange (dim lamp)
             r = 240; g = 150 + Math.round(warmth * 40); b = 40 + Math.round(warmth * 30);
           }
-          const alpha = 0.6 + rnd() * 0.4;
+          const alpha = hero ? 0.8 + rnd() * 0.2 : 0.6 + rnd() * 0.4;
           ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
           ctx.fillRect(x + edge, y + edge, winW - edge * 2, winH - edge * 2);
         }
@@ -630,12 +632,13 @@ function getNightEmissiveTexture(category) {
   tex.magFilter = THREE.LinearFilter;
   // Scale UVs so 4x4 atlas maps to 4x4 tile repeats
   tex.repeat.set(1 / GRID, 1 / GRID);
-  _nightTexCache.set(category, tex);
+  _nightTexCache.set(cacheKey, tex);
   return tex;
 }
 
 let _buildingNightMode = false;
-const NIGHT_EMISSIVE_INTENSITY = 1.4; // window-glow strength at night
+export const NIGHT_EMISSIVE_INTENSITY = 1.5;  // window-glow strength at night (crisp squares, soft bloom edge)
+export const HERO_EMISSIVE_INTENSITY  = 1.7;  // hero towers read denser-lit, NOT brighter-per-window (2.4 bloomed into yellow diamonds)
 
 /**
  * Toggle building window glow for night mode.

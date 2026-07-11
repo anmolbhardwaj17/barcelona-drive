@@ -64,17 +64,18 @@ const MERCATOR_UNSTRETCH = Math.cos(_originLatRad);
 
 // Barcelona Eixample warm-masonry palette (cream/ochre/sandstone/pale-yellow/rose/warm-stone).
 const FACADE_PALETTES = {
+  // (warmth eased: the yellowest ochre entries pulled toward neutral cream — walls read too golden)
   residential: [
     0xEDE6D6, 0xF2ECDE, 0xE7DECB, 0xEAE3D2, 0xE0D6C0,
-    0xE2D2AC, 0xD9C79C, 0xCFBD90, 0xDED2BA, 0xD3C5A8,
-    0xE8DBAC, 0xDFD09A, 0xE0C8B6, 0xD6BBA6,
+    0xE0D3BC, 0xD8CAAE, 0xCFC1A4, 0xDED2BA, 0xD3C5A8,
+    0xE6DCC0, 0xDED2B2, 0xE0C8B6, 0xD6BBA6,
     0xCFC7B6, 0xC5BBA8, 0xC89A78, 0xBC8E70,
   ],
   commercial: [
-    0xE6D8BE, 0xDCCBA8, 0xD2BE96, 0xE2D6A8, 0xD8CCA0,
+    0xE6D8BE, 0xDACDB4, 0xD2C2A6, 0xE0D8BC, 0xD7CEB2,
     0xE8E0CE, 0xDED3BC, 0xE4DAC6, 0xD6CBB2,
     0xD8B89C, 0xCBA888, 0xD0B294,
-    0xE2D6A0, 0xDACF98, 0xD0C7B2,
+    0xE0D8B8, 0xD9D0AE, 0xD0C7B2,
   ],
   office:      [0xDED6C4, 0xD4CAB4, 0xE2DBCB, 0xCFC6B2, 0xD8D0BE],
   hospital:    [0xE8E2D4, 0xDED8C8, 0xD6CFBE, 0xECE6DA, 0xE0DACB],
@@ -97,8 +98,15 @@ const BALCONY_CATEGORIES = new Set(['residential', 'commercial', 'office']); // 
 // Barcelona-from-above signature: the residential fabric is TERRACOTTA clay tile (the orange rooftop sea
 // in every aerial of the city). Modern office/industrial/glass keep grey flat roofs for realistic contrast.
 const ROOF_PALETTES = {
-  residential: [0x95573A, 0x8A4E31, 0xB9B4A9, 0x9D6142, 0xC0BBB0, 0x814830, 0x99684A, 0xACA79C], // clay MIXED with grey terrace roofs (~5:3) — all-clay read unnaturally uniform
-  commercial:  [0x95573A, 0x8A4E31, 0xC8CCD2, 0xBEC2C8, 0x9D6142, 0xD8D4CC, 0x814830, 0xC2C6CC], // mixed: many older blocks tiled
+  // Reference-matched (real Barceloneta/Eixample aerials): MID-DARK dusty terracotta dominates,
+  // pale sand roofs are the sparse exception (~6:2, not half-half). Bases are deliberately darker
+  // + moderately desaturated because the rally grade multiplies saturation ×1.52 and lifts
+  // brightness — light bases wash to cream, saturated bases go fire-red; mid-dark dusty survives.
+  // (peach pass: blue channel raised on all clays — rotates orange-brown toward peach/salmon-pink.
+  //  Spread TIGHTENED around the approved mid-peach: the old deep entries 0x84493C/0x955446 hit
+  //  maroon after the ×0.85 per-building variation and read as "wrong dark roofs" in whole blocks.)
+  residential: [0xAD6B5C, 0xA76A5C, 0xC4A48E, 0xB57866, 0xA5685A, 0xBA8270, 0xA06452, 0xBC9C88],
+  commercial:  [0xAD6B5C, 0xA76A5C, 0xBEB4A8, 0xB2978A, 0xB57866, 0xA5685A, 0xBA8270, 0xB2A192], // mixed: many older blocks tiled
   office:      [0xC0C8D0, 0xB8C0C8, 0xC4CCD4, 0xB4BCC4, 0xCAD0D6],
   hospital:    [0xD6D2CC, 0x99684A, 0xD0CCC6, 0x8F5537, 0xCCC8C2],   // older masonry wards often tiled
   school:      [0x95573A, 0xD0CAB2, 0x8A4E31, 0xD4CEB6, 0x9D6142],   // ditto
@@ -289,7 +297,9 @@ function getFacadeTint(building, category) {
 // Low structures (< 8m) are mostly the single-storey interiors of Eixample blocks — flat gravel/terrace
 // roofs in reality, NOT clay tile. Keeping them grey-tan carves the real courtyard pattern out of the
 // terracotta fabric (orange perimeter rings, muted interiors), matching aerial Barcelona.
-const TERRACE_ROOFS = [0xB9B4A9, 0xC2BDB2, 0xADA89D, 0xC8C2B5, 0xB1AB9F];
+// Flat terrats (low buildings): dusty warm tan tiles, a step deeper than before — the bright sands
+// were washing to cream under the rally grade and dominating the aerial view.
+const TERRACE_ROOFS = [0xBC9C88, 0xB29080, 0xC4A48E, 0xB49588, 0xBD9F90];   // peach-tinted tans (match the clay rotation)
 
 function pickRoofColorHex(category, buildingId, height) {
   const pal = (Number.isFinite(height) && height < 8 && category !== 'religious')
@@ -309,8 +319,13 @@ function getRoofTint(category, buildingId, height) {
 // and ONE total (roofs). The materializer's existing key parser sees hex FFFFFF → white materials.
 // ────────────────────────────────────────────────────────────────────────────
 
-function getFacadeMaterialKey(category) {
-  return 'facade_' + category + '_FFFFFF';
+function getFacadeMaterialKey(category, id = 0, height = 0) {
+  // Hero-lit buildings: a small deterministic set of TALL buildings gets a '#hero' facade variant —
+  // dense warm windows + stronger glow at night (the reference render's glowing tower). Identical by
+  // day. The marker rides inside the category segment so the materializer's key parser is untouched.
+  const n = Number(id) || 0;
+  const hero = height >= 28 && ((n * 2654435761) >>> 0) % 7 === 0;
+  return 'facade_' + category + (hero ? '#hero' : '') + '_FFFFFF';
 }
 
 function getRoofMaterialKey() {
@@ -744,6 +759,7 @@ export function processBuildingsInWorker(data, config) {
 
   // Global vertex budget across ALL material groups (walls + roofs + details)
   let totalTileVerts = 0;
+  const heroSpills = [];   // flat [x, baseY, z, radius, strength, ...] — building warm ground-glow decals
   const GLOBAL_VERTEX_BUDGET = 100000;
 
   // ── Main building loop ──
@@ -852,7 +868,21 @@ export function processBuildingsInWorker(data, config) {
     applyVertexColorToBuffers(wallBuffers, tint);
     ensureUvs(wallBuffers);
 
-    const matKey = getFacadeMaterialKey(category, b.id);
+    // Ground-glow wash factor: 1 at the building base fading to 0 by ~7 m up. The facade shader
+    // multiplies this by a night-only uniform so lower floors pick up a warm street-light wash
+    // (the reference-render look) — zero cost by day.
+    {
+      const wp = wallBuffers.positions;
+      const wc = wp.length / 3;
+      const wash = new Float32Array(wc);
+      for (let wi = 0; wi < wc; wi++) {
+        const rel = (wp[wi * 3 + 1] - baseY) / 4.5;   // ground floor + a bit — not half the building
+        wash[wi] = rel <= 0 ? 1 : rel >= 1 ? 0 : 1 - rel;
+      }
+      wallBuffers.wash = wash;
+    }
+
+    const matKey = getFacadeMaterialKey(category, b.id, b.height);
     const vertCount = wallBuffers.positions.length / 3;
 
     // Global budget check — skip entire building if it would exceed tile limit
@@ -868,6 +898,19 @@ export function processBuildingsInWorker(data, config) {
     entry.geoms.push(wallBuffers);
     entry.vertCount += vertCount;
     totalTileVerts += vertCount;
+
+    // HERO buildings emit a warm ground-spill decal (rendered at night only) — the reference
+    // renders' "glowing tower lights its surroundings". Hero-only: an every-building version was
+    // tried and looked wrong — flat discs clip visibly on sloped/stepped streets, and at low
+    // strength they read as pale ghost circles. [x, baseY, z, radius, strength]
+    if (matKey.includes('#hero') && b.footprint?.length >= 3) {
+      let maxR = 0;
+      for (const p of b.footprint) {
+        const d = Math.hypot(p.x - cx, p.y - cy);
+        if (d > maxR) maxR = d;
+      }
+      heroSpills.push(cx, baseY, cy, Math.min(34, Math.max(14, maxR * 1.7)), 1.0);
+    }
 
     // ── Roof cap ──
     let roofBuffers = b.shapeType === 'cylinder'
@@ -1728,6 +1771,7 @@ export function processBuildingsInWorker(data, config) {
         uvs: merged.uvs || null,
         indices: merged.indices,
         colors: merged.colors || null,
+        wash: merged.wash || null,   // facade ground-glow factor (night shader)
       });
     }
   }
@@ -1844,5 +1888,6 @@ export function processBuildingsInWorker(data, config) {
     detailGroups,
     tankInstances: tankResult,
     pipeInstances: pipeResult,
+    heroSpills: heroSpills.length ? new Float32Array(heroSpills) : null,
   };
 }

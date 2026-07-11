@@ -3,11 +3,13 @@
  * Mutates only lights, fog, sky visibility and material params — no geometry rebuild.
  */
 import * as THREE from 'three';
-import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode } from '../map/roadRenderer.js';
+import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, setRoadNightWash, setRoadDecalNightMode } from '../map/roadRenderer.js';
 import { setDividerNightMode } from '../map/dividerRenderer.js';
 import { setShoulderNightMode } from '../map/shoulderRenderer.js';
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
+import { setVegNightWash } from '../map/vegetationRenderer.js';
 import { setBuildingNightMode } from '../map/buildingRenderer.js';
+import { setFacadeNightMode, setHeroSpillNight } from '../workers/meshMaterializer.js';
 import { setBusStopNightMode } from '../map/busStopRenderer.js';
 import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
 import { setVendorCartNightMode } from '../map/vendorCartRenderer.js';
@@ -27,10 +29,10 @@ const DAY = {
   ambientColor:     0xd4e2ec,
   ambientIntensity: 0.30,
   hemiSkyColor:     0xa3c0e4, // cool blue sky-light → shadows read cool
-  hemiGroundColor:  0xd08a4e, // warm ground bounce → undersides/facades pick up golden warmth
+  hemiGroundColor:  0xc4966a, // warm ground bounce, eased (0xd08a4e washed facades too golden)
   hemiIntensity:    0.55,
   dirIntensity:     2.7,
-  dirColor:         0xffdcae, // warm golden-hour key
+  dirColor:         0xffe3c2, // warm key, one notch whiter (0xffdcae read too yellow on cream walls)
   fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
   fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
   skyVisible:       true,
@@ -44,24 +46,26 @@ const DAY = {
 };
 
 const NIGHT = {
-  ambientColor:     0x8c8f97,  // desaturated cool-grey fill — ACES amplified the old saturated blue (0x6a7398)
-                               // into a blue road; this keeps a faint night coolness without tinting surfaces blue
-  ambientIntensity: 1.15,      // slight trim (1.25→1.15) — the higher ACES exposure already lifts night
-  hemiSkyColor:     0x515c85,  // brighter blue sky fill
-  hemiGroundColor:  0x2a2438,  // lifted warm-ish ground bounce
-  hemiIntensity:    0.5,       // note: only takes effect if a hemi light exists; ambient carries the fill
-  dirIntensity:     0.85,      // moonlight — more form on the tops
-  dirColor:         0xcdd6f0,  // near-neutral cool moonlight (less blue)
-  fogColor:         0x121a34,
-  fogDensity:       0.0045,     // thin night haze so the distance keeps depth, not grey murk
+  // Reference-matched night (low-poly cinematic renders): the WHOLE albedo palette collapses into a
+  // narrow dark blue-charcoal band — day colours must NOT survive (no vivid greens / bright cream
+  // facades after dark). Fill light is deep desaturated blue at LOW intensity; the warm emissives
+  // (windows, streetlamps, signs) carry all the contrast and pop against it via bloom.
+  ambientColor:     0x6b7a9e,  // desaturated blue fill — the blue TINT (not darkness) is what sells night
+  ambientIntensity: 1.0,       // readable floor: geometry must survive as blue-charcoal masses, not voids
+  hemiSkyColor:     0x46567e,  // dark blue sky dome light
+  hemiGroundColor:  0x232a3a,  // dark ground bounce
+  hemiIntensity:    0.6,
+  dirIntensity:     0.7,       // soft moon — form on rooftops/facades
+  dirColor:         0x8fa6d8,  // cool moonlight
+  fogColor:         0x101a2e,  // deep navy haze
+  fogDensity:       0.0045,    // thin night haze so the distance keeps depth, not grey murk
   skyVisible:       false,
-  bgColor:          0x0e1730,  // deeper blue night sky (was too washed/grey)
-  toneMappingExposure: 1.75,   // lifted for ACES (filmic curve crushes darks harder than Linear did) — the
-                               // dimmer moonlight/ambient still reads as night, this just rescues it from black
-  lampEmissive:     8.5,       // hotter streetlamp glow → warm pops punch through the deep blue
+  bgColor:          0x0a1224,  // deep navy sky
+  toneMappingExposure: 1.5,    // 1.75 read as day; darkness now comes from the blue rig + grade, not exposure
+  lampEmissive:     9.0,       // hotter streetlamp glow → warm pops punch through the deep blue
   poolOpacity:      1.0,
-  bloomStrength:    0.95,      // stronger glow at night
-  bloomThreshold:   0.62,      // lower threshold → lamps/windows/signs/shopfronts all bloom
+  bloomStrength:    0.55,      // soft halo only — 1.0 turned every window into a fuzzy ball
+  bloomThreshold:   0.72,      // just the truly bright emissives bloom (lamps, window cores)
   lightsOn:         true,
 };
 
@@ -153,6 +157,11 @@ export function createEnvToggle(refs) {
     setMoonNightMode(isNight);
     setStarsNightMode(isNight);
     setBuildingNightMode(isNight);
+    setFacadeNightMode(isNight);   // the LIVE facade materials (worker/materializer path) — window glow
+    setHeroSpillNight(isNight);    // hero-building warm ground-glow decals
+    setRoadNightWash(isNight);     // building-proximity warm wash on road surfaces
+    setVegNightWash(isNight);      // same wash on street trees/bushes (parks stay dark)
+    setRoadDecalNightMode(isNight); // bike-lane green + blue-zone stripes crush to black otherwise
     setBusStopNightMode(isNight);
     setFuelStationNightMode(isNight);
     setVendorCartNightMode(isNight);

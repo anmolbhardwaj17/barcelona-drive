@@ -135,16 +135,18 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   }
 
   // ── Per-frame update ──────────────────────────────────────────────────────
-  function update(dt, cinematic = false) {
-    // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter)
-    if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3);
+  function update(dt, cinematic = false, freeze = false) {
+    // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter).
+    //    `freeze` skips the step entirely — used while the title screen streams tiles around the
+    //    cinematic centre (the car's own ground may be unloaded; stepping would drop it into the void).
+    if (!freeze) { if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3); }
     _ct?.lap('step');   // pure physics-step cost; the remainder of this update lands in main's 'phys' lap
 
-    // 2. Read inputs → apply to vehicle. During a game-mode cinematic, ignore input and pin the car in
-    //    place (zero velocities) so it can't creep while the b-roll plays. (state stays function-scoped —
-    //    it's used by effects.update below.)
+    // 2. Read inputs → apply to vehicle. During a game-mode cinematic (or while frozen), ignore input
+    //    and pin the car in place (zero velocities) so it can't creep while the b-roll plays. (state
+    //    stays function-scoped — it's used by effects.update below.)
     const state = controls.getState();
-    if (cinematic) {
+    if (cinematic || freeze) {
       physics.chassisBody.velocity.set(0, 0, 0);
       physics.chassisBody.angularVelocity.set(0, 0, 0);
     } else {
@@ -191,7 +193,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
         _crumb.qy /= n; _crumb.qw /= n;
       }
 
-      if (!cinematic) {
+      if (!cinematic && !freeze) {
         // Track airborne time + how far we've dropped since the wheels left the ground.
         if (wheelsOn > 0) {
           _airTime = 0; _wasGrounded = true; _holdGround = false; _holdTimer = 0;

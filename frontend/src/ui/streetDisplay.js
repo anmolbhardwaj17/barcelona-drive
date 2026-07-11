@@ -18,6 +18,12 @@ const TYPE_LABELS = {
   living_street: 'Living Street',
   service: 'Service Road',
   unclassified: 'Road',
+  footway: 'Footpath',
+  path: 'Path',
+  cycleway: 'Cycle Path',
+  pedestrian: 'Pedestrian Street',
+  steps: 'Steps',
+  track: 'Track',
 };
 
 /**
@@ -39,8 +45,7 @@ export function createStreetDisplay() {
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 20px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
     text-shadow: 0 1px 6px rgba(0,0,0,0.45);
     pointer-events: none;
     white-space: nowrap;
