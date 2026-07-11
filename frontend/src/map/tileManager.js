@@ -14,7 +14,7 @@ import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
-import { createAoSampler } from './aoSampler.js';
+import { createAoSampler, AO_DISABLED } from './aoSampler.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
@@ -1988,7 +1988,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       try {
         const buildingWorkerResult = await workerProcessBuildings(
           key,
-          { buildings: filteredTileData.buildings, roads: filteredTileData.roads, aoGrid: data.aoGrid },
+          { buildings: filteredTileData.buildings, roads: filteredTileData.roads, aoGrid: AO_DISABLED ? null : data.aoGrid },
           elevation,
           elevationOffset,
           CONFIG,

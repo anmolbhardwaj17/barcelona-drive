@@ -14,6 +14,11 @@
 
 import { latLonToWorld } from '../projection.js';
 
+// Perf A/B escape hatch: ?ao=off disables ALL AO consumption for the session (samplers return
+// null → no attribute fills, no worker sampling). Baked grids still download; purely a runtime gate.
+export const AO_DISABLED = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('ao') === 'off';
+
 // ── Strength dials (tune from screenshots; higher = darker canyons) ─────────
 export const AO_TERRAIN_STRENGTH = 0.45;  // ground between buildings
 export const AO_ROAD_STRENGTH = 0.40;     // asphalt/sidewalk/curbs (slightly lighter than raw ground —
@@ -28,6 +33,7 @@ const AO_GAMMA = 1.35;                    // >1 = keep mids bright, darken only 
  *   Returns null when the tile has no AO data, so callers can skip their whole pass.
  */
 export function createAoSampler(aoGrid, bounds) {
+  if (AO_DISABLED) return null;
   if (!aoGrid || !aoGrid.data || !aoGrid.resolution || !bounds) return null;
   const res = aoGrid.resolution;
   const data = aoGrid.data;
