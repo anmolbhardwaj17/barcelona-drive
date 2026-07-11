@@ -67,15 +67,17 @@ const DETAIL_MATERIAL_DEFS = {
 
 // ─── Billboard ad definitions ────────────────────────────────────────────────
 
+// Spanish/Catalan parody shop signage (GTA-style tone, fictional names — matches the bridge
+// billboards in roadRenderer.getBillboardTextures).
 const BILLBOARD_COLORS = [
-  { bg: '#1B3A5C', fg: '#FFFFFF', text: 'SALE' },
-  { bg: '#8B0000', fg: '#FFD700', text: 'BIG BAZAAR' },
-  { bg: '#003366', fg: '#00CCFF', text: 'ELECTRONICS' },
-  { bg: '#2E0854', fg: '#FF66AA', text: 'FASHION' },
-  { bg: '#004D00', fg: '#FFFF00', text: 'FRESH DEALS' },
-  { bg: '#333333', fg: '#FF4400', text: 'MEGA OFFER' },
-  { bg: '#0A1628', fg: '#44BBFF', text: 'NEW ARRIVALS' },
-  { bg: '#4A0E0E', fg: '#FFD700', text: '50% OFF' },
+  { bg: '#1B3A5C', fg: '#FFFFFF', text: 'REBAIXES' },
+  { bg: '#8B0000', fg: '#FFD700', text: 'SUPERMERCAT' },
+  { bg: '#003366', fg: '#00CCFF', text: 'ELECTRÒNICA' },
+  { bg: '#2E0854', fg: '#FF66AA', text: 'MODA ZURA' },
+  { bg: '#004D00', fg: '#FFFF00', text: 'FRUITES FRESQUES' },
+  { bg: '#333333', fg: '#FF4400', text: 'GRAN OFERTA' },
+  { bg: '#0A1628', fg: '#44BBFF', text: 'NOVETATS' },
+  { bg: '#4A0E0E', fg: '#FFD700', text: '50% DESCOMPTE' },
 ];
 
 // ─── Texture caches (lazy, created on first access) ──────────────────────────

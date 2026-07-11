@@ -4056,20 +4056,22 @@ const BILLBOARD_TEX_COUNT = 12;
 function getBillboardTextures() {
   if (_billboardTexCache.length > 0) return _billboardTexCache;
 
+  // Spanish/Catalan PARODY brands (GTA-style: the tone of the real thing, never the name —
+  // user call 2026-07-11, replaces the Delhi-era Indian ads). Keep them fictional.
   const designs = [
     // [bgColor, accentColor, text lines, style]
-    { bg: '#1a3a6e', accent: '#e8c840', lines: ['DELHI', 'METRO'], sub: 'Smart City. Smart Travel.' },
-    { bg: '#cc2222', accent: '#ffffff', lines: ['SALE', '50% OFF'], sub: 'Sarojini Nagar Market' },
-    { bg: '#1b5e20', accent: '#ffeb3b', lines: ['DRINK', 'FRESH'], sub: 'Mother Dairy' },
-    { bg: '#4a148c', accent: '#e1bee7', lines: ['JIO', '5G'], sub: 'India ka Apna 5G' },
-    { bg: '#0d47a1', accent: '#ffffff', lines: ['SBI', 'BANK'], sub: 'The Banker to Every Indian' },
-    { bg: '#bf360c', accent: '#fff8e1', lines: ['SPICY', 'BITES'], sub: 'Haldiram\'s — Since 1937' },
-    { bg: '#006064', accent: '#80deea', lines: ['AMUL', 'MILK'], sub: 'The Taste of India' },
-    { bg: '#e65100', accent: '#ffffff', lines: ['SWIGGY'], sub: 'What\'s your mood?' },
-    { bg: '#1565c0', accent: '#fdd835', lines: ['FLIPKART'], sub: 'Ab Har Wish Hogi Poori' },
-    { bg: '#880e4f', accent: '#f8bbd0', lines: ['NYKAA'], sub: 'Your Beauty. Our Passion.' },
-    { bg: '#33691e', accent: '#ffffff', lines: ['PATANJALI'], sub: 'Prakriti ka Ashirwad' },
-    { bg: '#263238', accent: '#4fc3f7', lines: ['TATA', 'MOTORS'], sub: 'Connecting Aspirations' },
+    { bg: '#b3202c', accent: '#f2c744', lines: ['ESTRELLA', 'DORADA'], sub: 'La cervesa de la platja' },
+    { bg: '#cc2222', accent: '#ffffff', lines: ['REBAIXES', '50%'], sub: 'Mercat del Diumenge' },
+    { bg: '#00427a', accent: '#ffd23f', lines: ['LA CAPSA'], sub: 'El teu banc de sempre' },
+    { bg: '#f7c600', accent: '#3a3a3a', lines: ['VOLARING'], sub: 'Vola barat, vola ja' },
+    { bg: '#1c1c1c', accent: '#f5f5f5', lines: ['ZURA'], sub: 'Moda nova cada setmana' },
+    { bg: '#5a2d0c', accent: '#f2e3c8', lines: ['CACAOLIT'], sub: 'El batut de Barcelona' },
+    { bg: '#f2b705', accent: '#212121', lines: ['MORTIZ'], sub: 'Nascuda al Raval' },
+    { bg: '#0b4ea2', accent: '#7ee081', lines: ['MOVIESTAR', '5G'], sub: 'Connecta tota Espanya' },
+    { bg: '#7a1030', accent: '#f8bbd0', lines: ['CHUPA', 'XUPS'], sub: 'Dolç per sempre' },
+    { bg: '#0d3b2e', accent: '#e8c840', lines: ['JAMÓN', 'IBERIQO'], sub: 'De veritat, de debò' },
+    { bg: '#821432', accent: '#f2c744', lines: ['LA LLIGA'], sub: 'Cada cap de setmana' },
+    { bg: '#263238', accent: '#4fc3f7', lines: ['ASIENTO', 'MOTORS'], sub: 'Passió mediterrània' },
   ];
 
   for (const d of designs) {
