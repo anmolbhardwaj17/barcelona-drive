@@ -449,8 +449,9 @@ export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt, aoStrength
       }
       if (svfAt) {
         // Baked sky-visibility AO (v9) — darkening amount, 0 = open sky (see aoSampler).
+        // Finite guard: NaN vertex positions (G-06 grid holes) must not reach the shader.
         const d = aoDarkening(svfAt(x, z), aoStrength);
-        if (d > 0.004) { ao[i] = d; anyAo = true; }
+        if (Number.isFinite(d) && d > 0.004) { ao[i] = d; anyAo = true; }
       }
       // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts
       if (yieldFn && (i & 8191) === 8191) await yieldFn();

@@ -451,7 +451,12 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     const y = posAttr.getY(i);
     const vx = posAttr.getX(i);
     const vz = posAttr.getZ(i);
-    if (svfAt) aoAttr[i] = aoMultiplier(svfAt(vx, vz), AO_TERRAIN_STRENGTH);
+    if (svfAt) {
+      // Guard: some vertices carry NaN positions (G-06 elevation grid holes) — NaN would ride the
+      // attribute into the shader and black out triangles. Fall back to "no AO".
+      const svf = svfAt(vx, vz);
+      aoAttr[i] = Number.isFinite(svf) ? aoMultiplier(svf, AO_TERRAIN_STRENGTH) : 1;
+    }
     const ny = normAttr ? normAttr.getY(i) : 1;
     // t: 0 at ground (Y=0), negative below, positive above
     const t = y / Math.max(Math.abs(minY), Math.abs(maxY), 0.01);

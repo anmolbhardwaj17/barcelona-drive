@@ -963,7 +963,8 @@ export function processBuildingsInWorker(data, config) {
               wp[wi * 3] + (wn ? wn[wi * 3] * AO_SAMPLE_OUTSET : 0),
               wp[wi * 3 + 2] + (wn ? wn[wi * 3 + 2] * AO_SAMPLE_OUTSET : 0),
             );
-            ao[wi] = AO_FACADE_STRENGTH * Math.pow(1 - svf, AO_GAMMA) * Math.min(1, fade);
+            const d = AO_FACADE_STRENGTH * Math.pow(1 - svf, AO_GAMMA) * Math.min(1, fade);
+            if (Number.isFinite(d)) ao[wi] = d;   // NaN positions must not reach the shader
           }
         }
       }
