@@ -94,6 +94,7 @@ import { initTunnelDebug, updateTunnelDebug } from './tunnelDebugOverlay.js';
 import { initCollisionDebug, updateCollisionDebug } from './collisionDebug.js';
 import { initWorkerPool } from './workers/workerPool.js';
 import { warmAllBuildingMaterials } from './workers/meshMaterializer.js';
+import { getWaterMaterial } from './map/waterRenderer.js';
 
 const container = document.getElementById('app');
 container.tabIndex = 0;
@@ -610,7 +611,7 @@ spawnTileReady.finally(() => {
         // roof, details) on tiny hidden triangles — otherwise the first tile introducing a new
         // variant sync-compiles mid-drive (one-off ~100 ms render frames, forensics-confirmed).
         try {
-          const _warmMats = warmAllBuildingMaterials();
+          const _warmMats = [...warmAllBuildingMaterials(), getWaterMaterial()];
           const _wg = new THREE.BufferGeometry();
           _wg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0.01, 0, 0.01, 0, 0], 3));
           _wg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));

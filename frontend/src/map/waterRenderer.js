@@ -104,7 +104,7 @@ function dpSimplify(points, tolerance) {
 // ── Shared material — improved water appearance ──────────────────────────────
 
 let _waterMat = null;
-function getWaterMaterial() {
+export function getWaterMaterial() {   // exported for the boot shader warm-up (coast-only first appearance)
   if (_waterMat) return _waterMat;
   _waterMat = new THREE.MeshLambertMaterial({
     color: 0x2394AC,   // brighter Mediterranean turquoise (reference near-shore)

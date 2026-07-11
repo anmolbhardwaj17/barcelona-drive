@@ -951,6 +951,9 @@ export function warmAllBuildingMaterials() {
   }
   mats.push(getRoofMaterial(0xFFFFFF));
   for (const type of Object.keys(DETAIL_MATERIAL_DEFS)) mats.push(getDetailMaterial(type));
+  // One-off singletons that otherwise sync-compile on FIRST appearance (mall district, industrial
+  // area) — each is a distinct shader-define combo, so one hidden triangle each covers it.
+  mats.push(getMallSignMaterial(), getTankMaterial(), getPipeMaterial());
   return mats;
 }
 
