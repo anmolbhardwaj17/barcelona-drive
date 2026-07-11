@@ -184,7 +184,10 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
       // ~3/s) whenever ≥2 wheels touch and we're roughly upright — so "recover" never sends us all the
       // way back to spawn (the earlier bug: a strict ≥3-wheel/2s gate rarely fired → stale crumb).
       _crumbTimer += dt;
-      if (wheelsOn >= 2 && upY > 0.6 && _crumbTimer >= 0.3) {
+      // opts.isCrumbSafe (physics-frame x,z): world-boundary gate — never record a crumb outside
+      // the baked region, or the out-of-bounds teleport would loop to an out-of-bounds spot.
+      if (wheelsOn >= 2 && upY > 0.6 && _crumbTimer >= 0.3
+          && (!opts.isCrumbSafe || opts.isCrumbSafe(cb.position.x, cb.position.z))) {
         _crumbTimer = 0;
         const bp = cb.position;
         _crumb.x = bp.x; _crumb.y = bp.y; _crumb.z = bp.z;
@@ -272,5 +275,5 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
-  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.() };
+  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
 }

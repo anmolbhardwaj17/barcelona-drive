@@ -48,6 +48,7 @@ import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
 import { setLampEmissiveIntensity, setPoolOpacity } from './map/streetlightRenderer.js';
 import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
+import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { renderVegetation, preloadTreeModels, updateTreeWind } from './map/vegetationRenderer.js';
@@ -212,6 +213,8 @@ let tileManager;
 let freeCameraControls;
 let carDriver = null;
 let rapierAdapter = null;   // set when Rapier physics is active (default) — streams the collider working set around the car
+let boundaryHaze = null;    // world-edge haze curtains (worldBoundary.js)
+let _boundaryCooldown = 0;  // seconds until the next out-of-bounds teleport may fire
 
 // ── Live title screen ─────────────────────────────────────────────────────
 // Once the spawn area has built, the static title artwork crossfades away (#dd-title.live) and a slow
@@ -426,7 +429,13 @@ spawnTileReady.finally(() => {
             console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies.`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
-        carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier, cpuTimer });
+        carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, {
+          rapier: _rapier, cpuTimer,
+          // World boundary: never record a recovery breadcrumb outside the baked region — the
+          // out-of-bounds teleport returns to the crumb, so the crumb must stay in-bounds.
+          isCrumbSafe: (lx, lz) => isInsidePlayArea(lx, lz),
+        });
+        boundaryHaze = createBoundaryHaze(worldGroup);
         contactShadows = createContactShadows({ scene });
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
@@ -796,6 +805,13 @@ function animate(time = 0) {
 
     const lp = carDriver.getLocalPosition();
     rapierAdapter?.tick(lp.lx, lp.lz);   // stream the Rapier collider working set around the car
+    // World boundary: past the haze curtains + grace band → return to the last in-bounds road
+    // (breadcrumb teleport — same mechanism as the R key). Cooldown prevents rapid-fire loops.
+    _boundaryCooldown = Math.max(0, _boundaryCooldown - frameDt);
+    if (_boundaryCooldown === 0 && outOfBoundsM(lp.lx, lp.lz) > BOUNDARY_GRACE_M) {
+      _boundaryCooldown = 2.5;
+      carDriver.recoverToCrumb?.();
+    }
     // Physics / scene X is mirrored relative to world/map X (worldGroup.scale.x = -1),
     // so convert back to world coordinates by negating X (same convention as free camera).
     viewerWx = -lp.lx;
@@ -905,6 +921,7 @@ function animate(time = 0) {
 
   // Blink red beacon lights on communication towers
   updateTowerBeacons(time / 1000);
+  boundaryHaze?.update(frameDt, scene.fog?.color);   // world-edge curtains: drift + day/night colour
 
   if (CONFIG.DEBUG_COLLIDERS) {
     updateDebugColliders(scene, world);

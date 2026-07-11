@@ -38,7 +38,7 @@ function shared(mat) { mat.userData = { sharedMaterial: true }; return mat; }
 let _beaconMat = null;
 let _beaconGeom = null;
 
-function getBeaconMat() {
+export function getBeaconMat() {
   if (!_beaconMat) {
     _beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     _beaconMat.userData.sharedMaterial = true;
@@ -46,7 +46,7 @@ function getBeaconMat() {
   return _beaconMat;
 }
 
-function getBeaconGeom() {
+export function getBeaconGeom() {
   if (!_beaconGeom) {
     _beaconGeom = new THREE.SphereGeometry(0.35, 6, 4);
     _beaconGeom.userData.sharedGeometry = true;
@@ -54,14 +54,13 @@ function getBeaconGeom() {
   return _beaconGeom;
 }
 
-/** Call from animation loop to blink tower beacons. timeSec = elapsed seconds. */
+/** Call from animation loop to pulse tower beacons. timeSec = elapsed seconds. */
 export function updateTowerBeacons(timeSec) {
   if (!_beaconMat) return;
-  // 1 second on, 1 second off
-  const on = Math.floor(timeSec * 1.0) % 2 === 0;
-  _beaconMat.opacity = on ? 1.0 : 0.0;
-  _beaconMat.transparent = !on;
-  _beaconMat.visible = on;
+  // Smooth glow-and-dim (user call — the hard 1s on/off read as a fault, not a beacon):
+  // never fully dark, ~2.6 s breathing cycle. Shared by comm towers + BOTH water-tower systems.
+  const k = 0.22 + 0.78 * (0.5 + 0.5 * Math.sin(timeSec * 2.4));
+  _beaconMat.color.setRGB(k, 0.04 * k, 0.04 * k);
 }
 
 // ─── Fuel station night illumination (bus-stop style: glow panel + radial ground pool) ──
@@ -455,6 +454,10 @@ function buildWaterTower() {
   const finial = new THREE.CylinderGeometry(R * 0.10, R * 0.26, H * 0.05, SEGS);
   finial.translate(0, shaftH + 0.6 + crownH + spireH + H * 0.025, 0);
   geos.push({ geo: finial, mat: 'darkGray' });
+  // Pulsing red aviation beacon on the finial (user call — matches the comm towers).
+  const beacon = new THREE.SphereGeometry(0.35, 6, 4);
+  beacon.translate(0, shaftH + 0.6 + crownH + spireH + H * 0.05 + 0.35, 0);
+  geos.push({ geo: beacon, mat: 'beacon' });
   return geos;
 }
 

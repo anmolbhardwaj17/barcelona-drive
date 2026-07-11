@@ -18,6 +18,7 @@ import {
 import { createVegPoolSet } from '../map/vegPools.js';
 import { bindAoScaleUniform, AO_FRAG_APPLY } from '../map/aoSampler.js';
 import { getNightEmissiveTexture, NIGHT_EMISSIVE_INTENSITY, HERO_EMISSIVE_INTENSITY } from '../map/buildingRenderer.js';
+import { getBeaconMat, getBeaconGeom } from '../map/urbanFeatureRenderer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -938,6 +939,20 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     _heroSpillMeshes.add(spillMesh);
     spillMesh.addEventListener('removed', () => _heroSpillMeshes.delete(spillMesh));
     meshes.push(spillMesh);
+  }
+
+  // ── Water-tower beacons — pulsing red lights on the finials (user call 2026-07-11) ──────────
+  // Shares the comm-tower beacon material, which updateTowerBeacons() breathes every frame.
+  if (workerResult.beaconPoints && workerResult.beaconPoints.length >= 3) {
+    const bp = workerResult.beaconPoints;
+    for (let i = 0; i + 2 < bp.length; i += 3) {
+      const beacon = new THREE.Mesh(getBeaconGeom(), getBeaconMat());
+      beacon.position.set(bp[i], bp[i + 1], bp[i + 2]);
+      beacon.frustumCulled = true;
+      beacon.userData.sharedGeometry = true;
+      beacon.userData.sharedMaterial = true;
+      meshes.push(beacon);
+    }
   }
 
   return meshes;

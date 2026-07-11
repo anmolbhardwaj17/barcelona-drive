@@ -2724,8 +2724,10 @@ let sharedSlabMaterial = null;
 function getSlabMaterial() {
   if (sharedSlabMaterial) return sharedSlabMaterial;
   // MeshBasicMaterial: unlit, always same color from any angle — guarantees the underside
-  // is visible when looking up, matching the guard rail colour.
-  sharedSlabMaterial = new THREE.MeshBasicMaterial({ color: 0x706b66, side: THREE.DoubleSide });
+  // is visible when looking up. Concrete viaduct grey: 0x706b66 read as "black border lines"
+  // alongside every elevated ramp in daylight (user report ×3 — this was the real culprit,
+  // after the edge strips and railways were ruled out).
+  sharedSlabMaterial = new THREE.MeshBasicMaterial({ color: 0xa9a49d, side: THREE.DoubleSide });
   return sharedSlabMaterial;
 }
 

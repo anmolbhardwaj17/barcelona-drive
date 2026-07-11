@@ -869,6 +869,7 @@ export function processBuildingsInWorker(data, config) {
   // Global vertex budget across ALL material groups (walls + roofs + details)
   let totalTileVerts = 0;
   const heroSpills = [];   // flat [x, baseY, z, radius, strength, ...] — building warm ground-glow decals
+  const beaconPoints = []; // flat [x, y, z, ...] — pulsing red beacons (water-tower finials)
   const GLOBAL_VERTEX_BUDGET = 100000;
 
   // ── Main building loop ──
@@ -971,6 +972,7 @@ export function processBuildingsInWorker(data, config) {
       applyTranslation(spire, cx, baseY + shaftH + 0.6 + crownH + spireH / 2, cy); put(spire, TERRA);
       const finial = createCylinderFull(wtR * 0.10, wtR * 0.26, WT_H * 0.05, SEGS);  // small blunt finial
       applyTranslation(finial, cx, baseY + shaftH + 0.6 + crownH + spireH + WT_H * 0.025, cy); put(finial, TRIM);
+      beaconPoints.push(cx, baseY + shaftH + 0.6 + crownH + spireH + WT_H * 0.05 + 0.35, cy);  // pulsing red beacon
       const wtMerged = mergeBufferSets(parts);
       if (wtMerged) {
         ensureUvs(wtMerged);
@@ -2099,5 +2101,6 @@ export function processBuildingsInWorker(data, config) {
     tankInstances: tankResult,
     pipeInstances: pipeResult,
     heroSpills: heroSpills.length ? new Float32Array(heroSpills) : null,
+    beaconPoints: beaconPoints.length ? new Float32Array(beaconPoints) : null,
   };
 }
