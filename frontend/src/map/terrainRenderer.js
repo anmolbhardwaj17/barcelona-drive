@@ -568,7 +568,9 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       // trenched carriageways (the long "dark border lines" hunt). Walls get ~35% of the AO.
       const svf = svfAt(vx, vz);
       if (Number.isFinite(svf)) {
-        const slopeK = 0.35 + 0.65 * Math.max(0, ny);   // ny = vertex normal Y (1 = flat ground)
+        // (read the normal directly — `ny` is declared further down this loop, TDZ trap)
+        const nyAO = normAttr ? normAttr.getY(i) : 1;
+        const slopeK = 0.35 + 0.65 * Math.max(0, nyAO);   // 1 = flat ground gets full AO
         aoAttr[i] = 1 - (1 - aoMultiplier(svf, AO_TERRAIN_STRENGTH)) * slopeK;
       } else {
         aoAttr[i] = 1;
