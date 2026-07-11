@@ -7,6 +7,7 @@ import { applyGroundLayer } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { worldToLatLon } from '../projection.js';
 import { CONFIG } from '../config.js';
+import { patchAoDarkening } from './aoSampler.js';
 
 const GREEN_OFFSET_Y = 0.01;
 
@@ -22,11 +23,14 @@ const TYPE_COLORS = {
 
 function getMaterialForType(type) {
   const color = TYPE_COLORS[type] ?? TYPE_COLORS.generic_green;
-  return applyGroundLayer(new THREE.MeshStandardMaterial({
+  // patchAoDarkening: greens sit ON TOP of the AO-darkened terrain — without their own aAO the
+  // Eixample verges/parks glow bright over shaded ground (the exact masking seen in the round-1
+  // AO screenshots). tileManager fills the attribute from the tile's aoGrid after mesh creation.
+  return patchAoDarkening(applyGroundLayer(new THREE.MeshStandardMaterial({
     color,
     roughness: 0.95,
     metalness: 0,
-  }), 'green');   // ground-layer table: above terrain, below roads/paint
+  }), 'green'));   // ground-layer table: above terrain, below roads/paint
 }
 
 /**

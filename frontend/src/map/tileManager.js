@@ -14,7 +14,7 @@ import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
-import { createAoSampler, AO_DISABLED } from './aoSampler.js';
+import { createAoSampler, AO_DISABLED, AO_GREEN_STRENGTH } from './aoSampler.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
@@ -1862,6 +1862,11 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Green areas — lightweight flat meshes, build in Phase 1 so they appear with terrain
     const greenMeshesP1 = !skipNonRoad && tileData.greens?.length ? createGreensMeshes(tileData.greens, getElevationAt) : [];
+    // Greens render ON TOP of the AO-darkened terrain — fill their aAO from the same grid or the
+    // Eixample verges/parks glow bright over shaded ground (round-1 AO screenshot finding).
+    if (_tileSvfAt && greenMeshesP1.length) {
+      await bakeRoadWash(greenMeshesP1, null, _perfYield, _tileSvfAt, AO_GREEN_STRENGTH);
+    }
     greenMeshesP1.forEach((m) => safeSceneAdd(scene, m));
     _perfMark('greens');
 

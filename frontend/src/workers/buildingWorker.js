@@ -212,8 +212,8 @@ function createFastElevation(elevation, offset) {
 // MUST MATCH frontend/src/map/aoSampler.js (workers are import-free): strength/gamma dials for the
 // svf → darkening curve, applied per facade vertex with a vertical fade (canyon floors dark, upper
 // storeys open to the sky).
-const AO_FACADE_STRENGTH = 0.42;
-const AO_GAMMA = 1.35;
+const AO_FACADE_STRENGTH = 0.50;
+const AO_GAMMA = 1.2;
 const AO_FACADE_FADE_M = 16;     // full AO at the base → none this many metres up
 const AO_SAMPLE_OUTSET = 2.5;    // sample the STREET next to the wall, not the wall itself —
                                  // the grid cell under a facade averages in the building interior (svf≈0)

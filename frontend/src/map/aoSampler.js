@@ -20,11 +20,15 @@ export const AO_DISABLED = typeof location !== 'undefined'
   && new URLSearchParams(location.search).get('ao') === 'off';
 
 // ── Strength dials (tune from screenshots; higher = darker canyons) ─────────
-export const AO_TERRAIN_STRENGTH = 0.45;  // ground between buildings
-export const AO_ROAD_STRENGTH = 0.40;     // asphalt/sidewalk/curbs (slightly lighter than raw ground —
+// Round 2 (2026-07-11 screenshots): round-1 dials read almost invisible under the rally grade's
+// brightening — raised strengths + lowered gamma so typical Eixample canyons (svf ≈ 0.5) darken
+// ~20-25% while plazas (svf ≈ 0.9) stay within ~3% of untouched.
+export const AO_TERRAIN_STRENGTH = 0.55;  // ground between buildings
+export const AO_ROAD_STRENGTH = 0.52;     // asphalt/sidewalk/curbs (slightly lighter than raw ground —
                                           //  streets receive more bounce than dirt in reality)
-export const AO_FACADE_STRENGTH = 0.42;   // building walls at street level
-const AO_GAMMA = 1.35;                    // >1 = keep mids bright, darken only genuinely enclosed spots
+export const AO_FACADE_STRENGTH = 0.50;   // building walls at street level (MIRRORED in buildingWorker.js)
+export const AO_GREEN_STRENGTH = 0.55;    // park/verge polygons — must track terrain or verges glow
+const AO_GAMMA = 1.2;                     // >1 = keep mids bright, darken only genuinely enclosed spots
 
 /**
  * @param {{resolution:number, data:Uint8Array}|null} aoGrid  parsed tile aoGrid (null on pre-v9 tiles)
@@ -74,4 +78,22 @@ export function aoMultiplier(svf, strength) {
  */
 export function aoDarkening(svf, strength) {
   return strength * Math.pow(1 - svf, AO_GAMMA);
+}
+
+/**
+ * Patch any built-in material to consume the per-vertex `aAO` DARKENING attribute (default 0 →
+ * untouched). Same shader fragment as roadRenderer's patchRoadWash AO half, for materials that
+ * don't need the night-wash machinery (e.g. greens). Identical patch source on every call → three
+ * shares one compiled program across all patched materials of a type.
+ */
+export function patchAoDarkening(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoDark = aAO;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vAoDark;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= (1.0 - vAoDark);');
+  };
+  return mat;
 }

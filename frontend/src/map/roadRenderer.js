@@ -430,7 +430,7 @@ export function washAt(grid, x, z) {
   return best < WASH_R2 ? 1 - Math.sqrt(best) / WASH_RANGE : 0;
 }
 
-export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt) {
+export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt, aoStrength = AO_ROAD_STRENGTH) {
   const grid = buildings?.length ? buildWashGrid(buildings) : null;
   if (!grid && !svfAt) return;
 
@@ -449,7 +449,7 @@ export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt) {
       }
       if (svfAt) {
         // Baked sky-visibility AO (v9) — darkening amount, 0 = open sky (see aoSampler).
-        const d = aoDarkening(svfAt(x, z), AO_ROAD_STRENGTH);
+        const d = aoDarkening(svfAt(x, z), aoStrength);
         if (d > 0.004) { ao[i] = d; anyAo = true; }
       }
       // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts
