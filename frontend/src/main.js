@@ -595,10 +595,20 @@ spawnTileReady.finally(() => {
               if (su?.uHorizon && su?.uMid && su?.uZenith) {
                 _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone(),
                               f: scene.fog ? scene.fog.color.clone() : null };
-                su.uHorizon.value.set(0x9fd0f2);
-                su.uMid.value.set(0x54a4e8);
-                su.uZenith.value.set(0x2b78d2);
-                if (scene.fog) scene.fog.color.set(0x9fd0f2);   // haze reads as sky-blue, not grey
+                // NIGHT-AWARE: the day sky-blue haze against a near-black night sky read as a
+                // frosted-glass band cutting the skyline. At night the aerial fades into deep
+                // navy instead — buildings dissolve into darkness, lit windows punch through.
+                if (envToggle?.isNight?.()) {
+                  su.uHorizon.value.set(0x16263f);
+                  su.uMid.value.set(0x0e1a30);
+                  su.uZenith.value.set(0x070f1f);
+                  if (scene.fog) scene.fog.color.set(0x131f36);
+                } else {
+                  su.uHorizon.value.set(0x9fd0f2);
+                  su.uMid.value.set(0x54a4e8);
+                  su.uZenith.value.set(0x2b78d2);
+                  if (scene.fog) scene.fog.color.set(0x9fd0f2);   // haze reads as sky-blue, not grey
+                }
               }
             } catch {}
           }
@@ -755,7 +765,13 @@ function animate(time = 0) {
       // landing, so the transition reads sky→ground instead of a grey veil.
       if (scene.fog) {
         scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.006;
-        scene.fog.color.setHex(0x62b4f0).lerp(_titleFogLanded, _ease);
+        // Night-aware sweep: day falls sunny-blue → light horizon haze; night falls deep navy →
+        // the pre-title night fog colour (captured in _titleSky.f), so the descent stays nocturnal.
+        if (envToggle?.isNight?.()) {
+          scene.fog.color.setHex(0x131f36).lerp(_titleSky?.f || _titleFogLanded, _ease);
+        } else {
+          scene.fog.color.setHex(0x62b4f0).lerp(_titleFogLanded, _ease);
+        }
       }
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
