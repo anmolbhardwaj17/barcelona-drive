@@ -109,17 +109,17 @@ window._clearTileCache = clearTileCache; // dev: call after re-bake to flush Ind
 // Dev: _identify() then CLICK any surface — logs what mesh/material it is (mystery-geometry killer:
 // four look-alike "dark band" systems later, naming the thing beats guessing).
 window._identify = () => {
-  console.log('[identify] click on the thing…');
+  console.warn('[identify] click on the thing…');
   const rc = new THREE.Raycaster();
   const onClick = (e) => {
     window.removeEventListener('click', onClick, true);
     const mv = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     rc.setFromCamera(mv, camera);
     const hits = rc.intersectObjects(scene.children, true).slice(0, 6);
-    if (!hits.length) { console.log('[identify] nothing hit'); return; }
+    if (!hits.length) { console.warn('[identify] nothing hit'); return; }
     for (const h of hits) {
       const o = h.object;
-      console.log('[identify]', o.type,
+      console.warn('[identify]', o.type,
         '| userData:', JSON.stringify(o.userData || {}),
         '| mat:', o.material?.type || '-', o.material?.color ? '#' + o.material.color.getHexString() : '',
         o.material?.map ? '(textured)' : '',
