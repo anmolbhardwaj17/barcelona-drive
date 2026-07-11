@@ -119,11 +119,16 @@ window._identify = () => {
     if (!hits.length) { console.warn('[identify] nothing hit'); return; }
     for (const h of hits) {
       const o = h.object;
-      console.warn('[identify]', o.type,
+      o.geometry?.computeBoundingSphere?.();
+      console.warn('[identify]', o.type, o.name || '',
         '| userData:', JSON.stringify(o.userData || {}),
+        '| parent:', o.parent?.name || o.parent?.type || '-', JSON.stringify(o.parent?.userData || {}),
         '| mat:', o.material?.type || '-', o.material?.color ? '#' + o.material.color.getHexString() : '',
-        o.material?.map ? '(textured)' : '',
-        '| renderOrder', o.renderOrder, '| dist', h.distance.toFixed(1));
+        o.material?.map ? '(textured)' : '', o.material?.vertexColors ? '(vtxcolor)' : '',
+        '| verts', o.geometry?.attributes?.position?.count ?? '-',
+        '| radius', o.geometry?.boundingSphere ? o.geometry.boundingSphere.radius.toFixed(0) : '-',
+        '| meshPos', o.position.x.toFixed(0) + ',' + o.position.y.toFixed(0) + ',' + o.position.z.toFixed(0),
+        '| dist', h.distance.toFixed(1));
     }
   };
   window.addEventListener('click', onClick, true);
