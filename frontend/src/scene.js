@@ -429,19 +429,24 @@ function addClouds(scene, spawnX, spawnZ) {
   // instance matrix's column lengths (w/h live in the matrix scale — no extra scale attribute needed).
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aCloudTile;\nvarying float vCloudTile;')
+      .replace('#include <common>', '#include <common>\nattribute float aCloudTile;\nvarying float vCloudTile;\nvarying float vCloudDist;')
       .replace('#include <project_vertex>', [
         'vCloudTile = aCloudTile;',
         'vec2 iScale = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));',
         'vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);',
+        'vCloudDist = length(mvPosition.xyz);',
         'mvPosition.xy += position.xy * iScale;',
         'gl_Position = projectionMatrix * mvPosition;',
       ].join('\n'));
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vCloudTile;')
+      .replace('#include <common>', '#include <common>\nvarying float vCloudTile;\nvarying float vCloudDist;')
       .replace('#include <map_fragment>', [
         `vec2 cloudUv = (vMapUv + vec2(mod(vCloudTile, ${COLS}.0), floor(vCloudTile / ${COLS}.0))) / vec2(${COLS}.0, ${ROWS}.0);`,
         'diffuseColor *= texture2D( map, cloudUv );',
+        // Proximity fade: the rings re-center on the viewer, so photo/fly mode can end up INSIDE
+        // one — a 300m quad at point-blank was the screen-filling "white blob" (user reports ×4:
+        // moon, fog, curtains all ruled out first). Fully gone within 350m, untouched past 850m.
+        'diffuseColor.a *= smoothstep(350.0, 850.0, vCloudDist);',
       ].join('\n'));
   };
   _cloudMaterials = [mat];   // setCloudNightMode tints through this list
