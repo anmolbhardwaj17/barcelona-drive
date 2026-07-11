@@ -2491,7 +2491,11 @@ function buildSidewalkAndEdgeMeshes(roads, options) {
       }
     }
 
-    if (CONFIG.ENABLE_ROAD_EDGE_DETAIL) {
+    if (CONFIG.ENABLE_ROAD_EDGE_DETAIL
+        // NO edge strips on motorways/trunks (user call 2026-07-11): the dark bands flanking the
+        // Ronda Litoral carriageways read as broad black lines, not kerb detail. Highways keep
+        // clean asphalt edges; city streets keep the strip.
+        && type !== 'motorway' && type !== 'motorway_link' && type !== 'trunk' && type !== 'trunk_link') {
       const leftEdge = getOffsetPolyline(pts, -half);
       const rightEdge = getOffsetPolyline(pts, half);
       const yLeft = roadHeights || EDGE_STRIP_Y_OFFSET;

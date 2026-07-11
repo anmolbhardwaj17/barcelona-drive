@@ -39,6 +39,11 @@ function parseLevelsTag(tags) {
 
 /** Normalize building type to schema enum. */
 function normalizeBuildingType(tags) {
+  // ── Priority 0: water towers (bespoke Torre-de-les-Aigües geometry in the frontend worker) ──
+  const manMade = getTag(tags, 'man_made', '').toLowerCase();
+  const buildingTag = getTag(tags, 'building', '').toLowerCase();
+  if (manMade === 'water_tower' || buildingTag === 'water_tower') return 'water_tower';
+
   // ── Priority 1: amenity / tourism / leisure / shop tags (most specific) ──
   const amenity = getTag(tags, 'amenity', '').toLowerCase();
   if (amenity === 'hospital' || amenity === 'clinic' || amenity === 'doctors') return 'hospital';

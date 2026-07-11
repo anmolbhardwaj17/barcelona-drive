@@ -88,7 +88,9 @@ const FACADE_PALETTES = {
     0xC8A078, // terracotta/brick accent (Modernisme, rare)
   ],
   commercial_glass: [
-    0xAEC4CE, 0xBCCFD6, 0xC2D2D2, 0xA8C0BE, 0xB6CBC8,
+    // Near-white: the full-glass mosaic TEXTURE carries the colour (Agbar blues/teals + warm
+    // flecks) — a saturated tint here would mud it. Slight cool variation only.
+    0xEDF1F4, 0xE6ECF0, 0xF0F3F5, 0xE2EAEF, 0xEAF0F2,
   ],
 };
 // Barcelona redesign flags (mirror buildingRenderer.js).
@@ -883,8 +885,50 @@ export function processBuildingsInWorker(data, config) {
     let baseY = groundElev * vertExag + BUILDING_Z_OFFSET;
 
     let category = getBuildingCategory(b, roads, cx, cy);
-    // Barcelona: NO height-based auto-glass (was the dark-tower cause). Glass only via explicit tags.
+    // (Height-based glass RETURNED 2026-07-11 by user call — ≥55m towers are commercial_glass with
+    // the full-glass mosaic texture; the old "dark tower" failure was the saturated palette, since
+    // replaced by near-white tints. See getBuildingCategory.)
     const isCommercial = (category === 'commercial' || category === 'commercial_glass');
+
+    // ── WATER TOWER — bespoke Torre-de-les-Aigües silhouette (user ref 2026-07-11) ─────────────
+    // Brick shaft → overhanging cream colonnade drum → terracotta conical spire. All vertex-
+    // coloured into the map-less ROOF bucket (window textures would smear on a cylinder shaft).
+    if (b.type === 'water_tower' && b.footprint?.length >= 3) {
+      let wtR = 0;
+      for (const p of b.footprint) wtR = Math.max(wtR, Math.hypot(p.x - cx, p.y - cy));
+      wtR = Math.max(2.2, Math.min(wtR, 6));
+      const WT_H = Math.max(18, Math.min(Number.isFinite(b.height) && b.height >= 12 ? b.height : 30, 45));
+      const SEGS = 12;
+      const BRICK = srgbHexToLinear(0x8F5A42), CREAM = srgbHexToLinear(0xD9CDB4);
+      const TRIM = srgbHexToLinear(0x6B4A38), TERRA = srgbHexToLinear(0x91503A);
+      const parts = [];
+      const put = (geom, tint) => { applyVertexColorToBuffers(geom, tint); parts.push(geom); };
+      const shaftH = WT_H * 0.64;
+      const shaft = createCylinderFull(wtR * 0.80, wtR * 0.95, shaftH, SEGS);
+      applyTranslation(shaft, cx, baseY + shaftH / 2, cy); put(shaft, BRICK);
+      const trimBand = createCylinderFull(wtR * 1.30, wtR * 1.30, 0.6, SEGS);   // dark ring under the drum
+      applyTranslation(trimBand, cx, baseY + shaftH + 0.3, cy); put(trimBand, TRIM);
+      const crownH = WT_H * 0.20;
+      const crown = createCylinderFull(wtR * 1.26, wtR * 1.26, crownH, SEGS);   // overhanging colonnade drum
+      applyTranslation(crown, cx, baseY + shaftH + 0.6 + crownH / 2, cy); put(crown, CREAM);
+      const spireH = WT_H * 0.26;
+      const spire = createCylinderFull(0.05, wtR * 1.16, spireH, SEGS);         // conical cap to a point
+      applyTranslation(spire, cx, baseY + shaftH + 0.6 + crownH + spireH / 2, cy); put(spire, TERRA);
+      const wtMerged = mergeBufferSets(parts);
+      if (wtMerged) {
+        ensureUvs(wtMerged);
+        const wtVerts = wtMerged.positions.length / 3;
+        if (totalTileVerts + wtVerts <= GLOBAL_VERTEX_BUDGET) {
+          const roofKey = getRoofMaterialKey();
+          if (!roofByMaterial.has(roofKey)) roofByMaterial.set(roofKey, { geoms: [], vertCount: 0 });
+          const rEntry = roofByMaterial.get(roofKey);
+          rEntry.geoms.push(wtMerged);
+          rEntry.vertCount += wtVerts;
+          totalTileVerts += wtVerts;
+        }
+      }
+      continue;   // bespoke silhouette replaces the standard wall/roof path entirely
+    }
 
     // ── Residential setback ── Barcelona: OFF (Eixample blocks front the pavement, no driveway).
     let originalFootprint = null;

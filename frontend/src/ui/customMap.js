@@ -12,7 +12,7 @@
  */
 
 import { latLonToWorld } from '../projection.js';
-import { seaPolygonWorld } from '../map/coastline.js';
+import { seaPolygonWorld, coastVersion } from '../map/coastline.js';
 
 // Barcelona neighbourhoods/districts → bold overview labels (GTA-style), shown when zoomed out. Approx
 // centres; drawn wherever they fall, even over not-yet-loaded tiles, so the overview map reads as a city.
@@ -43,9 +43,10 @@ function seaLabelPos() {
   return _seaLabelPos;
 }
 
-let _sea = null, _seaBbox = null;
+let _sea = null, _seaBbox = null, _seaVer = -1;
 function seaPolygon() {
-  if (_sea) return _sea;
+  if (_sea && _seaVer === coastVersion()) return _sea;
+  _seaVer = coastVersion();   // rebuilds when the OSM coastline replaces the hand trace
   _sea = seaPolygonWorld().map((p) => ({ x: p.x, y: p.z }));   // map convention: y = world Z
   _seaBbox = [Infinity, Infinity, -Infinity, -Infinity];
   for (const p of _sea) { if (p.x < _seaBbox[0]) _seaBbox[0] = p.x; if (p.y < _seaBbox[1]) _seaBbox[1] = p.y; if (p.x > _seaBbox[2]) _seaBbox[2] = p.x; if (p.y > _seaBbox[3]) _seaBbox[3] = p.y; }

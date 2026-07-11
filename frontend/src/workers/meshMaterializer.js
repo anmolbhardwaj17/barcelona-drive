@@ -176,46 +176,44 @@ function getWindowTexture(category) {
   const isCommercial  = (category === 'commercial');
   const isGlass       = (category === 'commercial_glass');
 
-  // ── Glass curtain wall ──
+  // ── Glass curtain wall — FULL-GLASS mosaic (Torre Agbar reference, user call 2026-07-11) ──
+  // No visible wall at all: a dense grid of small panes covering the whole facade, cool
+  // sky-reflecting blues/teals with occasional warm amber/red accent panes and rare dark ones,
+  // separated by thin near-black mullions. Reads as a shimmering glazed skin, not masonry.
   if (isGlass) {
-    const groundH = Math.round(marginB);
-    ctx.fillStyle = '#1A2830';
-    ctx.fillRect(0, H - groundH, W, groundH);
-    const lobbyW = Math.round(4.0 * pxW);
-    const lobbyH = Math.round(groundH * 0.85);
-    const lobbyX = Math.round((W - lobbyW) / 2);
-    const lobbyY = H - groundH + Math.round(groundH * 0.1);
-    ctx.fillStyle = '#142028';
-    ctx.fillRect(lobbyX, lobbyY, lobbyW, lobbyH);
-    ctx.fillStyle = '#5A6A78';
-    ctx.fillRect(lobbyX, lobbyY, lobbyW, 1);
-    ctx.fillRect(lobbyX, lobbyY + lobbyH - 1, lobbyW, 1);
-    ctx.fillRect(lobbyX, lobbyY, 1, lobbyH);
-    ctx.fillRect(lobbyX + lobbyW - 1, lobbyY, 1, lobbyH);
-
-    for (let y = H - marginB - winH; y >= 0; y -= periodV) {
-      for (let x = marginL; x + winW <= W; x += periodH) {
+    ctx.fillStyle = '#10181e';                     // mullion grid shows through pane gaps
+    ctx.fillRect(0, 0, W, H);
+    const paneW = Math.max(4, Math.round(1.05 * pxW));
+    const paneH = Math.max(4, Math.round(1.15 * pxH));
+    const gap = Math.max(1, Math.round(0.06 * pxW));
+    for (let y = 0; y + paneH <= H + paneH; y += paneH + gap) {
+      for (let x = 0; x + paneW <= W + paneW; x += paneW + gap) {
         const v = rnd();
-        const base = v < 0.2 ? 95 : (v < 0.5 ? 135 : 165); // Barcelona: light sky-reflecting glass
-        const r = base + Math.round(rnd() * 10);
-        const g = base + 12 + Math.round(rnd() * 10);
-        const b2 = base + 22 + Math.round(rnd() * 12);
+        let r, g, b2;
+        if (v < 0.055) {                            // warm accent pane (Agbar's amber/red flecks)
+          const t = rnd();
+          r = 185 + Math.round(t * 55); g = 95 + Math.round(t * 45); b2 = 45 + Math.round(t * 25);
+        } else if (v < 0.13) {                      // dark pane (blinds / unlit depth)
+          r = 40 + Math.round(rnd() * 18); g = 55 + Math.round(rnd() * 18); b2 = 70 + Math.round(rnd() * 20);
+        } else {                                    // cool glass: steel-blue → teal → pale cyan
+          const t = rnd();
+          r = 95 + Math.round(t * 55);
+          g = 130 + Math.round(t * 55);
+          b2 = 155 + Math.round(t * 55);
+        }
         ctx.fillStyle = `rgb(${r},${g},${b2})`;
-        ctx.fillRect(x, y, winW, winH);
-        ctx.fillStyle = 'rgba(140,170,200,0.06)';
-        ctx.fillRect(x + 1, y + 1, winW - 2, Math.round(winH * 0.3));
-        ctx.fillStyle = '#5A6A78';
-        ctx.fillRect(x, y, winW, 1);
-        ctx.fillRect(x, y + winH - 1, winW, 1);
-        ctx.fillRect(x, y, 1, winH);
-        ctx.fillRect(x + winW - 1, y, 1, winH);
+        ctx.fillRect(x, y, Math.min(paneW, W - x), Math.min(paneH, H - y));
+        // sky-reflection sheen on the top third of each pane
+        ctx.fillStyle = 'rgba(200,225,245,0.10)';
+        ctx.fillRect(x, y, Math.min(paneW, W - x), Math.max(1, Math.round(paneH * 0.3)));
       }
-      const mullionY = y + winH;
-      ctx.fillStyle = '#4A5A68';
-      ctx.fillRect(0, mullionY, W, Math.max(2, Math.round(0.08 * pxH)));
     }
-    ctx.fillStyle = '#3A4A58';
-    ctx.fillRect(0, 0, W, Math.max(3, Math.round(0.15 * pxH)));
+    // Ground floor: taller dark lobby glazing band
+    const groundH = Math.round(marginB * 0.8);
+    ctx.fillStyle = '#16222b';
+    ctx.fillRect(0, H - groundH, W, groundH);
+    ctx.fillStyle = '#3c4c58';
+    for (let x = 0; x < W; x += Math.round(2.2 * pxW)) ctx.fillRect(x, H - groundH, 1, groundH);
   }
 
   // ── Commercial: shopfront + signboard ──

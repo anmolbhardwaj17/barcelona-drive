@@ -598,9 +598,9 @@ export function getNightEmissiveTexture(category, hero = false) {
       const oy = gy * BASE;
       for (let y = oy + BASE - marginB - winH; y >= oy; y -= periodV) {
         for (let x = ox + marginL; x + winW <= ox + BASE; x += periodH) {
-          // ~20% of windows lit (hero buildings: half on — dense enough to read as THE lit tower
-          // from afar without becoming a blazing wall at street level).
-          if (rnd() > (hero ? 0.5 : 0.20)) continue;
+          // ~20% of windows lit (hero buildings: about a third on — dense enough to read as THE
+          // lit tower from afar; 0.5 + bloom read as a solid blazing yellow wall — user report).
+          if (rnd() > (hero ? 0.32 : 0.20)) continue;
 
           const warmth = rnd();
           // Colour mix leans WARM (the night look is warm amber vs blue); heroes are all-warm.
@@ -638,7 +638,9 @@ export function getNightEmissiveTexture(category, hero = false) {
 
 let _buildingNightMode = false;
 export const NIGHT_EMISSIVE_INTENSITY = 1.5;  // window-glow strength at night (crisp squares, soft bloom edge)
-export const HERO_EMISSIVE_INTENSITY  = 1.7;  // hero towers read denser-lit, NOT brighter-per-window (2.4 bloomed into yellow diamonds)
+export const HERO_EMISSIVE_INTENSITY  = 1.45; // hero towers read denser-lit, NOT brighter-per-window (2.4 bloomed
+                                              // into yellow diamonds; 1.7 × 50% density still read as a glowing
+                                              // wall on big towers — density is now 0.32, intensity trimmed too)
 
 /**
  * Toggle building window glow for night mode.

@@ -13,7 +13,7 @@ const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
 import { isRallyStyle } from '../rallyStyle.js';
 import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH, bindAoScaleUniform } from './aoSampler.js';
-import { isSeaAt, shoreDistM, seaPolygonWorld } from './coastline.js';
+import { coastSample, seaPolygonWorld } from './coastline.js';
 
 /** No-op stubs kept for API compatibility. */
 export function loadTerrainGroundTextures() { return Promise.resolve([]); }
@@ -677,14 +677,21 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       const raw = useBaked ? y : (y / vertExag + offset);
       const dSea = distRC ? distRC(vx, vz) : 255;
       const inBeach = inBeachPoly(vx, vz);
-      const shoreD = seaTileGate ? shoreDistM(vx, vz) : Infinity;
-      if ((seaTileGate && !inBeach && isSeaAt(vx, vz)) || dSea === 0 || raw <= SEA_RAW) {
+      const cs = seaTileGate ? coastSample(vx, vz) : null;
+      const shoreD = cs ? cs.dist : Infinity;
+      if ((cs && cs.sea && !inBeach) || dSea === 0 || raw <= SEA_RAW) {
         // Open sea — deep desaturated Mediterranean blue (mid-dark: the grade brightens), with a
         // whisper of large-scale variation so it doesn't read as one flat poster fill.
         const sn = terrainNoise(vx, vz, 0.012, 13.0) * 0.03;
-        r = 0.050 + sn * 0.5;
-        g = 0.165 + sn;
-        b = 0.270 + sn;
+        let sr = 0.050 + sn * 0.5;
+        let sg = 0.165 + sn;
+        let sb = 0.270 + sn;
+        // Smooth waterline (user report: hard per-vertex cut read as a sawtooth): the first ~10 m
+        // of water blends from wet sand into full sea instead of switching in one vertex.
+        const t = Math.min(1, shoreD / 10);
+        r = 0.400 * (1 - t) + sr * t;
+        g = 0.345 * (1 - t) + sg * t;
+        b = 0.245 * (1 - t) + sb * t;
         coastAttr[i] = 1;
       } else if (inBeach || shoreD <= 20 || (raw < 2.2 && dSea <= 4)) {
         // Dry sand, blending toward wet sand as it approaches the waterline. Triggers: an OSM

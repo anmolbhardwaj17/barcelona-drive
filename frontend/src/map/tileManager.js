@@ -15,6 +15,7 @@ import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
 import { createAoSampler, AO_DISABLED, AO_GREEN_STRENGTH } from './aoSampler.js';
+import { ingestCoastline } from './coastline.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
@@ -1400,6 +1401,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     const { roads, buildings, railways, vegetation, water, greens, elevation, roadOnlyMode, junctions } = data;
     const skipNonRoad = CONFIG.ROAD_ONLY_DEBUG || roadOnlyMode;
+    // Upgrade the coastline to the REAL OSM shore (tiles carry natural=coastline polylines) BEFORE
+    // any terrain paints — first tile wins, no-op afterwards. See coastline.js.
+    try { ingestCoastline(water); } catch {}
     let getElevationAt = null;
     let terrainMesh = null;
     let terrainMinY = null;
