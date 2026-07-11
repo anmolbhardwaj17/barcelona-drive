@@ -569,9 +569,18 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       const svf = svfAt(vx, vz);
       if (Number.isFinite(svf)) {
         // (read the normal directly — `ny` is declared further down this loop, TDZ trap)
-        const nyAO = normAttr ? normAttr.getY(i) : 1;
+        let nyAO = normAttr ? normAttr.getY(i) : 1;
+        // Baked sea tiles carry ONE EDGE ROW of NaN normals (degenerate flat triangles at the
+        // seam). Math.max(0, NaN) = NaN → poisoned aAO → NaN renders WHITE: this was the giant
+        // white wall over the sea (_findWhiteTiles: aAO NaN×128 on 4 tiles = one grid row each).
+        // Sanitize the normal itself too — NaN normals also corrupt Lambert lighting.
+        if (!Number.isFinite(nyAO)) {
+          nyAO = 1;
+          if (normAttr) { normAttr.setXYZ(i, 0, 1, 0); normAttr.needsUpdate = true; }
+        }
         const slopeK = 0.35 + 0.65 * Math.max(0, nyAO);   // 1 = flat ground gets full AO
-        aoAttr[i] = 1 - (1 - aoMultiplier(svf, AO_TERRAIN_STRENGTH)) * slopeK;
+        const v = 1 - (1 - aoMultiplier(svf, AO_TERRAIN_STRENGTH)) * slopeK;
+        aoAttr[i] = Number.isFinite(v) ? v : 1;           // belt & braces — NaN must never reach the GPU
       } else {
         aoAttr[i] = 1;
       }
