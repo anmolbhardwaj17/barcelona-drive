@@ -893,10 +893,18 @@ export function processBuildingsInWorker(data, config) {
     // ── WATER TOWER — bespoke Torre-de-les-Aigües silhouette (user ref 2026-07-11) ─────────────
     // Brick shaft → overhanging cream colonnade drum → terracotta conical spire. All vertex-
     // coloured into the map-less ROOF bucket (window textures would smear on a cylinder shaft).
-    if (b.type === 'water_tower' && b.footprint?.length >= 3) {
-      let wtR = 0;
-      for (const p of b.footprint) wtR = Math.max(wtR, Math.hypot(p.x - cx, p.y - cy));
-      wtR = Math.max(2.2, Math.min(wtR, 6));
+    // Triggers: the water_tower type (man_made/building tag — only 2 in the whole bake), OR the
+    // shape heuristic: tall, thin, tower-proportioned generic/industrial building (Barceloneta's
+    // beach towers are untagged `generic` in OSM — measured). Churches keep their bell towers.
+    let _wtFpR = 0;
+    if (b.footprint?.length >= 3) {
+      for (const p of b.footprint) _wtFpR = Math.max(_wtFpR, Math.hypot(p.x - cx, p.y - cy));
+    }
+    const _wtByShape = (b.type === 'generic' || b.type === 'industrial' || b.type == null)
+      && _wtFpR > 0 && _wtFpR <= 5.5
+      && Number.isFinite(b.height) && b.height >= 16 && b.height / (2 * _wtFpR) >= 2;
+    if ((b.type === 'water_tower' || _wtByShape) && b.footprint?.length >= 3) {
+      const wtR = Math.max(2.2, Math.min(_wtFpR, 6));
       const WT_H = Math.max(18, Math.min(Number.isFinite(b.height) && b.height >= 12 ? b.height : 30, 45));
       const SEGS = 12;
       const BRICK = srgbHexToLinear(0x8F5A42), CREAM = srgbHexToLinear(0xD9CDB4);

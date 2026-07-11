@@ -1992,7 +1992,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
     }
 
-    const railwayMeshes = await mergeMeshesByMaterial(skipNonRoad ? [] : createRailwayMeshes(railways, options), yieldToMain);
+    // CONFIG.ENABLE_RAILWAYS existed but was never checked here — the dark ballast ribbons along
+    // the Rondas (the coastal rail corridor) read as "black border lines" (user, 2026-07-11).
+    // Trams below are unaffected (embedded street rails, subtle).
+    const railwayMeshes = await mergeMeshesByMaterial((skipNonRoad || !CONFIG.ENABLE_RAILWAYS) ? [] : createRailwayMeshes(railways, options), yieldToMain);
     railwayMeshes.forEach((m) => safeSceneAdd(scene, m));
     entry.railwayMeshes = railwayMeshes;
 
