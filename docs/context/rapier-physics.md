@@ -1,9 +1,11 @@
-# Rapier Physics (opt-in) — WASM physics engine behind `?physics=rapier`
+# Rapier Physics — the DEFAULT engine (escape hatch: `?physics=cannon`)
 
-**Status (2026-07-10):** complete and measured faster than cannon-es (step ~1.0ms vs ~2.3ms, alloc
-~0.12MB/frame vs ~0.32, worst frame 12ms, min FPS 56). Cannon-es remains the DEFAULT engine; Rapier is
-opt-in via the URL flag until it has soak time. Cannon also remains the *collider description language* —
-tileManager keeps building `CANNON.Body` objects unchanged in both modes.
+**Status (2026-07-11):** Rapier is now the DEFAULT physics engine. Measured faster than cannon-es (step
+~1.0ms vs ~2.3ms, alloc ~0.12MB/frame vs ~0.32, worst frame 12ms, min FPS 56). Collision-sound events are
+wired (chassis contact-force events → cannon-shaped `collide` dispatch). `?physics=cannon` forces the old
+engine for one release as an escape hatch; if Rapier WASM init fails, cannon is the automatic fallback.
+Cannon remains the *collider description language* — tileManager keeps building `CANNON.Body` objects
+unchanged in both modes.
 
 ## Architecture
 
@@ -38,9 +40,17 @@ tileManager keeps building `CANNON.Body` objects unchanged in both modes.
 - `frontend/scripts/rapier-step-experiment.mjs` — Node repro that isolates step-cost drivers (collider
   count × heightfield AABB pairing). `?bench=physics` — in-browser cannon-vs-Rapier micro-bench.
 
-## Flip-to-default checklist (when ready)
+## Collision sound (cannon `collide` compat)
 
-1. Soak test `?physics=rapier` across modes (taxi/delivery/police, tunnels, Montjuïc slopes, recover key).
-2. Wire collision sound events (chassis `addEventListener('collide')` is currently a no-op in Rapier mode —
-   Rapier uses an EventQueue instead; see carDriver's collide listener).
-3. Default the flag, keep `?physics=cannon` as escape hatch for a release, then delete the cannon step path.
+The chassis collider has `ActiveEvents.CONTACT_FORCE_EVENTS` with a solver-side threshold prefilter
+(`CHASSIS_MASS * 1.5 * 60` ≈ 1.5 m/s closing speed). `step()` passes an `EventQueue` to `world.step()` and
+drains contact-force events, recovering Δv ≈ maxForce·dt/m and dispatching a cannon-shaped event
+(`{contact:{getImpactVelocityAlongNormal}}`) to `chassisBody.addEventListener('collide')` listeners — so
+carDriver's crash-sound listener (2.6 m/s cutoff + 110ms debounce) works unchanged on both engines.
+
+## Flip-to-default — DONE (2026-07-11)
+
+1. ~~Soak test across modes~~ ✅ 2. ~~Wire collision sound events~~ ✅ (see above)
+3. ~~Default the flag~~ ✅ — `main.js` enables Rapier unless `?physics=cannon`.
+   **Remaining:** after a release of soak with no regressions, delete the cannon step path
+   (carPhysics.js stays as the tuning reference until then).

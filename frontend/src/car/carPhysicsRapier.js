@@ -1,8 +1,8 @@
 /**
  * carPhysicsRapier — the car on Rapier (Rust/WASM) physics, exposing a cannon-es-compatible interface
  * (chassisBody {position,quaternion,velocity,angularVelocity} + vehicle.wheelInfos[].isInContact + the same
- * getters) so carDriver / carModel / carCamera work UNCHANGED. Enabled via ?physics=rapier; cannon stays
- * the default until this matches it.
+ * getters) so carDriver / carModel / carCamera work UNCHANGED. Rapier is the DEFAULT engine;
+ * ?physics=cannon is the escape hatch back to cannon-es.
  *
  * This is a FIRST-PASS drive model built on Rapier's DynamicRayCastVehicleController — it drives, but the
  * feel (grip, drift, suspension) still needs a tuning pass against the polished cannon car.
@@ -49,10 +49,15 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   );
   chassis.setRotation({ x: 0, y: Math.sin((heading ?? Math.PI) / 2), z: 0, w: Math.cos((heading ?? Math.PI) / 2) }, true);
   // Box offset UP from the low origin so it sits at body height (cannon CHASSIS_BOX_OFFSET_Y).
-  world.createCollider(
+  const chassisCollider = world.createCollider(
     RAPIER.ColliderDesc.cuboid(CH.x, CH.y, CH.z).setTranslation(0, BOX_OFFSET_Y, 0).setFriction(0.5).setRestitution(0.05),
     chassis,
   );
+  // Contact-force events feed the crash sound (cannon's 'collide' equivalent). The threshold prefilters
+  // in Rapier's solver so quiet frames drain an empty queue — set for ~1.5 m/s closing speed
+  // (force ≈ m·Δv/dt); carDriver applies its own 2.6 m/s gameplay cutoff on top.
+  chassisCollider.setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS);
+  chassisCollider.setContactForceEventThreshold(CHASSIS_MASS * 1.5 * 60);
 
   // ── Raycast vehicle controller + 4 wheels ──────────────────────────────────
   const vc = world.createVehicleController(chassis);
@@ -97,8 +102,20 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   _cur.qx = _prev.qx; _cur.qy = _prev.qy; _cur.qz = _prev.qz; _cur.qw = _prev.qw;
   _pos.x = _cur.px; _pos.y = _cur.py; _pos.z = _cur.pz;
   _quat.x = _cur.qx; _quat.y = _cur.qy; _quat.z = _cur.qz; _quat.w = _cur.qw;
-  // collide events aren't wired yet (Rapier uses an event queue) — no-op so carDriver's listener is safe.
-  const chassisBody = { position: _pos, quaternion: _quat, velocity: _vel, angularVelocity: _ang, addEventListener() {}, removeEventListener() {} };
+  // 'collide' events, cannon-shaped: contact-force events drain from the queue each step and dispatch
+  // as {contact:{getImpactVelocityAlongNormal}} so carDriver's crash-sound listener works UNCHANGED.
+  // Δv is recovered from Rapier's max contact force: force ≈ m·Δv/dt → Δv = force·dt/m.
+  const eventQueue = new RAPIER.EventQueue(true);
+  const _collideListeners = [];
+  const _collideEvent = { contact: { _dv: 0, getImpactVelocityAlongNormal() { return this._dv; } } };
+  const chassisBody = {
+    position: _pos, quaternion: _quat, velocity: _vel, angularVelocity: _ang,
+    addEventListener(type, fn) { if (type === 'collide') _collideListeners.push(fn); },
+    removeEventListener(type, fn) {
+      const i = _collideListeners.indexOf(fn);
+      if (type === 'collide' && i !== -1) _collideListeners.splice(i, 1);
+    },
+  };
   // wheelInfos exposes what carModel reads: isInContact + a worldTransform {position, quaternion} (the wheel's
   // world Y for suspension bounce + orientation carrying the steering angle). carModel applies wheel-spin itself.
   // raycastResult.hitPointWorld = wheel ground-contact point (world/physics frame) — carEffects places skid
@@ -207,7 +224,15 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
       const _t0 = performance.now();
       vc.updateVehicle(FIXED);
       const _t1 = performance.now();
-      world.step();
+      world.step(eventQueue);
+      if (_collideListeners.length > 0) {
+        eventQueue.drainContactForceEvents((ev) => {
+          _collideEvent.contact._dv = (ev.maxForceMagnitude() * FIXED) / CHASSIS_MASS;
+          for (const fn of _collideListeners) fn(_collideEvent);
+        });
+      } else {
+        eventQueue.clear();
+      }
       const _t2 = performance.now();
       _dbg.uv += _t1 - _t0; _dbg.ws += _t2 - _t1; _dbg.n++;
       if (_t2 - _dbg.at > 1000) {
@@ -268,6 +293,8 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
   function dispose() {
     try { world.removeVehicleController(vc); } catch {}
     try { world.removeRigidBody(chassis); } catch {}
+    try { eventQueue.free(); } catch {}
+    _collideListeners.length = 0;
   }
 
   const _fwd = { x: 0, y: 0, z: 0 };

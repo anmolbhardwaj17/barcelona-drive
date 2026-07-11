@@ -29,7 +29,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   // ── Sub-systems ───────────────────────────────────────────────────────────
   const _spawn = { x: spawnLocalPos.x, y: spawnLocalPos.y + 2, z: spawnLocalPos.z }; // drop 2 m; settles
-  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (?physics=rapier), else cannon-es.
+  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (the default), else cannon-es (?physics=cannon).
   const physics  = opts.rapier
     ? createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading)
     : createCarPhysics(world, _spawn, spawnHeading);

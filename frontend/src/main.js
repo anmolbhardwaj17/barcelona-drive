@@ -211,7 +211,7 @@ if (ENABLE_CAR !== CONFIG.ENABLE_CAR) {
 let tileManager;
 let freeCameraControls;
 let carDriver = null;
-let rapierAdapter = null;   // set when ?physics=rapier — streams the collider working set around the car
+let rapierAdapter = null;   // set when Rapier physics is active (default) — streams the collider working set around the car
 
 // ── Live title screen ─────────────────────────────────────────────────────
 // Once the spawn area has built, the static title artwork crossfades away (#dd-title.live) and a slow
@@ -397,12 +397,13 @@ spawnTileReady.finally(() => {
         z: spawnResult.wz - origin.z,
       };
       try {
-        // ── Rapier (WASM) physics — opt in with ?physics=rapier. The car runs on Rapier; the cannon world
-        //    is never stepped (inert). tileManager keeps adding CANNON collider bodies to `world`, and we
-        //    MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain as a NATIVE Rapier
-        //    heightfield (convention probed at runtime, trimesh fallback). Zero tileManager changes.
+        // ── Rapier (WASM) physics — the DEFAULT engine (escape hatch: ?physics=cannon). The car runs on
+        //    Rapier; the cannon world is never stepped (inert). tileManager keeps adding CANNON collider
+        //    bodies to `world`, and we MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain
+        //    as a NATIVE Rapier heightfield (convention probed at runtime, trimesh fallback). Zero
+        //    tileManager changes. On Rapier init failure we fall back to cannon automatically.
         let _rapier = null, _physicsWorld = world;
-        if (new URLSearchParams(location.search).get('physics') === 'rapier') {
+        if (new URLSearchParams(location.search).get('physics') !== 'cannon') {
           try {
             _rapier = (await import('@dimforge/rapier3d-compat')).default;
             await _rapier.init();
