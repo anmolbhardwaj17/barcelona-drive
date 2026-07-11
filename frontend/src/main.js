@@ -461,7 +461,12 @@ spawnTileReady.finally(() => {
             return isInsidePlayArea(-lx + o.x, lz + o.z);
           },
         });
-        boundaryHaze = createBoundaryHaze(worldGroup);
+        // Boundary haze curtains DISABLED (user, 2026-07-12): suspected source of the giant white
+        // blur at certain fly-mode angles — the curtains use absolute world coords inside
+        // worldGroup, which ALSO applies the floating-origin offset → likely displaced into the
+        // map as huge white planes. The out-of-bounds RETURN below still works (its coordinate
+        // conversion is HUD-verified). Re-enable only after re-parenting/offset-correcting them.
+        // boundaryHaze = createBoundaryHaze(worldGroup);
         contactShadows = createContactShadows({ scene });
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
