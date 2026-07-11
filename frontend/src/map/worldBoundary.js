@@ -64,6 +64,10 @@ export function createBoundaryHaze(worldGroup) {   // MUST be the mirrored world
   const uniforms = {
     uTime: { value: 0 },
     uColor: { value: new THREE.Color(0xdfe8ef) },
+    // Proximity fade: the curtains are a LOCAL edge warning. At full strength they read as a
+    // giant flashing white wall on the horizon from 2km+ through day fog (user report at the
+    // Barceloneta coast, which faces the south boundary). 0 far away → 1 near the edge.
+    uNear: { value: 0 },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -82,6 +86,7 @@ export function createBoundaryHaze(worldGroup) {   // MUST be the mirrored world
       }`,
     fragmentShader: `
       uniform float uTime;
+      uniform float uNear;
       uniform vec3 uColor;
       varying vec2 vUv;
       varying float vWorldX;
@@ -101,7 +106,7 @@ export function createBoundaryHaze(worldGroup) {   // MUST be the mirrored world
         float a = smoothstep(top, 0.0, vUv.y) * 0.82;
         // soft flicker in density along the curtain
         a *= 0.75 + 0.25 * n2(vec2(along * 5.0 + 3.0, uTime * 0.04));
-        gl_FragColor = vec4(uColor, a);
+        gl_FragColor = vec4(uColor, a * uNear);
       }`,
   });
 
@@ -122,9 +127,15 @@ export function createBoundaryHaze(worldGroup) {   // MUST be the mirrored world
 
   return {
     group,
-    update(dt, fogColor) {
+    /** wx/wz: viewer in ABSOLUTE world coords — drives the proximity fade. */
+    update(dt, fogColor, wx, wz) {
       uniforms.uTime.value += dt;
       if (fogColor) uniforms.uColor.value.lerp(fogColor, 0.05);
+      if (Number.isFinite(wx) && Number.isFinite(wz)) {
+        const edgeDist = Math.min(wx - minX, maxX - wx, wz - minZ, maxZ - wz);   // <0 = outside
+        const t = 1 - Math.max(0, Math.min(1, (edgeDist - 60) / 340));           // 1 near, 0 by 400m
+        uniforms.uNear.value += (t - uniforms.uNear.value) * Math.min(1, dt * 4);
+      }
     },
   };
 }

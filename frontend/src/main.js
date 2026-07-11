@@ -951,7 +951,9 @@ function animate(time = 0) {
 
   // Blink red beacon lights on communication towers
   updateTowerBeacons(time / 1000);
-  boundaryHaze?.update(frameDt, scene.fog?.color);   // world-edge curtains: drift + day/night colour
+  // World-edge curtains: drift + day/night colour + proximity fade (invisible past ~400m —
+  // at full strength they read as a flashing white horizon wall from the coast).
+  boundaryHaze?.update(frameDt, scene.fog?.color, worldWx, worldWz);
 
   if (CONFIG.DEBUG_COLLIDERS) {
     updateDebugColliders(scene, world);
