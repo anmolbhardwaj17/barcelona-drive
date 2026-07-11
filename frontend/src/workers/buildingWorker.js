@@ -1313,7 +1313,9 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // ── Commercial 3D details ──
-    if (isCommercial && b.shapeType !== 'cylinder'
+    // !isBulletTower: parapets/bars trace the RECTANGULAR footprint at full height — on a bullet
+    // tower the crown has converged inward there, leaving the frames floating in the air.
+    if (isCommercial && b.shapeType !== 'cylinder' && !isBulletTower
         && b.footprint?.length >= 3 && b.height >= 5
         && commercialVerts < COMMERCIAL_VERT_CAP) {
       const fp = b.footprint;

@@ -4702,7 +4702,11 @@ export async function renderTileRoads(tileData, options, yieldFn) {
 
   const { wallMesh: bridgeGuardRailMesh, railingMesh: metalRailingMesh } = buildBridgeGuardRailGeometry(roads, options);
   const blendStripMesh = CONFIG.ENABLE_ROAD_SHOULDERS ? buildRoadsideBlendStrip(roads, options) : null;
-  const bridgeShadowMesh = buildBridgeShadowMesh(roads, options);
+  // Bridge FAKE-shadow ribbons DISABLED (user, 2026-07-11, after three look-alike culprits were
+  // ruled out — edge strips, railways, slab sides): 45%-black ground ribbons under every elevated
+  // road drift off-target on slopes and read as arbitrary "black border lines" at interchanges.
+  // buildBridgeShadowMesh stays for a possible future sun-projected version.
+  const bridgeShadowMesh = null;
 
   if (yieldFn) await yieldFn();
 
