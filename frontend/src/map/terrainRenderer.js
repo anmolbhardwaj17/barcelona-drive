@@ -469,12 +469,35 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   // low-lying land within ~16 m of open sea gets sand even without a polygon (user call — "be
   // smart, have some beach next to sea"). 5-pass dilation over the 128×128 grid, ~4 m/cell.
   const SEA_DIST_MAX = 5;
+  const SEA_FLOOD = 0.9;   // metres — the DEM box-blur lifts near-shore sea cells above SEA_RAW, so
+                           // the sea FLOOD-FILLS through the blurred band up to this height. Only
+                           // cells CONNECTED to definite sea flood — inland low pockets stay land.
   let seaDist = null, distRC = null;
   if (coastEnabled && Number.isFinite(elevation.min) && elevation.min <= SEA_RAW) {
     const res = elevation.gridCols, resR = elevation.gridRows;
     const src = elevation.elevations;
     seaDist = new Uint8Array(resR * res).fill(255);
-    for (let i = 0; i < seaDist.length; i++) if (src[i] != null && src[i] <= SEA_RAW) seaDist[i] = 0;
+    // Seeds: definite sea (raw ≤ SEA_RAW) anywhere, plus low TILE-EDGE cells (< SEA_FLOOD) so a
+    // tile whose entire shore band was blur-lifted still receives the sea from its neighbour.
+    const queue = [];
+    for (let i = 0; i < seaDist.length; i++) {
+      if (src[i] == null || !Number.isFinite(src[i])) continue;
+      const rr = (i / res) | 0, cc = i % res;
+      const edge = rr === 0 || rr === resR - 1 || cc === 0 || cc === res - 1;
+      if (src[i] <= SEA_RAW || (edge && src[i] < SEA_FLOOD)) { seaDist[i] = 0; queue.push(i); }
+    }
+    // BFS flood through the blurred shore band.
+    for (let qi = 0; qi < queue.length; qi++) {
+      const k = queue[qi];
+      const rr = (k / res) | 0, cc = k % res;
+      const nbrs = [rr > 0 ? k - res : -1, rr < resR - 1 ? k + res : -1, cc > 0 ? k - 1 : -1, cc < res - 1 ? k + 1 : -1];
+      for (const nk of nbrs) {
+        if (nk < 0 || seaDist[nk] === 0) continue;
+        const e = src[nk];
+        if (e != null && Number.isFinite(e) && e < SEA_FLOOD) { seaDist[nk] = 0; queue.push(nk); }
+      }
+    }
+    // Distance-from-sea dilation (for the auto-beach band).
     for (let pass = 1; pass <= SEA_DIST_MAX; pass++) {
       for (let rr = 0; rr < resR; rr++) {
         for (let cc = 0; cc < res; cc++) {
@@ -634,7 +657,8 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     if (coastEnabled) {
       // Raw DEM metres: baked positions carry raw Y; the fallback path already applied offset+exag.
       const raw = useBaked ? y : (y / vertExag + offset);
-      if (raw <= SEA_RAW) {
+      const dSea = distRC ? distRC(vx, vz) : 255;
+      if (dSea === 0 || raw <= SEA_RAW) {
         // Open sea — deep desaturated Mediterranean blue (mid-dark: the grade brightens), with a
         // whisper of large-scale variation so it doesn't read as one flat poster fill.
         const sn = terrainNoise(vx, vz, 0.012, 13.0) * 0.03;
@@ -642,7 +666,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         g = 0.165 + sn;
         b = 0.270 + sn;
         coastAttr[i] = 1;
-      } else if (inBeachPoly(vx, vz) || (distRC && raw < 2.2 && distRC(vx, vz) <= 4)) {
+      } else if (inBeachPoly(vx, vz) || (raw < 2.2 && dSea <= 4)) {
         // Dry sand, blending toward wet sand as it approaches the waterline. Two triggers:
         // an OSM beach polygon, OR the auto-beach band (low land within ~16 m of open sea —
         // OSM's beach coverage is too sparse to rely on alone).
