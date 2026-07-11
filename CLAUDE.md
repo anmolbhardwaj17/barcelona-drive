@@ -53,7 +53,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - **Spawn**: Sant Gervasi / Ronda de Dalt trench portal — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.4098, lon:2.1257}` (tile 16_33154_24471). Set for the Phase 3 slice-② authored-trench drive check. Previous spawns (Montjuïc slope, Gran Via tunnel) noted in spawnConfig.js.
 - **Mode**: default `ENABLE_CAR: false` (fly/free camera). **Override per-load via URL** — see toggles below.
 - **Fog**: OFF — `ENABLE_FOG: false` (re-enable before shipping)
-- **Tile format**: v7 with 10 new feature types (beaches, piers, trees, shops, etc.)
+- **Tile format**: v9 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`)
 - **Ocean**: No global plane — water renders via per-polygon OSM water meshes only (ocean plane reverted)
 - **Unit model**: Unstretch-X COMPLETE (Stage 1) — 1 world unit = 1 real metre on all axes (ADR D-11). Any elevation/coord/scale change is atomic: code + full re-bake + browser cache flush (see vertical-model-foundation-spec §6).
 

@@ -273,14 +273,22 @@ export function disposeWorkerPool() {
  * @param {object} config  Relevant CONFIG snapshot.
  * @returns {Promise<{ buildingGroups: *, roofGroups: *, detailGroups: *, tankInstances: *, pipeInstances: * }>}
  */
-export function processBuildings(tileKey, { buildings, roads }, elevation, elevationOffset, config) {
+export function processBuildings(tileKey, { buildings, roads, aoGrid }, elevation, elevationOffset, config) {
   const { cloned: elevClone, transferable: elevBuf } = cloneElevation(elevation);
   const transferables = elevBuf ? [elevBuf] : [];
+
+  // Baked sky-AO grid (v9) for facade darkening. COPY before transfer — the main thread keeps
+  // sampling the original for terrain/road AO.
+  let aoClone = null;
+  if (aoGrid && aoGrid.data && aoGrid.resolution) {
+    aoClone = { resolution: aoGrid.resolution, data: new Uint8Array(aoGrid.data) };
+    transferables.push(aoClone.data.buffer);
+  }
 
   return enqueue(
     'PROCESS_BUILDINGS',
     tileKey,
-    { buildings, roads, elevation: elevClone, elevationOffset },
+    { buildings, roads, elevation: elevClone, elevationOffset, aoGrid: aoClone },
     config,
     transferables,
   );

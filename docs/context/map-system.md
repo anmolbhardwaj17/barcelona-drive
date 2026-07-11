@@ -6,10 +6,20 @@ The map is divided into zoom-16 slippy tiles (~500 m × 500 m each). All data is
 
 ---
 
-## Binary Tile Format (v7)
+## Binary Tile Format (v9)
 
 Tiles are stored at `backend/tiles/barcelona/16/{x}/{y}.bin`.
-Old Delhi tiles at `backend/tiles/delhi/` use v6 — the parser handles both (v7 new sections are absent in v6 → empty arrays).
+Old Delhi tiles at `backend/tiles/delhi/` use v6 — the parser handles all versions (newer sections absent → empty/fallback).
+
+Version deltas since v7 (the base format documented below):
+- **v8** — `bakedSidewalks` (pre-baked sidewalk/curbTop/curbFace geometry blobs; absent → runtime
+  sidewalk generator) + `crossing:true` on path-family roads clipped out of carriageway coverage.
+  See [bake-surface-clipping.md](bake-surface-clipping.md).
+- **v9** — `aoGrid`: baked hemispheric sky-visibility AO (backend/worldBuilder/aoBaker.js). Uint8
+  sky-view factors (255 = open sky), same 128×128 resolution/orientation as the elevation grid,
+  packed 4-per-u32 LSB-first (read back as a byte view). Header: `{resolution, byteLength,
+  dataOffset, dataCount}`. Absent → frontend treats sky as fully open (no AO). Consumed by
+  frontend/src/map/aoSampler.js (terrain + road/sidewalk vertices) and buildingWorker (facades).
 
 ### Wire layout
 ```

@@ -9,6 +9,7 @@ import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
+import { aoDarkening, AO_ROAD_STRENGTH } from './aoSampler.js';
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer } from './groundLayers.js';
@@ -268,10 +269,14 @@ function patchRoadWash(mat) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNightWash = _roadWashUniform;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
+      .replace('#include <common>', '#include <common>\nattribute float aWash;\nattribute float aAO;\nvarying float vWash;\nvarying float vAoDark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;\nvarying float vAoDark;')
+      // Baked sky-visibility AO (v9): aAO stores a DARKENING amount, so meshes without the
+      // attribute (default 0) render unchanged — see aoSampler.aoDarkening.
+      .replace('#include <color_fragment>',
+        '#include <color_fragment>\ndiffuseColor.rgb *= (1.0 - vAoDark);')
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
   };
@@ -425,23 +430,33 @@ export function washAt(grid, x, z) {
   return best < WASH_R2 ? 1 - Math.sqrt(best) / WASH_RANGE : 0;
 }
 
-export async function bakeRoadWash(meshes, buildings, yieldFn) {
-  const grid = buildWashGrid(buildings);
-  if (!grid) return;
+export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt) {
+  const grid = buildings?.length ? buildWashGrid(buildings) : null;
+  if (!grid && !svfAt) return;
 
   for (const mesh of meshes) {
     const pos = mesh?.geometry?.getAttribute?.('position');
     if (!pos) continue;
     const n = pos.count;
-    const wash = new Float32Array(n);
-    let any = false;
+    const wash = grid ? new Float32Array(n) : null;
+    const ao = svfAt ? new Float32Array(n) : null;
+    let any = false, anyAo = false;
     for (let i = 0; i < n; i++) {
-      const w = washAt(grid, pos.getX(i), pos.getZ(i));
-      if (w > 0) { wash[i] = w; any = true; }
+      const x = pos.getX(i), z = pos.getZ(i);
+      if (grid) {
+        const w = washAt(grid, x, z);
+        if (w > 0) { wash[i] = w; any = true; }
+      }
+      if (svfAt) {
+        // Baked sky-visibility AO (v9) — darkening amount, 0 = open sky (see aoSampler).
+        const d = aoDarkening(svfAt(x, z), AO_ROAD_STRENGTH);
+        if (d > 0.004) { ao[i] = d; anyAo = true; }
+      }
       // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts
       if (yieldFn && (i & 8191) === 8191) await yieldFn();
     }
     if (any) mesh.geometry.setAttribute('aWash', new THREE.BufferAttribute(wash, 1));
+    if (anyAo) mesh.geometry.setAttribute('aAO', new THREE.BufferAttribute(ao, 1));
     if (yieldFn) await yieldFn();
   }
 }

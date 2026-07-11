@@ -116,8 +116,9 @@ export function convertTile(jsonData) {
   }
 
   const header = {
-    version: 8,   // v8: + bakedSidewalks (baked sidewalk/curb geometry; frontend falls back to the
-                  //     runtime generator when the section is absent — v7 tiles keep working)
+    version: 9,   // v9: + aoGrid (baked sky-visibility AO; absent → frontend treats sky as fully
+                  //     open). v8: + bakedSidewalks (frontend falls back to the runtime generator
+                  //     when the section is absent — older tiles keep working).
     tileId: jsonData.tileId,
   };
 
@@ -690,6 +691,27 @@ export function convertTile(jsonData) {
       out[part] = entry;
     }
     if (Object.keys(out).length > 0) header.bakedSidewalks = out;
+  }
+
+  // ── aoGrid (v9 — baked sky-visibility AO) ───────────────────────────────
+  // Uint8 sky-view factors (255 = open sky), same resolution/orientation as the elevation grid.
+  // Packed 4-per-u32 LSB-first so the frontend reads the section directly as a Uint8Array
+  // (all target platforms are little-endian).
+  if (jsonData.aoGrid && jsonData.aoGrid.data && jsonData.aoGrid.data.length > 0) {
+    const bytes = jsonData.aoGrid.data;
+    const words = new Array(Math.ceil(bytes.length / 4)).fill(0);
+    for (let i = 0; i < bytes.length; i++) {
+      words[i >> 2] |= (bytes[i] & 0xff) << ((i & 3) * 8);
+    }
+    // JS bitwise ops are signed 32-bit — coerce to unsigned so pushU32 stores the right value.
+    for (let i = 0; i < words.length; i++) words[i] = words[i] >>> 0;
+    const ref = pushU32(words);
+    header.aoGrid = {
+      resolution: jsonData.aoGrid.resolution,
+      byteLength: bytes.length,
+      dataOffset: ref.offset,
+      dataCount:  ref.count,
+    };
   }
 
   // ── assemble binary ────────────────────────────────────────────────────

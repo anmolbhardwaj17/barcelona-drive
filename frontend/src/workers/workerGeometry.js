@@ -677,6 +677,7 @@ export function mergeBufferSets(geometryArray) {
   let hasUVs = false;
   let hasColors = false;
   let hasWash = false;
+  let hasAo = false;
 
   // First pass: count totals and detect optional attributes
   for (let i = 0; i < geometryArray.length; i++) {
@@ -692,6 +693,7 @@ export function mergeBufferSets(geometryArray) {
     if (g.uvs) hasUVs = true;
     if (g.colors) hasColors = true;
     if (g.wash) hasWash = true;
+    if (g.ao) hasAo = true;
   }
 
   if (totalVerts === 0) return null;
@@ -701,6 +703,7 @@ export function mergeBufferSets(geometryArray) {
   const uvs = hasUVs ? new Float32Array(totalVerts * 2) : null;
   const colors = hasColors ? new Float32Array(totalVerts * 3) : null;
   const wash = hasWash ? new Float32Array(totalVerts) : null;   // 1 float/vertex — facade ground-glow factor
+  const ao = hasAo ? new Float32Array(totalVerts) : null;       // 1 float/vertex — baked sky-AO darkening (0 = open)
   const indices = new Uint32Array(totalIndices);
 
   let vertOffset = 0;
@@ -731,6 +734,10 @@ export function mergeBufferSets(geometryArray) {
       wash.set(g.wash, vertOffset);
     }
 
+    if (hasAo && g.ao) {
+      ao.set(g.ao, vertOffset);
+    }
+
     if (g.indices) {
       for (let j = 0; j < g.indices.length; j++) {
         indices[idxOffset + j] = g.indices[j] + vertOffset;
@@ -751,6 +758,7 @@ export function mergeBufferSets(geometryArray) {
   if (uvs) result.uvs = uvs;
   if (colors) result.colors = colors;
   if (wash) result.wash = wash;
+  if (ao) result.ao = ao;
   return result;
 }
 

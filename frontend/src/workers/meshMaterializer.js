@@ -651,10 +651,14 @@ function getFacadeMaterial(hexColor, category) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNightWash = mat.userData._uNightWash;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
+      .replace('#include <common>', '#include <common>\nattribute float aWash;\nattribute float aAO;\nvarying float vWash;\nvarying float vAoDark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;\nvarying float vAoDark;')
+      // Baked sky-AO darkening (v9): street-canyon facades shade at the base. Attribute stores the
+      // DARKENING amount, so geometry without it (default 0) is untouched — never black.
+      .replace('#include <color_fragment>',
+        '#include <color_fragment>\ndiffuseColor.rgb *= (1.0 - vAoDark);')
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
   };
@@ -806,6 +810,7 @@ function materializeGroup(group, material, shadowsOn) {
   if (group.uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(group.uvs, 2));
   if (group.colors) geo.setAttribute('color', new THREE.Float32BufferAttribute(group.colors, 3));
   if (group.wash) geo.setAttribute('aWash', new THREE.Float32BufferAttribute(group.wash, 1));
+  if (group.ao) geo.setAttribute('aAO', new THREE.Float32BufferAttribute(group.ao, 1));
   if (group.indices) geo.setIndex(new THREE.Uint32BufferAttribute(group.indices, 1));
 
   const mesh = new THREE.Mesh(geo, material);

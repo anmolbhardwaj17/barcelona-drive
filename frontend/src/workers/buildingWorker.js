@@ -206,6 +206,56 @@ function createFastElevation(elevation, offset) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Baked sky-visibility AO (tile v9) — facade darkening
+// ────────────────────────────────────────────────────────────────────────────
+
+// MUST MATCH frontend/src/map/aoSampler.js (workers are import-free): strength/gamma dials for the
+// svf → darkening curve, applied per facade vertex with a vertical fade (canyon floors dark, upper
+// storeys open to the sky).
+const AO_FACADE_STRENGTH = 0.42;
+const AO_GAMMA = 1.35;
+const AO_FACADE_FADE_M = 16;     // full AO at the base → none this many metres up
+const AO_SAMPLE_OUTSET = 2.5;    // sample the STREET next to the wall, not the wall itself —
+                                 // the grid cell under a facade averages in the building interior (svf≈0)
+
+/** Bilinear sky-view-factor sampler over the tile's aoGrid — same world→grid mapping as
+ *  createFastElevation (the aoGrid shares the elevation grid's bounds/orientation). */
+function createWorkerAoSampler(elevation, aoGrid) {
+  if (!aoGrid || !aoGrid.data || !aoGrid.resolution || !elevation) return null;
+  const res = aoGrid.resolution;
+  const data = aoGrid.data;
+  if (data.length !== res * res) return null;
+
+  const { south, west, north, east } = elevation;
+  const southRad = south * Math.PI / 180;
+  const northRad = north * Math.PI / 180;
+  const mySouth = R * Math.log(Math.tan(Math.PI / 4 + southRad / 2));
+  const myNorth = R * Math.log(Math.tan(Math.PI / 4 + northRad / 2));
+  const mxWest  = R * (west * Math.PI / 180);
+  const mxEast  = R * (east * Math.PI / 180);
+  const wSouth = (mySouth - originMercator.y) * MERCATOR_UNSTRETCH;
+  const wNorth = (myNorth - originMercator.y) * MERCATOR_UNSTRETCH;
+  const wWest  = (mxWest  - originMercator.x) * MERCATOR_UNSTRETCH;
+  const wEast  = (mxEast  - originMercator.x) * MERCATOR_UNSTRETCH;
+  const rowScale = (res - 1) / (wNorth - wSouth);
+  const colScale = (res - 1) / (wEast - wWest);
+  const maxRC = res - 1;
+
+  return function svfAt(wx, wz) {
+    let rowF = (wz - wSouth) * rowScale;
+    let colF = (wx - wWest) * colScale;
+    if (rowF < 0) rowF = 0; else if (rowF > maxRC) rowF = maxRC;
+    if (colF < 0) colF = 0; else if (colF > maxRC) colF = maxRC;
+    const r0 = rowF | 0, c0 = colF | 0;
+    const r1 = r0 < maxRC ? r0 + 1 : r0, c1 = c0 < maxRC ? c0 + 1 : c0;
+    const tr = rowF - r0, tc = colF - c0;
+    const v00 = data[r0 * res + c0], v01 = data[r0 * res + c1];
+    const v10 = data[r1 * res + c0], v11 = data[r1 * res + c1];
+    return ((1 - tr) * ((1 - tc) * v00 + tc * v01) + tr * ((1 - tc) * v10 + tc * v11)) / 255;
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Road spatial index (inline, no external dependencies)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -701,10 +751,11 @@ function eulerYToQuaternion(angle) {
  * @returns {object} Result with buildingGroups, roofGroups, detailGroups, tankInstances, pipeInstances
  */
 export function processBuildingsInWorker(data, config) {
-  const { buildings, roads, elevation, elevationOffset } = data;
+  const { buildings, roads, elevation, elevationOffset, aoGrid } = data;
   if (!buildings || buildings.length === 0) {
     return { buildingGroups: [], roofGroups: [], detailGroups: [], tankInstances: null, pipeInstances: null };
   }
+  const aoSvfAt = createWorkerAoSampler(elevation, aoGrid);   // null on pre-v9 tiles
 
   const vertExag = (config && config.ELEVATION_VERTICAL_EXAGGERATION != null &&
     Number.isFinite(config.ELEVATION_VERTICAL_EXAGGERATION))
@@ -895,13 +946,29 @@ export function processBuildingsInWorker(data, config) {
     // (the reference-render look) — zero cost by day.
     {
       const wp = wallBuffers.positions;
+      const wn = wallBuffers.normals;
       const wc = wp.length / 3;
       const wash = new Float32Array(wc);
+      const ao = aoSvfAt ? new Float32Array(wc) : null;
       for (let wi = 0; wi < wc; wi++) {
         const rel = (wp[wi * 3 + 1] - baseY) / 4.5;   // ground floor + a bit — not half the building
         wash[wi] = rel <= 0 ? 1 : rel >= 1 ? 0 : 1 - rel;
+        if (ao) {
+          // Baked sky-AO darkening: sample the street beside the wall (outset along the facade
+          // normal — the cell under the wall averages in the svf≈0 building interior), fade out
+          // with height so canyon floors darken but upper storeys stay sky-lit.
+          const fade = 1 - (wp[wi * 3 + 1] - baseY) / AO_FACADE_FADE_M;
+          if (fade > 0) {
+            const svf = aoSvfAt(
+              wp[wi * 3] + (wn ? wn[wi * 3] * AO_SAMPLE_OUTSET : 0),
+              wp[wi * 3 + 2] + (wn ? wn[wi * 3 + 2] * AO_SAMPLE_OUTSET : 0),
+            );
+            ao[wi] = AO_FACADE_STRENGTH * Math.pow(1 - svf, AO_GAMMA) * Math.min(1, fade);
+          }
+        }
       }
       wallBuffers.wash = wash;
+      if (ao) wallBuffers.ao = ao;
     }
 
     const matKey = getFacadeMaterialKey(category, b.id, b.height);
@@ -1794,6 +1861,7 @@ export function processBuildingsInWorker(data, config) {
         indices: merged.indices,
         colors: merged.colors || null,
         wash: merged.wash || null,   // facade ground-glow factor (night shader)
+        ao: merged.ao || null,       // baked sky-AO darkening (0 = open sky; v9 tiles)
       });
     }
   }

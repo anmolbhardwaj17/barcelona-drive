@@ -12,6 +12,7 @@ import { WATER_DEPTH, pointInWaterPolygon, polygonArea } from './waterRenderer.j
 const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
 import { isRallyStyle } from '../rallyStyle.js';
+import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH } from './aoSampler.js';
 
 /** No-op stubs kept for API compatibility. */
 export function loadTerrainGroundTextures() { return Promise.resolve([]); }
@@ -128,7 +129,7 @@ function minDistSqToRoads(roads, x, z) {
 
 /** One-time log of which terrain path is live (useBaked = pre-baked mesh vs runtime fallback). */
 let _loggedTerrainPath = false;
-export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain) {
+export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain, aoGrid) {
   if (!elevation || !elevation.elevations || !Array.isArray(elevation.elevations)) {
     const noop = () => 0;
     return { mesh: null, getElevationAt: noop };
@@ -439,12 +440,18 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   }
 
   const colors = new Float32Array(vCount * 3);
+  // Baked sky-visibility AO (v9) → per-vertex colour multiplier. The final value (strength curve
+  // already applied) lives in the attribute so the shader stays a single multiply; pre-v9 tiles
+  // get a constant 1.0 (attribute always present → shared shader program).
+  const svfAt = createAoSampler(aoGrid, elevation);
+  const aoAttr = new Float32Array(vCount).fill(1);
   const COLOR_BATCH = 2048;
   for (let i = 0; i < vCount; i++) {
     if (yieldFn && i > 0 && i % COLOR_BATCH === 0) await yieldFn();
     const y = posAttr.getY(i);
     const vx = posAttr.getX(i);
     const vz = posAttr.getZ(i);
+    if (svfAt) aoAttr[i] = aoMultiplier(svfAt(vx, vz), AO_TERRAIN_STRENGTH);
     const ny = normAttr ? normAttr.getY(i) : 1;
     // t: 0 at ground (Y=0), negative below, positive above
     const t = y / Math.max(Math.abs(minY), Math.abs(maxY), 0.01);
@@ -555,6 +562,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     colors[i * 3 + 2] = b;
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('aAO', new THREE.BufferAttribute(aoAttr, 1));
 
   const terrainDetailTex = getTerrainDetailTexture();
   const material = new THREE.MeshLambertMaterial({
@@ -573,15 +581,18 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     shader.uniforms.terrainDetailTex = { value: terrainDetailTex };
     shader.uniforms.detailScale = { value: 0.07 };
 
-    // --- Vertex: pass world position to fragment ---
+    // --- Vertex: pass world position + baked AO to fragment ---
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>
+      attribute float aAO;
+      varying float vAo;
       varying vec3 vWorldPos;`
     );
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
+      vAo = aAO;
       vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
     );
 
@@ -589,6 +600,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       `#include <common>
+      varying float vAo;
       varying vec3 vWorldPos;
       uniform sampler2D terrainDetailTex;
       uniform float detailScale;
@@ -671,7 +683,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         ? 'diffuseColor.rgb *= 0.98;'
         : `vec2 fiberUV = wPos * detailScale;
            float fiber = texture2D(terrainDetailTex, fiberUV).r;
-           diffuseColor.rgb *= 0.70 + fiber * 0.52;`}`
+           diffuseColor.rgb *= 0.70 + fiber * 0.52;`}
+
+      // ── 8. Baked sky-visibility AO (v9) — street canyons darken, plazas stay bright ──
+      diffuseColor.rgb *= vAo;`
     );
   };
   material.customProgramCacheKey = () => 'terrainBcnLush' + (isRallyStyle() ? '_rally' : '');

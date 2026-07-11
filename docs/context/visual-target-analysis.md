@@ -43,6 +43,10 @@ an offline tile baker. This is how real games get the GI look (lightmaps/vertex 
   geometry) into the tile data for buildings, roads and terrain. Narrow streets darken, courtyards go
   moody, roofs and plazas stay bright — the single biggest step toward the reference's light, at ZERO
   runtime cost. Requires: bake-pipeline pass + tile-format bump + renderer reads the attribute.
+  **✅ DONE (2026-07-11, tile v9)** — aoBaker.js grid bake; consumed by terrain shader, road/sidewalk
+  wash pass, and buildingWorker facades (vertical fade). Strength dials in aoSampler.js. Not yet
+  AO'd: greens/park polygons (Eixample courtyards render over darkened terrain), road markings,
+  building details — revisit after screenshot review.
 - Optional second scalar: warm **ground-bounce** on street-facing facades.
 
 ⚠ Both require a re-bake (golden rule: warn first) and a tile format version bump.

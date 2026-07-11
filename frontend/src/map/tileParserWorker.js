@@ -228,6 +228,15 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
   if (header.bakedSidewalks) {   // v8 — baked sidewalk/curb geometry (absent on v7 → runtime generator)
     result.bakedSidewalks = readBakedSidewalks(header.bakedSidewalks, buffer, binOffset);
   }
+  if (header.aoGrid) {           // v9 — baked sky-visibility AO (absent → treat sky as fully open)
+    // Bytes were packed 4-per-u32 LSB-first at bake, so on little-endian a plain byte view of the
+    // section IS the original uint8 grid. Copy (don't alias) — the tile buffer gets transferred.
+    const a = header.aoGrid;
+    result.aoGrid = {
+      resolution: a.resolution,
+      data: new Uint8Array(new Uint8Array(buffer, binOffset + a.dataOffset, a.byteLength)),
+    };
+  }
   if (header.roadOnlyMode) result.roadOnlyMode = true;
 
   return result;

@@ -14,6 +14,7 @@ import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
+import { createAoSampler } from './aoSampler.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
@@ -1600,7 +1601,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
       _perfMark('terrain-physics');
 
-      const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain);
+      const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain, data.aoGrid);
       terrainMesh = terrain.mesh;
       getElevationAt = terrain.getElevationAt;
       if (terrainMesh) {
@@ -1766,12 +1767,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const roadMeshes = await mergeMeshesByMaterial(roadMeshesRaw, _perfYield);
     roadMeshes._pillarPositions = pillarPositions;
 
-    // Night building-glow wash: bake the per-vertex building-proximity factor (aWash) into the
-    // road surfaces so streets flanked by buildings glow warm with the facades at night, and
-    // empty stretches fade smoothly to dark (factor → 0 away from any footprint).
-    if (tileData.buildings?.length && roadMeshes.length) {
+    // Night building-glow wash + baked sky-visibility AO: one pass over the road-family vertices
+    // writes aWash (building proximity → night glow) and aAO (v9 AO grid → street-canyon
+    // darkening). Buildingless tiles with AO data still get the AO half.
+    const _tileSvfAt = createAoSampler(data.aoGrid, elevation);
+    if ((tileData.buildings?.length || _tileSvfAt) && roadMeshes.length) {
       buildPhase('p1 road-wash');
-      await bakeRoadWash(roadMeshes, tileData.buildings, _perfYield);
+      await bakeRoadWash(roadMeshes, tileData.buildings, _perfYield, _tileSvfAt);
     }
 
     roadMeshes.forEach((m) => { m.visible = true; safeSceneAdd(scene, m); });
@@ -1986,7 +1988,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       try {
         const buildingWorkerResult = await workerProcessBuildings(
           key,
-          { buildings: filteredTileData.buildings, roads: filteredTileData.roads },
+          { buildings: filteredTileData.buildings, roads: filteredTileData.roads, aoGrid: data.aoGrid },
           elevation,
           elevationOffset,
           CONFIG,
