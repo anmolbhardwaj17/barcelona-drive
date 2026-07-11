@@ -129,7 +129,7 @@ function minDistSqToRoads(roads, x, z) {
 
 /** One-time log of which terrain path is live (useBaked = pre-baked mesh vs runtime fallback). */
 let _loggedTerrainPath = false;
-export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain, aoGrid) {
+export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain, aoGrid, beaches) {
   if (!elevation || !elevation.elevations || !Array.isArray(elevation.elevations)) {
     const noop = () => 0;
     return { mesh: null, getElevationAt: noop };
@@ -445,6 +445,39 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   // get a constant 1.0 (attribute always present → shared shader program).
   const svfAt = createAoSampler(aoGrid, elevation);
   const aoAttr = new Float32Array(vCount).fill(1);
+
+  // ── Coast painting (terrain-tinted beach + sea) ──────────────────────────
+  // The open sea has NO OSM water polygon (only enclosed basins like marinas do) and flat beach
+  // MESHES get buried under sloping terrain — so the coast is painted INTO the terrain colours:
+  // sand inside natural=beach polygons (wet band near the waterline), deep sea blue wherever the
+  // raw DEM says water (SRTM bakes open sea at 0 m). aCoast masks the procedural green shader off
+  // these vertices so it can't repaint them. Gated on the tile actually touching sea level or
+  // carrying beach polys, so inland lowlands never trigger it.
+  const SEA_RAW = 0.15;   // raw DEM metres — at/below = open water
+  const beachPolys = (beaches || []).filter((f) => !f.isLine && f.polygon?.length >= 3).map((f) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of f.polygon) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minZ) minZ = p.y; if (p.y > maxZ) maxZ = p.y;
+    }
+    return { polygon: f.polygon, minX, maxX, minZ, maxZ };
+  });
+  const coastEnabled = beachPolys.length > 0 || (Number.isFinite(elevation.min) && elevation.min <= SEA_RAW);
+  const coastAttr = new Float32Array(vCount);
+  const inBeachPoly = (x, z) => {
+    for (const bp of beachPolys) {
+      if (x < bp.minX || x > bp.maxX || z < bp.minZ || z > bp.maxZ) continue;
+      let inside = false;
+      const poly = bp.polygon;
+      for (let pi = 0, pj = poly.length - 1; pi < poly.length; pj = pi++) {
+        const xi = poly[pi].x, zi = poly[pi].y, xj = poly[pj].x, zj = poly[pj].y;
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    return false;
+  };
+
   const COLOR_BATCH = 2048;
   for (let i = 0; i < vCount; i++) {
     if (yieldFn && i > 0 && i % COLOR_BATCH === 0) await yieldFn();
@@ -562,12 +595,45 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       }
     }
 
+    // ── Coast override: sea / beach sand / bare shoreline (see block above the loop) ──
+    if (coastEnabled) {
+      // Raw DEM metres: baked positions carry raw Y; the fallback path already applied offset+exag.
+      const raw = useBaked ? y : (y / vertExag + offset);
+      if (raw <= SEA_RAW) {
+        // Open sea — deep desaturated Mediterranean blue (mid-dark: the grade brightens), with a
+        // whisper of large-scale variation so it doesn't read as one flat poster fill.
+        const sn = terrainNoise(vx, vz, 0.012, 13.0) * 0.03;
+        r = 0.050 + sn * 0.5;
+        g = 0.165 + sn;
+        b = 0.270 + sn;
+        coastAttr[i] = 1;
+      } else if (inBeachPoly(vx, vz)) {
+        // Dry sand, blending toward wet sand as it approaches the waterline.
+        const wet = raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0;
+        const sn = terrainNoise(vx, vz, 0.09, 11.0) * 0.045;
+        const dr = 0.545 + sn, dg = 0.480 + sn * 0.8, db = 0.335 + sn * 0.5;
+        r = dr * (1 - wet) + 0.400 * wet;
+        g = dg * (1 - wet) + 0.345 * wet;
+        b = db * (1 - wet) + 0.245 * wet;
+        coastAttr[i] = 1;
+      } else if (raw < SEA_RAW + 0.6) {
+        // Non-beach waterline (port aprons, breakwaters) — partial wet-grey blend so the sea
+        // doesn't butt straight into bright green.
+        const s2 = (1 - (raw - SEA_RAW) / 0.6) * 0.7;
+        r = r * (1 - s2) + 0.38 * s2;
+        g = g * (1 - s2) + 0.36 * s2;
+        b = b * (1 - s2) + 0.30 * s2;
+        coastAttr[i] = s2;
+      }
+    }
+
     colors[i * 3]     = r;
     colors[i * 3 + 1] = g;
     colors[i * 3 + 2] = b;
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute('aAO', new THREE.BufferAttribute(aoAttr, 1));
+  geometry.setAttribute('aCoast', new THREE.BufferAttribute(coastAttr, 1));
 
   const terrainDetailTex = getTerrainDetailTexture();
   const material = new THREE.MeshLambertMaterial({
@@ -587,18 +653,21 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     shader.uniforms.detailScale = { value: 0.07 };
     bindAoScaleUniform(shader);
 
-    // --- Vertex: pass world position + baked AO to fragment ---
+    // --- Vertex: pass world position + baked AO + coast mask to fragment ---
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>
       attribute float aAO;
+      attribute float aCoast;
       varying float vAo;
+      varying float vCoast;
       varying vec3 vWorldPos;`
     );
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
       vAo = aAO;
+      vCoast = aCoast;
       vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
     );
 
@@ -607,6 +676,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       '#include <common>',
       `#include <common>
       varying float vAo;
+      varying float vCoast;
       varying vec3 vWorldPos;
       uniform float uAoScale;
       uniform sampler2D terrainDetailTex;
@@ -676,12 +746,15 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       terrainBase = mix(terrainBase, drySoil, soilBlend);
 
       // ── 5. Blend with vertex colors — procedural dominates at 75% ──
-      // CPU vertex colors carry road-edge brown, tree shadow, water shore
-      diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75);
+      // CPU vertex colors carry road-edge brown, tree shadow, water shore.
+      // vCoast masks the greens OFF sand/sea vertices — the coast is CPU-painted (beach polys +
+      // sea-level detection) and the procedural pass must not repaint it.
+      diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75 * (1.0 - vCoast));
 
       // ── 6. Detect CPU road-edge dark tint and amplify (softened) ──
+      // Gated off the coast too — the deep sea blue is dark and would muddy toward roadDirt.
       float vertLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35;
+      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35 * (1.0 - vCoast);
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
       // ── 7. Fiber texture micro-detail ── (rally keeps the ground flat/clean, so skip the per-pixel

@@ -1635,7 +1635,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
       _perfMark('terrain-physics');
 
-      const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain, data.aoGrid);
+      const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain, data.aoGrid, data.beaches);
       terrainMesh = terrain.mesh;
       getElevationAt = terrain.getElevationAt;
       if (terrainMesh) {
@@ -1895,11 +1895,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     });
 
     // Green areas — lightweight flat meshes, build in Phase 1 so they appear with terrain.
-    // Beaches + pedestrian plazas (v7 area features, unrendered until 2026-07-11) ride the same
-    // lifecycle: appended to greenMeshes so streaming/unload/disposal are shared.
+    // Pedestrian plazas (v7 area features, unrendered until 2026-07-11) ride the same lifecycle:
+    // appended to greenMeshes so streaming/unload/disposal are shared. Beaches are NOT flat
+    // meshes — they're painted into the terrain colours (buildTerrainMesh coast pass), where they
+    // conform to the relief instead of getting buried under it.
     const greenMeshesP1 = !skipNonRoad && tileData.greens?.length ? createGreensMeshes(tileData.greens, getElevationAt) : [];
     if (!skipNonRoad) {
-      greenMeshesP1.push(...createAreaFeatureMeshes(data.beaches, 'beach', getElevationAt));
       greenMeshesP1.push(...createAreaFeatureMeshes(data.pedestrianAreas, 'pedArea', getElevationAt));
     }
     // Greens render ON TOP of the AO-darkened terrain — fill their aAO from the same grid or the
