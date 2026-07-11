@@ -453,7 +453,15 @@ spawnTileReady.finally(() => {
             world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
             rapierAdapter = _adapter;   // animate() streams the working set around the car each frame
             window._rapierWorld = rw;   // dev: _rapierWorld.colliders.len() shows the live working set
-            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies.`);
+            // Frame-pipeline round 2 (fps-diagnosis): cannon never STEPS or RAYCASTS in Rapier
+            // mode — its Trimesh octree (built synchronously in the ctor, consumed only by cannon
+            // narrowphase/raycast) is pure wasted main-thread time on every road-deck/terrain
+            // trimesh a streaming tile creates. Stub it. AABB/bounding-sphere come from vertex
+            // scans (not the tree), so addBody and the Rapier mirror are unaffected. The
+            // ?physics=cannon escape hatch never reaches this line → keeps real trees.
+            const { Trimesh: _CTrimesh } = await import('cannon-es');
+            _CTrimesh.prototype.updateTree = function () {};
+            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, {
