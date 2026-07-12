@@ -44,13 +44,25 @@ function getWorker() {
   if (_worker) return _worker;
   _worker = new TileParserWorker();
   _worker.onmessage = (e) => {
-    const { id, result, error, status, version, message } = e.data;
+    const { id, result, error, status, version, message, part, data, append } = e.data;
     const p = _pending.get(id);
     if (!p) return;
+    // Split delivery: heavy sections arrive as separate messages (own deserialize task each),
+    // reassembled here; the final message carries the remaining light fields.
+    if (part !== undefined) {
+      const parts = (p.parts ||= {});
+      if (append && Array.isArray(parts[part])) {
+        for (let i = 0; i < data.length; i++) parts[part].push(data[i]);
+      } else {
+        parts[part] = data;
+      }
+      return;
+    }
     _pending.delete(id);
     if (error) {
       p.reject({ error, status, version, message });
     } else {
+      if (p.parts) Object.assign(result, p.parts);
       p.resolve(result);
     }
   };

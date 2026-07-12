@@ -929,15 +929,42 @@ function idbDel(key) {
 
 // Post a parsed result, transferring the packed typed-array buffers (LITE map tiles) zero-copy so the main
 // thread never pays a structured-clone deserialize. Non-packed (gameplay) results post normally.
+// Heavy top-level sections posted as separate messages. Each message's structured-clone
+// deserialize runs in its own main-thread task, so rAF frames can interleave between parts
+// instead of eating one 20-30ms monolithic clone per gameplay tile.
+const PART_KEYS = [
+  'roads', 'buildings', 'water', 'greens', 'barriers', 'junctions', 'urbanFeatures',
+  'trees', 'streetLamps', 'pedestrianAreas', 'marinas', 'beaches',
+  'bakedVegetation', 'bakedTerrain', 'bakedPhysicsTerrain', 'bakedRoads', 'bakedSidewalks',
+  'elevation', 'aoGrid',
+];
+const PART_CHUNK = 150; // slice size for the big object arrays (roads/buildings)
+
 function postResult(id, result) {
   if (result && result.packed) {
     self.postMessage({ id, result }, [
       result.rCoords.buffer, result.rOffsets.buffer, result.rWidth.buffer,
       result.wCoords.buffer, result.wOffsets.buffer, result.pCoords.buffer, result.pOffsets.buffer,
     ]);
-  } else {
-    self.postMessage({ id, result });
+    return;
   }
+  if (!result || typeof result !== 'object') {
+    self.postMessage({ id, result });
+    return;
+  }
+  for (const k of PART_KEYS) {
+    const v = result[k];
+    if (v == null) continue;
+    if (Array.isArray(v) && v.length > PART_CHUNK) {
+      for (let i = 0; i < v.length; i += PART_CHUNK) {
+        self.postMessage({ id, part: k, data: v.slice(i, i + PART_CHUNK), append: i > 0 });
+      }
+    } else {
+      self.postMessage({ id, part: k, data: v, append: false });
+    }
+    delete result[k];
+  }
+  self.postMessage({ id, result });
 }
 
 // Open DB eagerly so it's ready by first tile request

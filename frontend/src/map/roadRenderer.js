@@ -4628,7 +4628,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     const junctionWidthMap = buildJunctionWidthMap(rawRoads, JUNCTION_TOLERANCE);
 
     // --- Build ribbon geometry per road, yielding every BATCH_SIZE to avoid jank ---
-    const ROAD_BATCH = 25;
+    const ROAD_BATCH = 8; // was 25 — dense tiles hit ~11ms per batch ('p1 roadgen' residual)
     const byLayer = new Map();
     const roadMeta = [];
     for (let ri = 0; ri < roads.length; ri++) {
