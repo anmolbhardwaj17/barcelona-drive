@@ -820,6 +820,7 @@ function materializeGroup(group, material, shadowsOn) {
   if (group.indices) geo.setIndex(new THREE.Uint32BufferAttribute(group.indices, 1));
 
   const mesh = new THREE.Mesh(geo, material);
+  mesh.userData._nanChecked = true;   // hasNaNPositions ran above — safeSceneAdd skips its re-scan
   mesh.castShadow = shadowsOn;
   mesh.receiveShadow = shadowsOn;
   mesh.frustumCulled = true;
@@ -846,7 +847,7 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     const material = getMaterialByKey(group.materialKey);
     const mesh = materializeGroup(group, material, shadowsOn);
     if (mesh) meshes.push(mesh);
-    if (yieldFn && (i + 1) % 3 === 0) await yieldFn();
+    if (yieldFn) await yieldFn();   // budget-gated: no-op under 3ms, so every group is fine
   }
   if (yieldFn && wallGroups.length > 0) await yieldFn();
 
@@ -874,7 +875,7 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
       else mesh.userData.isBuildingDetail = true;
       meshes.push(mesh);
     }
-    if (yieldFn && (i + 1) % 4 === 0) await yieldFn();
+    if (yieldFn) await yieldFn();
   }
   if (yieldFn && detailGroups.length > 0) await yieldFn();
 

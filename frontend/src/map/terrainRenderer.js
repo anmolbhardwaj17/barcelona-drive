@@ -982,7 +982,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
  * @param {string} [tileKey] - unused, for API consistency
  * @returns {{ body: CANNON.Body } | null}
  */
-export function buildTerrainHeightfield(elevation, tileKey) {
+export async function buildTerrainHeightfield(elevation, tileKey, yieldFn) {
   if (!elevation || !elevation.elevations || !Array.isArray(elevation.elevations)) return null;
   const offset = getWorldElevationOffset() ?? 0; // D-12: single spawn-anchored baseline; tileMinElevation gate removed
   const { south, west, north, east, gridRows, gridCols, elevations } = elevation;
@@ -1012,6 +1012,9 @@ export function buildTerrainHeightfield(elevation, tileKey) {
   // (car X = -(worldX - originX)). Body position is set to the east-side world X so
   // that after negation in tileManager the heightfield covers the correct range.
   const data = [];
+  // Stats folded into this loop (was a SECOND full 16k pass) + budget yields every 16 columns —
+  // this build was part of the "p1 physics" chunk tag.
+  let hfMin = Infinity, hfMax = -Infinity, hfNeg = 0;
   for (let c = 0; c < cols; c++) {
     data[c] = [];
     const colSrc = cols - 1 - c; // reversed: data[0] = east, data[cols-1] = west
@@ -1022,7 +1025,11 @@ export function buildTerrainHeightfield(elevation, tileKey) {
       y = (y - offset) * vertExag;
       y = Math.max(y, seaLevelNorm);
       data[c][r] = y;
+      if (y < hfMin) hfMin = y;
+      if (y > hfMax) hfMax = y;
+      if (y < -0.1) hfNeg++;
     }
+    if (yieldFn && (c & 15) === 15) await yieldFn();
   }
   const westSouth = latLonToWorld(south, west);
   const eastSouth = latLonToWorld(south, east);
@@ -1033,16 +1040,7 @@ export function buildTerrainHeightfield(elevation, tileKey) {
   const stepZ = rows > 1 ? worldWidthZ / (rows - 1) : worldWidthZ;
   const elementSize = (stepX + stepZ) / 2;
 
-  // Log heightfield data stats
-  let hfMin = Infinity, hfMax = -Infinity, hfNeg = 0;
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-      const v = data[c][r];
-      if (v < hfMin) hfMin = v;
-      if (v > hfMax) hfMax = v;
-      if (v < -0.1) hfNeg++;
-    }
-  }
+  // (stats folded into the build loop above)
 
   const heightfieldShape = new CANNON.Heightfield(data, { elementSize });
   const body = new CANNON.Body({ mass: 0 });

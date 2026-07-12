@@ -10,6 +10,16 @@ import { worldToLatLon } from '../projection.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { aoDarkening, AO_ROAD_STRENGTH, bindAoScaleUniform, AO_FRAG_APPLY } from './aoSampler.js';
+import { mergeGeometriesChunked } from './chunkedMerge.js';
+
+// Frame-budgeted merge for the BIG internal families ("p1 roadgen" chunks) — chunked path for
+// large sets, sync fallback for small ones / exotic layouts.
+async function mergeBudgeted(geoms, yieldFn) {
+  if (yieldFn && geoms.length > 16) {
+    try { const m = await mergeGeometriesChunked(geoms, yieldFn); if (m) return m; } catch {}
+  }
+  return mergeGeometries(geoms);
+}
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer } from './groundLayers.js';
@@ -1162,7 +1172,7 @@ function interpolateHeightsFromSource(srcPts, srcHeights, targetPts) {
  * Merges all white geometries (center + lane) and yellow geometries (edge) separately.
  * @returns {{ whiteMarkingsMesh: THREE.Mesh|null, yellowMarkingsMesh: THREE.Mesh|null }}
  */
-function buildRoadMarkings(roads, options) {
+async function buildRoadMarkings(roads, options, yieldFn) {
   const whiteGeoms = [];
   const yellowGeoms = [];
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
@@ -1284,7 +1294,7 @@ function buildRoadMarkings(roads, options) {
   }
 
   if (allMarkingGeoms.length > 0) {
-    const merged = mergeGeometries(allMarkingGeoms);
+    const merged = await mergeBudgeted(allMarkingGeoms, yieldFn);
     allMarkingGeoms.forEach((g) => g.dispose());
     if (merged) {
       const mesh = new THREE.Mesh(merged, getMarkingMaterial());
@@ -1307,7 +1317,7 @@ function buildRoadMarkings(roads, options) {
  * Vertex cost: ~40 verts per crosswalk approach, ~160 per junction.
  * Mesh is tagged userData.type='crosswalk' for 80m LOD culling in tileManager.
  */
-function buildCrosswalks(roads, options) {
+async function buildCrosswalks(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_CROSSWALKS) return null;
 
   const CROSSWALK_SETBACK = 1.5; // metres past the clipping zone edge before first stripe
@@ -1405,7 +1415,7 @@ function buildCrosswalks(roads, options) {
   if (geoms.length === 0) return null;
 
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
 
@@ -1436,7 +1446,7 @@ function buildCrosswalks(roads, options) {
  * Triangle arrow, 1.5m long × 0.6m wide, placed every 30m along eligible roads.
  * Tagged userData.noMerge=true, type='onewayArrows' for 80m LOD culling in tileManager.
  */
-function buildOnewayArrows(roads, options) {
+async function buildOnewayArrows(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_ONEWAY_ARROWS) return null;
 
   const ARROW_SPACING = 30;    // metres between arrows
@@ -1532,7 +1542,7 @@ function buildOnewayArrows(roads, options) {
   if (geoms.length === 0) return null;
 
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
 
@@ -1584,7 +1594,7 @@ function inferSidewalkSide(road) {
  * Uses world-space UV mapping so the 0.2m panot tile is constant physical size.
  * Y = road surface + CURB_HEIGHT (sidewalk sits atop the curb).
  */
-function buildSidewalks(roads, options) {
+async function buildSidewalks(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_SIDEWALKS) return null;
 
   const SIDEWALK_Y_ABOVE = BCN_DIMS.CURB_HEIGHT; // 0.12m — atop the curb
@@ -1671,7 +1681,7 @@ function buildSidewalks(roads, options) {
 
   if (geoms.length === 0) return null;
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
     merged.computeVertexNormals();
@@ -1746,7 +1756,7 @@ function buildBakedSidewalkMeshes(bs, bakedOffset, bakedVertExag) {
  * Two quads per segment: top face (horizontal) + outer vertical face (facing road).
  * Only generated for roads that have sidewalks (same eligibility as buildSidewalks).
  */
-function buildCurbs(roads, options) {
+async function buildCurbs(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_CURBS) return null;
 
   const CURB_H = BCN_DIMS.CURB_HEIGHT;  // 0.12m
@@ -1905,7 +1915,7 @@ function buildCurbs(roads, options) {
 
   if (geoms.length === 0) return null;
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
     merged.computeVertexNormals();
@@ -1923,7 +1933,7 @@ function buildCurbs(roads, options) {
  * Strict: only renders for 'lane','opposite_lane','track','opposite_track'. No fallbacks.
  * Position: between the rightmost car lane and the curb (offset inward from road edge).
  */
-function buildBikeLanes(roads, options) {
+async function buildBikeLanes(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_BIKE_LANES) return null;
 
   const VALID_CYCLEWAY = new Set(['lane', 'opposite_lane', 'track', 'opposite_track']);
@@ -1967,7 +1977,7 @@ function buildBikeLanes(roads, options) {
 
   if (geoms.length === 0) return null;
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
     const mesh = new THREE.Mesh(merged, getBikeLaneMaterial());
@@ -2326,7 +2336,7 @@ function getNoParkingMaterial() {
  * Continuous = no_stopping; dashed (2m/2m) = no_parking.
  * Stripe is at road edge (road_half_width - stripe_half_width from center).
  */
-function buildNoParkingStripes(roads, options) {
+async function buildNoParkingStripes(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_NO_PARKING_STRIPES) return null;
 
   const VALID = new Set(['no_parking', 'no_stopping']);
@@ -2384,7 +2394,7 @@ function buildNoParkingStripes(roads, options) {
 
   if (!geoms.length) return null;
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
     merged.computeVertexNormals();
@@ -2412,7 +2422,7 @@ function getBlueZoneMaterial() {
  * Continuous blue stripe along curb where parking is paid (Zona Blava).
  * Triggered by parkingPaidLeft/Right === 'paid'. Placed at same position as yellow stripes.
  */
-function buildBlueZoneStripes(roads, options) {
+async function buildBlueZoneStripes(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_BLUE_PARKING_ZONES) return null;
   const geoms = [];
   for (const road of roads) {
@@ -2438,7 +2448,7 @@ function buildBlueZoneStripes(roads, options) {
   }
   if (!geoms.length) return null;
   try {
-    const merged = mergeGeometries(geoms);
+    const merged = await mergeBudgeted(geoms, yieldFn);
     geoms.forEach(g => g.dispose());
     if (!merged) return null;
     merged.computeVertexNormals();
@@ -4668,10 +4678,10 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   if (yieldFn) await yieldFn();
 
   // --- Markings + sidewalks + crosswalks + one-way arrows + Phase 3 ---
-  const { whiteMarkingsMesh, yellowMarkingsMesh } = buildRoadMarkings(roads, options);
+  const { whiteMarkingsMesh, yellowMarkingsMesh } = await buildRoadMarkings(roads, options, yieldFn);
   const { sidewalkMesh, edgeStripMesh } = buildSidewalkAndEdgeMeshes(roads, options);
-  const crosswalkMesh      = buildCrosswalks(roads, options);
-  const onewayArrowMesh    = buildOnewayArrows(roads, options);
+  const crosswalkMesh      = await buildCrosswalks(roads, options, yieldFn);
+  const onewayArrowMesh    = await buildOnewayArrows(roads, options, yieldFn);
   // Phase 3 Barcelona (OSM-driven sidewalks, curbs, bike infrastructure).
   // v8 tiles carry PRE-BAKED sidewalk/curb geometry (sidewalkBaker.js — pre-clipped, zero build
   // cost); v7 tiles fall back to the runtime generators, which must stay behaviour-identical.
@@ -4680,18 +4690,18 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     ({ sidewalkMesh: bcnSidewalkMesh, curbMesh: bcnCurbMesh } =
       buildBakedSidewalkMeshes(options.bakedSidewalks, bakedOffset, bakedVertExag));
   } else {
-    bcnSidewalkMesh = buildSidewalks(roads, options);
-    bcnCurbMesh     = buildCurbs(roads, options);
+    bcnSidewalkMesh = await buildSidewalks(roads, options, yieldFn);
+    bcnCurbMesh     = await buildCurbs(roads, options, yieldFn);
   }
-  const bcnBikeLaneMesh    = buildBikeLanes(roads, options);
+  const bcnBikeLaneMesh    = await buildBikeLanes(roads, options, yieldFn);
   const bcnBikePictoMesh   = buildBikePictograms(roads, options);
   // Phase 4A Barcelona (tram handled in tileManager via createTramMeshes; no-parking stripes here)
-  const noParkingMesh      = buildNoParkingStripes(roads, options);
+  const noParkingMesh      = await buildNoParkingStripes(roads, options, yieldFn);
   // Phase 4C-A Barcelona (ZONA 30 stencils + tactile paving dots)
   const zona30Mesh         = buildZona30Stencils(roads, options);
   const tactileMesh        = buildTactilePaving(roads, options);
   // Phase 4C-B Barcelona (blue regulated parking stripes)
-  const bluezoneMesh       = buildBlueZoneStripes(roads, options);
+  const bluezoneMesh       = await buildBlueZoneStripes(roads, options, yieldFn);
 
   if (yieldFn) await yieldFn();
 
