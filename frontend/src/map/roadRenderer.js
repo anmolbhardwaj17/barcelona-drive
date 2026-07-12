@@ -4655,7 +4655,8 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     // --- Merge by layer + apply vertex colors ---
     for (const [layer, geoms] of byLayer) {
       if (geoms.length === 0) continue;
-      const merged = mergeGeometries(geoms);
+      if (yieldFn) await yieldFn();
+      const merged = await mergeBudgeted(geoms, yieldFn);
       geoms.forEach((g) => g.dispose());
       if (merged) {
         if (!merged.attributes.uv) console.warn('[UV] Road merged geometry missing uv attribute (layer', layer, ')');
@@ -4679,7 +4680,9 @@ export async function renderTileRoads(tileData, options, yieldFn) {
 
   // --- Markings + sidewalks + crosswalks + one-way arrows + Phase 3 ---
   const { whiteMarkingsMesh, yellowMarkingsMesh } = await buildRoadMarkings(roads, options, yieldFn);
+  if (yieldFn) await yieldFn();
   const { sidewalkMesh, edgeStripMesh } = buildSidewalkAndEdgeMeshes(roads, options);
+  if (yieldFn) await yieldFn();
   const crosswalkMesh      = await buildCrosswalks(roads, options, yieldFn);
   const onewayArrowMesh    = await buildOnewayArrows(roads, options, yieldFn);
   // Phase 3 Barcelona (OSM-driven sidewalks, curbs, bike infrastructure).
@@ -4694,11 +4697,14 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     bcnCurbMesh     = await buildCurbs(roads, options, yieldFn);
   }
   const bcnBikeLaneMesh    = await buildBikeLanes(roads, options, yieldFn);
+  if (yieldFn) await yieldFn();
   const bcnBikePictoMesh   = buildBikePictograms(roads, options);
+  if (yieldFn) await yieldFn();
   // Phase 4A Barcelona (tram handled in tileManager via createTramMeshes; no-parking stripes here)
   const noParkingMesh      = await buildNoParkingStripes(roads, options, yieldFn);
   // Phase 4C-A Barcelona (ZONA 30 stencils + tactile paving dots)
   const zona30Mesh         = buildZona30Stencils(roads, options);
+  if (yieldFn) await yieldFn();
   const tactileMesh        = buildTactilePaving(roads, options);
   // Phase 4C-B Barcelona (blue regulated parking stripes)
   const bluezoneMesh       = await buildBlueZoneStripes(roads, options, yieldFn);
@@ -4707,11 +4713,13 @@ export async function renderTileRoads(tileData, options, yieldFn) {
 
   // --- Bridge structures ---
   const { mesh: pillarMesh, positions: pillarPositions } = buildBridgePillarMeshes(roads, options);
+  if (yieldFn) await yieldFn();
   const bridgeSlabMesh = buildBridgeSlabGeometry(roads, options);
 
   if (yieldFn) await yieldFn();
 
   const { wallMesh: bridgeGuardRailMesh, railingMesh: metalRailingMesh } = buildBridgeGuardRailGeometry(roads, options);
+  if (yieldFn) await yieldFn();
   const blendStripMesh = CONFIG.ENABLE_ROAD_SHOULDERS ? buildRoadsideBlendStrip(roads, options) : null;
   // Bridge FAKE-shadow ribbons DISABLED (user, 2026-07-11, after three look-alike culprits were
   // ruled out — edge strips, railways, slab sides): 45%-black ground ribbons under every elevated

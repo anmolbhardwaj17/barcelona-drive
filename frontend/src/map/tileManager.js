@@ -2262,6 +2262,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     await yieldToMain();
 
+    buildPhase('p4 water');
     // Water — use getWorldElevation for terrain-following water surface
     const waterAreas = (skipNonRoad || !CONFIG.ENABLE_WATER) ? [] : [
       ...(tileData.water || []),
@@ -2275,13 +2276,19 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (wr.embankmentMesh) safeSceneAdd(scene, wr.embankmentMesh);
     }
 
+    await yieldToMain();
+
     // Props
+    buildPhase('p4 props');
     if (!skipNonRoad) {
       entry.propMesh = renderProps(tileData, key, options);
       if (entry.propMesh) safeSceneAdd(scene, entry.propMesh);
     }
 
+    await yieldToMain();
+
     // Environment clusters
+    buildPhase('p4 clusters');
     if (!skipNonRoad) {
       entry.clusterMeshes = await mergeMeshesByMaterial(renderEnvironmentClusters(tileData, key, options), yieldToMain);
       entry.clusterMeshes.forEach((m) => safeSceneAdd(scene, m));
@@ -2434,7 +2441,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Urban features + Vendor carts
     if (CONFIG.ENABLE_URBAN_FEATURES && data.urbanFeatures?.length) {
       buildPhase('p4 urban');
-      entry.urbanFeatureMeshes = await mergeMeshesByMaterial(buildUrbanFeatureMeshes(data.urbanFeatures, roads, buildings, getGroundY), yieldToMain);
+      entry.urbanFeatureMeshes = await mergeMeshesByMaterial(await buildUrbanFeatureMeshes(data.urbanFeatures, roads, buildings, getGroundY, yieldToMain), yieldToMain);
       for (const m of entry.urbanFeatureMeshes) { safeSceneAdd(scene, m); }
     }
     if (CONFIG.ENABLE_VENDOR_CARTS && roads.length > 0) {

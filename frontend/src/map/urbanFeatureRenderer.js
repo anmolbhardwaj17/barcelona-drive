@@ -841,7 +841,7 @@ const EXCLUSION_RADIUS = {
  * @param {Array} [buildings] - tile buildings for collision avoidance (optional)
  * @returns {THREE.Mesh[]}
  */
-export function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY) {
+export async function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY, yieldFn) {
   if (!features || features.length === 0) return [];
   const groundYAt = typeof getGroundY === 'function' ? getGroundY : () => 0;
 
@@ -928,6 +928,8 @@ export function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY) 
       pool.applyMatrix4(_combined);
       poolGeoms.push(pool);
     }
+  
+    if (yieldFn) await yieldFn();
   }
 
   _glowTemplate.dispose();
@@ -936,6 +938,7 @@ export function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY) 
   const meshes = [];
   for (const [matName, geos] of byMat) {
     if (geos.length === 0) continue;
+    if (yieldFn) await yieldFn();
     const merged = mergeGeometries(geos);
     geos.forEach(g => g.dispose());
     if (!merged) continue;
