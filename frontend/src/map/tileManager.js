@@ -2259,7 +2259,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
               if (h.kind !== 'tree' && h.kind !== 'bush') continue;
               for (let wi = 0; wi < h.count; wi++) {
                 h.pool.setWashAt(h.ids[wi], washGrid ? washAt(washGrid, h.xs[wi], h.zs[wi]) : 0);
-                if ((wi & 511) === 511) await yieldToMain();   // frame-budgeted — thousands of instances/tile
+                if ((wi & 255) === 255) await yieldToMain();   // frame-budgeted — washAt is ~900 checks/instance (p3 veg-wash tag)
               }
             }
             await yieldToMain();

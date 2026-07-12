@@ -199,7 +199,7 @@ export function createCustomMap() {
    * names); zoomed IN adds minor roads, buildings, then street names. Linear world→pixel is exact enough
    * within one small tile (Mercator is locally linear) and matches Leaflet's placement. north (max Z) → top.
    */
-  function drawTile(ctx, size, wb, z = 17, marginM = 30) {
+  function drawTile(ctx, size, wb, z = 17, marginM = 30, noBuilds = false) {
     const S = _night ? STYLE.night : STYLE.day;
     const [wMinX, wMinZ, wMaxX, wMaxZ] = wb;
     const spanX = wMaxX - wMinX, spanZ = wMaxZ - wMinZ;
@@ -212,7 +212,7 @@ export function createCustomMap() {
 
     // Level-of-detail gates by zoom
     const showMid = z >= 15, showMinor = z >= 16, showPath = z >= 17;
-    const showBuildings = z >= 16;
+    const showBuildings = z >= 16 && !noBuilds;   // minimap passes noBuilds: footprints are invisible at 180px
     const showDistricts = z <= 16;      // broad overview
     const showStreets = z >= 17;        // street names at default zoom+ (both the circle minimap and expanded)
 

@@ -359,6 +359,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   // Web-Mercator metres-per-CSS-pixel at a given latitude + zoom (matches the old Leaflet scale).
   const _mPerPx = (lat, zoom) => 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
 
+  let _lastRedrawT = 0;
   function redrawMap(force = false) {
     if (!customMap || !_mctx) return;
     const cssPx = Math.max(2, Math.round(mapDiv.clientWidth || MINIMAP_SIZE));
@@ -371,11 +372,18 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       const moved = (cx - _drawX) ** 2 + (cz - _drawZ) ** 2;
       if (moved < 25 && _zoom === _drawZoom && bw === _drawPx) return;  // <5 m moved, unchanged → skip
     }
+    // Time throttle: at speed the 5m-move gate fires ~5x/s and each vector redraw costs up to
+    // ~10ms (worst ui 10.1 in STATS at 99km/h) — cap redraw rate; the CSS rotation stays smooth.
+    const nowT = performance.now();
+    if (!force && nowT - (_lastRedrawT || 0) < 180) return;
+    _lastRedrawT = nowT;
     _drawX = cx; _drawZ = cz; _drawZoom = _zoom; _drawPx = bw;
     const ll = worldToLatLon(cx, cz);
     const span = cssPx * _mPerPx(ll.lat, _zoom);        // world metres across the canvas
     const wb = [cx - span / 2, cz - span / 2, cx + span / 2, cz + span / 2];
-    try { customMap.drawTile(_mctx, bw, wb, Math.round(_zoom)); } catch (e) { /* blank */ }
+    // Small circular map: skip building footprints only (hundreds of tiny polys, invisible at
+    // 180px) — roads/names keep full LOD; the expanded fullscreen map keeps everything.
+    try { customMap.drawTile(_mctx, bw, wb, Math.round(_zoom), 30, !expanded); } catch (e) { /* blank */ }
   }
 
   function zoomBy(delta) { _zoom = Math.max(13, Math.min(19, _zoom + delta)); redrawMap(true); }
