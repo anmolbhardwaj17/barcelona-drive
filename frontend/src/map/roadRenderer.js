@@ -453,9 +453,10 @@ export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt, aoStrength
         const d = aoDarkening(svfAt(x, z), aoStrength);
         if (Number.isFinite(d) && d > 0.004) { ao[i] = d; anyAo = true; }
       }
-      // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts. 2047 (was 8191,
-      // then 4095): wash+AO chunks still tagged 17ms at 4095 — halve again toward the ≤10ms goal.
-      if (yieldFn && (i & 2047) === 2047) await yieldFn();
+      // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts. 1023 (was 8191→
+      // 4095→2047): dense-area washAt is ~900 distance checks per vertex, so even 2047-vert
+      // slices tagged 29.9ms. The yield is budget-gated (no-op under 3ms) — checking often is free.
+      if (yieldFn && (i & 1023) === 1023) await yieldFn();
     }
     if (any) mesh.geometry.setAttribute('aWash', new THREE.BufferAttribute(wash, 1));
     if (anyAo) mesh.geometry.setAttribute('aAO', new THREE.BufferAttribute(ao, 1));

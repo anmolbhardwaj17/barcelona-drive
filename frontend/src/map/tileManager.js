@@ -171,24 +171,34 @@ async function mergeGeometriesChunked(geos, yieldFn) {
   const idxArr = indexed ? new Uint32Array(totalIdx) : null;
   let vOff = 0, iOff = 0;
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  // Copy in <=16k-vert SLICES with yields — per-source yields weren't enough ("p1 merge 41.8ms"
+  // tag: one merged-marking source can be 60k+ verts, copied + bbox-scanned in one sync span).
+  const SLICE = 16384;
   for (const g of geos) {
     const n = g.attributes.position.count;
-    for (const name of attrNames) {
-      const src = g.attributes[name];
-      const want = n * src.itemSize;
-      targets[name].set(src.array.length === want ? src.array : src.array.subarray(0, want), vOff * src.itemSize);
+    for (let s0 = 0; s0 < n; s0 += SLICE) {
+      const s1 = Math.min(n, s0 + SLICE);
+      for (const name of attrNames) {
+        const src = g.attributes[name];
+        const isz = src.itemSize;
+        targets[name].set(src.array.subarray(s0 * isz, s1 * isz), (vOff + s0) * isz);
+      }
+      const p = g.attributes.position.array;
+      for (let i = s0 * 3, e = s1 * 3; i < e; i += 3) {
+        const x = p[i], y = p[i + 1], z = p[i + 2];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      }
+      if (yieldFn) await yieldFn();
     }
     if (indexed) {
       const si = g.index.array;
-      for (let i = 0; i < si.length; i++) idxArr[iOff + i] = si[i] + vOff;
+      for (let i = 0; i < si.length; i++) {
+        idxArr[iOff + i] = si[i] + vOff;
+        if ((i & 32767) === 32767 && yieldFn) await yieldFn();
+      }
       iOff += si.length;
-    }
-    const p = g.attributes.position.array;
-    for (let i = 0, e = n * 3; i < e; i += 3) {
-      const x = p[i], y = p[i + 1], z = p[i + 2];
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
     }
     vOff += n;
     if (yieldFn) await yieldFn();
