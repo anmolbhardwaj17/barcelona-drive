@@ -1607,7 +1607,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 1: Terrain + Roads + Physics (appear immediately)
     // -----------------------------------------------------------------------
-    buildPhase('p1 roads/terrain');
+    buildPhase('p1 physics');        // terrain trimesh/heightfield + colliders come first in p1
 
     // Performance instrumentation — tracks max single-chunk time (the stutter metric)
     const _perfT0 = performance.now();
@@ -1907,9 +1907,11 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     await _perfYield();
 
     // Roads — async with frame yields to prevent jank
+    buildPhase('p1 roadgen');        // road ribbon/marking generation (internal sync merges live here)
     const roadMeshesRaw = await createRoadMeshes(roads, options, _perfYield);
     const pillarPositions = roadMeshesRaw._pillarPositions || [];
 
+    buildPhase('p1 merge');
     const roadMeshes = await mergeMeshesByMaterial(roadMeshesRaw, _perfYield);
     roadMeshes._pillarPositions = pillarPositions;
 
