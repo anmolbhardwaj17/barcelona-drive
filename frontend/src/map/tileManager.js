@@ -458,6 +458,14 @@ class CheapBox extends CANNON.ConvexPolyhedron {
   computeEdges() { this.uniqueEdges = _BOX_EDGES; }
 }
 function makeCheapBox(hx, hy, hz) {
+  // Rapier mode: a NATIVE CANNON.Box is the lean path — its heavy ConvexPolyhedron rep is stubbed
+  // at init (main.js), the adapter converts Box→cuboid straight from halfExtents (cheaper than
+  // convexHull over 8 verts), and the allocation profile showed CheapBox's 8 Vec3s per wall
+  // segment were the #2 allocator of a streaming drive (11.7MB/20s). CheapBox remains the
+  // cannon-mode (?physics=cannon) path, where real narrowphase needs the convex data.
+  if (typeof window !== 'undefined' && window._ddRapierActive) {
+    return new CANNON.Box(new _V3(hx, hy, hz));
+  }
   const vertices = [
     new _V3(-hx, -hy, -hz), new _V3(hx, -hy, -hz), new _V3(hx, hy, -hz), new _V3(-hx, hy, -hz),
     new _V3(-hx, -hy, hz), new _V3(hx, -hy, hz), new _V3(hx, hy, hz), new _V3(-hx, hy, hz),

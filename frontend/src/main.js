@@ -459,8 +459,17 @@ spawnTileReady.finally(() => {
             // trimesh a streaming tile creates. Stub it. AABB/bounding-sphere come from vertex
             // scans (not the tree), so addBody and the Rapier mirror are unaffected. The
             // ?physics=cannon escape hatch never reaches this line → keeps real trees.
-            const { Trimesh: _CTrimesh } = await import('cannon-es');
+            const { Trimesh: _CTrimesh, Box: _CBox } = await import('cannon-es');
             _CTrimesh.prototype.updateTree = function () {};
+            // Round 2b (allocation sample, user capture): also skip Trimesh edge/normal tables and
+            // Box's ConvexPolyhedron representation — all narrowphase-only data cannon never uses
+            // in Rapier mode. The box convex rep alone was ~17MB of churn per streaming drive
+            // (makeCheapBox + addShape + _ConvexPolyhedron in the profile). The adapter reads
+            // Box.halfExtents / Trimesh.vertices+indices only; AABBs are computed independently.
+            _CTrimesh.prototype.updateEdges = function () {};
+            _CTrimesh.prototype.updateNormals = function () {};
+            _CBox.prototype.updateConvexPolyhedronRepresentation = function () { this.convexPolyhedronRepresentation = null; };
+            window._ddRapierActive = true;   // tileManager builds lean Box colliders when set
             console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
