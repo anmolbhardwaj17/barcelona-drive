@@ -16,7 +16,9 @@ import {
   getTreeBillboardMaterial,
 } from '../map/vegetationRenderer.js';
 import { createVegPoolSet } from '../map/vegPools.js';
+import { bindAoScaleUniform, AO_FRAG_APPLY } from '../map/aoSampler.js';
 import { getNightEmissiveTexture, NIGHT_EMISSIVE_INTENSITY, HERO_EMISSIVE_INTENSITY } from '../map/buildingRenderer.js';
+import { getBeaconMat, getBeaconGeom } from '../map/urbanFeatureRenderer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -66,15 +68,17 @@ const DETAIL_MATERIAL_DEFS = {
 
 // ─── Billboard ad definitions ────────────────────────────────────────────────
 
+// Spanish/Catalan parody shop signage (GTA-style tone, fictional names — matches the bridge
+// billboards in roadRenderer.getBillboardTextures).
 const BILLBOARD_COLORS = [
-  { bg: '#1B3A5C', fg: '#FFFFFF', text: 'SALE' },
-  { bg: '#8B0000', fg: '#FFD700', text: 'BIG BAZAAR' },
-  { bg: '#003366', fg: '#00CCFF', text: 'ELECTRONICS' },
-  { bg: '#2E0854', fg: '#FF66AA', text: 'FASHION' },
-  { bg: '#004D00', fg: '#FFFF00', text: 'FRESH DEALS' },
-  { bg: '#333333', fg: '#FF4400', text: 'MEGA OFFER' },
-  { bg: '#0A1628', fg: '#44BBFF', text: 'NEW ARRIVALS' },
-  { bg: '#4A0E0E', fg: '#FFD700', text: '50% OFF' },
+  { bg: '#1B3A5C', fg: '#FFFFFF', text: 'REBAIXES' },
+  { bg: '#8B0000', fg: '#FFD700', text: 'SUPERMERCAT' },
+  { bg: '#003366', fg: '#00CCFF', text: 'ELECTRÒNICA' },
+  { bg: '#2E0854', fg: '#FF66AA', text: 'MODA ZURA' },
+  { bg: '#004D00', fg: '#FFFF00', text: 'FRUITES FRESQUES' },
+  { bg: '#333333', fg: '#FF4400', text: 'GRAN OFERTA' },
+  { bg: '#0A1628', fg: '#44BBFF', text: 'NOVETATS' },
+  { bg: '#4A0E0E', fg: '#FFD700', text: '50% DESCOMPTE' },
 ];
 
 // ─── Texture caches (lazy, created on first access) ──────────────────────────
@@ -175,46 +179,44 @@ function getWindowTexture(category) {
   const isCommercial  = (category === 'commercial');
   const isGlass       = (category === 'commercial_glass');
 
-  // ── Glass curtain wall ──
+  // ── Glass curtain wall — FULL-GLASS mosaic (Torre Agbar reference, user call 2026-07-11) ──
+  // No visible wall at all: a dense grid of small panes covering the whole facade, cool
+  // sky-reflecting blues/teals with occasional warm amber/red accent panes and rare dark ones,
+  // separated by thin near-black mullions. Reads as a shimmering glazed skin, not masonry.
   if (isGlass) {
-    const groundH = Math.round(marginB);
-    ctx.fillStyle = '#1A2830';
-    ctx.fillRect(0, H - groundH, W, groundH);
-    const lobbyW = Math.round(4.0 * pxW);
-    const lobbyH = Math.round(groundH * 0.85);
-    const lobbyX = Math.round((W - lobbyW) / 2);
-    const lobbyY = H - groundH + Math.round(groundH * 0.1);
-    ctx.fillStyle = '#142028';
-    ctx.fillRect(lobbyX, lobbyY, lobbyW, lobbyH);
-    ctx.fillStyle = '#5A6A78';
-    ctx.fillRect(lobbyX, lobbyY, lobbyW, 1);
-    ctx.fillRect(lobbyX, lobbyY + lobbyH - 1, lobbyW, 1);
-    ctx.fillRect(lobbyX, lobbyY, 1, lobbyH);
-    ctx.fillRect(lobbyX + lobbyW - 1, lobbyY, 1, lobbyH);
-
-    for (let y = H - marginB - winH; y >= 0; y -= periodV) {
-      for (let x = marginL; x + winW <= W; x += periodH) {
+    ctx.fillStyle = '#10181e';                     // mullion grid shows through pane gaps
+    ctx.fillRect(0, 0, W, H);
+    const paneW = Math.max(4, Math.round(1.05 * pxW));
+    const paneH = Math.max(4, Math.round(1.15 * pxH));
+    const gap = Math.max(1, Math.round(0.06 * pxW));
+    for (let y = 0; y + paneH <= H + paneH; y += paneH + gap) {
+      for (let x = 0; x + paneW <= W + paneW; x += paneW + gap) {
         const v = rnd();
-        const base = v < 0.2 ? 95 : (v < 0.5 ? 135 : 165); // Barcelona: light sky-reflecting glass
-        const r = base + Math.round(rnd() * 10);
-        const g = base + 12 + Math.round(rnd() * 10);
-        const b2 = base + 22 + Math.round(rnd() * 12);
+        let r, g, b2;
+        if (v < 0.055) {                            // warm accent pane (Agbar's amber/red flecks)
+          const t = rnd();
+          r = 185 + Math.round(t * 55); g = 95 + Math.round(t * 45); b2 = 45 + Math.round(t * 25);
+        } else if (v < 0.13) {                      // dark pane (blinds / unlit depth)
+          r = 40 + Math.round(rnd() * 18); g = 55 + Math.round(rnd() * 18); b2 = 70 + Math.round(rnd() * 20);
+        } else {                                    // cool glass: steel-blue → teal → pale cyan
+          const t = rnd();
+          r = 95 + Math.round(t * 55);
+          g = 130 + Math.round(t * 55);
+          b2 = 155 + Math.round(t * 55);
+        }
         ctx.fillStyle = `rgb(${r},${g},${b2})`;
-        ctx.fillRect(x, y, winW, winH);
-        ctx.fillStyle = 'rgba(140,170,200,0.06)';
-        ctx.fillRect(x + 1, y + 1, winW - 2, Math.round(winH * 0.3));
-        ctx.fillStyle = '#5A6A78';
-        ctx.fillRect(x, y, winW, 1);
-        ctx.fillRect(x, y + winH - 1, winW, 1);
-        ctx.fillRect(x, y, 1, winH);
-        ctx.fillRect(x + winW - 1, y, 1, winH);
+        ctx.fillRect(x, y, Math.min(paneW, W - x), Math.min(paneH, H - y));
+        // sky-reflection sheen on the top third of each pane
+        ctx.fillStyle = 'rgba(200,225,245,0.10)';
+        ctx.fillRect(x, y, Math.min(paneW, W - x), Math.max(1, Math.round(paneH * 0.3)));
       }
-      const mullionY = y + winH;
-      ctx.fillStyle = '#4A5A68';
-      ctx.fillRect(0, mullionY, W, Math.max(2, Math.round(0.08 * pxH)));
     }
-    ctx.fillStyle = '#3A4A58';
-    ctx.fillRect(0, 0, W, Math.max(3, Math.round(0.15 * pxH)));
+    // Ground floor: taller dark lobby glazing band
+    const groundH = Math.round(marginB * 0.8);
+    ctx.fillStyle = '#16222b';
+    ctx.fillRect(0, H - groundH, W, groundH);
+    ctx.fillStyle = '#3c4c58';
+    for (let x = 0; x < W; x += Math.round(2.2 * pxW)) ctx.fillRect(x, H - groundH, 1, groundH);
   }
 
   // ── Commercial: shopfront + signboard ──
@@ -618,8 +620,11 @@ function getFacadeMaterial(hexColor, category) {
       color: hexColor,
       vertexColors: true,
       map: getWindowTexture(baseCategory),
-      specular: 0x8899AA,
-      shininess: 60,
+      // Softened (user report): 0x8899AA/60 painted a giant white sun-streak up the CURVED bullet
+      // towers at grazing angles — smooth revolves focus specular into one hot stripe. Keep a
+      // gentle sheen so glass still reads glossy vs the matte masonry.
+      specular: 0x2e3a44,
+      shininess: 22,
       reflectivity: 0.4,
       side: BUILDING_SIDE,
       ...emis,
@@ -650,11 +655,16 @@ function getFacadeMaterial(hexColor, category) {
   mat.userData._uNightWash = { value: _facadeNight ? FACADE_WASH_NIGHT : 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNightWash = mat.userData._uNightWash;
+    bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
+      .replace('#include <common>', '#include <common>\nattribute float aWash;\nattribute float aAO;\nvarying float vWash;\nvarying float vAoDark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nuniform float uAoScale;\nvarying float vWash;\nvarying float vAoDark;')
+      // Baked sky-AO darkening (v9): street-canyon facades shade at the base. Attribute stores the
+      // DARKENING amount, so geometry without it (default 0) is untouched — never black.
+      // uAoScale softens AO under the night rig (aoSampler.setAoNightScale).
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`)
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
   };
@@ -806,9 +816,11 @@ function materializeGroup(group, material, shadowsOn) {
   if (group.uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(group.uvs, 2));
   if (group.colors) geo.setAttribute('color', new THREE.Float32BufferAttribute(group.colors, 3));
   if (group.wash) geo.setAttribute('aWash', new THREE.Float32BufferAttribute(group.wash, 1));
+  if (group.ao) geo.setAttribute('aAO', new THREE.Float32BufferAttribute(group.ao, 1));
   if (group.indices) geo.setIndex(new THREE.Uint32BufferAttribute(group.indices, 1));
 
   const mesh = new THREE.Mesh(geo, material);
+  mesh.userData._nanChecked = true;   // hasNaNPositions ran above — safeSceneAdd skips its re-scan
   mesh.castShadow = shadowsOn;
   mesh.receiveShadow = shadowsOn;
   mesh.frustumCulled = true;
@@ -835,7 +847,7 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     const material = getMaterialByKey(group.materialKey);
     const mesh = materializeGroup(group, material, shadowsOn);
     if (mesh) meshes.push(mesh);
-    if (yieldFn && (i + 1) % 3 === 0) await yieldFn();
+    if (yieldFn) await yieldFn();   // budget-gated: no-op under 3ms, so every group is fine
   }
   if (yieldFn && wallGroups.length > 0) await yieldFn();
 
@@ -863,7 +875,7 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
       else mesh.userData.isBuildingDetail = true;
       meshes.push(mesh);
     }
-    if (yieldFn && (i + 1) % 4 === 0) await yieldFn();
+    if (yieldFn) await yieldFn();
   }
   if (yieldFn && detailGroups.length > 0) await yieldFn();
 
@@ -931,6 +943,20 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     _heroSpillMeshes.add(spillMesh);
     spillMesh.addEventListener('removed', () => _heroSpillMeshes.delete(spillMesh));
     meshes.push(spillMesh);
+  }
+
+  // ── Water-tower beacons — pulsing red lights on the finials (user call 2026-07-11) ──────────
+  // Shares the comm-tower beacon material, which updateTowerBeacons() breathes every frame.
+  if (workerResult.beaconPoints && workerResult.beaconPoints.length >= 3) {
+    const bp = workerResult.beaconPoints;
+    for (let i = 0; i + 2 < bp.length; i += 3) {
+      const beacon = new THREE.Mesh(getBeaconGeom(), getBeaconMat());
+      beacon.position.set(bp[i], bp[i + 1], bp[i + 2]);
+      beacon.frustumCulled = true;
+      beacon.userData.sharedGeometry = true;
+      beacon.userData.sharedMaterial = true;
+      meshes.push(beacon);
+    }
   }
 
   return meshes;

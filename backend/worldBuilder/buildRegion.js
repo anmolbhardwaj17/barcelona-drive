@@ -102,6 +102,7 @@ import { fixOsmData } from './roads/OsmDataFixer.js';
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
 import { clipPathsAgainstCarriageways } from './roads/pathCoverageClipper.js';
 import { bakeSidewalks } from './sidewalkBaker.js';
+import { bakeAoGrid, gatherAoOccluders } from './aoBaker.js';
 import { classifyJunctions } from './junctions/JunctionClassifier.js';
 import { buildMergeGeometry } from './junctions/MergeGeometryBuilder.js';
 import { tileToBBox, latLonToTile, mercatorToWorld, worldToMercator, mercatorToLatLon, getOriginMercator, latLonToMercator } from '../projection.js';
@@ -1592,6 +1593,14 @@ async function main() {
     // Frontend uses these instead of the runtime generator when present (v7 tiles fall back).
     const bakedSidewalks = bakeSidewalks(payload);
     if (bakedSidewalks) payload.bakedSidewalks = bakedSidewalks;
+
+    // ── Bake sky-visibility AO (v9) ──────────────────────────────────────
+    // Occluders come from this tile + its 8 neighbours so street canyons darken correctly
+    // across tile seams. Skipped in road-only debug mode (no buildings parsed).
+    if (!roadOnlyDebugMode) {
+      const aoGrid = bakeAoGrid(payload.elevation, gatherAoOccluders(tileId, buildingsByTile));
+      if (aoGrid) payload.aoGrid = aoGrid;
+    }
 
     const binBuf = convertTile(payload);
     fs.writeFileSync(filePath, binBuf);

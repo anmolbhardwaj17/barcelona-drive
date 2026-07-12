@@ -15,6 +15,15 @@ The bake pipeline converts raw OSM data (PBF format) and DEM elevation raster (G
 - Set both metre-knobs to 0 to disable. Long wavelengths (Montjuïc, coast descent) pass through untouched.
 - Measured at defaults (through `sampleElevation`): Montjuïc climb 143→134 m (93% kept), coast descent 16.9→16.8 m (kept), Eixample wiggle RMS 0.40→0.02 m (96% gone).
 
+**Baked sky-visibility AO (v9, aoBaker.js):** per tile, a 128×128 uint8 grid of hemispheric
+sky-view factors matching the elevation grid's indices — 2.5D horizon sampling (16 azimuth rays,
+2 m march to 60 m) against a 2 m building-height raster (occluders from the tile + its 8
+neighbours, so canyons darken seamlessly across tile edges) plus the terrain itself (slopes and
+trench walls self-shade). The grid stores PURE sky visibility; all art strength/gamma curves live
+in `frontend/src/map/aoSampler.js` (+ mirrored constants in buildingWorker.js), so look tuning
+never needs a re-bake — only geometry/height changes do. This is the L3 unlock from
+[visual-target-analysis.md](visual-target-analysis.md) §4.
+
 ---
 
 ## Running the Bake

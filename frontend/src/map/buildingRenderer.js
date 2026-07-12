@@ -598,9 +598,9 @@ export function getNightEmissiveTexture(category, hero = false) {
       const oy = gy * BASE;
       for (let y = oy + BASE - marginB - winH; y >= oy; y -= periodV) {
         for (let x = ox + marginL; x + winW <= ox + BASE; x += periodH) {
-          // ~20% of windows lit (hero buildings: half on — dense enough to read as THE lit tower
-          // from afar without becoming a blazing wall at street level).
-          if (rnd() > (hero ? 0.5 : 0.20)) continue;
+          // ~20% of windows lit (hero buildings: about a third on — dense enough to read as THE
+          // lit tower from afar; 0.5 + bloom read as a solid blazing yellow wall — user report).
+          if (rnd() > (hero ? 0.32 : 0.20)) continue;
 
           const warmth = rnd();
           // Colour mix leans WARM (the night look is warm amber vs blue); heroes are all-warm.
@@ -638,7 +638,9 @@ export function getNightEmissiveTexture(category, hero = false) {
 
 let _buildingNightMode = false;
 export const NIGHT_EMISSIVE_INTENSITY = 1.5;  // window-glow strength at night (crisp squares, soft bloom edge)
-export const HERO_EMISSIVE_INTENSITY  = 1.7;  // hero towers read denser-lit, NOT brighter-per-window (2.4 bloomed into yellow diamonds)
+export const HERO_EMISSIVE_INTENSITY  = 1.45; // hero towers read denser-lit, NOT brighter-per-window (2.4 bloomed
+                                              // into yellow diamonds; 1.7 × 50% density still read as a glowing
+                                              // wall on big towers — density is now 0.32, intensity trimmed too)
 
 /**
  * Toggle building window glow for night mode.
@@ -836,6 +838,13 @@ const TYPE_TO_CATEGORY = {
  * @returns {string} one of the FACADE_PRESETS keys
  */
 function getBuildingCategory(building, roads, worldX, worldZ) {
+  // Tall towers are GLASS — MUST MATCH buildingWorker.getBuildingCategory (LOD buildings would
+  // otherwise flip masonry↔glass at the LOD boundary). ≥55m or explicit glass tag, churches exempt.
+  const _mat = (building.material || '').toLowerCase();
+  if (building.type !== 'church' && building.type !== 'cathedral'
+      && ((Number.isFinite(building.height) && building.height >= 55) || _mat === 'glass' || _mat === 'mirror')) {
+    return 'commercial_glass';
+  }
   const mapped = TYPE_TO_CATEGORY[building.type];
   if (mapped) return mapped;
   // generic / null (the bulk of Barcelona's OSM, building=yes) → warm Eixample MASONRY by default.

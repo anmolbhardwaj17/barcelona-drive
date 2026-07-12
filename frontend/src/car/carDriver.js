@@ -29,7 +29,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   // ── Sub-systems ───────────────────────────────────────────────────────────
   const _spawn = { x: spawnLocalPos.x, y: spawnLocalPos.y + 2, z: spawnLocalPos.z }; // drop 2 m; settles
-  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (?physics=rapier), else cannon-es.
+  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (the default), else cannon-es (?physics=cannon).
   const physics  = opts.rapier
     ? createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading)
     : createCarPhysics(world, _spawn, spawnHeading);
@@ -93,6 +93,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   };
   let _crumbTimer = 0;
   let _resetCooldown = 0;
+  let _wedgeTimer = 0;   // seconds spent wedged (≤1 wheel down + stationary) — see auto-recovery below
   // Shared teleport used by both the R key and the freefall auto-recovery below.
   const _recoverToCrumb = () => {
     const b = physics.chassisBody;
@@ -183,8 +184,22 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
       // Breadcrumb: keep it FRESH. Record the last upright, grounded pose continuously (throttled to
       // ~3/s) whenever ≥2 wheels touch and we're roughly upright — so "recover" never sends us all the
       // way back to spawn (the earlier bug: a strict ≥3-wheel/2s gate rarely fired → stale crumb).
+      // WEDGE auto-recovery (user report: nose-diving into the seam where flyovers merge with
+      // ground roads). A wedged car is: almost no wheels touching + essentially stationary, held
+      // for a few seconds. Normal driving never sustains that (jumps land, kerb-parking keeps ≥2
+      // wheels down); a car jammed nose-first in a collider crack does. Auto-teleport to the crumb.
+      if (wheelsOn <= 1 && Math.abs(physics.getSpeedKmh()) < 2 && _resetCooldown === 0) {
+        _wedgeTimer += dt;
+        if (_wedgeTimer > 3.0) { _wedgeTimer = 0; _resetCooldown = 1.0; _recoverToCrumb(); }
+      } else {
+        _wedgeTimer = 0;
+      }
+
       _crumbTimer += dt;
-      if (wheelsOn >= 2 && upY > 0.6 && _crumbTimer >= 0.3) {
+      // opts.isCrumbSafe (physics-frame x,z): world-boundary gate — never record a crumb outside
+      // the baked region, or the out-of-bounds teleport would loop to an out-of-bounds spot.
+      if (wheelsOn >= 2 && upY > 0.6 && _crumbTimer >= 0.3
+          && (!opts.isCrumbSafe || opts.isCrumbSafe(cb.position.x, cb.position.z))) {
         _crumbTimer = 0;
         const bp = cb.position;
         _crumb.x = bp.x; _crumb.y = bp.y; _crumb.z = bp.z;
@@ -272,5 +287,5 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
-  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.() };
+  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
 }

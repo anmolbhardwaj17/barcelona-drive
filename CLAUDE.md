@@ -52,8 +52,8 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - **Region**: Barcelona (Delhi tiles preserved as fallback)
 - **Spawn**: Sant Gervasi / Ronda de Dalt trench portal — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.4098, lon:2.1257}` (tile 16_33154_24471). Set for the Phase 3 slice-② authored-trench drive check. Previous spawns (Montjuïc slope, Gran Via tunnel) noted in spawnConfig.js.
 - **Mode**: default `ENABLE_CAR: false` (fly/free camera). **Override per-load via URL** — see toggles below.
-- **Fog**: OFF — `ENABLE_FOG: false` (re-enable before shipping)
-- **Tile format**: v7 with 10 new feature types (beaches, piers, trees, shops, etc.)
+- **Fog**: ON — `ENABLE_FOG: true` (the pre-ship re-enable already happened)
+- **Tile format**: v9 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`)
 - **Ocean**: No global plane — water renders via per-polygon OSM water meshes only (ocean plane reverted)
 - **Unit model**: Unstretch-X COMPLETE (Stage 1) — 1 world unit = 1 real metre on all axes (ADR D-11). Any elevation/coord/scale change is atomic: code + full re-bake + browser cache flush (see vertical-model-foundation-spec §6).
 
@@ -89,7 +89,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 | [changelog.md](docs/context/changelog.md) | Running log of changes; append here for every session |
 | [barcelona-road-system.md](docs/context/barcelona-road-system.md) | Barcelona road overhaul design — phased roadmap, Norma 8.2-IC target, current baseline |
 | [tunnel-fix-playbook.md](docs/context/tunnel-fix-playbook.md) | Tunnel subsystem fix playbook — 8-subsystem contract model (C1–C7), symptom→cause map, dependency-ordered fix phases, Findings Report format |
-| [rapier-physics.md](docs/context/rapier-physics.md) | Opt-in Rapier (WASM) physics — cannon-compatible car, per-shape streaming collider mirror, runtime-probed heightfield terrain, flip-to-default checklist |
+| [rapier-physics.md](docs/context/rapier-physics.md) | Rapier (WASM) physics — the DEFAULT engine (`?physics=cannon` escape hatch); cannon-compatible car, per-shape streaming collider mirror, runtime-probed heightfield terrain, collision-sound EventQueue |
 | [visual-target-analysis.md](docs/context/visual-target-analysis.md) | Why the game doesn't look like offline cinematic renders — gap decomposition (GI/atmosphere/content/materials), honest browser limits, and the prioritized L1–L5 roadmap (bake-side AO is the key unlock) |
 | [vertical-model-foundation-spec.md](docs/context/vertical-model-foundation-spec.md) | LOCKED design for the vertical-model rebuild — Unstretch-X unit invariant (1 unit = 1 real metre on all axes), 3 staged gates (unit-fix → DEM-on → runtime Y cleanup), the purge test, and the drivable-surface-implies-floor assert. Governs all elevation/scale work; tunnel fall-through dissolves here |
 | [terrain-tunnel-rework-plan.md](docs/context/terrain-tunnel-rework-plan.md) | ACTIVE working tracker for the terrain & tunnel rework — 5 phases (survey → smoothing at source → re-validate → authored tunnels → polish), each gated by an on-screen drive test. Source of truth for rework scope/status |

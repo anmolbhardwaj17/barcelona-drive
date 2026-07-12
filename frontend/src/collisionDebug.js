@@ -131,6 +131,7 @@ export function updateCollisionDebug(scene, world, camera) {
 
   for (const body of world.bodies) {
     if (body.mass > 0) continue; // skip the car + any dynamic body
+    if (body._ddKind === 'building') continue; // buildings excluded (user call) — walls/rails/poles/decks only
     staticBodies++;
     for (let si = 0; si < body.shapes.length; si++) {
       const s = body.shapes[si];

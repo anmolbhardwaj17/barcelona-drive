@@ -37,9 +37,9 @@ These feature types are **already in the v7 tile binary** and available in `tile
 
 | Feature | Tile field | Priority |
 |---|---|---|
-| Beaches | `tile.beaches[]` | High — visual impact, coastline identity |
-| Pedestrian areas | `tile.pedestrianAreas[]` | Medium — La Rambla, Gothic Quarter plazas |
-| Marinas / docks | `tile.marinas[]` | Medium — Port Olímpic |
+| ~~Beaches~~ | `tile.beaches[]` | ✅ DONE 2026-07-11 — areaFeaturesRenderer.js (sand polygons, AO, `beach` ground layer) |
+| ~~Pedestrian areas~~ | `tile.pedestrianAreas[]` | ✅ DONE 2026-07-11 — areaFeaturesRenderer.js (plaza paving, AO, `pedArea` layer — conservatively UNDER roads; promote after overlap review) |
+| ~~Marinas / docks~~ | `tile.marinas[]` | ✅ (earlier) — basins render as water via renderWater |
 | Traffic signals | `tile.trafficSignals[]` | Low (existing procedural system covers most) |
 | Street lamps | `tile.streetLamps[]` | Low (existing procedural system covers most) |
 | Individual trees | `tile.trees[]` | Medium — supplement procedural trees in Eixample |

@@ -43,7 +43,7 @@ function packRings(features, key) {
 // (mapLoader `_worker.onmessage`) the #1 allocator (~64% of GC) AND a synchronous mid-frame burst that
 // stuttered driving. Typed arrays transfer zero-copy, so the receive costs nothing; ingestTile re-inflates
 // on the idle-paced side. Road width/type/name stay as plain arrays (few, string-interned → cheap to clone).
-function packLite(roads, water, greens) {
+function packLite(roads, water, greens, beaches) {
   const road = packRings(roads, 'points');
   const nR = road.offsets.length - 1;
   const rWidth = new Float32Array(nR);
@@ -59,11 +59,13 @@ function packLite(roads, water, greens) {
   }
   const wat = packRings(water, 'polygon');
   const grn = packRings(greens, 'polygon');
+  const bch = packRings(beaches || [], 'polygon');
   return {
     packed: true,
     rCoords: road.coords, rOffsets: road.offsets, rWidth, rType, rName,
     wCoords: wat.coords, wOffsets: wat.offsets,
     pCoords: grn.coords, pOffsets: grn.offsets,
+    bCoords: bch.coords, bOffsets: bch.offsets,
   };
 }
 
@@ -94,7 +96,10 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
 
   // LITE parse (custom-map background load): only the 2D features it draws. Skips buildings, the heavy
   // elevation grid (Array.from a Float32 grid — the #1 allocator), vegetation, terrain, and all POIs.
-  if (lite) return packLite(roads, water, greens);
+  if (lite) {
+    const liteBeaches = header.beaches ? readAreaFeatures(header.beaches, buffer, binOffset) : [];
+    return packLite(roads, water, greens, liteBeaches.filter((b) => !b.isLine));
+  }
 
   const buildings = header.buildings
     ? readBuildings(header.buildings, buffer, binOffset)
@@ -227,6 +232,15 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
   }
   if (header.bakedSidewalks) {   // v8 — baked sidewalk/curb geometry (absent on v7 → runtime generator)
     result.bakedSidewalks = readBakedSidewalks(header.bakedSidewalks, buffer, binOffset);
+  }
+  if (header.aoGrid) {           // v9 — baked sky-visibility AO (absent → treat sky as fully open)
+    // Bytes were packed 4-per-u32 LSB-first at bake, so on little-endian a plain byte view of the
+    // section IS the original uint8 grid. Copy (don't alias) — the tile buffer gets transferred.
+    const a = header.aoGrid;
+    result.aoGrid = {
+      resolution: a.resolution,
+      data: new Uint8Array(new Uint8Array(buffer, binOffset + a.dataOffset, a.byteLength)),
+    };
   }
   if (header.roadOnlyMode) result.roadOnlyMode = true;
 
@@ -915,15 +929,42 @@ function idbDel(key) {
 
 // Post a parsed result, transferring the packed typed-array buffers (LITE map tiles) zero-copy so the main
 // thread never pays a structured-clone deserialize. Non-packed (gameplay) results post normally.
+// Heavy top-level sections posted as separate messages. Each message's structured-clone
+// deserialize runs in its own main-thread task, so rAF frames can interleave between parts
+// instead of eating one 20-30ms monolithic clone per gameplay tile.
+const PART_KEYS = [
+  'roads', 'buildings', 'water', 'greens', 'barriers', 'junctions', 'urbanFeatures',
+  'trees', 'streetLamps', 'pedestrianAreas', 'marinas', 'beaches',
+  'bakedVegetation', 'bakedTerrain', 'bakedPhysicsTerrain', 'bakedRoads', 'bakedSidewalks',
+  'elevation', 'aoGrid',
+];
+const PART_CHUNK = 150; // slice size for the big object arrays (roads/buildings)
+
 function postResult(id, result) {
   if (result && result.packed) {
     self.postMessage({ id, result }, [
       result.rCoords.buffer, result.rOffsets.buffer, result.rWidth.buffer,
       result.wCoords.buffer, result.wOffsets.buffer, result.pCoords.buffer, result.pOffsets.buffer,
     ]);
-  } else {
-    self.postMessage({ id, result });
+    return;
   }
+  if (!result || typeof result !== 'object') {
+    self.postMessage({ id, result });
+    return;
+  }
+  for (const k of PART_KEYS) {
+    const v = result[k];
+    if (v == null) continue;
+    if (Array.isArray(v) && v.length > PART_CHUNK) {
+      for (let i = 0; i < v.length; i += PART_CHUNK) {
+        self.postMessage({ id, part: k, data: v.slice(i, i + PART_CHUNK), append: i > 0 });
+      }
+    } else {
+      self.postMessage({ id, part: k, data: v, append: false });
+    }
+    delete result[k];
+  }
+  self.postMessage({ id, result });
 }
 
 // Open DB eagerly so it's ready by first tile request

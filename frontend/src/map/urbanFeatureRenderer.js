@@ -38,7 +38,7 @@ function shared(mat) { mat.userData = { sharedMaterial: true }; return mat; }
 let _beaconMat = null;
 let _beaconGeom = null;
 
-function getBeaconMat() {
+export function getBeaconMat() {
   if (!_beaconMat) {
     _beaconMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     _beaconMat.userData.sharedMaterial = true;
@@ -46,7 +46,7 @@ function getBeaconMat() {
   return _beaconMat;
 }
 
-function getBeaconGeom() {
+export function getBeaconGeom() {
   if (!_beaconGeom) {
     _beaconGeom = new THREE.SphereGeometry(0.35, 6, 4);
     _beaconGeom.userData.sharedGeometry = true;
@@ -54,14 +54,13 @@ function getBeaconGeom() {
   return _beaconGeom;
 }
 
-/** Call from animation loop to blink tower beacons. timeSec = elapsed seconds. */
+/** Call from animation loop to pulse tower beacons. timeSec = elapsed seconds. */
 export function updateTowerBeacons(timeSec) {
   if (!_beaconMat) return;
-  // 1 second on, 1 second off
-  const on = Math.floor(timeSec * 1.0) % 2 === 0;
-  _beaconMat.opacity = on ? 1.0 : 0.0;
-  _beaconMat.transparent = !on;
-  _beaconMat.visible = on;
+  // Smooth glow-and-dim (user call — the hard 1s on/off read as a fault, not a beacon):
+  // never fully dark, ~2.6 s breathing cycle. Shared by comm towers + BOTH water-tower systems.
+  const k = 0.22 + 0.78 * (0.5 + 0.5 * Math.sin(timeSec * 2.4));
+  _beaconMat.color.setRGB(k, 0.04 * k, 0.04 * k);
 }
 
 // ─── Fuel station night illumination (bus-stop style: glow panel + radial ground pool) ──
@@ -424,136 +423,41 @@ function buildCommTower() {
  * ring beams, red accent bands, walkway railing, staircase.
  */
 function buildWaterTower() {
+  // Modernista water tower — Torre de les Aigües silhouette (user ref 2026-07-11), matching the
+  // building-polygon version in buildingWorker: brick shaft → dark trim ring → overhanging cream
+  // colonnade drum → squat truncated terracotta cone + blunt finial. Replaces the Delhi-era
+  // American stilt tank ("what is this" — user).
   const geos = [];
-  const nPillars = 6;
-  const pillarR = 3.2;       // circle radius for pillars
-  const pillarDiam = 0.35;
-  const legH = 14;            // pillar height
-  const tankR = 4;            // tank radius
-  const tankH = 5;            // cylindrical section height
-  const coneH = 2.5;          // conical bottom depth
-  const domeH = 1.8;          // dome height
-  const tankBot = legH;       // bottom of cylindrical section
-  const tankTop = tankBot + tankH;
-  const walkwayY = tankBot - 0.1;
-
-  // ── 6 round pillars ──
-  for (let i = 0; i < nPillars; i++) {
-    const a = (i / nPillars) * Math.PI * 2;
-    const px = Math.cos(a) * pillarR, pz = Math.sin(a) * pillarR;
-    const pillar = new THREE.CylinderGeometry(pillarDiam, pillarDiam, legH, 8);
-    pillar.translate(px, legH / 2, pz);
-    geos.push({ geo: pillar, mat: 'white' });
+  const R = 3.2, H = 30, SEGS = 12;
+  const shaftH = H * 0.64;
+  const shaft = new THREE.CylinderGeometry(R * 0.80, R * 0.95, shaftH, SEGS);
+  shaft.translate(0, shaftH / 2, 0);
+  geos.push({ geo: shaft, mat: 'brown' });
+  const trim = new THREE.CylinderGeometry(R * 1.30, R * 1.30, 0.6, SEGS);
+  trim.translate(0, shaftH + 0.3, 0);
+  geos.push({ geo: trim, mat: 'darkGray' });
+  const crownH = H * 0.20;
+  const crown = new THREE.CylinderGeometry(R * 1.26, R * 1.26, crownH, SEGS);
+  crown.translate(0, shaftH + 0.6 + crownH / 2, 0);
+  geos.push({ geo: crown, mat: 'beige' });
+  // colonnade hint: 8 slim posts recessed into the drum face
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const post = new THREE.CylinderGeometry(0.14, 0.14, crownH * 0.8, 5);
+    post.translate(Math.cos(a) * R * 1.30, shaftH + 0.6 + crownH / 2, Math.sin(a) * R * 1.30);
+    geos.push({ geo: post, mat: 'concrete' });
   }
-
-  // ── Horizontal ring beams (3 levels) ──
-  for (let level = 0; level < 3; level++) {
-    const y = 4 + level * 4.5;
-    const ring = new THREE.TorusGeometry(pillarR, 0.12, 4, nPillars * 2);
-    ring.rotateX(Math.PI / 2);
-    ring.translate(0, y, 0);
-    geos.push({ geo: ring, mat: 'white' });
-  }
-
-  // ── Conical bottom (inverted truncated cone) ──
-  const cone = new THREE.CylinderGeometry(0.6, tankR, coneH, 12);
-  cone.translate(0, tankBot - coneH / 2, 0);
-  geos.push({ geo: cone, mat: 'white' });
-
-  // ── Cylindrical tank body ──
-  const tankBody = new THREE.CylinderGeometry(tankR, tankR, tankH, 14);
-  tankBody.translate(0, tankBot + tankH / 2, 0);
-  geos.push({ geo: tankBody, mat: 'white' });
-
-  // ── Red accent band at bottom of tank ──
-  const bandBot = new THREE.CylinderGeometry(tankR + 0.05, tankR + 0.05, 0.3, 14);
-  bandBot.translate(0, tankBot + 0.15, 0);
-  geos.push({ geo: bandBot, mat: 'red' });
-
-  // ── Red accent band at top of tank ──
-  const bandTop = new THREE.CylinderGeometry(tankR + 0.05, tankR + 0.05, 0.3, 14);
-  bandTop.translate(0, tankTop - 0.15, 0);
-  geos.push({ geo: bandTop, mat: 'red' });
-
-  // ── Dome top (half-sphere sitting on top of tank) ──
-  // SphereGeometry with phi 0..0.35π: center is at origin, top ~= R*cos(0)=R, bottom ~= R*cos(0.35π)≈0.31R
-  // We need the bottom of the dome to sit at tankTop, so shift up by the bottom offset
-  const phiEnd = Math.PI * 0.35;
-  const domeBottomY = tankR * Math.cos(phiEnd); // ~0.31 * tankR
-  const dome = new THREE.SphereGeometry(tankR, 14, 8, 0, Math.PI * 2, 0, phiEnd);
-  dome.translate(0, tankTop - domeBottomY, 0);
-  geos.push({ geo: dome, mat: 'white' });
-
-  // ── Small cap on dome ──
-  const actualDomeTop = tankTop - domeBottomY + tankR; // top of the sphere
-  const capR = 0.5;
-  const capCyl = new THREE.CylinderGeometry(capR, capR, 0.6, 6);
-  capCyl.translate(0, actualDomeTop + 0.3, 0);
-  geos.push({ geo: capCyl, mat: 'red' });
-
-  // Red beacon light on top of cap
-  const beaconY = actualDomeTop + 0.6 + 0.35;
-  const beaconGeo = new THREE.SphereGeometry(0.35, 6, 4);
-  beaconGeo.translate(0, beaconY, 0);
-  geos.push({ geo: beaconGeo, mat: 'beacon' });
-
-  // ── Walkway platform (ring at base of tank) ──
-  const walkRing = new THREE.TorusGeometry(tankR + 0.6, 0.3, 3, 20);
-  walkRing.rotateX(Math.PI / 2);
-  walkRing.translate(0, walkwayY, 0);
-  geos.push({ geo: walkRing, mat: 'concrete' });
-
-  // ── Railing posts around walkway (16 posts) ──
-  const railR = tankR + 0.6;
-  const nRailPosts = 16;
-  for (let i = 0; i < nRailPosts; i++) {
-    const a = (i / nRailPosts) * Math.PI * 2;
-    const rx = Math.cos(a) * railR, rz = Math.sin(a) * railR;
-    const post = new THREE.CylinderGeometry(0.03, 0.03, 1.0, 4);
-    post.translate(rx, walkwayY + 0.5, rz);
-    geos.push({ geo: post, mat: 'steel' });
-  }
-
-  // ── Railing top rail (torus) ──
-  const topRail = new THREE.TorusGeometry(railR, 0.04, 3, 20);
-  topRail.rotateX(Math.PI / 2);
-  topRail.translate(0, walkwayY + 1.0, 0);
-  geos.push({ geo: topRail, mat: 'steel' });
-
-  // ── Staircase (spiral steps from ground to walkway) ──
-  const stairR = pillarR + 0.8;
-  const nSteps = 24;
-  for (let i = 0; i < nSteps; i++) {
-    const t = i / nSteps;
-    const a = t * Math.PI * 1.5 + Math.PI * 0.25; // 270 degrees spiral
-    const sx = Math.cos(a) * stairR, sz = Math.sin(a) * stairR;
-    const sy = t * walkwayY;
-    const step = new THREE.BoxGeometry(1.0, 0.1, 0.35);
-    step.applyMatrix4(new THREE.Matrix4().makeRotationY(-a));
-    step.translate(sx, sy, sz);
-    geos.push({ geo: step, mat: 'concrete' });
-
-    // Red accent on step front
-    if (i % 3 === 0) {
-      const accent = new THREE.BoxGeometry(1.0, 0.12, 0.06);
-      accent.applyMatrix4(new THREE.Matrix4().makeRotationY(-a));
-      accent.translate(sx, sy + 0.05, sz);
-      geos.push({ geo: accent, mat: 'red' });
-    }
-  }
-
-  // ── Stair railing (inner rail = vertical posts along staircase) ──
-  const nStairRails = 12;
-  for (let i = 0; i < nStairRails; i++) {
-    const t = i / nStairRails;
-    const a = t * Math.PI * 1.5 + Math.PI * 0.25;
-    const sx = Math.cos(a) * (stairR + 0.4), sz = Math.sin(a) * (stairR + 0.4);
-    const sy = t * walkwayY;
-    const rail = new THREE.CylinderGeometry(0.03, 0.03, 1.0, 4);
-    rail.translate(sx, sy + 0.5, sz);
-    geos.push({ geo: rail, mat: 'steel' });
-  }
-
+  const spireH = H * 0.17;
+  const spire = new THREE.CylinderGeometry(R * 0.30, R * 1.16, spireH, SEGS);
+  spire.translate(0, shaftH + 0.6 + crownH + spireH / 2, 0);
+  geos.push({ geo: spire, mat: 'brown' });
+  const finial = new THREE.CylinderGeometry(R * 0.10, R * 0.26, H * 0.05, SEGS);
+  finial.translate(0, shaftH + 0.6 + crownH + spireH + H * 0.025, 0);
+  geos.push({ geo: finial, mat: 'darkGray' });
+  // Pulsing red aviation beacon on the finial (user call — matches the comm towers).
+  const beacon = new THREE.SphereGeometry(0.35, 6, 4);
+  beacon.translate(0, shaftH + 0.6 + crownH + spireH + H * 0.05 + 0.35, 0);
+  geos.push({ geo: beacon, mat: 'beacon' });
   return geos;
 }
 
@@ -937,7 +841,7 @@ const EXCLUSION_RADIUS = {
  * @param {Array} [buildings] - tile buildings for collision avoidance (optional)
  * @returns {THREE.Mesh[]}
  */
-export function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY) {
+export async function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY, yieldFn) {
   if (!features || features.length === 0) return [];
   const groundYAt = typeof getGroundY === 'function' ? getGroundY : () => 0;
 
@@ -1024,6 +928,8 @@ export function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY) 
       pool.applyMatrix4(_combined);
       poolGeoms.push(pool);
     }
+  
+    if (yieldFn) await yieldFn();
   }
 
   _glowTemplate.dispose();
@@ -1032,6 +938,7 @@ export function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY) 
   const meshes = [];
   for (const [matName, geos] of byMat) {
     if (geos.length === 0) continue;
+    if (yieldFn) await yieldFn();
     const merged = mergeGeometries(geos);
     geos.forEach(g => g.dispose());
     if (!merged) continue;

@@ -8,6 +8,7 @@ import { setDividerNightMode } from '../map/dividerRenderer.js';
 import { setShoulderNightMode } from '../map/shoulderRenderer.js';
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
 import { setVegNightWash } from '../map/vegetationRenderer.js';
+import { setAoNightScale } from '../map/aoSampler.js';
 import { setBuildingNightMode } from '../map/buildingRenderer.js';
 import { setFacadeNightMode, setHeroSpillNight } from '../workers/meshMaterializer.js';
 import { setBusStopNightMode } from '../map/busStopRenderer.js';
@@ -161,6 +162,7 @@ export function createEnvToggle(refs) {
     setHeroSpillNight(isNight);    // hero-building warm ground-glow decals
     setRoadNightWash(isNight);     // building-proximity warm wash on road surfaces
     setVegNightWash(isNight);      // same wash on street trees/bushes (parks stay dark)
+    setAoNightScale(isNight);      // soften baked sky-AO — the night rig is dark already
     setRoadDecalNightMode(isNight); // bike-lane green + blue-zone stripes crush to black otherwise
     setBusStopNightMode(isNight);
     setFuelStationNightMode(isNight);

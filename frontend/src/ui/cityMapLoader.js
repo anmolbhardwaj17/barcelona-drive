@@ -53,6 +53,8 @@ export async function loadCityMap(customMap, { onProgress } = {}) {
     const roadCount = dv.getUint16(o, true); o += 2;
     const waterCount = dv.getUint16(o, true); o += 2;
     const greenCount = dv.getUint16(o, true); o += 2;
+    let beachCount = 0;
+    if ((header.v || 1) >= 2) { beachCount = dv.getUint16(o, true); o += 2; }   // v2: beaches channel
 
     const roads = new Array(roadCount);
     for (let i = 0; i < roadCount; i++) {
@@ -66,8 +68,10 @@ export async function loadCityMap(customMap, { onProgress } = {}) {
     for (let i = 0; i < waterCount; i++) { const n = dv.getUint16(o, true); o += 2; water[i] = { polygon: readPts(n) }; }
     const greens = new Array(greenCount);
     for (let i = 0; i < greenCount; i++) { const n = dv.getUint16(o, true); o += 2; greens[i] = { polygon: readPts(n) }; }
+    const beaches = new Array(beachCount);
+    for (let i = 0; i < beachCount; i++) { const n = dv.getUint16(o, true); o += 2; beaches[i] = { polygon: readPts(n) }; }
 
-    customMap.ingestTile(`${tx}_${ty}`, { roads, water, greens }, true, /* quiet */ true);
+    customMap.ingestTile(`${tx}_${ty}`, { roads, water, greens, beaches }, true, /* quiet */ true);
 
     if ((++done % CHUNK) === 0) { customMap.refresh(); onProgress?.(done, tileCount); await idle(); }
   }

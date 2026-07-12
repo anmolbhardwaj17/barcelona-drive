@@ -58,9 +58,13 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
   // setGeometryIdAt() — BatchedMesh's freed list stays empty, so addInstance() never sorts.
   const freeIds = [];
   let slotsAllocated = 0;   // ids ever created via bm.addInstance (monotonic)
+  let reserved = 0;         // slots promised to in-flight add() calls (capacity check → allocation
+                            // spans awaits, so concurrent adds must see each other's reservations —
+                            // without this, interleaved tiles overshot maxInstanceCount:
+                            // "THREE.BatchedMesh: Maximum item count reached" killed a tile's veg)
 
   function freeSlots() {
-    return (bm.maxInstanceCount - slotsAllocated) + freeIds.length;
+    return (bm.maxInstanceCount - slotsAllocated) + freeIds.length - reserved;
   }
 
   function allocSlot(geoId) {
@@ -97,25 +101,30 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     // (setInstanceCount reallocates + re-uploads all data textures = the 60-110ms stalls; and
     // capacities past 16384 push the matrices texture from 1 MB to 4 MB per streaming upload).
     if (freeSlots() < total) return undefined;   // caller (pool set) routes to/creates another pool
+    reserved += total;                            // hold our slots across the yields below
 
     const ids = new Int32Array(total);
     const xs = new Float32Array(total);
     const zs = new Float32Array(total);
     let di = 0;
 
-    for (const g of groups) {
-      const geoId = geoIds[g.geoIndex];
-      const matrices = g.matrices instanceof Float32Array ? g.matrices : new Float32Array(g.matrices);
-      const colors = g.colors ? (g.colors instanceof Float32Array ? g.colors : new Float32Array(g.colors)) : null;
-      for (let i = 0; i < g.count; i++) {
-        const off = i * 16;
-        _m.fromArray(matrices, off);
-        const id = allocSlot(geoId);
-        bm.setMatrixAt(id, _m);
-        if (colors) { _c.fromArray(colors, i * 3); bm.setColorAt(id, _c); }
-        ids[di] = id; xs[di] = matrices[off + 12]; zs[di] = matrices[off + 14]; di++;
-        if (yieldFn && (di % YIELD_EVERY) === 0) await yieldFn();
+    try {
+      for (const g of groups) {
+        const geoId = geoIds[g.geoIndex];
+        const matrices = g.matrices instanceof Float32Array ? g.matrices : new Float32Array(g.matrices);
+        const colors = g.colors ? (g.colors instanceof Float32Array ? g.colors : new Float32Array(g.colors)) : null;
+        for (let i = 0; i < g.count; i++) {
+          const off = i * 16;
+          _m.fromArray(matrices, off);
+          const id = allocSlot(geoId);
+          bm.setMatrixAt(id, _m);
+          if (colors) { _c.fromArray(colors, i * 3); bm.setColorAt(id, _c); }
+          ids[di] = id; xs[di] = matrices[off + 12]; zs[di] = matrices[off + 14]; di++;
+          if (yieldFn && (di % YIELD_EVERY) === 0) await yieldFn();
+        }
       }
+    } finally {
+      reserved -= total;
     }
 
     // Sort ids nearest-to-centroid-first so visible-count reduction culls the farthest instances.

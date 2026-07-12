@@ -103,7 +103,7 @@ for (const xd of fs.readdirSync(tilesDir)) {
     const buf = fs.readFileSync(path.join(xp, yf));
     let parsed; try { parsed = readTileHeader(buf); } catch { continue; }
     const { header: h, binOffset } = parsed;
-    const tile = { tx: +xd, ty: +m[1], roads: [], water: [], greens: [] };
+    const tile = { tx: +xd, ty: +m[1], roads: [], water: [], greens: [], beaches: [] };
     for (const r of h.roads || []) {
       if (!(r.pointCount >= 2)) continue;
       const pts = simplify(readRoadPts(buf, binOffset + r.pointsOffset, r.pointCount), ROAD_TOL);
@@ -125,7 +125,16 @@ for (const xd of fs.readdirSync(tilesDir)) {
       const pts = simplify(raw, AREA_TOL);
       if (pts.length >= 6) { tile.greens.push({ pts }); trackMin(pts); }
     }
-    if (tile.roads.length || tile.water.length || tile.greens.length) tiles.push(tile);
+    // v2: beaches (area features — already WORLD pairs, like greens). isLine entries are shoreline
+    // ways, not fillable areas.
+    for (const b of h.beaches || []) {
+      if (b.isLine || !(b.polygonCount >= 3)) continue;
+      const raw = readPairPts(buf, binOffset + b.polygonOffset, b.polygonCount, false);
+      if (bboxSpan(raw) < MIN_AREA_SPAN) continue;
+      const pts = simplify(raw, AREA_TOL);
+      if (pts.length >= 6) { tile.beaches.push({ pts }); trackMin(pts); }
+    }
+    if (tile.roads.length || tile.water.length || tile.greens.length || tile.beaches.length) tiles.push(tile);
   }
 }
 
@@ -135,18 +144,21 @@ baseX = Math.floor(baseX); baseY = Math.floor(baseY);
 const qx = (x) => Math.max(0, Math.min(65535, Math.round((x - baseX) / QUANT)));
 const qy = (y) => Math.max(0, Math.min(65535, Math.round((y - baseY) / QUANT)));
 
-const header = { v: 1, region, quant: QUANT, baseX, baseY, roadTypes: typeTable, roadNames: nameTable, tileCount: tiles.length };
+const header = { v: 2, region, quant: QUANT, baseX, baseY, roadTypes: typeTable, roadNames: nameTable, tileCount: tiles.length };
+// v2: + beaches channel (u16 beachCount in the tile record, polys after greens). The client reads
+// beachCount only when header.v >= 2, so a v1 file still parses.
 // No padding: the client reads the body via DataView (alignment-safe), and padding nulls would break the
 // header's JSON.parse. headerLen = exact JSON byte length.
 const hjson = Buffer.from(JSON.stringify(header), 'utf8');
 
 let bodyBytes = 0;
-let nRoads = 0, nWater = 0, nGreens = 0;
+let nRoads = 0, nWater = 0, nGreens = 0, nBeaches = 0;
 for (const t of tiles) {
-  bodyBytes += 4 + 4 + 2 + 2 + 2;                                  // tx,ty,counts
-  for (const r of t.roads)  { bodyBytes += 2 + 4 + 4 + 2 + (r.pts.length / 2) * 4; nRoads++; }
-  for (const w of t.water)  { bodyBytes += 2 + (w.pts.length / 2) * 4; nWater++; }
-  for (const g of t.greens) { bodyBytes += 2 + (g.pts.length / 2) * 4; nGreens++; }
+  bodyBytes += 4 + 4 + 2 + 2 + 2 + 2;                              // tx,ty,counts (v2: +beachCount)
+  for (const r of t.roads)   { bodyBytes += 2 + 4 + 4 + 2 + (r.pts.length / 2) * 4; nRoads++; }
+  for (const w of t.water)   { bodyBytes += 2 + (w.pts.length / 2) * 4; nWater++; }
+  for (const g of t.greens)  { bodyBytes += 2 + (g.pts.length / 2) * 4; nGreens++; }
+  for (const b of t.beaches) { bodyBytes += 2 + (b.pts.length / 2) * 4; nBeaches++; }
 }
 
 const out = Buffer.alloc(4 + hjson.length + bodyBytes);
@@ -160,6 +172,7 @@ for (const t of tiles) {
   out.writeUInt16LE(t.roads.length, o); o += 2;
   out.writeUInt16LE(t.water.length, o); o += 2;
   out.writeUInt16LE(t.greens.length, o); o += 2;
+  out.writeUInt16LE(t.beaches.length, o); o += 2;
   for (const r of t.roads) {
     out.writeUInt16LE(r.typeIdx, o); o += 2;
     out.writeUInt32LE(r.nameIdx, o); o += 4;
@@ -167,10 +180,11 @@ for (const t of tiles) {
     out.writeUInt16LE(r.pts.length / 2, o); o += 2;
     wPts(r.pts);
   }
-  for (const w of t.water)  { out.writeUInt16LE(w.pts.length / 2, o); o += 2; wPts(w.pts); }
-  for (const g of t.greens) { out.writeUInt16LE(g.pts.length / 2, o); o += 2; wPts(g.pts); }
+  for (const w of t.water)   { out.writeUInt16LE(w.pts.length / 2, o); o += 2; wPts(w.pts); }
+  for (const g of t.greens)  { out.writeUInt16LE(g.pts.length / 2, o); o += 2; wPts(g.pts); }
+  for (const b of t.beaches) { out.writeUInt16LE(b.pts.length / 2, o); o += 2; wPts(b.pts); }
 }
 
 fs.writeFileSync(outPath, out);
-console.log(`[citymap] ${tiles.length} tiles → roads ${nRoads}, water ${nWater}, greens ${nGreens}`);
+console.log(`[citymap] ${tiles.length} tiles → roads ${nRoads}, water ${nWater}, greens ${nGreens}, beaches ${nBeaches}`);
 console.log(`[citymap] wrote ${outPath} (${(out.length / 1048576).toFixed(2)} MB, ${nameTable.length} names, ${typeTable.length} road types)`);

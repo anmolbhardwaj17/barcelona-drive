@@ -12,6 +12,7 @@
  */
 
 import { latLonToWorld } from '../projection.js';
+import { seaPolygonWorld, coastVersion } from '../map/coastline.js';
 
 // Barcelona neighbourhoods/districts → bold overview labels (GTA-style), shown when zoomed out. Approx
 // centres; drawn wherever they fall, even over not-yet-loaded tiles, so the overview map reads as a city.
@@ -31,13 +32,9 @@ function districts() {
   return _districts;
 }
 
-// Mediterranean coastline (NE→SW, [lat,lon]). The baked data only has port/marina water polygons — no
-// open sea — so we fill the sea ourselves: trace the shore, then extend far offshore (SE) to close a big
-// polygon. Canvas clips it per tile, so it only paints the seaward side of the coast.
-const SEA_COAST = [
-  [41.4210, 2.2300], [41.3960, 2.2050], [41.3860, 2.1955], [41.3775, 2.1918],
-  [41.3700, 2.1810], [41.3540, 2.1640], [41.3350, 2.1470], [41.3180, 2.1320],
-];
+// Mediterranean coastline: SHARED with the 3D terrain painter (coastline.js) so the map's sea and
+// the world's sea always agree — the baked data has no open-sea polygons and the DEM bakes the sea
+// at 2–5.8 m (useless), so this trace is THE sea signal. Nudge points there, not here.
 // Sea name label, placed out in the open water (SE of the city).
 const SEA_LABEL = { text: 'MAR MEDITERRÀNIA', lat: 41.352, lon: 2.212 };
 let _seaLabelPos = null;
@@ -46,13 +43,11 @@ function seaLabelPos() {
   return _seaLabelPos;
 }
 
-let _sea = null, _seaBbox = null;
+let _sea = null, _seaBbox = null, _seaVer = -1;
 function seaPolygon() {
-  if (_sea) return _sea;
-  const pts = SEA_COAST.map(([lat, lon]) => { const w = latLonToWorld(lat, lon); return { x: w.x, y: w.z }; });
-  const OFF = 30000; // metres far offshore (east +X, south −Z) so the fill covers the whole visible sea
-  const sw = pts[pts.length - 1], ne = pts[0];
-  _sea = [...pts, { x: sw.x + OFF, y: sw.y - OFF }, { x: ne.x + OFF, y: ne.y - OFF }];
+  if (_sea && _seaVer === coastVersion()) return _sea;
+  _seaVer = coastVersion();   // rebuilds when the OSM coastline replaces the hand trace
+  _sea = seaPolygonWorld().map((p) => ({ x: p.x, y: p.z }));   // map convention: y = world Z
   _seaBbox = [Infinity, Infinity, -Infinity, -Infinity];
   for (const p of _sea) { if (p.x < _seaBbox[0]) _seaBbox[0] = p.x; if (p.y < _seaBbox[1]) _seaBbox[1] = p.y; if (p.x > _seaBbox[2]) _seaBbox[2] = p.x; if (p.y > _seaBbox[3]) _seaBbox[3] = p.y; }
   return _sea;
@@ -77,6 +72,7 @@ const STYLE = {
     ground:    '#edefeb',   // very light grey urban base
     park:      '#aacd90',   // muted green
     water:     '#66b3e6',   // lighter bright blue
+    sand:      '#efe3b8',   // beach sand
     building:  '#f7f8f5',   // near-white blocks
     buildingEdge: '#e1e3de',
     casing:    '#d7d9d4',   // light casing — just enough to define the white roads on the light land
@@ -89,6 +85,7 @@ const STYLE = {
     ground:    '#212a40',   // lighter night land (was #141b2f — too dark)
     park:      '#33543a',
     water:     '#2b5378',   // lighter night sea (was #1d3555)
+    sand:      '#57503c',   // beach sand, moonlit
     seaLabel:  '#9fc4e4', seaHalo: 'rgba(10,20,38,0.85)',
     building:  '#28304a',
     buildingEdge: '#1b2236',
@@ -149,12 +146,13 @@ export function createCustomMap() {
       };
       const water = unpackPolys(wCoords, wOffsets);
       const parks = unpackPolys(pCoords, pOffsets);
+      const sands = (tileData.bCoords && tileData.bOffsets) ? unpackPolys(tileData.bCoords, tileData.bOffsets) : [];
       const tbb = [Infinity, Infinity, -Infinity, -Infinity];
-      for (const f of [...roads, ...water, ...parks]) {
+      for (const f of [...roads, ...water, ...parks, ...sands]) {
         if (f.bbox[0] < tbb[0]) tbb[0] = f.bbox[0]; if (f.bbox[1] < tbb[1]) tbb[1] = f.bbox[1];
         if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
       }
-      store.set(key, { roads, water, parks, builds: [], lite: true, tbb });
+      store.set(key, { roads, water, parks, sands, builds: [], lite: true, tbb });
       if (!quiet) _onChange?.();
       return;
     }
@@ -171,16 +169,18 @@ export function createCustomMap() {
     for (const f of tileData.water || []) { const pts = f.polygon; if (pts && pts.length >= 3) water.push({ pts, bbox: bboxOf(pts) }); }
     const parks = [];
     for (const f of tileData.greens || []) { const pts = f.polygon; if (pts && pts.length >= 3) parks.push({ pts, bbox: bboxOf(pts) }); }
+    const sands = [];
+    for (const f of tileData.beaches || []) { const pts = f.polygon; if (!f.isLine && pts && pts.length >= 3) sands.push({ pts, bbox: bboxOf(pts) }); }
     const builds = [];
     if (!lite) for (const b of tileData.buildings || []) { const pts = b.footprint; if (pts && pts.length >= 3) builds.push({ pts, bbox: bboxOf(pts) }); }
     // Tile-level bbox (union of everything) → drawTile can skip a whole tile in one check instead of
     // testing every feature. Critical once the entire city (426 tiles) is loaded.
     const tbb = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const f of [...roads, ...water, ...parks, ...builds]) {
+    for (const f of [...roads, ...water, ...parks, ...sands, ...builds]) {
       if (f.bbox[0] < tbb[0]) tbb[0] = f.bbox[0]; if (f.bbox[1] < tbb[1]) tbb[1] = f.bbox[1];
       if (f.bbox[2] > tbb[2]) tbb[2] = f.bbox[2]; if (f.bbox[3] > tbb[3]) tbb[3] = f.bbox[3];
     }
-    store.set(key, { roads, water, parks, builds, lite, tbb });
+    store.set(key, { roads, water, parks, sands, builds, lite, tbb });
     if (!quiet) _onChange?.();
   }
 
@@ -199,7 +199,7 @@ export function createCustomMap() {
    * names); zoomed IN adds minor roads, buildings, then street names. Linear world→pixel is exact enough
    * within one small tile (Mercator is locally linear) and matches Leaflet's placement. north (max Z) → top.
    */
-  function drawTile(ctx, size, wb, z = 17, marginM = 30) {
+  function drawTile(ctx, size, wb, z = 17, marginM = 30, noBuilds = false) {
     const S = _night ? STYLE.night : STYLE.day;
     const [wMinX, wMinZ, wMaxX, wMaxZ] = wb;
     const spanX = wMaxX - wMinX, spanZ = wMaxZ - wMinZ;
@@ -212,7 +212,7 @@ export function createCustomMap() {
 
     // Level-of-detail gates by zoom
     const showMid = z >= 15, showMinor = z >= 16, showPath = z >= 17;
-    const showBuildings = z >= 16;
+    const showBuildings = z >= 16 && !noBuilds;   // minimap passes noBuilds: footprints are invisible at 180px
     const showDistricts = z <= 16;      // broad overview
     const showStreets = z >= 17;        // street names at default zoom+ (both the circle minimap and expanded)
 
@@ -253,7 +253,9 @@ export function createCustomMap() {
       ctx.fill();
     }
 
-    // 1. parks + water fills (under the roads)
+    // 1. sand + parks + water fills (under the roads). Sand first: beach polys overlap the sea
+    // fill at the waterline and the water polys (harbour basins) must win over both.
+    for (const t of vis) if (t.sands) fillPoly(t.sands, S.sand);
     for (const t of vis) fillPoly(t.parks, S.park);
     for (const t of vis) fillPoly(t.water, S.water);
 

@@ -88,7 +88,9 @@ const FACADE_PALETTES = {
     0xC8A078, // terracotta/brick accent (Modernisme, rare)
   ],
   commercial_glass: [
-    0xAEC4CE, 0xBCCFD6, 0xC2D2D2, 0xA8C0BE, 0xB6CBC8,
+    // Near-white: the full-glass mosaic TEXTURE carries the colour (Agbar blues/teals + warm
+    // flecks) — a saturated tint here would mud it. Slight cool variation only.
+    0xEDF1F4, 0xE6ECF0, 0xF0F3F5, 0xE2EAEF, 0xEAF0F2,
   ],
 };
 // Barcelona redesign flags (mirror buildingRenderer.js).
@@ -206,6 +208,56 @@ function createFastElevation(elevation, offset) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Baked sky-visibility AO (tile v9) — facade darkening
+// ────────────────────────────────────────────────────────────────────────────
+
+// MUST MATCH frontend/src/map/aoSampler.js (workers are import-free): strength/gamma dials for the
+// svf → darkening curve, applied per facade vertex with a vertical fade (canyon floors dark, upper
+// storeys open to the sky).
+const AO_FACADE_STRENGTH = 0.50;
+const AO_GAMMA = 1.2;
+const AO_FACADE_FADE_M = 16;     // full AO at the base → none this many metres up
+const AO_SAMPLE_OUTSET = 2.5;    // sample the STREET next to the wall, not the wall itself —
+                                 // the grid cell under a facade averages in the building interior (svf≈0)
+
+/** Bilinear sky-view-factor sampler over the tile's aoGrid — same world→grid mapping as
+ *  createFastElevation (the aoGrid shares the elevation grid's bounds/orientation). */
+function createWorkerAoSampler(elevation, aoGrid) {
+  if (!aoGrid || !aoGrid.data || !aoGrid.resolution || !elevation) return null;
+  const res = aoGrid.resolution;
+  const data = aoGrid.data;
+  if (data.length !== res * res) return null;
+
+  const { south, west, north, east } = elevation;
+  const southRad = south * Math.PI / 180;
+  const northRad = north * Math.PI / 180;
+  const mySouth = R * Math.log(Math.tan(Math.PI / 4 + southRad / 2));
+  const myNorth = R * Math.log(Math.tan(Math.PI / 4 + northRad / 2));
+  const mxWest  = R * (west * Math.PI / 180);
+  const mxEast  = R * (east * Math.PI / 180);
+  const wSouth = (mySouth - originMercator.y) * MERCATOR_UNSTRETCH;
+  const wNorth = (myNorth - originMercator.y) * MERCATOR_UNSTRETCH;
+  const wWest  = (mxWest  - originMercator.x) * MERCATOR_UNSTRETCH;
+  const wEast  = (mxEast  - originMercator.x) * MERCATOR_UNSTRETCH;
+  const rowScale = (res - 1) / (wNorth - wSouth);
+  const colScale = (res - 1) / (wEast - wWest);
+  const maxRC = res - 1;
+
+  return function svfAt(wx, wz) {
+    let rowF = (wz - wSouth) * rowScale;
+    let colF = (wx - wWest) * colScale;
+    if (rowF < 0) rowF = 0; else if (rowF > maxRC) rowF = maxRC;
+    if (colF < 0) colF = 0; else if (colF > maxRC) colF = maxRC;
+    const r0 = rowF | 0, c0 = colF | 0;
+    const r1 = r0 < maxRC ? r0 + 1 : r0, c1 = c0 < maxRC ? c0 + 1 : c0;
+    const tr = rowF - r0, tc = colF - c0;
+    const v00 = data[r0 * res + c0], v01 = data[r0 * res + c1];
+    const v10 = data[r1 * res + c0], v11 = data[r1 * res + c1];
+    return ((1 - tr) * ((1 - tc) * v00 + tc * v01) + tr * ((1 - tc) * v10 + tc * v11)) / 255;
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Road spatial index (inline, no external dependencies)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -256,6 +308,15 @@ function findNearestRoadSegment(roads, worldX, worldZ) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function getBuildingCategory(building, roads, worldX, worldZ) {
+  // TALL TOWERS ARE GLASS (user call, 2026-07-11): Barcelona's high-rises (Torre Mapfre, Hotel
+  // Arts, Agbar, Diagonal Mar…) are all modern glass — masonry textures on a 100m+ slab read
+  // wrong. ≥55m → glass curtain wall regardless of OSM type; explicit glass material tags too.
+  // (religious spires keep their stone — Sagrada Família is 170m of not-glass.)
+  const mat = (building.material || '').toLowerCase();
+  if (building.type !== 'church' && building.type !== 'cathedral'
+      && ((Number.isFinite(building.height) && building.height >= 55) || mat === 'glass' || mat === 'mirror')) {
+    return 'commercial_glass';
+  }
   const mapped = TYPE_TO_CATEGORY[building.type];
   if (mapped) return mapped;
   // Barcelona: generic/untagged → warm Eixample MASONRY (residential) by default, NOT commercial/glass.
@@ -458,6 +519,53 @@ function createPolygonWallBuffers(building, baseY) {
   }
 
   return outerWalls;
+}
+
+/**
+ * BULLET TOWER (Torre Agbar reference, user call 2026-07-11): a revolve whose profile is
+ * near-cylindrical for the lower ~55% then converges into a rounded dome — for a deterministic
+ * subset of tall glass towers. Proper facade UVs (u = arc-metres/12, v = metres/10) so the glass
+ * mosaic texture wraps cleanly; caller skips the flat roof (the crown closes itself).
+ */
+function createBulletTowerBuffers(building, baseY, cx, cy) {
+  let R = 0;
+  for (const p of building.footprint) R = Math.max(R, Math.hypot(p.x - cx, p.y - cy));
+  R = Math.max(8, Math.min(R * 0.92, 22));
+  const H = building.height;
+  const SEGS = 18, RINGS = 16;
+  const profile = (t) => t < 0.55 ? (0.94 + 0.06 * Math.sin((t / 0.55) * Math.PI / 2))
+                                  : Math.max(0.10, Math.pow(Math.cos(((t - 0.55) / 0.45) * Math.PI / 2), 0.75));
+  const positions = [], uvs = [], indices = [];
+  for (let ri = 0; ri <= RINGS; ri++) {
+    const t = ri / RINGS;
+    const r = R * profile(t);
+    const y = baseY + t * H;
+    for (let s = 0; s <= SEGS; s++) {                     // +1 duplicated seam vertex for clean UV wrap
+      const a = (s / SEGS) * Math.PI * 2;
+      positions.push(cx + Math.cos(a) * r, y, cy + Math.sin(a) * r);
+      uvs.push((s / SEGS) * ((2 * Math.PI * R) / WALL_REPEAT_HORIZONTAL_M), (t * H) / FLOOR_HEIGHT);
+    }
+  }
+  const row = SEGS + 1;
+  for (let ri = 0; ri < RINGS; ri++) {
+    for (let s = 0; s < SEGS; s++) {
+      const a0 = ri * row + s, b0 = a0 + 1, a1 = a0 + row, b1 = b0 + row;
+      indices.push(a0, a1, b0, b0, a1, b1);
+    }
+  }
+  // Cap the crown with a small fan.
+  const topCenter = positions.length / 3;
+  positions.push(cx, baseY + H + R * 0.02, cy);
+  uvs.push(0.5, (H) / FLOOR_HEIGHT);
+  const lastRing = RINGS * row;
+  for (let s = 0; s < SEGS; s++) indices.push(lastRing + s, topCenter, lastRing + s + 1);
+  const buffers = {
+    positions: new Float32Array(positions),
+    uvs: new Float32Array(uvs),
+    indices: new Uint32Array(indices),
+  };
+  buffers.normals = computeVertexNormals(buffers.positions, buffers.indices);
+  return buffers;
 }
 
 /**
@@ -701,10 +809,11 @@ function eulerYToQuaternion(angle) {
  * @returns {object} Result with buildingGroups, roofGroups, detailGroups, tankInstances, pipeInstances
  */
 export function processBuildingsInWorker(data, config) {
-  const { buildings, roads, elevation, elevationOffset } = data;
+  const { buildings, roads, elevation, elevationOffset, aoGrid } = data;
   if (!buildings || buildings.length === 0) {
     return { buildingGroups: [], roofGroups: [], detailGroups: [], tankInstances: null, pipeInstances: null };
   }
+  const aoSvfAt = createWorkerAoSampler(elevation, aoGrid);   // null on pre-v9 tiles
 
   const vertExag = (config && config.ELEVATION_VERTICAL_EXAGGERATION != null &&
     Number.isFinite(config.ELEVATION_VERTICAL_EXAGGERATION))
@@ -760,6 +869,7 @@ export function processBuildingsInWorker(data, config) {
   // Global vertex budget across ALL material groups (walls + roofs + details)
   let totalTileVerts = 0;
   const heroSpills = [];   // flat [x, baseY, z, radius, strength, ...] — building warm ground-glow decals
+  const beaconPoints = []; // flat [x, y, z, ...] — pulsing red beacons (water-tower finials)
   const GLOBAL_VERTEX_BUDGET = 100000;
 
   // ── Main building loop ──
@@ -767,6 +877,28 @@ export function processBuildingsInWorker(data, config) {
   for (const b of buildings) {
     // Skip underground structures
     if (b.layer != null && b.layer < 0) continue;
+
+    // ── Anti-z-fight inset ──────────────────────────────────────────────────
+    // Adjacent OSM buildings share EXACTLY coplanar walls (row houses share the lot line), which
+    // z-fight/shimmer when both facades render. Pull every footprint inward by a tiny
+    // per-building deterministic amount (1–4.5 cm — invisible at gameplay distances) so no two
+    // buildings' walls are ever depth-coincident. Applied once, up front, so walls, roof, and all
+    // later uses of the footprint stay mutually consistent.
+    if (b.footprint && b.footprint.length >= 3 && !b._insetApplied) {
+      b._insetApplied = true;
+      const fpIn = b.footprint;
+      let icx = 0, icy = 0;
+      for (const p of fpIn) { icx += p.x; icy += p.y; }
+      icx /= fpIn.length; icy /= fpIn.length;
+      const inset = 0.01 + (deterministicIndex(b.id) % 8) * 0.005;
+      b.footprint = fpIn.map((p) => {
+        const dx = icx - p.x, dy = icy - p.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 0.5) return { ...p };                        // degenerate/tiny — leave
+        const t = Math.min(inset, d * 0.2) / d;              // never collapse thin slivers
+        return { ...p, x: p.x + dx * t, y: p.y + dy * t };
+      });
+    }
 
     let cx, cy;
     if (b.center != null) {
@@ -801,8 +933,61 @@ export function processBuildingsInWorker(data, config) {
     let baseY = groundElev * vertExag + BUILDING_Z_OFFSET;
 
     let category = getBuildingCategory(b, roads, cx, cy);
-    // Barcelona: NO height-based auto-glass (was the dark-tower cause). Glass only via explicit tags.
+    // (Height-based glass RETURNED 2026-07-11 by user call — ≥55m towers are commercial_glass with
+    // the full-glass mosaic texture; the old "dark tower" failure was the saturated palette, since
+    // replaced by near-white tints. See getBuildingCategory.)
     const isCommercial = (category === 'commercial' || category === 'commercial_glass');
+
+    // ── WATER TOWER — bespoke Torre-de-les-Aigües silhouette (user ref 2026-07-11) ─────────────
+    // Brick shaft → overhanging cream colonnade drum → terracotta conical spire. All vertex-
+    // coloured into the map-less ROOF bucket (window textures would smear on a cylinder shaft).
+    // Triggers: the water_tower type (man_made/building tag — only 2 in the whole bake), OR the
+    // shape heuristic: tall, thin, tower-proportioned generic/industrial building (Barceloneta's
+    // beach towers are untagged `generic` in OSM — measured). Churches keep their bell towers.
+    let _wtFpR = 0;
+    if (b.footprint?.length >= 3) {
+      for (const p of b.footprint) _wtFpR = Math.max(_wtFpR, Math.hypot(p.x - cx, p.y - cy));
+    }
+    const _wtByShape = (b.type === 'generic' || b.type === 'industrial' || b.type == null)
+      && _wtFpR > 0 && _wtFpR <= 5.5
+      && Number.isFinite(b.height) && b.height >= 16 && b.height / (2 * _wtFpR) >= 2;
+    if ((b.type === 'water_tower' || _wtByShape) && b.footprint?.length >= 3) {
+      const wtR = Math.max(2.2, Math.min(_wtFpR, 6));
+      const WT_H = Math.max(18, Math.min(Number.isFinite(b.height) && b.height >= 12 ? b.height : 30, 45));
+      const SEGS = 12;
+      const BRICK = srgbHexToLinear(0x8F5A42), CREAM = srgbHexToLinear(0xD9CDB4);
+      const TRIM = srgbHexToLinear(0x6B4A38), TERRA = srgbHexToLinear(0x91503A);
+      const parts = [];
+      const put = (geom, tint) => { applyVertexColorToBuffers(geom, tint); parts.push(geom); };
+      const shaftH = WT_H * 0.64;
+      const shaft = createCylinderFull(wtR * 0.80, wtR * 0.95, shaftH, SEGS);
+      applyTranslation(shaft, cx, baseY + shaftH / 2, cy); put(shaft, BRICK);
+      const trimBand = createCylinderFull(wtR * 1.30, wtR * 1.30, 0.6, SEGS);   // dark ring under the drum
+      applyTranslation(trimBand, cx, baseY + shaftH + 0.3, cy); put(trimBand, TRIM);
+      const crownH = WT_H * 0.20;
+      const crown = createCylinderFull(wtR * 1.26, wtR * 1.26, crownH, SEGS);   // overhanging colonnade drum
+      applyTranslation(crown, cx, baseY + shaftH + 0.6 + crownH / 2, cy); put(crown, CREAM);
+      const spireH = WT_H * 0.17;                                               // squat cone (0.26 was "too pointy" — user)
+      const spire = createCylinderFull(wtR * 0.30, wtR * 1.16, spireH, SEGS);   // truncated conical cap
+      applyTranslation(spire, cx, baseY + shaftH + 0.6 + crownH + spireH / 2, cy); put(spire, TERRA);
+      const finial = createCylinderFull(wtR * 0.10, wtR * 0.26, WT_H * 0.05, SEGS);  // small blunt finial
+      applyTranslation(finial, cx, baseY + shaftH + 0.6 + crownH + spireH + WT_H * 0.025, cy); put(finial, TRIM);
+      beaconPoints.push(cx, baseY + shaftH + 0.6 + crownH + spireH + WT_H * 0.05 + 0.35, cy);  // pulsing red beacon
+      const wtMerged = mergeBufferSets(parts);
+      if (wtMerged) {
+        ensureUvs(wtMerged);
+        const wtVerts = wtMerged.positions.length / 3;
+        if (totalTileVerts + wtVerts <= GLOBAL_VERTEX_BUDGET) {
+          const roofKey = getRoofMaterialKey();
+          if (!roofByMaterial.has(roofKey)) roofByMaterial.set(roofKey, { geoms: [], vertCount: 0 });
+          const rEntry = roofByMaterial.get(roofKey);
+          rEntry.geoms.push(wtMerged);
+          rEntry.vertCount += wtVerts;
+          totalTileVerts += wtVerts;
+        }
+      }
+      continue;   // bespoke silhouette replaces the standard wall/roof path entirely
+    }
 
     // ── Residential setback ── Barcelona: OFF (Eixample blocks front the pavement, no driveway).
     let originalFootprint = null;
@@ -851,8 +1036,15 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // ── Wall geometry ──
+    // Bullet crown (Agbar look) for a deterministic THIRD of tall glass towers, and any round-
+    // footprint glass tower — the rest stay rectangular slabs (user: "some curved, some proper
+    // rectangles"). The revolve converges at the top, so these skip the flat roof below.
+    const isBulletTower = category === 'commercial_glass' && b.height >= 60 && b.footprint?.length >= 3
+      && (b.shapeType === 'cylinder' || deterministicIndex(b.id) % 3 === 0);
     let wallBuffers = null;
-    if (b.shapeType === 'cylinder') {
+    if (isBulletTower) {
+      wallBuffers = createBulletTowerBuffers(b, baseY, cx, cy);
+    } else if (b.shapeType === 'cylinder') {
       wallBuffers = createCylinderWallBuffers(b, baseY);
     } else {
       wallBuffers = createPolygonWallBuffers(b, baseY);
@@ -873,13 +1065,30 @@ export function processBuildingsInWorker(data, config) {
     // (the reference-render look) — zero cost by day.
     {
       const wp = wallBuffers.positions;
+      const wn = wallBuffers.normals;
       const wc = wp.length / 3;
       const wash = new Float32Array(wc);
+      const ao = aoSvfAt ? new Float32Array(wc) : null;
       for (let wi = 0; wi < wc; wi++) {
         const rel = (wp[wi * 3 + 1] - baseY) / 4.5;   // ground floor + a bit — not half the building
         wash[wi] = rel <= 0 ? 1 : rel >= 1 ? 0 : 1 - rel;
+        if (ao) {
+          // Baked sky-AO darkening: sample the street beside the wall (outset along the facade
+          // normal — the cell under the wall averages in the svf≈0 building interior), fade out
+          // with height so canyon floors darken but upper storeys stay sky-lit.
+          const fade = 1 - (wp[wi * 3 + 1] - baseY) / AO_FACADE_FADE_M;
+          if (fade > 0) {
+            const svf = aoSvfAt(
+              wp[wi * 3] + (wn ? wn[wi * 3] * AO_SAMPLE_OUTSET : 0),
+              wp[wi * 3 + 2] + (wn ? wn[wi * 3 + 2] * AO_SAMPLE_OUTSET : 0),
+            );
+            const d = AO_FACADE_STRENGTH * Math.pow(1 - svf, AO_GAMMA) * Math.min(1, fade);
+            if (Number.isFinite(d)) ao[wi] = d;   // NaN positions must not reach the shader
+          }
+        }
       }
       wallBuffers.wash = wash;
+      if (ao) wallBuffers.ao = ao;
     }
 
     const matKey = getFacadeMaterialKey(category, b.id, b.height);
@@ -912,10 +1121,12 @@ export function processBuildingsInWorker(data, config) {
       heroSpills.push(cx, baseY, cy, Math.min(34, Math.max(14, maxR * 1.7)), 1.0);
     }
 
-    // ── Roof cap ──
-    let roofBuffers = b.shapeType === 'cylinder'
-      ? createCylinderRoofBuffers(b, baseY)
-      : createPolygonRoofBuffers(b, baseY);
+    // ── Roof cap ── (bullet towers close their own crown — a flat roof would float above it)
+    let roofBuffers = isBulletTower
+      ? null
+      : (b.shapeType === 'cylinder'
+        ? createCylinderRoofBuffers(b, baseY)
+        : createPolygonRoofBuffers(b, baseY));
 
     const setbackFootprint = originalFootprint ? b.footprint.map(p => ({ x: p.x, y: p.y })) : null;
 
@@ -1102,7 +1313,9 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // ── Commercial 3D details ──
-    if (isCommercial && b.shapeType !== 'cylinder'
+    // !isBulletTower: parapets/bars trace the RECTANGULAR footprint at full height — on a bullet
+    // tower the crown has converged inward there, leaving the frames floating in the air.
+    if (isCommercial && b.shapeType !== 'cylinder' && !isBulletTower
         && b.footprint?.length >= 3 && b.height >= 5
         && commercialVerts < COMMERCIAL_VERT_CAP) {
       const fp = b.footprint;
@@ -1772,6 +1985,7 @@ export function processBuildingsInWorker(data, config) {
         indices: merged.indices,
         colors: merged.colors || null,
         wash: merged.wash || null,   // facade ground-glow factor (night shader)
+        ao: merged.ao || null,       // baked sky-AO darkening (0 = open sky; v9 tiles)
       });
     }
   }
@@ -1889,5 +2103,6 @@ export function processBuildingsInWorker(data, config) {
     tankInstances: tankResult,
     pipeInstances: pipeResult,
     heroSpills: heroSpills.length ? new Float32Array(heroSpills) : null,
+    beaconPoints: beaconPoints.length ? new Float32Array(beaconPoints) : null,
   };
 }

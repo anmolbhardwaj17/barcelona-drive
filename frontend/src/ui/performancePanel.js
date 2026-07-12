@@ -57,6 +57,7 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
   const vBuild = el.querySelector('#perf-build');
 
   let frameCount = 0, lastUpdate = 0, worstMs = 0;
+  let capWindows = 0;   // consecutive 1s windows that look like an external 30Hz frame cap
 
   function tick(time, frameDt, context) {
     frameCount += 1;
@@ -68,12 +69,25 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
 
     const fps = frameCount;
     const minFps = worstMs > 0 ? Math.round(1000 / worstMs) : fps;
-    vFps.textContent = minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`;
+    const gpuMs = context?.gpuMs;
+
+    // External frame-cap detector: low FPS while the frame interval dwarfs BOTH the GPU time and
+    // our tracked CPU work = the browser/OS isn't scheduling frames (Chrome Energy Saver, macOS
+    // Low Power Mode) — the machine is idling, not struggling. Ratio-based (v2 — the v1 hard
+    // thresholds missed real captures at gpu 12.4/17ms): frame interval > 1.7× the busiest
+    // measured component, sustained 3 windows so streaming hitches don't false-positive.
+    const rep = context?.cpuTimer?.report?.();
+    const cpuSum = rep?.avg ? (rep.avg.match(/\d+\.\d+/g) || []).reduce((s, n) => s + parseFloat(n), 0) : 0;
+    const busiest = Math.max(typeof gpuMs === 'number' ? gpuMs : 0, cpuSum);
+    const looksCapped = fps > 0 && fps < 46 && busiest > 0 && (1000 / fps) > busiest * 1.7;
+    capWindows = looksCapped ? capWindows + 1 : 0;
+
+    vFps.textContent = (minFps < fps - 2 ? `${fps}  (min ${minFps})` : `${fps}`)
+      + (capWindows >= 3 ? '  ⚠ frames missing vsync (streaming?)' : '');
     // colour cue: green ≥55, amber ≥40, red below
     vFps.style.color = fps >= 55 ? '#7dff9a' : fps >= 40 ? '#ffd23f' : '#ff6b6b';
     frameCount = 0; worstMs = 0;
 
-    const gpuMs = context?.gpuMs;
     vGpu.textContent = (typeof gpuMs === 'number' && gpuMs > 0) ? `~${Math.round(1000 / gpuMs)} fps · ${gpuMs.toFixed(1)}ms` : 'n/a';
 
     const info = renderer.info;
@@ -85,8 +99,8 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
       : 'n/a';
 
     // CPU section breakdown (ms/frame), per-section allocation (MB/frame — the GC-stutter culprit), and the
-    // single worst frame this second (what a stutter was made of). Powered by cpuTimer.report().
-    const rep = context?.cpuTimer?.report?.();
+    // single worst frame this second (what a stutter was made of). Powered by cpuTimer.report()
+    // (rep computed above for the frame-cap detector).
     if (rep) {
       vCpu.textContent = `cpu   ${rep.avg}`;
       vAlloc.textContent = `alloc ${rep.heap}`;

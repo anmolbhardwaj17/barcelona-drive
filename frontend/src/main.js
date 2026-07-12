@@ -48,6 +48,7 @@ import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
 import { setLampEmissiveIntensity, setPoolOpacity } from './map/streetlightRenderer.js';
 import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
+import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { renderVegetation, preloadTreeModels, updateTreeWind } from './map/vegetationRenderer.js';
@@ -105,6 +106,33 @@ const { scene, camera, renderer, world, groundBody, groundMesh, worldGroup, spaw
 setRendererAnisotropy(renderer.capabilities.getMaxAnisotropy());
 window._ddRenderer = renderer; // expose for env map generation in carModel
 window._clearTileCache = clearTileCache; // dev: call after re-bake to flush IndexedDB cache
+// Dev: _identify() then CLICK any surface — logs what mesh/material it is (mystery-geometry killer:
+// four look-alike "dark band" systems later, naming the thing beats guessing).
+window._identify = () => {
+  console.warn('[identify] click on the thing…');
+  const rc = new THREE.Raycaster();
+  const onClick = (e) => {
+    window.removeEventListener('click', onClick, true);
+    const mv = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    rc.setFromCamera(mv, camera);
+    const hits = rc.intersectObjects(scene.children, true).slice(0, 6);
+    if (!hits.length) { console.warn('[identify] nothing hit'); return; }
+    for (const h of hits) {
+      const o = h.object;
+      o.geometry?.computeBoundingSphere?.();
+      console.warn('[identify]', o.type, o.name || '',
+        '| userData:', JSON.stringify(o.userData || {}),
+        '| parent:', o.parent?.name || o.parent?.type || '-', JSON.stringify(o.parent?.userData || {}),
+        '| mat:', o.material?.type || '-', o.material?.color ? '#' + o.material.color.getHexString() : '',
+        o.material?.map ? '(textured)' : '', o.material?.vertexColors ? '(vtxcolor)' : '',
+        '| verts', o.geometry?.attributes?.position?.count ?? '-',
+        '| radius', o.geometry?.boundingSphere ? o.geometry.boundingSphere.radius.toFixed(0) : '-',
+        '| meshPos', o.position.x.toFixed(0) + ',' + o.position.y.toFixed(0) + ',' + o.position.z.toFixed(0),
+        '| dist', h.distance.toFixed(1));
+    }
+  };
+  window.addEventListener('click', onClick, true);
+};
 
 // Initialize Web Worker pool for off-thread tile geometry computation
 initWorkerPool();
@@ -211,7 +239,9 @@ if (ENABLE_CAR !== CONFIG.ENABLE_CAR) {
 let tileManager;
 let freeCameraControls;
 let carDriver = null;
-let rapierAdapter = null;   // set when ?physics=rapier — streams the collider working set around the car
+let rapierAdapter = null;   // set when Rapier physics is active (default) — streams the collider working set around the car
+let boundaryHaze = null;    // world-edge haze curtains (worldBoundary.js)
+let _boundaryCooldown = 0;  // seconds until the next out-of-bounds teleport may fire
 
 // ── Live title screen ─────────────────────────────────────────────────────
 // Once the spawn area has built, the static title artwork crossfades away (#dd-title.live) and a slow
@@ -397,12 +427,13 @@ spawnTileReady.finally(() => {
         z: spawnResult.wz - origin.z,
       };
       try {
-        // ── Rapier (WASM) physics — opt in with ?physics=rapier. The car runs on Rapier; the cannon world
-        //    is never stepped (inert). tileManager keeps adding CANNON collider bodies to `world`, and we
-        //    MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain as a NATIVE Rapier
-        //    heightfield (convention probed at runtime, trimesh fallback). Zero tileManager changes.
+        // ── Rapier (WASM) physics — the DEFAULT engine (escape hatch: ?physics=cannon). The car runs on
+        //    Rapier; the cannon world is never stepped (inert). tileManager keeps adding CANNON collider
+        //    bodies to `world`, and we MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain
+        //    as a NATIVE Rapier heightfield (convention probed at runtime, trimesh fallback). Zero
+        //    tileManager changes. On Rapier init failure we fall back to cannon automatically.
         let _rapier = null, _physicsWorld = world;
-        if (new URLSearchParams(location.search).get('physics') === 'rapier') {
+        if (new URLSearchParams(location.search).get('physics') !== 'cannon') {
           try {
             _rapier = (await import('@dimforge/rapier3d-compat')).default;
             await _rapier.init();
@@ -422,10 +453,42 @@ spawnTileReady.finally(() => {
             world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
             rapierAdapter = _adapter;   // animate() streams the working set around the car each frame
             window._rapierWorld = rw;   // dev: _rapierWorld.colliders.len() shows the live working set
-            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies.`);
+            // Frame-pipeline round 2 (fps-diagnosis): cannon never STEPS or RAYCASTS in Rapier
+            // mode — its Trimesh octree (built synchronously in the ctor, consumed only by cannon
+            // narrowphase/raycast) is pure wasted main-thread time on every road-deck/terrain
+            // trimesh a streaming tile creates. Stub it. AABB/bounding-sphere come from vertex
+            // scans (not the tree), so addBody and the Rapier mirror are unaffected. The
+            // ?physics=cannon escape hatch never reaches this line → keeps real trees.
+            const { Trimesh: _CTrimesh, Box: _CBox } = await import('cannon-es');
+            _CTrimesh.prototype.updateTree = function () {};
+            // Round 2b (allocation sample, user capture): also skip Trimesh edge/normal tables and
+            // Box's ConvexPolyhedron representation — all narrowphase-only data cannon never uses
+            // in Rapier mode. The box convex rep alone was ~17MB of churn per streaming drive
+            // (makeCheapBox + addShape + _ConvexPolyhedron in the profile). The adapter reads
+            // Box.halfExtents / Trimesh.vertices+indices only; AABBs are computed independently.
+            _CTrimesh.prototype.updateEdges = function () {};
+            _CTrimesh.prototype.updateNormals = function () {};
+            _CBox.prototype.updateConvexPolyhedronRepresentation = function () { this.convexPolyhedronRepresentation = null; };
+            window._ddRapierActive = true;   // tileManager builds lean Box colliders when set
+            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
           } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
         }
-        carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, { rapier: _rapier, cpuTimer });
+        carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, {
+          rapier: _rapier, cpuTimer,
+          // World boundary: never record a recovery breadcrumb outside the baked region — the
+          // out-of-bounds teleport returns to the crumb, so the crumb must stay in-bounds.
+          // Physics → ABSOLUTE world uses the HUD convention (−lx + originOffset).
+          isCrumbSafe: (lx, lz) => {
+            const o = getOriginOffset();
+            return isInsidePlayArea(-lx + o.x, lz + o.z);
+          },
+        });
+        // Boundary haze curtains DISABLED (user, 2026-07-12): suspected source of the giant white
+        // blur at certain fly-mode angles — the curtains use absolute world coords inside
+        // worldGroup, which ALSO applies the floating-origin offset → likely displaced into the
+        // map as huge white planes. The out-of-bounds RETURN below still works (its coordinate
+        // conversion is HUD-verified). Re-enable only after re-parenting/offset-correcting them.
+        // boundaryHaze = createBoundaryHaze(worldGroup);
         contactShadows = createContactShadows({ scene });
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
@@ -594,10 +657,20 @@ spawnTileReady.finally(() => {
               if (su?.uHorizon && su?.uMid && su?.uZenith) {
                 _titleSky = { h: su.uHorizon.value.clone(), m: su.uMid.value.clone(), z: su.uZenith.value.clone(),
                               f: scene.fog ? scene.fog.color.clone() : null };
-                su.uHorizon.value.set(0x9fd0f2);
-                su.uMid.value.set(0x54a4e8);
-                su.uZenith.value.set(0x2b78d2);
-                if (scene.fog) scene.fog.color.set(0x9fd0f2);   // haze reads as sky-blue, not grey
+                // NIGHT-AWARE: the day sky-blue haze against a near-black night sky read as a
+                // frosted-glass band cutting the skyline. At night the aerial fades into deep
+                // navy instead — buildings dissolve into darkness, lit windows punch through.
+                if (envToggle?.isNight?.()) {
+                  su.uHorizon.value.set(0x16263f);
+                  su.uMid.value.set(0x0e1a30);
+                  su.uZenith.value.set(0x070f1f);
+                  if (scene.fog) scene.fog.color.set(0x131f36);
+                } else {
+                  su.uHorizon.value.set(0x9fd0f2);
+                  su.uMid.value.set(0x54a4e8);
+                  su.uZenith.value.set(0x2b78d2);
+                  if (scene.fog) scene.fog.color.set(0x9fd0f2);   // haze reads as sky-blue, not grey
+                }
               }
             } catch {}
           }
@@ -689,7 +762,12 @@ function animate(time = 0) {
   if (CONFIG.ENABLE_FOG && scene.fog) {
     // Ground-level fog washes out the aerial title cinematic (camera at ~115m+ in 0.005 fog = white soup),
     // so it's nearly off while the title is live — like drone mode — and restored on entering the game.
-    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005) : 0;
+    // ALTITUDE FADE (user report: "huge blur at certain angles" from the in-car drone view): the
+    // same white-soup applies whenever the camera climbs, so full density only below ~40 m,
+    // fading to near-none by ~180 m. Ground driving is unchanged (camera ≈ 5 m).
+    const _camAlt = camera?.position?.y ?? 0;
+    const _fogAltFade = Math.max(0.08, Math.min(1, 1 - (_camAlt - 40) / 140));
+    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005 * _fogAltFade) : 0;
   }
 
   // Title-up detection: while the title screen is visible the world streams around the CINEMATIC
@@ -754,7 +832,13 @@ function animate(time = 0) {
       // landing, so the transition reads sky→ground instead of a grey veil.
       if (scene.fog) {
         scene.fog.density = 0.0006 + Math.pow(1 - _ease, 1.6) * 0.006;
-        scene.fog.color.setHex(0x62b4f0).lerp(_titleFogLanded, _ease);
+        // Night-aware sweep: day falls sunny-blue → light horizon haze; night falls deep navy →
+        // the pre-title night fog colour (captured in _titleSky.f), so the descent stays nocturnal.
+        if (envToggle?.isNight?.()) {
+          scene.fog.color.setHex(0x131f36).lerp(_titleSky?.f || _titleFogLanded, _ease);
+        } else {
+          scene.fog.color.setHex(0x62b4f0).lerp(_titleFogLanded, _ease);
+        }
       }
       const _te = document.getElementById('dd-title');
       if (!_te || _te.classList.contains('hide')) {
@@ -774,6 +858,17 @@ function animate(time = 0) {
 
     const lp = carDriver.getLocalPosition();
     rapierAdapter?.tick(lp.lx, lp.lz);   // stream the Rapier collider working set around the car
+    // World boundary: past the haze curtains + grace band → return to the last in-bounds road
+    // (breadcrumb teleport — same mechanism as the R key). Cooldown prevents rapid-fire loops.
+    // ABSOLUTE world = HUD convention (−lx + originOffset) — v1 skipped the offset → respawn loop.
+    _boundaryCooldown = Math.max(0, _boundaryCooldown - frameDt);
+    if (_boundaryCooldown === 0) {
+      const _bo = getOriginOffset();
+      if (outOfBoundsM(-lp.lx + _bo.x, lp.lz + _bo.z) > BOUNDARY_GRACE_M) {
+        _boundaryCooldown = 2.5;
+        carDriver.recoverToCrumb?.();
+      }
+    }
     // Physics / scene X is mirrored relative to world/map X (worldGroup.scale.x = -1),
     // so convert back to world coordinates by negating X (same convention as free camera).
     viewerWx = -lp.lx;
@@ -827,7 +922,7 @@ function animate(time = 0) {
   tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });
   cpuTimer.lap('tiles');
   updateClouds(viewerWx, viewerWz);
-  updateMoon(viewerWx, viewerWz);
+  updateMoon(camera.position.x, camera.position.z);   // camera SCENE frame — see scene.updateMoon
   updateStars(viewerWx, viewerWz);
 
   const origin = getOriginOffset();
@@ -883,6 +978,9 @@ function animate(time = 0) {
 
   // Blink red beacon lights on communication towers
   updateTowerBeacons(time / 1000);
+  // World-edge curtains: drift + day/night colour + proximity fade (invisible past ~400m —
+  // at full strength they read as a flashing white horizon wall from the coast).
+  boundaryHaze?.update(frameDt, scene.fog?.color, worldWx, worldWz);
 
   if (CONFIG.DEBUG_COLLIDERS) {
     updateDebugColliders(scene, world);

@@ -260,6 +260,8 @@ function createMoonGlowTexture() {
   return tex;
 }
 
+let _moonDx = 0, _moonDz = 0, _moonH = 800;
+
 function addMoon(scene, spawnX, spawnZ) {
   // Position: low on horizon, SE direction (azimuth ~135°)
   const azimuth = Math.PI * 0.75; // SE
@@ -268,6 +270,7 @@ function addMoon(scene, spawnX, spawnZ) {
 
   const dx = Math.cos(azimuth) * dist;
   const dz = Math.sin(azimuth) * dist;
+  _moonDx = dx; _moonDz = dz; _moonH = height;
 
   // Moon disc
   const moonMat = new THREE.SpriteMaterial({
@@ -310,20 +313,19 @@ export function setMoonNightMode(isNight) {
 }
 
 /** Move moon to follow camera (parallax — barely moves). */
-export function updateMoon(camX, camZ) {
-  if (!_moonSprite) return;
-  const azimuth = Math.PI * 0.75;
-  const dist = 8000;
-  const dx = Math.cos(azimuth) * dist;
-  const dz = Math.sin(azimuth) * dist;
-  // Very slow parallax — moon barely moves
-  const follow = 0.02;
-  const mx = camX * follow + dx;
-  const mz = camZ * follow + dz;
-  _moonSprite.position.x = mx;
-  _moonSprite.position.z = mz;
-  _moonGlowSprite.position.x = mx;
-  _moonGlowSprite.position.z = mz;
+/**
+ * Keep the moon CELESTIAL: re-anchor BOTH sprites a fixed 8 km from the camera every frame,
+ * in the CAMERA'S OWN frame. The old 2% "parallax follow" (fed world-frame coords, sprites in
+ * scene frame) let photo/fly mode travel right up to the sprite — the 900 m glow texture at
+ * close range was the screen-filling white blob (user reports ×3, day shot was fog/curtains).
+ * Pass camera.position.x/z — NOT viewerWx/Wz (X-mirror frame mismatch).
+ */
+export function updateMoon(camSceneX, camSceneZ) {
+  if (!_moonSprite || !_moonSprite.visible) return;
+  const mx = camSceneX + _moonDx;
+  const mz = camSceneZ + _moonDz;
+  _moonSprite.position.set(mx, _moonH, mz);
+  _moonGlowSprite.position.set(mx, _moonH, mz);
 }
 
 // ---------------------------------------------------------------------------
@@ -427,19 +429,24 @@ function addClouds(scene, spawnX, spawnZ) {
   // instance matrix's column lengths (w/h live in the matrix scale — no extra scale attribute needed).
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aCloudTile;\nvarying float vCloudTile;')
+      .replace('#include <common>', '#include <common>\nattribute float aCloudTile;\nvarying float vCloudTile;\nvarying float vCloudDist;')
       .replace('#include <project_vertex>', [
         'vCloudTile = aCloudTile;',
         'vec2 iScale = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));',
         'vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);',
+        'vCloudDist = length(mvPosition.xyz);',
         'mvPosition.xy += position.xy * iScale;',
         'gl_Position = projectionMatrix * mvPosition;',
       ].join('\n'));
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vCloudTile;')
+      .replace('#include <common>', '#include <common>\nvarying float vCloudTile;\nvarying float vCloudDist;')
       .replace('#include <map_fragment>', [
         `vec2 cloudUv = (vMapUv + vec2(mod(vCloudTile, ${COLS}.0), floor(vCloudTile / ${COLS}.0))) / vec2(${COLS}.0, ${ROWS}.0);`,
         'diffuseColor *= texture2D( map, cloudUv );',
+        // Proximity fade: the rings re-center on the viewer, so photo/fly mode can end up INSIDE
+        // one — a 300m quad at point-blank was the screen-filling "white blob" (user reports ×4:
+        // moon, fog, curtains all ruled out first). Fully gone within 350m, untouched past 850m.
+        'diffuseColor.a *= smoothstep(350.0, 850.0, vCloudDist);',
       ].join('\n'));
   };
   _cloudMaterials = [mat];   // setCloudNightMode tints through this list

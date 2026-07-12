@@ -14,6 +14,9 @@ import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
 import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
+import { createAoSampler, AO_DISABLED, AO_GREEN_STRENGTH } from './aoSampler.js';
+import { mergeGeometriesChunked } from './chunkedMerge.js';
+import { ingestCoastline } from './coastline.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
@@ -22,6 +25,7 @@ import { buildTerrainMesh, buildTerrainHeightfield, getHeightfieldWorldAABB, dar
 import { renderWater } from './waterRenderer.js';
 import { createRailwayMeshes, createTramMeshes } from './railwayRenderer.js';
 import { createGreensMeshes } from './greensRenderer.js';
+import { createAreaFeatureMeshes } from './areaFeaturesRenderer.js';
 import { buildBarrierMeshes, buildBarrierColliders } from './barrierRenderer.js';
 import { buildBusStopMeshes } from './busStopRenderer.js';
 import { queueWarmup } from './gpuWarmup.js';
@@ -113,7 +117,7 @@ function queueGroupWarmup(group) {
 function safeSceneAdd(scene, mesh) {
   if (!mesh) return false;
   if (mesh.isGroup) { scene.add(mesh); queueGroupWarmup(mesh); return true; }
-  if (meshHasNaN(mesh)) {
+  if (!mesh.userData?._nanChecked && meshHasNaN(mesh)) {   // materializer-scanned meshes skip the 2nd full pass
     mesh.geometry.dispose();
     return false;
   }
@@ -174,7 +178,10 @@ async function mergeMeshesByMaterial(meshes, yieldFn) {
 
     let merged;
     try {
-      merged = mergeGeometries(bucket.geos, false);
+      // Chunked (yielding) merge first — the sync mergeGeometries on a big bucket was a measured
+      // 20-36ms vsync-miss. Sync path stays as the fallback for exotic attribute layouts.
+      merged = await mergeGeometriesChunked(bucket.geos, yieldFn);
+      if (!merged) merged = mergeGeometries(bucket.geos, false);
     } catch {
       // Merge failed — keep originals
       result.push(...bucket.srcMeshes);
@@ -383,6 +390,14 @@ class CheapBox extends CANNON.ConvexPolyhedron {
   computeEdges() { this.uniqueEdges = _BOX_EDGES; }
 }
 function makeCheapBox(hx, hy, hz) {
+  // Rapier mode: a NATIVE CANNON.Box is the lean path — its heavy ConvexPolyhedron rep is stubbed
+  // at init (main.js), the adapter converts Box→cuboid straight from halfExtents (cheaper than
+  // convexHull over 8 verts), and the allocation profile showed CheapBox's 8 Vec3s per wall
+  // segment were the #2 allocator of a streaming drive (11.7MB/20s). CheapBox remains the
+  // cannon-mode (?physics=cannon) path, where real narrowphase needs the convex data.
+  if (typeof window !== 'undefined' && window._ddRapierActive) {
+    return new CANNON.Box(new _V3(hx, hy, hz));
+  }
   const vertices = [
     new _V3(-hx, -hy, -hz), new _V3(hx, -hy, -hz), new _V3(hx, hy, -hz), new _V3(-hx, hy, -hz),
     new _V3(-hx, -hy, hz), new _V3(hx, -hy, hz), new _V3(hx, hy, hz), new _V3(-hx, hy, hz),
@@ -520,6 +535,7 @@ async function buildBuildingColliders(buildings, physicsOrigin, getElevationAt, 
     if (any) {
       body.collisionFilterGroup = COLLISION_GROUP_WORLD;
       body.collisionFilterMask  = COLLISION_GROUP_VEHICLE;
+      body._ddKind = 'building';   // collisionDebug (K key) excludes buildings — user call 2026-07-12
       bodies.push(body);
     }
     // Yield between batches so a dense tile's collider creation spreads over a few frames instead of one
@@ -541,6 +557,66 @@ function countVertices(meshes) {
 
 /** @type {Map<string, { roads: object[], buildings: object[], roadMeshes?: THREE.Mesh[], buildingMeshes?: THREE.Mesh[], spatialIndex?: object }>} */
 const tileCache = new Map();
+
+// Dev: window._findWhiteTiles() — hunts the "white terrain tile" (identify v2: 16384-vert Lambert
+// white). Scans every loaded terrain mesh's colour/aAO/aCoast attributes for NaN or near-white
+// and names the tile keys — the producing branch gets fixed from that.
+if (typeof window !== 'undefined') {
+  window._findWhiteTiles = () => {
+    const out = [];
+    for (const [key, e] of tileCache.entries()) {
+      const g = e.terrainMesh?.geometry;
+      if (!g) continue;
+      const rep = { key };
+      for (const [name, comps] of [['color', 3], ['aAO', 1], ['aCoast', 1]]) {
+        const a = g.getAttribute(name);
+        if (!a) { rep[name] = 'MISSING'; continue; }
+        let nan = 0, sum = 0, n = a.count * comps;
+        for (let i = 0; i < n; i++) { const v = a.array[i]; if (Number.isNaN(v)) nan++; else sum += v; }
+        rep[name] = `${nan ? 'NaN×' + nan + ' ' : ''}mean ${(sum / Math.max(1, n - nan)).toFixed(3)}`;
+      }
+      const suspicious = /MISSING|NaN/.test(rep.color + rep.aAO + rep.aCoast)
+        || parseFloat(String(rep.color).replace(/^.*mean /, '')) > 0.8;
+      if (suspicious) out.push(rep);
+    }
+    console.warn('[whiteTiles]', out.length ? '' : 'none suspicious of ' + tileCache.size + ' tiles');
+    for (const r of out) console.warn('[whiteTiles]', r.key, '| color', r.color, '| aAO', r.aAO, '| aCoast', r.aCoast);
+    return out;
+  };
+}
+
+// Dev: window._aoDebug() — ground truth on whether baked-AO attributes are live in the running
+// session. Reports, per surface family, how many loaded meshes carry aAO and the darkening stats.
+if (typeof window !== 'undefined') {
+  window._aoDebug = () => {
+    const fam = {};
+    const scan = (mesh, name) => {
+      if (!mesh?.geometry) return;
+      const f = (fam[name] ||= { meshes: 0, withAO: 0, verts: 0, sum: 0, max: 0 });
+      f.meshes++;
+      const a = mesh.geometry.getAttribute('aAO');
+      if (!a) return;
+      f.withAO++;
+      for (let i = 0; i < a.count; i++) {
+        const v = a.getX(i);
+        f.verts++; f.sum += v; if (v > f.max) f.max = v;
+      }
+    };
+    for (const e of tileCache.values()) {
+      scan(e.terrainMesh, 'terrain');
+      (e.roadMeshes || []).forEach((m) => scan(m, 'roads'));
+      (e.greenMeshes || []).forEach((m) => scan(m, 'greens'));
+      (e.buildingMeshes || []).forEach((m) => scan(m, 'buildings'));
+    }
+    const out = {};
+    for (const [k, f] of Object.entries(fam)) {
+      out[k] = `${f.withAO}/${f.meshes} meshes with aAO · mean dark ${(f.verts ? f.sum / f.verts : 0).toFixed(3)} · max ${f.max.toFixed(3)}`;
+    }
+    // terrain stores a MULTIPLIER (≈1 = no AO), everything else stores DARKENING (0 = no AO)
+    console.table(out);
+    return out;
+  };
+}
 /** Tile keys currently being loaded – avoid starting duplicate requests */
 const loadingKeys = new Set();
 
@@ -1365,6 +1441,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     const { roads, buildings, railways, vegetation, water, greens, elevation, roadOnlyMode, junctions } = data;
     const skipNonRoad = CONFIG.ROAD_ONLY_DEBUG || roadOnlyMode;
+    // Upgrade the coastline to the REAL OSM shore (tiles carry natural=coastline polylines) BEFORE
+    // any terrain paints — first tile wins, no-op afterwards. See coastline.js.
+    try { ingestCoastline(water); } catch {}
     let getElevationAt = null;
     let terrainMesh = null;
     let terrainMinY = null;
@@ -1460,7 +1539,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 1: Terrain + Roads + Physics (appear immediately)
     // -----------------------------------------------------------------------
-    buildPhase('p1 roads/terrain');
+    buildPhase('p1 physics');        // terrain trimesh/heightfield + colliders come first in p1
 
     // Performance instrumentation — tracks max single-chunk time (the stutter metric)
     const _perfT0 = performance.now();
@@ -1584,7 +1663,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         // placement runtime-verified against the (correct but inert) trimesh: gap ≤ 0.01 m.
         // NOTE: heightfields can't be carved — tunnel-mouth terrain holes are visual-only until
         // Phase 3 authored tunnels (createTerrainTrimesh kept dormant for reference).
-        const hf = buildTerrainHeightfield(elevation, key);
+        const hf = await buildTerrainHeightfield(elevation, key, yieldToMain);
         if (hf?.body) {
           const o = getOriginOffset();
           // Builder returns world-frame position (east-X, north-Z corner); convert to physics frame.
@@ -1600,7 +1679,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
       _perfMark('terrain-physics');
 
-      const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain);
+      const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain, data.aoGrid, data.beaches);
       terrainMesh = terrain.mesh;
       getElevationAt = terrain.getElevationAt;
       if (terrainMesh) {
@@ -1753,25 +1832,28 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const options = getElevationAt ? { getElevationAt, elevationOffset, getWorldElevation, getGroundY, buildings: buildings || [] } : { elevationOffset, getGroundY, buildings: buildings || [] };
     if (data.bakedRoads) options.bakedRoads = data.bakedRoads;
     if (data.bakedSidewalks) options.bakedSidewalks = data.bakedSidewalks;   // v8 — pre-baked sidewalks/curbs
-    const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [] };
+    const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [], beaches: data.beaches || [] };
     if (data.bakedVegetation) tileData.bakedVegetation = data.bakedVegetation;
 
     _perfMark('tunnels+setup');
     await _perfYield();
 
     // Roads — async with frame yields to prevent jank
+    buildPhase('p1 roadgen');        // road ribbon/marking generation (internal sync merges live here)
     const roadMeshesRaw = await createRoadMeshes(roads, options, _perfYield);
     const pillarPositions = roadMeshesRaw._pillarPositions || [];
 
+    buildPhase('p1 merge');
     const roadMeshes = await mergeMeshesByMaterial(roadMeshesRaw, _perfYield);
     roadMeshes._pillarPositions = pillarPositions;
 
-    // Night building-glow wash: bake the per-vertex building-proximity factor (aWash) into the
-    // road surfaces so streets flanked by buildings glow warm with the facades at night, and
-    // empty stretches fade smoothly to dark (factor → 0 away from any footprint).
-    if (tileData.buildings?.length && roadMeshes.length) {
+    // Night building-glow wash + baked sky-visibility AO: one pass over the road-family vertices
+    // writes aWash (building proximity → night glow) and aAO (v9 AO grid → street-canyon
+    // darkening). Buildingless tiles with AO data still get the AO half.
+    const _tileSvfAt = createAoSampler(data.aoGrid, elevation);
+    if ((tileData.buildings?.length || _tileSvfAt) && roadMeshes.length) {
       buildPhase('p1 road-wash');
-      await bakeRoadWash(roadMeshes, tileData.buildings, _perfYield);
+      await bakeRoadWash(roadMeshes, tileData.buildings, _perfYield, _tileSvfAt);
     }
 
     roadMeshes.forEach((m) => { m.visible = true; safeSceneAdd(scene, m); });
@@ -1858,8 +1940,20 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       return s;
     });
 
-    // Green areas — lightweight flat meshes, build in Phase 1 so they appear with terrain
+    // Green areas — lightweight flat meshes, build in Phase 1 so they appear with terrain.
+    // Pedestrian plazas (v7 area features, unrendered until 2026-07-11) ride the same lifecycle:
+    // appended to greenMeshes so streaming/unload/disposal are shared. Beaches are NOT flat
+    // meshes — they're painted into the terrain colours (buildTerrainMesh coast pass), where they
+    // conform to the relief instead of getting buried under it.
     const greenMeshesP1 = !skipNonRoad && tileData.greens?.length ? createGreensMeshes(tileData.greens, getElevationAt) : [];
+    if (!skipNonRoad) {
+      greenMeshesP1.push(...createAreaFeatureMeshes(data.pedestrianAreas, 'pedArea', getElevationAt));
+    }
+    // Greens render ON TOP of the AO-darkened terrain — fill their aAO from the same grid or the
+    // Eixample verges/parks glow bright over shaded ground (round-1 AO screenshot finding).
+    if (_tileSvfAt && greenMeshesP1.length) {
+      await bakeRoadWash(greenMeshesP1, null, _perfYield, _tileSvfAt, AO_GREEN_STRENGTH);
+    }
     greenMeshesP1.forEach((m) => safeSceneAdd(scene, m));
     _perfMark('greens');
 
@@ -1940,7 +2034,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
     }
 
-    const railwayMeshes = await mergeMeshesByMaterial(skipNonRoad ? [] : createRailwayMeshes(railways, options), yieldToMain);
+    // CONFIG.ENABLE_RAILWAYS existed but was never checked here — the dark ballast ribbons along
+    // the Rondas (the coastal rail corridor) read as "black border lines" (user, 2026-07-11).
+    // Trams below are unaffected (embedded street rails, subtle).
+    const railwayMeshes = await mergeMeshesByMaterial((skipNonRoad || !CONFIG.ENABLE_RAILWAYS) ? [] : createRailwayMeshes(railways, options), yieldToMain);
     railwayMeshes.forEach((m) => safeSceneAdd(scene, m));
     entry.railwayMeshes = railwayMeshes;
 
@@ -1986,7 +2083,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       try {
         const buildingWorkerResult = await workerProcessBuildings(
           key,
-          { buildings: filteredTileData.buildings, roads: filteredTileData.roads },
+          { buildings: filteredTileData.buildings, roads: filteredTileData.roads, aoGrid: AO_DISABLED ? null : data.aoGrid },
           elevation,
           elevationOffset,
           CONFIG,
@@ -2084,7 +2181,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
               if (h.kind !== 'tree' && h.kind !== 'bush') continue;
               for (let wi = 0; wi < h.count; wi++) {
                 h.pool.setWashAt(h.ids[wi], washGrid ? washAt(washGrid, h.xs[wi], h.zs[wi]) : 0);
-                if ((wi & 511) === 511) await yieldToMain();   // frame-budgeted — thousands of instances/tile
+                if ((wi & 255) === 255) await yieldToMain();   // frame-budgeted — washAt is ~900 checks/instance (p3 veg-wash tag)
               }
             }
             await yieldToMain();
@@ -2134,6 +2231,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
 
       try {
+        buildPhase('p4 grass');
         const grassWorkerResult = await workerProcessGrass(
           key,
           tileData,
@@ -2164,6 +2262,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     await yieldToMain();
 
+    buildPhase('p4 water');
     // Water — use getWorldElevation for terrain-following water surface
     const waterAreas = (skipNonRoad || !CONFIG.ENABLE_WATER) ? [] : [
       ...(tileData.water || []),
@@ -2177,13 +2276,19 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (wr.embankmentMesh) safeSceneAdd(scene, wr.embankmentMesh);
     }
 
+    await yieldToMain();
+
     // Props
+    buildPhase('p4 props');
     if (!skipNonRoad) {
       entry.propMesh = renderProps(tileData, key, options);
       if (entry.propMesh) safeSceneAdd(scene, entry.propMesh);
     }
 
+    await yieldToMain();
+
     // Environment clusters
+    buildPhase('p4 clusters');
     if (!skipNonRoad) {
       entry.clusterMeshes = await mergeMeshesByMaterial(renderEnvironmentClusters(tileData, key, options), yieldToMain);
       entry.clusterMeshes.forEach((m) => safeSceneAdd(scene, m));
@@ -2253,6 +2358,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Barriers
     if (CONFIG.ENABLE_BARRIERS && data.barriers?.length) {
+      buildPhase('p4 barriers');
       entry.barrierMeshes = await mergeMeshesByMaterial(buildBarrierMeshes(data.barriers, roads, buildings, getGroundY), yieldToMain);
       for (const m of entry.barrierMeshes) safeSceneAdd(scene, m);
       if (world) {
@@ -2316,6 +2422,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Road infra (signs, gantries)
     if (CONFIG.ENABLE_ROAD_INFRA) {
+      buildPhase('p4 infra');
       const { meshes: infraMeshesRaw } = buildRoadInfrastructure(roads, key, getGroundY);
       entry.roadInfraMeshes = await mergeMeshesByMaterial(infraMeshesRaw, yieldToMain);
       for (const m of entry.roadInfraMeshes) { safeSceneAdd(scene, m); }
@@ -2323,6 +2430,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Decals
     if (!skipNonRoad && CONFIG.ENABLE_DECALS) {
+      buildPhase('p4 decals');
       const dm = await buildDecalMeshes({ buildings: buildings || [], barriers: data.barriers || [] }, key);
       for (const m of dm) { safeSceneAdd(scene, m); entry.decalMeshes.push(m); }
     }
@@ -2332,10 +2440,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Urban features + Vendor carts
     if (CONFIG.ENABLE_URBAN_FEATURES && data.urbanFeatures?.length) {
-      entry.urbanFeatureMeshes = await mergeMeshesByMaterial(buildUrbanFeatureMeshes(data.urbanFeatures, roads, buildings, getGroundY), yieldToMain);
+      buildPhase('p4 urban');
+      entry.urbanFeatureMeshes = await mergeMeshesByMaterial(await buildUrbanFeatureMeshes(data.urbanFeatures, roads, buildings, getGroundY, yieldToMain), yieldToMain);
       for (const m of entry.urbanFeatureMeshes) { safeSceneAdd(scene, m); }
     }
     if (CONFIG.ENABLE_VENDOR_CARTS && roads.length > 0) {
+      buildPhase('p4 vendor');
       entry.vendorCartMeshes = await mergeMeshesByMaterial(buildVendorCartMeshes(roads, buildings, key, options.vegetationMask, getGroundY), yieldToMain);
       for (const m of entry.vendorCartMeshes) { safeSceneAdd(scene, m); }
     }
@@ -2392,7 +2502,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // wall boxes), so adding many in one synchronous burst jolts the frame. Yield every few bodies.
       for (let i = 0; i < entry.sceneryBodies.length; i++) {
         world.addBody(entry.sceneryBodies[i]);
-        if ((i & 7) === 7) { await yieldToMain(); if (aborted()) return entry; }
+        // yield check EVERY body — it's a no-op under budget, and one multi-shape body's AABB
+        // recompute can alone chew several ms (fps-diagnosis: chunks must stay ≤~10ms)
+        { await yieldToMain(); if (aborted()) return entry; }
       }
       await yieldToMain();
       if (aborted()) return entry;
@@ -2403,7 +2515,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (aborted()) return entry;
       for (let i = 0; i < entry.buildingBodies.length; i++) {
         world.addBody(entry.buildingBodies[i]);
-        if ((i & 3) === 3) { await yieldToMain(); if (aborted()) return entry; }
+        // every body (see scenery loop note) — a building body can hold hundreds of wall boxes
+        { await yieldToMain(); if (aborted()) return entry; }
       }
     }
 

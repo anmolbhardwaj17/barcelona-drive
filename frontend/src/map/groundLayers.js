@@ -20,6 +20,9 @@
 export const GROUND_LAYERS = {
   terrain:      0,     // base — no bias
   green:       -2,     // parks / gardens / grass polygons over terrain
+  beach:       -3,     // sand polygons — beat greens at the coast edge, lose to roads/promenades
+  pedArea:     -3.4,   // plazas / pedestrian squares — over greens+beach, UNDER roads/sidewalks
+                       //  (conservative: promote above roads only after checking plaza-road overlaps)
   road:        -4,     // asphalt ribbons (per-type priority Y-bumps still break carriageway ties)
   gore:        -5,     // junction gore fills sit ON asphalt, under everything painted
   sidewalk:    -6,     // panot / plain sidewalk / chamfer fills

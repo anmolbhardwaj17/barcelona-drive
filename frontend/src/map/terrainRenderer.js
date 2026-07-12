@@ -12,6 +12,8 @@ import { WATER_DEPTH, pointInWaterPolygon, polygonArea } from './waterRenderer.j
 const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
 import { isRallyStyle } from '../rallyStyle.js';
+import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH, bindAoScaleUniform } from './aoSampler.js';
+import { coastSample, seaPolygonWorld } from './coastline.js';
 
 /** No-op stubs kept for API compatibility. */
 export function loadTerrainGroundTextures() { return Promise.resolve([]); }
@@ -128,7 +130,7 @@ function minDistSqToRoads(roads, x, z) {
 
 /** One-time log of which terrain path is live (useBaked = pre-baked mesh vs runtime fallback). */
 let _loggedTerrainPath = false;
-export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain) {
+export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain, aoGrid, beaches) {
   if (!elevation || !elevation.elevations || !Array.isArray(elevation.elevations)) {
     const noop = () => 0;
     return { mesh: null, getElevationAt: noop };
@@ -439,12 +441,150 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   }
 
   const colors = new Float32Array(vCount * 3);
+  // Baked sky-visibility AO (v9) → per-vertex colour multiplier. The final value (strength curve
+  // already applied) lives in the attribute so the shader stays a single multiply; pre-v9 tiles
+  // get a constant 1.0 (attribute always present → shared shader program).
+  const svfAt = createAoSampler(aoGrid, elevation);
+  const aoAttr = new Float32Array(vCount).fill(1);
+
+  // ── Coast painting (terrain-tinted beach + sea) ──────────────────────────
+  // The open sea has NO OSM water polygon (only enclosed basins like marinas do) and flat beach
+  // MESHES get buried under sloping terrain — so the coast is painted INTO the terrain colours:
+  // sand inside natural=beach polygons (wet band near the waterline), deep sea blue wherever the
+  // raw DEM says water (SRTM bakes open sea at 0 m). aCoast masks the procedural green shader off
+  // these vertices so it can't repaint them. Gated on the tile actually touching sea level or
+  // carrying beach polys, so inland lowlands never trigger it.
+  const SEA_RAW = 0.15;   // raw DEM metres — at/below = open water
+  const beachPolys = (beaches || []).filter((f) => !f.isLine && f.polygon?.length >= 3).map((f) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of f.polygon) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minZ) minZ = p.y; if (p.y > maxZ) maxZ = p.y;
+    }
+    return { polygon: f.polygon, minX, maxX, minZ, maxZ };
+  });
+  // The DEM is USELESS for the open sea here (Copernicus GLO-30 bakes it at 2–5.8 m — measured),
+  // so the authoritative sea signal is the shared traced coastline (coastline.js — same polygon
+  // the map draws). Elevation-based detection stays only for SUNK harbour basins (baked to −2.5).
+  let seaTileGate = false;
+  {
+    const c1 = latLonToWorld(elevation.south, elevation.west);
+    const c2 = latLonToWorld(elevation.north, elevation.east);
+    const sp = seaPolygonWorld();
+    let sMinX = Infinity, sMaxX = -Infinity, sMinZ = Infinity, sMaxZ = -Infinity;
+    for (const p of sp) {
+      if (p.x < sMinX) sMinX = p.x; if (p.x > sMaxX) sMaxX = p.x;
+      if (p.z < sMinZ) sMinZ = p.z; if (p.z > sMaxZ) sMaxZ = p.z;
+    }
+    const tMinX = Math.min(c1.x, c2.x), tMaxX = Math.max(c1.x, c2.x);
+    const tMinZ = Math.min(c1.z, c2.z), tMaxZ = Math.max(c1.z, c2.z);
+    seaTileGate = tMaxX >= sMinX && tMinX <= sMaxX && tMaxZ >= sMinZ && tMinZ <= sMaxZ;
+  }
+  const coastEnabled = seaTileGate || beachPolys.length > 0 || (Number.isFinite(elevation.min) && elevation.min <= SEA_RAW);
+  const coastAttr = new Float32Array(vCount);
+
+  // Distance-to-sea grid (in cells) for the AUTO-BEACH band: OSM beach polygons are sparse, so any
+  // low-lying land within ~16 m of open sea gets sand even without a polygon (user call — "be
+  // smart, have some beach next to sea"). 5-pass dilation over the 128×128 grid, ~4 m/cell.
+  const SEA_DIST_MAX = 5;
+  const SEA_FLOOD = 0.9;   // metres — the DEM box-blur lifts near-shore sea cells above SEA_RAW, so
+                           // the sea FLOOD-FILLS through the blurred band up to this height. Only
+                           // cells CONNECTED to definite sea flood — inland low pockets stay land.
+  let seaDist = null, distRC = null;
+  if (coastEnabled && Number.isFinite(elevation.min) && elevation.min <= SEA_RAW) {
+    const res = elevation.gridCols, resR = elevation.gridRows;
+    const src = elevation.elevations;
+    seaDist = new Uint8Array(resR * res).fill(255);
+    // Seeds: definite sea (raw ≤ SEA_RAW) anywhere, plus low TILE-EDGE cells (< SEA_FLOOD) so a
+    // tile whose entire shore band was blur-lifted still receives the sea from its neighbour.
+    const queue = [];
+    for (let i = 0; i < seaDist.length; i++) {
+      if (src[i] == null || !Number.isFinite(src[i])) continue;
+      const rr = (i / res) | 0, cc = i % res;
+      const edge = rr === 0 || rr === resR - 1 || cc === 0 || cc === res - 1;
+      if (src[i] <= SEA_RAW || (edge && src[i] < SEA_FLOOD)) { seaDist[i] = 0; queue.push(i); }
+    }
+    // BFS flood through the blurred shore band.
+    for (let qi = 0; qi < queue.length; qi++) {
+      const k = queue[qi];
+      const rr = (k / res) | 0, cc = k % res;
+      const nbrs = [rr > 0 ? k - res : -1, rr < resR - 1 ? k + res : -1, cc > 0 ? k - 1 : -1, cc < res - 1 ? k + 1 : -1];
+      for (const nk of nbrs) {
+        if (nk < 0 || seaDist[nk] === 0) continue;
+        const e = src[nk];
+        if (e != null && Number.isFinite(e) && e < SEA_FLOOD) { seaDist[nk] = 0; queue.push(nk); }
+      }
+    }
+    // Distance-from-sea dilation (for the auto-beach band).
+    for (let pass = 1; pass <= SEA_DIST_MAX; pass++) {
+      for (let rr = 0; rr < resR; rr++) {
+        for (let cc = 0; cc < res; cc++) {
+          const k = rr * res + cc;
+          if (seaDist[k] !== 255) continue;
+          const n0 = rr > 0 ? seaDist[k - res] : 255, n1 = rr < resR - 1 ? seaDist[k + res] : 255;
+          const n2 = cc > 0 ? seaDist[k - 1] : 255, n3 = cc < res - 1 ? seaDist[k + 1] : 255;
+          if (Math.min(n0, n1, n2, n3) === pass - 1) seaDist[k] = pass;
+        }
+      }
+    }
+    // world → grid (row, col) affine — same linearization as aoSampler (exact to <0.1% per tile).
+    const swW = latLonToWorld(elevation.south, elevation.west);
+    const seW = latLonToWorld(elevation.south, elevation.east);
+    const nwW = latLonToWorld(elevation.north, elevation.west);
+    const colPerX = (res - 1) / (seW.x - swW.x);
+    const rowPerZ = (resR - 1) / (nwW.z - swW.z);
+    distRC = (wx, wz) => {
+      let c = (wx - swW.x) * colPerX, r = (wz - swW.z) * rowPerZ;
+      if (c < 0) c = 0; else if (c > res - 1) c = res - 1;
+      if (r < 0) r = 0; else if (r > resR - 1) r = resR - 1;
+      return seaDist[Math.round(r) * res + Math.round(c)];
+    };
+  }
+  const inBeachPoly = (x, z) => {
+    for (const bp of beachPolys) {
+      if (x < bp.minX || x > bp.maxX || z < bp.minZ || z > bp.maxZ) continue;
+      let inside = false;
+      const poly = bp.polygon;
+      for (let pi = 0, pj = poly.length - 1; pi < poly.length; pj = pi++) {
+        const xi = poly[pi].x, zi = poly[pi].y, xj = poly[pj].x, zj = poly[pj].y;
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    return false;
+  };
+
   const COLOR_BATCH = 2048;
   for (let i = 0; i < vCount; i++) {
     if (yieldFn && i > 0 && i % COLOR_BATCH === 0) await yieldFn();
     const y = posAttr.getY(i);
     const vx = posAttr.getX(i);
     const vz = posAttr.getZ(i);
+    if (svfAt) {
+      // Guard: some vertices carry NaN positions (G-06 elevation grid holes) — NaN would ride the
+      // attribute into the shader and black out triangles. Fall back to "no AO".
+      // SLOPE SCALE: steep faces (trench walls along the Rondas, Montjuïc cuts) are already
+      // side-lit dark by Lambert — full AO on top read as broad chocolate bands flanking the
+      // trenched carriageways (the long "dark border lines" hunt). Walls get ~35% of the AO.
+      const svf = svfAt(vx, vz);
+      if (Number.isFinite(svf)) {
+        // (read the normal directly — `ny` is declared further down this loop, TDZ trap)
+        let nyAO = normAttr ? normAttr.getY(i) : 1;
+        // Baked sea tiles carry ONE EDGE ROW of NaN normals (degenerate flat triangles at the
+        // seam). Math.max(0, NaN) = NaN → poisoned aAO → NaN renders WHITE: this was the giant
+        // white wall over the sea (_findWhiteTiles: aAO NaN×128 on 4 tiles = one grid row each).
+        // Sanitize the normal itself too — NaN normals also corrupt Lambert lighting.
+        if (!Number.isFinite(nyAO)) {
+          nyAO = 1;
+          if (normAttr) { normAttr.setXYZ(i, 0, 1, 0); normAttr.needsUpdate = true; }
+        }
+        const slopeK = 0.35 + 0.65 * Math.max(0, nyAO);   // 1 = flat ground gets full AO
+        const v = 1 - (1 - aoMultiplier(svf, AO_TERRAIN_STRENGTH)) * slopeK;
+        aoAttr[i] = Number.isFinite(v) ? v : 1;           // belt & braces — NaN must never reach the GPU
+      } else {
+        aoAttr[i] = 1;
+      }
+    }
     const ny = normAttr ? normAttr.getY(i) : 1;
     // t: 0 at ground (Y=0), negative below, positive above
     const t = y / Math.max(Math.abs(minY), Math.abs(maxY), 0.01);
@@ -550,11 +690,80 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       }
     }
 
+    // ── Coast override: sea / beach sand / bare shoreline (see block above the loop) ──
+    if (coastEnabled) {
+      // Raw DEM metres: baked positions carry raw Y; the fallback path already applied offset+exag.
+      const raw = useBaked ? y : (y / vertExag + offset);
+      const dSea = distRC ? distRC(vx, vz) : 255;
+      const inBeach = inBeachPoly(vx, vz);
+      const cs = seaTileGate ? coastSample(vx, vz) : null;
+      const shoreD = cs ? cs.dist : Infinity;
+      if ((cs && cs.sea && !inBeach) || dSea === 0 || raw <= SEA_RAW) {
+        // Open sea — deep desaturated Mediterranean blue (mid-dark: the grade brightens), with a
+        // whisper of large-scale variation so it doesn't read as one flat poster fill.
+        const sn = terrainNoise(vx, vz, 0.012, 13.0) * 0.03;
+        let sr = 0.050 + sn * 0.5;
+        let sg = 0.165 + sn;
+        let sb = 0.270 + sn;
+        // Smooth waterline (user report: hard per-vertex cut read as a sawtooth): the first ~10 m
+        // of water blends from wet sand into full sea instead of switching in one vertex.
+        const t = Math.min(1, shoreD / 10);
+        r = 0.400 * (1 - t) + sr * t;
+        g = 0.345 * (1 - t) + sg * t;
+        b = 0.245 * (1 - t) + sb * t;
+        coastAttr[i] = 1;
+      } else if (inBeach || shoreD <= 32 || (raw < 2.2 && dSea <= 4)) {
+        // Sand coverage 0..1 with SOFT edges — the binary in/out test read as a stepped cutout
+        // against the grass (user report). Beach-polygon edges use 5-point coverage sampling;
+        // the shore band fades out over ~8 m with a noise-jittered boundary so the grass line
+        // wanders organically instead of tracing the polygon.
+        let sandF = 0;
+        if (inBeach) {
+          let hits = 1;
+          if (inBeachPoly(vx + 3.5, vz)) hits++;
+          if (inBeachPoly(vx - 3.5, vz)) hits++;
+          if (inBeachPoly(vx, vz + 3.5)) hits++;
+          if (inBeachPoly(vx, vz - 3.5)) hits++;
+          sandF = hits / 5;
+        }
+        const edgeJitter = terrainNoise(vx, vz, 0.05, 17.0) * 5;
+        if (shoreD < 26 + edgeJitter) {
+          sandF = Math.max(sandF, Math.min(1, (26 + edgeJitter - shoreD) / 8));
+        }
+        if (!sandF && raw < 2.2 && dSea <= 4) sandF = 1;   // sunk-basin band (harbours)
+        if (sandF > 0) {
+          const wet = Math.max(
+            raw < 1.0 ? 1 - (raw - SEA_RAW) / (1.0 - SEA_RAW) : 0,
+            shoreD < 24 ? 1 - shoreD / 24 : 0,
+          );
+          const sn = terrainNoise(vx, vz, 0.09, 11.0) * 0.045;
+          const dr = 0.545 + sn, dg = 0.480 + sn * 0.8, db = 0.335 + sn * 0.5;
+          const sr = dr * (1 - wet) + 0.400 * wet;
+          const sg2 = dg * (1 - wet) + 0.345 * wet;
+          const sb2 = db * (1 - wet) + 0.245 * wet;
+          r = r * (1 - sandF) + sr * sandF;
+          g = g * (1 - sandF) + sg2 * sandF;
+          b = b * (1 - sandF) + sb2 * sandF;
+          coastAttr[i] = sandF;
+        }
+      } else if (raw < SEA_RAW + 0.6) {
+        // Non-beach waterline (port aprons, breakwaters) — partial wet-grey blend so the sea
+        // doesn't butt straight into bright green.
+        const s2 = (1 - (raw - SEA_RAW) / 0.6) * 0.7;
+        r = r * (1 - s2) + 0.38 * s2;
+        g = g * (1 - s2) + 0.36 * s2;
+        b = b * (1 - s2) + 0.30 * s2;
+        coastAttr[i] = s2;
+      }
+    }
+
     colors[i * 3]     = r;
     colors[i * 3 + 1] = g;
     colors[i * 3 + 2] = b;
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('aAO', new THREE.BufferAttribute(aoAttr, 1));
+  geometry.setAttribute('aCoast', new THREE.BufferAttribute(coastAttr, 1));
 
   const terrainDetailTex = getTerrainDetailTexture();
   const material = new THREE.MeshLambertMaterial({
@@ -572,16 +781,23 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   material.onBeforeCompile = (shader) => {
     shader.uniforms.terrainDetailTex = { value: terrainDetailTex };
     shader.uniforms.detailScale = { value: 0.07 };
+    bindAoScaleUniform(shader);
 
-    // --- Vertex: pass world position to fragment ---
+    // --- Vertex: pass world position + baked AO + coast mask to fragment ---
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>
+      attribute float aAO;
+      attribute float aCoast;
+      varying float vAo;
+      varying float vCoast;
       varying vec3 vWorldPos;`
     );
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
+      vAo = aAO;
+      vCoast = aCoast;
       vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
     );
 
@@ -589,7 +805,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       `#include <common>
+      varying float vAo;
+      varying float vCoast;
       varying vec3 vWorldPos;
+      uniform float uAoScale;
       uniform sampler2D terrainDetailTex;
       uniform float detailScale;
 
@@ -657,12 +876,15 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       terrainBase = mix(terrainBase, drySoil, soilBlend);
 
       // ── 5. Blend with vertex colors — procedural dominates at 75% ──
-      // CPU vertex colors carry road-edge brown, tree shadow, water shore
-      diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75);
+      // CPU vertex colors carry road-edge brown, tree shadow, water shore.
+      // vCoast masks the greens OFF sand/sea vertices — the coast is CPU-painted (beach polys +
+      // sea-level detection) and the procedural pass must not repaint it.
+      diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75 * (1.0 - vCoast));
 
       // ── 6. Detect CPU road-edge dark tint and amplify (softened) ──
+      // Gated off the coast too — the deep sea blue is dark and would muddy toward roadDirt.
       float vertLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35;
+      float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35 * (1.0 - vCoast);
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
       // ── 7. Fiber texture micro-detail ── (rally keeps the ground flat/clean, so skip the per-pixel
@@ -671,7 +893,11 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         ? 'diffuseColor.rgb *= 0.98;'
         : `vec2 fiberUV = wPos * detailScale;
            float fiber = texture2D(terrainDetailTex, fiberUV).r;
-           diffuseColor.rgb *= 0.70 + fiber * 0.52;`}`
+           diffuseColor.rgb *= 0.70 + fiber * 0.52;`}
+
+      // ── 8. Baked sky-visibility AO (v9) — street canyons darken, plazas stay bright ──
+      // vAo is a MULTIPLIER (1 = open sky); uAoScale softens it under the night rig.
+      diffuseColor.rgb *= (1.0 - (1.0 - vAo) * uAoScale);`
     );
   };
   material.customProgramCacheKey = () => 'terrainBcnLush' + (isRallyStyle() ? '_rally' : '');
@@ -756,7 +982,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
  * @param {string} [tileKey] - unused, for API consistency
  * @returns {{ body: CANNON.Body } | null}
  */
-export function buildTerrainHeightfield(elevation, tileKey) {
+export async function buildTerrainHeightfield(elevation, tileKey, yieldFn) {
   if (!elevation || !elevation.elevations || !Array.isArray(elevation.elevations)) return null;
   const offset = getWorldElevationOffset() ?? 0; // D-12: single spawn-anchored baseline; tileMinElevation gate removed
   const { south, west, north, east, gridRows, gridCols, elevations } = elevation;
@@ -786,6 +1012,9 @@ export function buildTerrainHeightfield(elevation, tileKey) {
   // (car X = -(worldX - originX)). Body position is set to the east-side world X so
   // that after negation in tileManager the heightfield covers the correct range.
   const data = [];
+  // Stats folded into this loop (was a SECOND full 16k pass) + budget yields every 16 columns —
+  // this build was part of the "p1 physics" chunk tag.
+  let hfMin = Infinity, hfMax = -Infinity, hfNeg = 0;
   for (let c = 0; c < cols; c++) {
     data[c] = [];
     const colSrc = cols - 1 - c; // reversed: data[0] = east, data[cols-1] = west
@@ -796,7 +1025,11 @@ export function buildTerrainHeightfield(elevation, tileKey) {
       y = (y - offset) * vertExag;
       y = Math.max(y, seaLevelNorm);
       data[c][r] = y;
+      if (y < hfMin) hfMin = y;
+      if (y > hfMax) hfMax = y;
+      if (y < -0.1) hfNeg++;
     }
+    if (yieldFn && (c & 15) === 15) await yieldFn();
   }
   const westSouth = latLonToWorld(south, west);
   const eastSouth = latLonToWorld(south, east);
@@ -807,16 +1040,7 @@ export function buildTerrainHeightfield(elevation, tileKey) {
   const stepZ = rows > 1 ? worldWidthZ / (rows - 1) : worldWidthZ;
   const elementSize = (stepX + stepZ) / 2;
 
-  // Log heightfield data stats
-  let hfMin = Infinity, hfMax = -Infinity, hfNeg = 0;
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-      const v = data[c][r];
-      if (v < hfMin) hfMin = v;
-      if (v > hfMax) hfMax = v;
-      if (v < -0.1) hfNeg++;
-    }
-  }
+  // (stats folded into the build loop above)
 
   const heightfieldShape = new CANNON.Heightfield(data, { elementSize });
   const body = new CANNON.Body({ mass: 0 });

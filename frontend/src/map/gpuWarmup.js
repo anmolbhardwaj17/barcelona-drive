@@ -35,6 +35,11 @@ export function queueWarmup(mesh) {
  */
 export function warmupBegin(k = 3) {
   _active = null;
+  // ADAPTIVE: at speed, a whole tile's meshes (~30) can queue at once and the frustum reaches
+  // them before a 3/frame drain finishes — the leftovers then upload in ONE render (the measured
+  // rend 102.6ms monster frame). Deep backlog -> drain faster; each warm draw is small.
+  if (_queue.length > 24) k = 8;
+  else if (_queue.length > 12) k = 5;
   let taken = 0;
   while (taken < k && _queue.length) {
     const m = _queue.shift();
