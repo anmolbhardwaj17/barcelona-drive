@@ -326,6 +326,10 @@ export function buildTunnelFloor(tunnelRoads, getGroundY) {
   for (const road of tunnelRoads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
+    // Daylighted corridors (layer < 0) get the full painted road ribbon from roadRenderer
+    // (same condition as its tunnel-paint guard) — there this dark Lambert deck only showed
+    // as a 1m dark band proud of the road on each side. Covered tunnels still need the deck.
+    if (road.layer != null && road.layer < 0) continue;
     const halfW = (road.width || 6) / 2 + WALL_EXTRA_WIDTH;
 
     for (let i = 0; i < pts.length - 1; i++) {

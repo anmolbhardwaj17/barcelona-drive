@@ -938,7 +938,11 @@ const PART_KEYS = [
   'bakedVegetation', 'bakedTerrain', 'bakedPhysicsTerrain', 'bakedRoads', 'bakedSidewalks',
   'elevation', 'aoGrid',
 ];
-const PART_CHUNK = 150; // slice size for the big object arrays (roads/buildings)
+// Slice size for the big object arrays (roads/buildings). 150 was still 10-20ms of
+// structured-clone per message in dense Eixample (each road carries hundreds of {x,y,elevation}
+// point objects) — the worst-frame 'other 20-25ms' survivor. 30 keeps each deserialize task
+// ~1-4ms so rAF actually interleaves; total clone cost is unchanged, just spread across frames.
+const PART_CHUNK = 30;
 
 function postResult(id, result) {
   if (result && result.packed) {

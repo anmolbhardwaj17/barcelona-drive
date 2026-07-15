@@ -69,6 +69,7 @@ import { createGpuTimer } from './ui/gpuTimer.js';
 import { createCpuTimer } from './ui/cpuTimer.js';
 import { createPerfLogger } from './ui/perfLogger.js';
 import { createEscMenu } from './ui/escMenu.js';
+import { initTouchControls } from './ui/touchControls.js';
 import { worldToLatLon, latLonToWorld, latLonToTile, tileToBBox, TILE_ZOOM } from './projection.js';
 import { getActiveSpawn, START_LAT, START_LON } from './spawnConfig.js';
 import { loadTile, clearTileCache } from './map/mapLoader.js';
@@ -612,6 +613,9 @@ spawnTileReady.finally(() => {
     }
     // ESC menu — re-parents the car-colour panel + day/night toggle into a gamified overlay, adds
     // global place search (spawn anywhere in the baked area) and a HUD-metrics toggle.
+    // Touch driving controls (phones/tablets only — no-op on fine-pointer devices).
+    // Buttons dispatch synthetic arrow-key events, so carControls/inputGate apply unchanged.
+    if (ENABLE_CAR) initTouchControls();
     escMenu = createEscMenu({
       colorPanelElement: document.getElementById('dd-car-color-panel'),
       metricsElements: [metricsPanel?.element, performancePanel?.element],

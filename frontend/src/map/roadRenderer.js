@@ -89,7 +89,12 @@ const LANE_DIVIDER_WIDTH      = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10 m
 const DOUBLE_LINE_GAP = 0.20;
 const DASH_LENGTH = 2.0;
 const DASH_GAP = 2.0;
-const MARKING_Y_ABOVE_ROAD = 0.06; // was 0.03 (sank into ±3.5cm road noise) → 0.08 → 0.06: still clears noise, floats less above the wheels so the car looks less sunk
+// Paint Y stack (2026-07-16 audit): baked road surface = base+0.07+bump(0.001-0.009), where
+// base = (elevation-offset) and getRoadPointHeights returns base+0.05. Families built via
+// buildFlatRibbonGeometry get a HIDDEN +ROAD_ZFIGHT_OFFSET(0.02) on top of their constant.
+// Target: paint 1.5-3cm above the surface. lane lines base+0.10 · crosswalks base+0.095 ·
+// arrows/pictos/zona30 base+0.095 · edge stripes base+0.105 · bike lanes base+0.09.
+const MARKING_Y_ABOVE_ROAD = 0.03; // +0.05(heights)+0.02(ribbon) = base+0.10 → 2.1-2.9cm above surface
                                    // under bumps and vanished up close. 0.08 clears the noise + grazing z-fight.
 
 const LANES_BY_TYPE = {
@@ -1178,7 +1183,12 @@ async function buildRoadMarkings(roads, options, yieldFn) {
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
   const getJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS);
 
+  // Yield through the generation loop — round 3 budgeted the MERGE below but generation ran
+  // as one sync span: per road it clips every line against all junctions, offsets per lane,
+  // and builds a geometry PER DASH. Densest Eixample tile measured 70.9ms ('p1 rg:markings').
+  let _mkRoadIdx = 0;
   for (const road of roads) {
+    if (yieldFn && (++_mkRoadIdx & 7) === 0) await yieldFn();
     const type = road.highwayType || '';
     const rules = MARKING_RULES[type];
     if (!rules) continue;
@@ -1278,7 +1288,9 @@ async function buildRoadMarkings(roads, options, yieldFn) {
   const yellowColor = new THREE.Color(BCN_COLORS.PAINT_WHITE);  // Phase 4 will use BCN_COLORS.PAINT_YELLOW for no-parking
   const allMarkingGeoms = [];
 
+  let _mkColorIdx = 0;
   for (const g of whiteGeoms) {
+    if (yieldFn && (++_mkColorIdx & 255) === 0) await yieldFn();
     const count = g.attributes.position.count;
     const colors = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) { colors[i*3] = whiteColor.r; colors[i*3+1] = whiteColor.g; colors[i*3+2] = whiteColor.b; }
@@ -1286,6 +1298,7 @@ async function buildRoadMarkings(roads, options, yieldFn) {
     allMarkingGeoms.push(g);
   }
   for (const g of yellowGeoms) {
+    if (yieldFn && (++_mkColorIdx & 255) === 0) await yieldFn();
     const count = g.attributes.position.count;
     const colors = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) { colors[i*3] = yellowColor.r; colors[i*3+1] = yellowColor.g; colors[i*3+2] = yellowColor.b; }
@@ -1321,7 +1334,7 @@ async function buildCrosswalks(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_CROSSWALKS) return null;
 
   const CROSSWALK_SETBACK = 1.5; // metres past the clipping zone edge before first stripe
-  const CROSSWALK_Y_ABOVE = 0.055; // above ±3.5cm road noise, but lowered from 0.08 so stripes don't float ~0.14m over the wheels (made the car look extra-sunk at crossings)
+  const CROSSWALK_Y_ABOVE = 0.025; // +0.05+0.02(ribbon) = base+0.095 → 1.6-2.4cm above the baked surface (see paint-stack note at MARKING_Y_ABOVE_ROAD)
 
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
   if (junctionPoints.length === 0) return null;
@@ -1341,7 +1354,12 @@ async function buildCrosswalks(roads, options, yieldFn) {
 
   const geoms = [];
 
+  // Yield through the road loop — in Eixample nearly every road gets stripes at both
+  // junction ends (height interpolation + ribbon geometry per stripe); this loop was one
+  // ~12ms sync span ('p1 rg:crosswalks'). yieldFn is budget-gated so this is ~free.
+  let _cwRoadIdx = 0;
   for (const road of roads) {
+    if (yieldFn && (++_cwRoadIdx & 15) === 0) await yieldFn();
     const type = road.highwayType || '';
     if (!ELIGIBLE.has(type)) continue;
     if (road.tunnel || road.bridge) continue;
@@ -1452,7 +1470,7 @@ async function buildOnewayArrows(roads, options, yieldFn) {
   const ARROW_SPACING = 30;    // metres between arrows
   const ARROW_LENGTH  = 0.75;  // half-length of triangle (tip to center)
   const ARROW_HALF_W  = 0.30;  // half-width of triangle base
-  const ARROW_Y_ABOVE = 0.035;  // above road surface (lowered with crosswalks/markings)
+  const ARROW_Y_ABOVE = 0.045;  // custom quads (no ribbon +0.02): +0.05 = base+0.095 → clears the baked surface; 0.035 was 3.5-4.5cm BURIED (arrows invisible)
 
   // Skip road types where arrows would be redundant clutter (direction implied by divider)
   const SKIP_TYPES = new Set(['motorway', 'trunk', 'motorway_link', 'trunk_link']);
@@ -2000,7 +2018,7 @@ function buildBikePictograms(roads, options) {
   const VALID_CYCLEWAY = new Set(['lane', 'opposite_lane', 'track', 'opposite_track']);
   const SPACING = BCN_DIMS.BIKE_PICTOGRAM_SPACING; // 30m
   const BIKE_W  = BCN_DIMS.BIKE_LANE_WIDTH_ONEWAY;
-  const PICTO_Y = 0.03; // above road surface
+  const PICTO_Y = 0.045; // custom quads (no ribbon +0.02): base+0.095, just above the baked surface
 
   // Collect all instance matrices
   const matrices = [];
@@ -2121,7 +2139,7 @@ function getZona30Geometry() {
 
 const ZONA30_ELIGIBLE = new Set(['residential', 'unclassified', 'tertiary', 'living_street']);
 const ZONA30_SPACING  = 100; // metres between stencils
-const ZONA30_Y_ABOVE  = 0.04;
+const ZONA30_Y_ABOVE  = 0.045; // custom quads (no ribbon +0.02): base+0.095, just above the baked surface
 
 /**
  * "30" speed limit stencils painted on road surface for ZONA 30 roads.
@@ -2319,7 +2337,7 @@ function buildTactilePaving(roads, options) {
 
 const NO_STOP_VALUES  = new Set(['no_stopping']);
 const NO_PARK_VALUES  = new Set(['no_parking']);
-const STRIPE_Y_ABOVE  = 0.04;   // above lane lines (0.03m), matches crosswalk height
+const STRIPE_Y_ABOVE  = 0.035;  // +0.05+0.02(ribbon) = base+0.105 — a hair above lane lines (base+0.10)
 const STRIPE_W        = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10m
 
 let _noParkingMaterial = null;
@@ -2772,7 +2790,9 @@ export function setGuardRailNightMode(isNight) {
   // Night: cool blue-gray moonlit concrete; avoid any warm/beige tint.
   if (sharedGuardRailMaterial) sharedGuardRailMaterial.color.set(isNight ? 0x586068 : 0xffffff);
   if (sharedRailingMaterial)   sharedRailingMaterial.color.set(isNight ? 0x404040 : 0x707070);
-  if (sharedSlabMaterial)      sharedSlabMaterial.color.set(isNight ? 0x404448 : 0x706b66);
+  // Day colour must match getSlabMaterial()'s 0xa9a49d — the old 0x706b66 here re-darkened
+  // the slabs on the first day/night toggle and brought back the "black border line" bands.
+  if (sharedSlabMaterial)      sharedSlabMaterial.color.set(isNight ? 0x404448 : 0xa9a49d);
 }
 
 // ── Billboard night glow ──────────────────────────────────────────────────────
@@ -4563,6 +4583,10 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   // Apply ramp divergence (lateral offset at junction ends)
   const roads = applyRampDivergence(rawRoads);
 
+  // Sub-attribution: label the current internal builder so tileManager's overrun tracker
+  // ('p1 roadgen' was a 13ms black box) blames the actual culprit at the next yield.
+  const ph = options?.buildPhase || (() => {});
+
   // Check for pre-baked road surface data
   const bakedRoads = options?.bakedRoads;
 
@@ -4584,6 +4608,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   // (bridges/tunnels diving) and is unnecessary now that the bake conforms. (Cloth visual via the bake.)
   if (bakedRoads && Array.isArray(bakedRoads.layers) && bakedRoads.layers.length > 0) {
     // ─── Fast path: use pre-baked geometry ────────────────────────────────
+    ph('p1 rg:baked-ribbons');
     for (const bakedLayer of bakedRoads.layers) {
       if (!bakedLayer.positions || !bakedLayer.indices) continue;
       const geom = new THREE.BufferGeometry();
@@ -4607,10 +4632,15 @@ export async function renderTileRoads(tileData, options, yieldFn) {
       // Normalize absolute baked Y into the spawn-anchored frame, baked into geometry so it
       // survives mergeMeshesByMaterial: Yrender = (DEM − offset) × vertExag.
       if (bakedVertExag !== 1) geom.scale(1, bakedVertExag, 1);
-      // Normalize absolute baked Y to (DEM-offset)*vertExag AND lift above the terrain mesh (the baked path
-      // skipped the ROAD_VISUAL_ABOVE_TERRAIN lift the runtime path applies → roads sat at terrain Y and got
-      // occluded in dips). Lift baked into geometry so it survives mergeMeshesByMaterial.
-      geom.translate(0, -bakedOffset * bakedVertExag + ROAD_VISUAL_ABOVE_TERRAIN, 0);
+      // Normalize absolute baked Y to (DEM-offset)*vertExag. NO ROAD_VISUAL_ABOVE_TERRAIN here:
+      // unlike sidewalkBaker (which bakes raw and lets this translate add the lift), roadBaker
+      // ALREADY bakes +ROAD_VISUAL_ABOVE_TERRAIN(0.05) +ROAD_ZFIGHT_OFFSET(0.02) +priority bump
+      // (0.001-0.009) into every ribbon vertex. Re-adding the lift here double-lifted the road
+      // surface to base+0.12+bump — which buried ALL paint (arrows -4cm, lane lines in z-fight),
+      // floated roads ~12cm over terrain, and sank the car (wheels ride the heightfield) by the
+      // same. Baked road surface is now base+0.07+bump; every paint-family Y_ABOVE constant is
+      // tuned against THAT number — retune all of them together if this ever changes (2026-07-16).
+      geom.translate(0, -bakedOffset * bakedVertExag, 0);
       const mesh = new THREE.Mesh(geom, roadMaterial);
       mesh.castShadow = false;
       mesh.receiveShadow = !!CONFIG.ENABLE_SHADOWS;
@@ -4621,9 +4651,13 @@ export async function renderTileRoads(tileData, options, yieldFn) {
         sharedMaterial: true,
       };
       roadMeshes.push(mesh);
+      // applyRoadVertexColors above is a full sync vertex pass per layer — yield between
+      // layers so a dense tile's baked road build can't own a whole frame.
+      if (yieldFn) await yieldFn();
     }
   } else {
     // ─── Original path: build ribbon geometry per road ─────────────────────
+    ph('p1 rg:ribbons');
     // Use rawRoads for junction width detection — diverged endpoints may not hash-match
     const junctionWidthMap = buildJunctionWidthMap(rawRoads, JUNCTION_TOLERANCE);
 
@@ -4679,16 +4713,21 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   if (yieldFn) await yieldFn();
 
   // --- Markings + sidewalks + crosswalks + one-way arrows + Phase 3 ---
+  ph('p1 rg:markings');
   const { whiteMarkingsMesh, yellowMarkingsMesh } = await buildRoadMarkings(roads, options, yieldFn);
   if (yieldFn) await yieldFn();
+  ph('p1 rg:sidewalk-edge');
   const { sidewalkMesh, edgeStripMesh } = buildSidewalkAndEdgeMeshes(roads, options);
   if (yieldFn) await yieldFn();
+  ph('p1 rg:crosswalks');
   const crosswalkMesh      = await buildCrosswalks(roads, options, yieldFn);
+  ph('p1 rg:oneway');
   const onewayArrowMesh    = await buildOnewayArrows(roads, options, yieldFn);
   // Phase 3 Barcelona (OSM-driven sidewalks, curbs, bike infrastructure).
   // v8 tiles carry PRE-BAKED sidewalk/curb geometry (sidewalkBaker.js — pre-clipped, zero build
   // cost); v7 tiles fall back to the runtime generators, which must stay behaviour-identical.
   let bcnSidewalkMesh, bcnCurbMesh;
+  ph('p1 rg:bcn-sidewalk');
   if (options?.bakedSidewalks) {
     ({ sidewalkMesh: bcnSidewalkMesh, curbMesh: bcnCurbMesh } =
       buildBakedSidewalkMeshes(options.bakedSidewalks, bakedOffset, bakedVertExag));
@@ -4696,30 +4735,40 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     bcnSidewalkMesh = await buildSidewalks(roads, options, yieldFn);
     bcnCurbMesh     = await buildCurbs(roads, options, yieldFn);
   }
+  ph('p1 rg:bikelanes');
   const bcnBikeLaneMesh    = await buildBikeLanes(roads, options, yieldFn);
   if (yieldFn) await yieldFn();
+  ph('p1 rg:bike-picto');
   const bcnBikePictoMesh   = buildBikePictograms(roads, options);
   if (yieldFn) await yieldFn();
   // Phase 4A Barcelona (tram handled in tileManager via createTramMeshes; no-parking stripes here)
+  ph('p1 rg:noparking');
   const noParkingMesh      = await buildNoParkingStripes(roads, options, yieldFn);
   // Phase 4C-A Barcelona (ZONA 30 stencils + tactile paving dots)
+  ph('p1 rg:zona30');
   const zona30Mesh         = buildZona30Stencils(roads, options);
   if (yieldFn) await yieldFn();
+  ph('p1 rg:tactile');
   const tactileMesh        = buildTactilePaving(roads, options);
   // Phase 4C-B Barcelona (blue regulated parking stripes)
+  ph('p1 rg:bluezone');
   const bluezoneMesh       = await buildBlueZoneStripes(roads, options, yieldFn);
 
   if (yieldFn) await yieldFn();
 
   // --- Bridge structures ---
+  ph('p1 rg:pillars');
   const { mesh: pillarMesh, positions: pillarPositions } = buildBridgePillarMeshes(roads, options);
   if (yieldFn) await yieldFn();
+  ph('p1 rg:slab');
   const bridgeSlabMesh = buildBridgeSlabGeometry(roads, options);
 
   if (yieldFn) await yieldFn();
 
+  ph('p1 rg:guardrail');
   const { wallMesh: bridgeGuardRailMesh, railingMesh: metalRailingMesh } = buildBridgeGuardRailGeometry(roads, options);
   if (yieldFn) await yieldFn();
+  ph('p1 rg:blend-strip');
   const blendStripMesh = CONFIG.ENABLE_ROAD_SHOULDERS ? buildRoadsideBlendStrip(roads, options) : null;
   // Bridge FAKE-shadow ribbons DISABLED (user, 2026-07-11, after three look-alike culprits were
   // ruled out — edge strips, railways, slab sides): 45%-black ground ribbons under every elevated
@@ -4730,6 +4779,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   if (yieldFn) await yieldFn();
 
   // --- Billboards ---
+  ph('p1 rg:billboards');
   let bridgeBillboards = [];
   try { bridgeBillboards = buildBridgeBillboards(roads, options); }
   catch (e) { console.warn('Billboard build error:', e); }

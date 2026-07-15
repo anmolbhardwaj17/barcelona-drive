@@ -22,9 +22,10 @@ const JUNCTION_SKIP  = 10;
 const LAYER_HEIGHT_STEP = 6;
 
 const POOL_SIZE      = 16;    // m diameter — falloff room without an 18 m plane that fights slopes
-const POOL_Y_OFFSET  = 0.38;  // just above the road+curb+sidewalk stack (0.52 floated at tyre height on
-                              // flat streets; 0.34 got sliced by lifted sidewalk decks) — the pool plane is
-                              // flat, so slopes will always clip ONE edge slightly; smaller pool helps
+const POOL_Y_OFFSET  = 0.22;  // above the sidewalk top (base+0.19: curb 0.12 + zfight 0.02 + lift 0.05)
+                              // but no longer tyre-height: 0.38 predated the road double-lift fix
+                              // (2026-07-16) and visibly hovered ~26cm over the road at night. The pool
+                              // plane is flat, so slopes still clip ONE edge slightly; smaller pool helps
                               // lamp stands on the higher sidewalk, so the curb was clipping half the glow.
 
 // Base shadow length for pole contact shadow
@@ -362,7 +363,8 @@ function buildBridgeSegments(roads) {
   const segs = [];
   for (const road of roads || []) {
     const isBridge = road.bridge === true ||
-      (road.layer != null && Number.isFinite(road.layer) && road.layer > 0);
+      (road.layer != null && Number.isFinite(road.layer) && road.layer > 0) ||
+      road.crossesTrench === true; // streets bridging daylighted trench corridors are overhead too
     if (!isBridge) continue;
     const pts = road.points || [];
     const hw = (getRoadWidth(road) / 2) + 3; // extra margin for streetlight poles
@@ -403,7 +405,10 @@ export function buildStreetlights(roads, junctionPoints, options) {
 
   for (const road of roads || []) {
     if (!LIGHT_ROAD_TYPES.has(road.highwayType)) continue;
-    if (road.tunnel) continue; // no streetlights inside tunnels
+    // No streetlights inside COVERED tunnels — but daylighted trench corridors (tunnel &&
+    // layer < 0, e.g. the Rondas) are open-air and lit like any expressway. Same guard
+    // as roadRenderer's tunnel-paint condition.
+    if (road.tunnel && !(road.layer != null && road.layer < 0)) continue;
     const roadWidth = getRoadWidth(road);
     const layer  = (road.layer != null && Number.isFinite(road.layer)) ? road.layer : 0;
     const isBridge = road.bridge === true || layer > 0;
@@ -417,8 +422,9 @@ export function buildStreetlights(roads, junctionPoints, options) {
         prevPoleTopLeft = null; prevPoleTopRight = null;
         continue;
       }
-      // Skip streetlights on ground-level roads that pass under a bridge
-      if (layer === 0 && bridgeSegs.length > 0 && isUnderBridge(s.x, s.z, bridgeSegs)) {
+      // Skip streetlights on ground-level AND trench roads that pass under a bridge
+      // (daylighted corridors run under crossesTrench overpass streets).
+      if (layer <= 0 && bridgeSegs.length > 0 && isUnderBridge(s.x, s.z, bridgeSegs)) {
         prevPoleTopLeft = null; prevPoleTopRight = null;
         continue;
       }

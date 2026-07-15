@@ -850,12 +850,23 @@ function createRoadTrimeshColliders(roads, opts) {
       const midY = (y0 + y1) / 2;
       const midZ = (z0 + z1) / 2;
 
-      // Clip box width if it would overlap another road's corridor at merge zones
+      // Clip box width if it would overlap another road's corridor at merge zones — but ONLY
+      // near ground level. The clip exists to stop co-planar decks forming lips; on a HIGH deck
+      // (flyover approaching its merge-down) clipping to 1.5m half-width left the car on the
+      // full-width VISUAL deck (which ramp-divergence also shifts laterally up to ~2.4m) with no
+      // collider under it → fell through at merges. Up high, plan-view overlap is harmless (the
+      // other road is metres below); near ground the heightfield catches anything we miss.
       let effectiveHalfW = halfW;
-      const { dist, otherHalfW } = distToNearestOtherRoad(midX, midZ, road.id);
-      if (dist < halfW + otherHalfW) {
-        // Reduce our halfW so our edge stops at the other road's edge
-        effectiveHalfW = Math.max(1.5, dist - otherHalfW);
+      const midWorldX = (p0.x + p1.x) / 2, midWorldZ = (p0.y + p1.y) / 2;
+      const gY = opts.getGroundYAt ? opts.getGroundYAt(midWorldX, midWorldZ) : null;
+      const deckAboveGround = Number.isFinite(gY) ? (midY - gY) : 0;
+      if (deckAboveGround < 1.5) {
+        const { dist, otherHalfW } = distToNearestOtherRoad(midX, midZ, road.id);
+        if (dist < halfW + otherHalfW) {
+          // Stop at the other road's edge + 0.5m overlap margin so the seam has no gap; the
+          // surfaces are near co-planar here, so the margin lip is a few cm at most.
+          effectiveHalfW = Math.max(1.5, Math.min(halfW, dist - otherHalfW + 0.5));
+        }
       }
 
       // Box half-extents: width × thickness × half-length
@@ -1409,8 +1420,23 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Budget exceeded — yield to the browser for rendering. Do NOT reset _frameBudgetStart here;
     // update() owns the per-frame reset so concurrent tiles keep sharing one budget.
     return new Promise((resolve) => {
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
-      else setTimeout(() => resolve(), 0);
+      if (typeof requestAnimationFrame !== 'function') { setTimeout(() => resolve(), 0); return; }
+      // STACKING GUARD (round 9): all waiting chunks resume on the same next rAF, and because
+      // microtasks drain between successive rAF callbacks, each earlier chunk's whole span runs
+      // before the next chunk's resume check. Without this check every waiter ran its span in
+      // the SAME frame — per-frame build time was the SUM of spans (the uniform 13-17ms tags).
+      // If the shared budget is already spent when we wake, sleep ONE more frame — once only,
+      // so builds still progress on frames whose own work eats the budget.
+      let deferred = false;
+      const tryResume = () => {
+        if (!deferred && (performance.now() - _frameBudgetStart) >= _budgetMs) {
+          deferred = true;
+          requestAnimationFrame(tryResume);
+          return;
+        }
+        resolve();
+      };
+      requestAnimationFrame(tryResume);
     });
   };
 
@@ -1830,6 +1856,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Fast world-coord elevation: skips worldToLatLon trig for 18k+ vegetation/grass lookups
     const getWorldElevation = elevation ? createFastElevation(elevation, elevationOffset) : null;
     const options = getElevationAt ? { getElevationAt, elevationOffset, getWorldElevation, getGroundY, buildings: buildings || [] } : { elevationOffset, getGroundY, buildings: buildings || [] };
+    options.buildPhase = buildPhase; // sub-attribution inside createRoadMeshes ('p1 rg:*' tags name the sync builder)
     if (data.bakedRoads) options.bakedRoads = data.bakedRoads;
     if (data.bakedSidewalks) options.bakedSidewalks = data.bakedSidewalks;   // v8 — pre-baked sidewalks/curbs
     const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [], beaches: data.beaches || [] };

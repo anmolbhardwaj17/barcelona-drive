@@ -7,6 +7,16 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometriesChunked } from './chunkedMerge.js';
+
+// Frame-budgeted merge for the big per-material buckets (the 'p4 urban' residual was this
+// sync merge, not the per-feature loop). Chunked path for large sets, sync fallback otherwise.
+async function mergeBudgeted(geoms, yieldFn) {
+  if (yieldFn && geoms.length > 16) {
+    try { const m = await mergeGeometriesChunked(geoms, yieldFn); if (m) return m; } catch {}
+  }
+  return mergeGeometries(geoms);
+}
 
 // ─── Shared materials (persist across tiles) ────────────────────────────────
 
@@ -939,7 +949,7 @@ export async function buildUrbanFeatureMeshes(features, roads, buildings, getGro
   for (const [matName, geos] of byMat) {
     if (geos.length === 0) continue;
     if (yieldFn) await yieldFn();
-    const merged = mergeGeometries(geos);
+    const merged = await mergeBudgeted(geos, yieldFn);
     geos.forEach(g => g.dispose());
     if (!merged) continue;
 

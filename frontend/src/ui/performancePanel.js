@@ -129,7 +129,13 @@ export function createPerformancePanel(scene, renderer, tileManager, enabled = t
     const progs = renderer.info?.programs?.length ?? 0;
     const progStr = progs !== _lastProgs && _lastProgs > 0 ? ` · prog +${progs - _lastProgs} (${progs})` : '';
     _lastProgs = progs;
-    vBuild.textContent = `build ${buildStr}${ltStr}${progStr}`;
+    // Worst long-animation-frame this window with its top script — the `other` namer.
+    let loafStr = '';
+    if (_loafWorst > 0) {
+      loafStr = ` · loaf ${_loafWorst.toFixed(0)}ms ${_loafStr}`;
+      _loafWorst = 0; _loafStr = '';
+    }
+    vBuild.textContent = `build ${buildStr}${ltStr}${loafStr}${progStr}`;
   }
 
   return { element: el, tick };
@@ -147,3 +153,33 @@ try {
     }).observe({ entryTypes: ['longtask'] });
   }
 } catch { /* longtask API unavailable — line simply stays quiet */ }
+
+// ── Long-Animation-Frame observer (Chrome 123+) — NAMES the `other` time ─────
+// longtask only says "something took 92ms"; LoAF says WHICH script (file + invoker)
+// owned a slow frame. Time NOT inside any script entry = GC / style / message
+// deserialize — reported as "unattr". Worst entry per window also lands in the
+// STATS build line as `loaf …`. Details console.warn'd (user's console hides log).
+let _loafWorst = 0, _loafStr = '';
+try {
+  if (typeof PerformanceObserver !== 'undefined') {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (e.duration < 25) continue;
+        const scripts = (e.scripts || [])
+          .filter((s) => s.duration >= 4)
+          .sort((a, b) => b.duration - a.duration);
+        const fmt = scripts.slice(0, 3).map((s) => {
+          const src = (s.sourceURL || '').split('/').pop().split('?')[0] || '?';
+          return `${src}${s.invoker ? ':' + s.invoker : ''} ${s.duration.toFixed(0)}`;
+        });
+        const scripted = scripts.reduce((a, s) => a + s.duration, 0);
+        const unattr = e.duration - scripted;
+        console.warn(`[loaf] ${e.duration.toFixed(0)}ms (unattr ${unattr.toFixed(0)}ms) — ${fmt.join(' · ') || 'NO scripts ≥4ms (GC/clone/style)'}`);
+        if (e.duration > _loafWorst) {
+          _loafWorst = e.duration;
+          _loafStr = fmt[0] || `unattr ${unattr.toFixed(0)}`;
+        }
+      }
+    }).observe({ type: 'long-animation-frame', buffered: true });
+  }
+} catch { /* LoAF unavailable (pre-123 Chrome) — line simply stays quiet */ }
