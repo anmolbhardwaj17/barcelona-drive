@@ -11,6 +11,19 @@ import { worldToLatLon } from '../projection.js';
 import { uiSound } from './uiSound.js';
 
 const MINIMAP_SIZE = 170;
+
+// ── Compact HUD on touch devices ─────────────────────────────────────────────
+// Phones/tablets: shrink the circular map and raise it above the left touch-control
+// cluster (accel/brake). Uses transform scale so the canvas pipeline is untouched.
+// Cluster metrics mirror touchControls.js: button = clamp(56px, 12vmin, 92px),
+// bottom inset 14px, vertical gap ~12px.
+const MM_IS_TOUCH = typeof window !== 'undefined' &&
+  (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 1);
+const MM_SCALE = MM_IS_TOUCH ? 0.62 : 1;
+const MM_LEFT = 12;
+const MM_BOTTOM = MM_IS_TOUCH
+  ? Math.round(14 + 2 * Math.max(56, Math.min(92, 0.12 * Math.min(window.innerWidth, window.innerHeight))) + 12 + 10)
+  : 12;
 const MINIMAP_ZOOM = 17;
 const UPDATE_INTERVAL_MS = 350;   // Leaflet setView (tile re-center) is a DOM spike + GC churn; pan less
                                   // often. Rotation + the car arrow still update every frame (cheap CSS),
@@ -50,13 +63,15 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   frame.id = 'minimap-frame';
   frame.style.cssText = `
     position: fixed;
-    bottom: 12px;
-    left: 12px;
+    bottom: ${MM_BOTTOM}px;
+    left: ${MM_LEFT}px;
     width: ${TOTAL_SIZE}px;
     height: ${TOTAL_SIZE}px;
     border-radius: 50%;
     z-index: 10;
     pointer-events: none;
+    transform: scale(${MM_SCALE});
+    transform-origin: bottom left;
   `;
 
   // Compass ring — SVG circle with N/E/S/W and tick marks, rotates with heading
@@ -491,15 +506,16 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     } else {
       if (backdropEl && backdropEl.parentNode) backdropEl.parentNode.removeChild(backdropEl);
       frame.style.top = 'auto';
-      frame.style.left = '12px';
+      frame.style.left = `${MM_LEFT}px`;
       frame.style.right = 'auto';
-      frame.style.bottom = '12px';
+      frame.style.bottom = `${MM_BOTTOM}px`;
       frame.style.width = `${TOTAL_SIZE}px`;
       frame.style.height = `${TOTAL_SIZE}px`;
       frame.style.maxWidth = 'none';
       frame.style.maxHeight = 'none';
       frame.style.borderRadius = '50%';
-      frame.style.transform = 'none';
+      frame.style.transform = MM_SCALE !== 1 ? `scale(${MM_SCALE})` : 'none';
+      frame.style.transformOrigin = 'bottom left';
       frame.style.zIndex = '10';
       frame.style.background = 'none';
       frame.style.border = 'none';

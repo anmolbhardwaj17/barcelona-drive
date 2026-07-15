@@ -428,52 +428,47 @@ spawnTileReady.finally(() => {
         z: spawnResult.wz - origin.z,
       };
       try {
-        // ── Rapier (WASM) physics — the DEFAULT engine (escape hatch: ?physics=cannon). The car runs on
-        //    Rapier; the cannon world is never stepped (inert). tileManager keeps adding CANNON collider
-        //    bodies to `world`, and we MIRROR each into Rapier via the adapter — boxes/meshes 1:1, terrain
-        //    as a NATIVE Rapier heightfield (convention probed at runtime, trimesh fallback). Zero
-        //    tileManager changes. On Rapier init failure we fall back to cannon automatically.
-        let _rapier = null, _physicsWorld = world;
-        if (new URLSearchParams(location.search).get('physics') !== 'cannon') {
-          try {
-            _rapier = (await import('@dimforge/rapier3d-compat')).default;
-            await _rapier.init();
-            const rw = new _rapier.World({ x: 0, y: -9.82, z: 0 });
-            rw.timestep = 1 / 60;
-            // Deep safety backstop only — terrain + road colliders are the real surface now. Placed far
-            // below (−60 m) so it never lifts the car off a road/terrain that dips below spawn height; it
-            // just catches a catastrophic fall (freefall-recovery is the primary backstop).
-            const gb = rw.createRigidBody(_rapier.RigidBodyDesc.fixed().setTranslation(spawnLocalPos.x, spawnLocalPos.y - 60, spawnLocalPos.z));
-            rw.createCollider(_rapier.ColliderDesc.cuboid(4000, 1, 4000).setFriction(1.0), gb);
-            _physicsWorld = rw;
-            const { createRapierWorldAdapter } = await import('./physics/rapierWorldAdapter.js');
-            const _adapter = createRapierWorldAdapter(rw, _rapier);
-            for (const b of [...world.bodies]) { try { _adapter.addBody(b); } catch {} }   // register already-loaded tiles
-            const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // register future tiles
-            world.addBody = (b) => { _oAdd(b); try { _adapter.addBody(b); } catch {} };
-            world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
-            rapierAdapter = _adapter;   // animate() streams the working set around the car each frame
-            window._rapierWorld = rw;   // dev: _rapierWorld.colliders.len() shows the live working set
-            // Frame-pipeline round 2 (fps-diagnosis): cannon never STEPS or RAYCASTS in Rapier
-            // mode — its Trimesh octree (built synchronously in the ctor, consumed only by cannon
-            // narrowphase/raycast) is pure wasted main-thread time on every road-deck/terrain
-            // trimesh a streaming tile creates. Stub it. AABB/bounding-sphere come from vertex
-            // scans (not the tree), so addBody and the Rapier mirror are unaffected. The
-            // ?physics=cannon escape hatch never reaches this line → keeps real trees.
-            const { Trimesh: _CTrimesh, Box: _CBox } = await import('cannon-es');
-            _CTrimesh.prototype.updateTree = function () {};
-            // Round 2b (allocation sample, user capture): also skip Trimesh edge/normal tables and
-            // Box's ConvexPolyhedron representation — all narrowphase-only data cannon never uses
-            // in Rapier mode. The box convex rep alone was ~17MB of churn per streaming drive
-            // (makeCheapBox + addShape + _ConvexPolyhedron in the profile). The adapter reads
-            // Box.halfExtents / Trimesh.vertices+indices only; AABBs are computed independently.
-            _CTrimesh.prototype.updateEdges = function () {};
-            _CTrimesh.prototype.updateNormals = function () {};
-            _CBox.prototype.updateConvexPolyhedronRepresentation = function () { this.convexPolyhedronRepresentation = null; };
-            window._ddRapierActive = true;   // tileManager builds lean Box colliders when set
-            console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
-          } catch (e) { console.warn('[physics] Rapier init failed — falling back to cannon:', e); _rapier = null; _physicsWorld = world; }
-        }
+        // ── Rapier (WASM) physics — the ONLY engine (cannon step path deleted 2026-07-16 after
+        //    release soak; ?physics=cannon escape hatch removed with it). The cannon world is never
+        //    stepped — cannon-es remains ONLY as the collider DESCRIPTOR layer: tileManager keeps
+        //    adding CANNON bodies to `world`, and we MIRROR each into Rapier via the adapter —
+        //    boxes/meshes 1:1, terrain as a NATIVE Rapier heightfield (convention probed at runtime,
+        //    trimesh fallback). If Rapier init fails (no WASM), we throw → the outer catch drops to
+        //    the free camera.
+        const _rapier = (await import('@dimforge/rapier3d-compat')).default;
+        await _rapier.init();
+        const _physicsWorld = new _rapier.World({ x: 0, y: -9.82, z: 0 });
+        _physicsWorld.timestep = 1 / 60;
+        // Deep safety backstop only — terrain + road colliders are the real surface now. Placed far
+        // below (−60 m) so it never lifts the car off a road/terrain that dips below spawn height; it
+        // just catches a catastrophic fall (freefall-recovery is the primary backstop).
+        const gb = _physicsWorld.createRigidBody(_rapier.RigidBodyDesc.fixed().setTranslation(spawnLocalPos.x, spawnLocalPos.y - 60, spawnLocalPos.z));
+        _physicsWorld.createCollider(_rapier.ColliderDesc.cuboid(4000, 1, 4000).setFriction(1.0), gb);
+        const { createRapierWorldAdapter } = await import('./physics/rapierWorldAdapter.js');
+        const _adapter = createRapierWorldAdapter(_physicsWorld, _rapier);
+        for (const b of [...world.bodies]) { try { _adapter.addBody(b); } catch {} }   // register already-loaded tiles
+        const _oAdd = world.addBody.bind(world), _oRem = world.removeBody.bind(world);  // register future tiles
+        world.addBody = (b) => { _oAdd(b); try { _adapter.addBody(b); } catch {} };
+        world.removeBody = (b) => { _oRem(b); try { _adapter.removeBody(b); } catch {} };
+        rapierAdapter = _adapter;   // animate() streams the working set around the car each frame
+        window._rapierWorld = _physicsWorld;   // dev: _rapierWorld.colliders.len() shows the live working set
+        // Frame-pipeline round 2 (fps-diagnosis): cannon never STEPS or RAYCASTS — its Trimesh
+        // octree (built synchronously in the ctor, consumed only by cannon narrowphase/raycast)
+        // is pure wasted main-thread time on every road-deck/terrain trimesh a streaming tile
+        // creates. Stub it. AABB/bounding-sphere come from vertex scans (not the tree), so
+        // addBody and the Rapier mirror are unaffected.
+        const { Trimesh: _CTrimesh, Box: _CBox } = await import('cannon-es');
+        _CTrimesh.prototype.updateTree = function () {};
+        // Round 2b (allocation sample, user capture): also skip Trimesh edge/normal tables and
+        // Box's ConvexPolyhedron representation — all narrowphase-only data cannon never uses.
+        // The box convex rep alone was ~17MB of churn per streaming drive (makeCheapBox +
+        // addShape + _ConvexPolyhedron in the profile). The adapter reads Box.halfExtents /
+        // Trimesh.vertices+indices only; AABBs are computed independently.
+        _CTrimesh.prototype.updateEdges = function () {};
+        _CTrimesh.prototype.updateNormals = function () {};
+        _CBox.prototype.updateConvexPolyhedronRepresentation = function () { this.convexPolyhedronRepresentation = null; };
+        window._ddRapierActive = true;   // tileManager builds lean Box colliders when set
+        console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, {
           rapier: _rapier, cpuTimer,
           // World boundary: never record a recovery breadcrumb outside the baked region — the

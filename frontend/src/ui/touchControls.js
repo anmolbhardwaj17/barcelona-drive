@@ -40,8 +40,13 @@ export function initTouchControls() {
       touch-action: none; -webkit-user-select: none; user-select: none;
       -webkit-touch-callout: none;
     }
-    .dd-touch-left  { left:  calc(16px + env(safe-area-inset-left, 0px));  flex-direction: column; }
-    .dd-touch-right { right: calc(16px + env(safe-area-inset-right, 0px)); flex-direction: row; }
+    /* Inset from the screen edges enough that iPhone notches/Dynamic Island (landscape
+       safe-area-inset-left/right ≈ 47-59px) never overlap: at least 44px, more when the
+       inset reports larger. max() needs the env() fallback inside it. */
+    .dd-touch-left  { left:  calc(max(env(safe-area-inset-left, 0px), 24px) + 20px);  flex-direction: column; }
+    .dd-touch-right { right: calc(max(env(safe-area-inset-right, 0px), 24px) + 20px); flex-direction: row; }
+    /* Keyboard hint strip is meaningless on touch — this stylesheet only exists on touch devices. */
+    #controls-strip { display: none !important; }
     .dd-touch-btn {
       width: clamp(56px, 12vmin, 92px); height: clamp(56px, 12vmin, 92px);
       border-radius: 26%; border: 1.5px solid rgba(255,255,255,0.38);

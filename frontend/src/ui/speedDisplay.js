@@ -29,19 +29,30 @@ function rpmToAngle(rpm) {
  * @returns {{ element: HTMLElement, setSpeed: (kmh: number) => void }}
  */
 export function createSpeedDisplay() {
+  // Compact HUD on touch devices: shrink the gauge and raise it above the right
+  // touch-control cluster (steer buttons). Metrics mirror touchControls.js
+  // (button clamp(56px,12vmin,92px), bottom inset 14px).
+  const isTouch = typeof window !== 'undefined' &&
+    (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 1);
+  const scale = isTouch ? 0.6 : 1;
+  const bottomPx = isTouch
+    ? Math.round(14 + Math.max(56, Math.min(92, 0.12 * Math.min(window.innerWidth, window.innerHeight))) + 12)
+    : 16;
   const canvas = document.createElement('canvas');
   canvas.id = 'speed-display';
   canvas.width = TOTAL * 2;   // 2x for retina
   canvas.height = TOTAL * 2;
   canvas.style.cssText = `
     position: fixed;
-    bottom: 16px;
+    bottom: ${bottomPx}px;
     right: 16px;
     width: ${TOTAL}px;
     height: ${TOTAL}px;
     pointer-events: none;
     z-index: 10;
     filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.22));
+    transform: scale(${scale});
+    transform-origin: bottom right;
   `;
   document.body.appendChild(canvas);
   const ctx = canvas.getContext('2d');

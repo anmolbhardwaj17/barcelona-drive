@@ -90,6 +90,22 @@
         font-weight: 600; text-transform: uppercase;
       }
 
+      /* ── Short landscape viewports (phones/small tablets rotated): compact loading + title ── */
+      @media (max-height: 560px) {
+        #dd-loading { gap: 10px; }
+        #dd-loading .logo { width: auto; height: min(190px, 38vh); }
+        #dd-loading .bar { height: 6px; width: min(260px, 40vw); }
+        #dd-loading .factlabel { margin-top: 4px; font-size: 12px; }
+        #dd-loading .fact { font-size: 14px; line-height: 1.45; min-height: 42px; max-width: min(560px, 78vw); }
+        #dd-title { gap: 12px; }
+        #dd-title .logo { width: auto; height: min(180px, 36vh); }
+        #dd-title .tagline { font-size: 10px; padding: 7px 16px 7px 19px; }
+        #dd-title .play { padding: 10px 56px; font-size: 15px; }
+        #dd-title .boot, #dd-modeload { padding: 0 0 28px 34px; }
+        #dd-title .boot .pct, #dd-modeload .pct { font-size: 60px; }
+        #dd-title .boot .pct::after, #dd-modeload .pct::after { font-size: 22px; }
+      }
+
       /* ── Title / start screen — dark, flat, Inter + one coral accent (matches the ESC menu) ── */
       #dd-title {
         position: fixed; inset: 0; z-index: 10000; overflow: hidden;

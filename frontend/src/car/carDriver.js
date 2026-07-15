@@ -11,7 +11,6 @@
  *   driver.getHeadingDeg()     → number
  *   driver.dispose()
  */
-import { createCarPhysics } from './carPhysics.js';
 import { createCarPhysicsRapier } from './carPhysicsRapier.js';
 import { createCarControls } from './carControls.js';
 import { createCarCamera }   from './carCamera.js';
@@ -29,10 +28,9 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   // ── Sub-systems ───────────────────────────────────────────────────────────
   const _spawn = { x: spawnLocalPos.x, y: spawnLocalPos.y + 2, z: spawnLocalPos.z }; // drop 2 m; settles
-  // Physics engine: Rapier (WASM) when opts.rapier is the RAPIER module (the default), else cannon-es (?physics=cannon).
-  const physics  = opts.rapier
-    ? createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading)
-    : createCarPhysics(world, _spawn, spawnHeading);
+  // Physics engine: Rapier (WASM) — the only engine (cannon step path deleted 2026-07-16).
+  if (!opts.rapier) throw new Error('createCarDriver requires opts.rapier (cannon car deleted)');
+  const physics  = createCarPhysicsRapier(world, opts.rapier, _spawn, spawnHeading);
   const _ct = opts.cpuTimer || null;   // optional: splits the STATS 'phys' lap into step (pure physics) + phys (car visuals)
   const controls = createCarControls();
   const carCam   = createCarCamera(camera, _domElement);
