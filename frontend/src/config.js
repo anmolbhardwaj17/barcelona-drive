@@ -9,10 +9,6 @@
 //   ENABLE_TREES: true,
 //   ENABLE_ROAD_EDGE_DETAIL: true,
 //   ENABLE_PROCEDURAL_INFILL: true,
-//   /** Full 24h day/night cycle (sun, sky, streetlamps, headlights). */
-//   ENABLE_DAY_NIGHT: true,
-//   /** Real seconds for one in-game 24h cycle (default 15 min). */
-//   DAY_DURATION_SECONDS: 900,
 //   /** Enable shadow mapping (sun only); use PCFSoftShadowMap. */
 //   ENABLE_SHADOWS: true,
 //   /** Shadow map resolution (max 1024 for performance). */
@@ -52,9 +48,6 @@ export const CONFIG = {
   ENABLE_PARKED_CARS: true, // instanced parked cars lining both curbs (the Barcelona look)
   ENABLE_PEDESTRIANS: true, // real low-poly people baked to static instanced meshes (light crowd)
 
-  ENABLE_DAY_NIGHT: false, // reverted — the fixed warm lighting reads much better than the flat
-                           // day-night model (day went grey, night barely darkened). Revisit as a
-                           // dedicated lighting pass if a real day/night cycle is wanted.
 
   /** When true, scene fog (FogExp2) is applied; when false, no fog. */
   ENABLE_FOG: true,

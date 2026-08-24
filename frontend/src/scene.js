@@ -1,6 +1,5 @@
 /**
  * Create Three.js scene, camera, renderer, lights, and cannon-es ground.
- * When CONFIG.ENABLE_DAY_NIGHT is true, ambient and sun are created by dayNight.js.
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
@@ -653,7 +652,7 @@ export function createScene(container) {
   dirLight.shadow.bias       = -0.0002;
   dirLight.shadow.normalBias = 0.03;
   scene.add(dirLight.target);  // target must be in scene for shadow camera to follow
-  if (!CONFIG.ENABLE_DAY_NIGHT) scene.add(dirLight);
+  scene.add(dirLight);   // v3 P0-13: was gated on ENABLE_DAY_NIGHT, which is gone (dayNight.js deleted)
 
   if (CONFIG.ENABLE_FOG || isRallyStyle()) {
     // Exponential fog — color matches sky horizon so terrain fades into sky seamlessly.

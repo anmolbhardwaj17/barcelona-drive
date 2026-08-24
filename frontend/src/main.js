@@ -79,8 +79,6 @@ import { toNormalizedRoadY } from './roadElevation.js';
 import { setOriginOffset, getOriginOffset } from './originOffset.js';
 import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
-import * as timeSystem from './timeSystem.js';
-import { createDayNight } from './dayNight.js';
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -193,10 +191,6 @@ const envToggle = createEnvToggle({
 // Dynamic PointLights removed — emissive lamp material + ground pool decals
 // provide the night streetlight look without per-frame multi-light overhead.
 
-let dayNight = null;
-if (CONFIG.ENABLE_DAY_NIGHT && spawnCenter) {
-  dayNight = createDayNight(scene, spawnCenter);
-}
 
 if (CONFIG.ENABLE_TREES) {
   preloadTreeModels().catch((err) => console.warn('Tree models load failed:', err?.message || err));
@@ -935,11 +929,6 @@ function animate(time = 0) {
   const worldWx = viewerWx + origin.x;
   const worldWz = viewerWz + origin.z;
 
-  if (CONFIG.ENABLE_DAY_NIGHT) {
-    timeSystem.update(frameDt);
-    if (dayNight) dayNight.update(frameDt);
-  }
-
   // Throttle road segment lookup — only re-query when moved >10m
   const rdDx = worldWx - _lastRoadQueryX, rdDz = worldWz - _lastRoadQueryZ;
   if (rdDx * rdDx + rdDz * rdDz > ROAD_QUERY_THRESHOLD_SQ) {
@@ -994,7 +983,11 @@ function animate(time = 0) {
 
   // Animate traffic light colors (red/yellow/green cycling)
   if (CONFIG.ENABLE_ROAD_INFRA) {
-    updateTrafficLights(time / 1000, CONFIG.ENABLE_DAY_NIGHT && timeSystem.isNight());
+    // v3 P0-13: was `CONFIG.ENABLE_DAY_NIGHT && timeSystem.isNight()`, which was ALWAYS false
+    // (the flag has been off since the auto-cycle was reverted). Behaviour preserved exactly.
+    // TODO P2: wire envToggle.isNight() here — the real day/night authority — so traffic
+    // lights finally get night treatment. Deliberately NOT done in P0: deletion phase only.
+    updateTrafficLights(time / 1000, false);
   }
 
   // Blink red beacon lights on communication towers
