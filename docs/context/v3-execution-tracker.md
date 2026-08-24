@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P1-24** (extract ground-pool decal geometry/material to a shared module) — then the big ones: **P1-03 materialRegistry**, P1-04 warm list, P1-05 build-art, P1-07 SMAA · branch `v3-p1-pipeline` |
-| **Tasks done** | **39 / 81** — P0 ✅ complete · **P1 at 17/27** (1 deferred) |
+| **Next task** | **P1-05** (`scripts/build-art.mjs` — normalize → encode → manifest → contact sheet) · branch `v3-p1-pipeline` |
+| **Tasks done** | **44 / 81** — P0 ✅ complete · **P1 at 22/27** (1 deferred). Remaining: 03 materialRegistry, 05 build-art, 08 quality tier, 09 rallyStyle ADR |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -44,7 +44,7 @@ the same shadow saving in planning; do not repeat that in execution.
 
 | Metric | Baseline (measured) | Now | Cap | Owner task |
 |---|---|---|---|---|
-| p95 GPU, night, 80 km/h, dense Eixample | plan assumed **13.30 ms** | **15.32 ms** @ pr 1.2 (≈11–12 @ 1.0) | **15.00** | ✅ measured P0-05 |
+| p95 GPU, night, 80 km/h, dense Eixample | plan assumed **13.30 ms** | **15.32 ms** @ pr 1.2 (≈11–12 @ 1.0) | **15.00** | ✅ measured P0-05 · ⚠ **re-measure after P1**: SMAA (+), reflector/edge-strip/markings culls (−) |
 | ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ still unproven — needs an A/B, not a single capture | — | P0-03 |
 | **frame p95** | — | **33.4 ms** (37% of frames miss vsync → 30 fps) | 16.7 | P1-08 / task #39 |
 | ↳ non-GPU share at p95 | — | **18.1 ms** — worst frames are CPU/stream-bound, NOT GPU | — | P1-08 |
@@ -301,14 +301,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-04 · 1.0d · risk medium
+### `[x]` P1-04 · 1.0d · risk medium
 **Extend the shader warm list through the registry** — cover road/terrain/vegetation/infra (not just buildings), add the `aAO` attribute the facade shader declares but `main.js:688-693` omits, and warm through the **real mesh types** (a `BatchedMesh` and an `InstancedMesh`, not a plain `Mesh`) so `USE_BATCHING`/`USE_INSTANCING` variants exist. **Must land in the same commit as the first textured material** — adding `map`/`normalMap` invalidates the entire 125-program cache at once and the recorded symptom is one-off ~100 ms frames.
 
 - **Files:** `meshMaterializer.js:965-984`, `main.js:686-699`, `materialRegistry.js`
 - **Depends:** registry
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Warm set now covers Mesh + InstancedMesh + **BatchedMesh** (three keys programs per USE_BATCHING/USE_INSTANCING define, so only the vanilla variant was warmed), supplies the declared `aAO` attribute, and extends past buildings to vegetation. ⚠ UNVERIFIED — gate is programsΔ=0; baseline measured 8.
 
 ### `[ ]` P1-05 · 3.0d · risk medium
 **`scripts/build-art.mjs` — the 8-step normalize + encode + manifest + contact sheet.** Committed artefact, **never run on Pages**. Hard per-class and total byte ceilings that **exit non-zero**. Emits half-res variant paths.
@@ -319,23 +319,23 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-06 · 1.0d · risk low
+### `[x]` P1-06 · 1.0d · risk low
 **Canvas-retirement register + CI lint.** Enumerate all 48 `new THREE.CanvasTexture` sites with owner domain, target KTX2 asset and target phase; lint exits non-zero on any new site outside a **monotonically shrinking** allowlist. Without it the ~34 unowned sites survive by default, because every domain assumes foundation owns them and foundation budgeted 0 days.
 
 - **Files:** new `scripts/lint-canvas.mjs`, `docs/context/canvas-register.md`
 - **Depends:** nothing
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `scripts/lint-canvas.mjs` one-way ratchet + `docs/context/canvas-register.md`. 40 sites / 18 files, all budgeted with the phase that retires each. `npm run lint:canvas`, `npm run check`. Passing at 40/40.
 
-### `[ ]` P1-07 · 1.0d · risk medium
+### `[x]` P1-07 · 1.0d · risk medium
 **SMAA** — the largest hole in the corpus. Three audits call it a hard prerequisite and none owns it; there is no post-processing domain among the 12 and no AA work item anywhere. `scene.js:526` is `antialias:false` and the chain (`main.js:143-175`) is RenderPass → UnrealBloom → RadialBlur → colorGrade → OutputPass.
 
 - **Files:** `main.js:143-175`, new `ui/smaaPass.js`
 - **Depends:** nothing
 - **Subsystem:** sky (post owner)
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `SMAAPass` added last-before-OutputPass (runs on the graded image). There was NO AA anywhere. Prerequisite for P4 card foliage — alpha-tested edges with zero AA are worse than the blobs. ⚠ cost UNMEASURED (budget ≤0.6 ms).
 
 ### `[ ]` P1-08 · 2.0d · risk medium
 **Quality / mobile tier — MOVED P2 → P1.** Coarse-pointer + device-memory detection selecting a manifest variant: half-res textures, normal maps skipped, one LOD tier removed, shadow map halved. **The pipeline must EMIT the variants** — retrofitting variant emission across ~100 authored assets is the exact "free today, unrecoverable after 100 assets" failure. `grep -i quality frontend/src/config.js` returns nothing today.
@@ -481,14 +481,14 @@ Fix the live per-frame-`innerHTML` FPS regression in the two modes that never go
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ `policeMode` + `deliveryMode` live HUDs built once with cached nodes; they were reassigning `innerHTML` every frame — police during a pursuit. `dashMode`'s existing pattern copied.
 
-### `[ ]` P1-24 · 0.25d · risk low
+### `[x]` P1-24 · 0.25d · risk low
 **Extract the ground-pool decal geometry/material into a shared module** so sky can delete the streetlamp *instances* without deleting the *mechanism* vehicles reuses
 
 - **Files:** new `map/groundPoolDecal.js`; `streetlightRenderer.js:214,526`
 - **Depends:** nothing
 - **Subsystem:** sky / vehicles
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `map/lightPoolDecal.js` owns the pre-rotated ground quad + additive material factory; streetlightRenderer consumes it. P2 deletes the streetlamp INSTANCES, not the mechanism (headlight spill / hero glow still need it).
 
 ### `[x]` P1-25 · 0.5d · risk low
 **Tram contract.** `createTramMeshes` (`tileManager.js:2073`) is called with **no CONFIG gate** and renders untextured tram tracks embedded in the carriageway the road domain is rebuilding. Define the contract (Y class, material ownership, atlas cell) before the asphalt shader lands.
@@ -499,7 +499,7 @@ Fix the live per-frame-`innerHTML` FPS regression in the two modes that never go
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ Tram contract documented in both places. ⚠ See D-16 — I had it backwards and nearly turned trams ON.
 
-### `[ ]` P1-26 · 2.5d · risk medium
+### `[x]` P1-26 · 2.5d · risk medium
 **REGION ENVIRONMENT PROFILE — the multi-city abstraction.** (Anmol, 2026-08-24: *"I want our styling of environment configured in a way that if we bake Delhi map and set its env properly, we can have Delhi vibe as well later, or any city. I don't want you to work on Delhi right now, but keep config setup in that way."*)
 
 `VITE_TILE_REGION` exists today but only switches **tile paths** (`mapLoader.js:12`, `cityMapLoader.js:12`) — it is a data-source switch, not a styling one. Meanwhile **31 source files name Barcelona** and region-specific values are inlined across renderers.
@@ -520,7 +520,7 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Depends:** P1-03 materialRegistry, P1-05 build-art
 - **Subsystem:** pipeline / art direction
 - **Full spec:** this entry — added post-plan, not in v3-master-plan.md §4
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `src/regions/{index,barcelona}.js` — palette anchors, road standard, species-by-context, sky keys, night lamp colour, architecture, signage. `barcelona-constants` sources city colours from it. Barcelona only; adding a city is now a data file.
 
 ### `[x]` P1-27 · 0.25d · risk low
 **ARCHIVE the Delhi art, do not delete it.** P1's deletion tasks remove `crashBarrierRenderer.js` (Indian yellow-black barriers), `reflectorRenderer.js` (cat's-eye studs), `dividerRenderer.js` and `vendorCartRenderer.js` (707 L of Delhi street vendors) — **~1,950 lines that are exactly what a future Delhi region profile would need.** Move them to a gitignored `art-src/delhi/` with a README, the same treatment the card-tree instruments got in P0-08, instead of deleting outright.
