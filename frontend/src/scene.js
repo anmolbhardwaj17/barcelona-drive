@@ -598,6 +598,11 @@ export function createScene(container) {
     depthWrite: false,
   });
   const sky = new THREE.Mesh(skyGeo, skyMat);
+  // v3 P0-13b: draw the dome LAST among opaques. It is a 40 km sphere with depthWrite:false, so
+  // with no renderOrder three could sort it early (painterSortStable orders by material.id before
+  // z) and fill every pixel before the world overdraws it. Drawn last, the depth test rejects it
+  // wherever geometry already wrote depth — only actual sky pixels get shaded.
+  sky.renderOrder = 1000;
   scene.add(sky);
 
   // Sun direction — still needed for directional light positioning

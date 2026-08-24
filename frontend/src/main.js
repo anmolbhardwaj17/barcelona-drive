@@ -921,9 +921,14 @@ function animate(time = 0) {
 
   tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });
   cpuTimer.lap('tiles');
-  updateClouds(viewerWx, viewerWz);
-  updateMoon(camera.position.x, camera.position.z);   // camera SCENE frame — see scene.updateMoon
-  updateStars(viewerWx, viewerWz);
+  // v3 P0-13b: all three sky bodies are parented to `scene` (scene.js:288/372/492), i.e. the
+  // UNMIRRORED frame — so all three need camera SCENE-frame coords. The moon was fixed for exactly
+  // this in 2026-07-12; clouds and stars were left on viewerWx/Wz, which is `-lp.lx` (the mirrored
+  // world convention used for tile streaming). updateStars assigns straight to position.x, so the
+  // star field was offset by ~2x the viewer X and slid as you drove east/west.
+  updateClouds(camera.position.x, camera.position.z);
+  updateMoon(camera.position.x, camera.position.z);
+  updateStars(camera.position.x, camera.position.z);
 
   const origin = getOriginOffset();
   const worldWx = viewerWx + origin.x;
