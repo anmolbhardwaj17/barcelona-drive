@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P1-01** (`loaders.js` → asset registry: one KTX2Loader + Meshopt + the BC1-over-BC7 FORMAT_OPTIONS patch) |
-| **Tasks done** | **22 / 81** — **P0 COMPLETE (18/18).** Baseline captured and committed. Next phase: **P1**. |
+| **Next task** | **P1-13** (`buildingConstants.js` — single-source the triple-mirrored FLOOR_HEIGHT / WALL_REPEAT / AO constants) · work branch `v3-p1-pipeline` |
+| **Tasks done** | **30 / 81** — P0 ✅ complete · **P1 at 8/27** (registry + the whole deletion cluster) |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -274,23 +274,23 @@ Ground the parked cars (re-add the blob list inside the existing `contactShadows
 </details>
 
 
-### `[ ]` P1-01 · 1.5d · risk low
+### `[x]` P1-01 · 1.5d · risk low
 **`loaders.js` → asset registry.** ONE module-level `KTX2Loader` with `setTranscoderPath('/basis/')` + `detectSupport(renderer)` called once; ONE `MeshoptDecoder`; both injected into every `GLTFLoader`; `getKTX2Texture(url)` promise-cache; central sampler policy (anisotropy, wrap, colorSpace, flipY) applied at load, not at 48 call sites. **Includes the mandatory FORMAT_OPTIONS BC1-over-BC7 patch.**
 
 - **Files:** `loaders.js` (rewrite), `main.js` (detectSupport wiring), `frontend/public/basis/`
 - **Depends:** P0 pin
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ One KTX2Loader + one MeshoptDecoder in `loaders.js`; transcoder vendored to `/basis/` (576 KB); `initAssetRegistry(renderer)` after renderer creation; `getKTX2Texture()` promise cache; `applySamplerPolicy()` owns colorSpace/wrap/anisotropy. ⚠ BC1-over-BC7 left OFF — see D-12.
 
-### `[ ]` P1-02 · 0.5d · risk low
+### `[x]` P1-02 · 0.5d · risk low
 Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/basis/*`, `/models/*`, `/art/*`; a **versioned `/art/v1/`** path (public/ filenames are unhashed); DEPLOY.md note that `vite build` empties `frontend/dist` and MUST precede the wrangler deploy at `deploy-cloudflare.sh:48`
 
 - **Files:** `public/_headers` (new), `DEPLOY.md`, `deploy-cloudflare.sh`
 - **Depends:** nothing
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `public/_headers` with immutable on `/assets/*`, `/basis/*`, `/art/v1/*`; versioned art path created; DEPLOY.md records the vite-empties-dist ordering and the `?bench` ALLOWED_ORIGINS.
 
 ### `[ ]` P1-03 · 3.0d · risk medium
 **`materialRegistry.js` — the chokepoint that does not exist.** **CHAINS** `onBeforeCompile` instead of assigning it (three's `CSM.js:443` hard-assigns and would silently delete both the road night wash and the baked v9 AO from every road in the city). Routes all 68 `get*Material()` factories and the 10 current `onBeforeCompile` owners; owns sampler + colour-space policy, the night-mode hooks currently scattered across `setFacadeNightMode`/`setRoadDecalNightMode`/`setRoadNightWash`, the `aWash`+`aAO` injection, and the warm-variant list. **GATES: IBL, the light grid, the detail map, wet road.**
@@ -391,50 +391,50 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-14 · 1.0d · risk low
+### `[x]` P1-14 · 1.0d · risk low
 **DELETE the edge-strip subsystem** — `buildSidewalkAndEdgeMeshes` including the literal `if (false && CONFIG.ENABLE_SIDEWALKS …)` at `roadRenderer.js:2499`, `CONFIG.ENABLE_ROAD_EDGE_DETAIL`, `_mergedPedestrianMaterial` (which has no `applyGroundLayer` call and sets `frustumCulled=false`), `EDGE_STRIP_*`, and the 5 dead material factories + `COLOR_BY_TYPE`. −8,588–9,496 tris and 1 always-on draw per dense tile — **and the figure is larger than claimed**, because the surviving branch emits a 0.10 m strip down both sides of every non-motorway/trunk road, which includes all ~41,000 footway/path records.
 
 - **Files:** `roadRenderer.js:155-168,372-401,482-495,1031-1050,2481-2601,5230`; `config.js:49`; `tileManager.js`
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `buildSidewalkAndEdgeMeshes` (121 L) deleted — sidewalk half was `if (false && …)`; edge strip was LIVE, always-submitted (`frustumCulled=false`, no `applyGroundLayer`). Constants, orphan material and the CONFIG flag gone.
 
-### `[ ]` P1-15 · 0.75d · risk low
+### `[x]` P1-15 · 0.75d · risk low
 **DELETE the Delhi road subsystems** — `shoulderRenderer.js` (234 L, dirt shoulders; Barcelona has kerbs), `buildRoadsideBlendStrip` + its hardcoded dust palette, `buildBridgeShadowMesh` + textures (already force-nulled at `:4777`), `decalRenderer.js` (280 L of Delhi wall posters)
 
 - **Files:** `shoulderRenderer.js`, `decalRenderer.js`, `roadRenderer.js:3677-3990,4777`, `config.js:151,161`
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `shoulderRenderer` + `buildRoadsideBlendStrip` (187 L) deleted; `decalRenderer` archived to `art-src/delhi/`.
 
-### `[ ]` P1-16 · 1.0d · risk low
+### `[x]` P1-16 · 1.0d · risk low
 **DELETE the Delhi road furniture** — `crashBarrierRenderer.js` (451 L), `dividerRenderer.js` (142 L), `reflectorRenderer.js` (329 L, **~42k tris + 18 draws of Indian cat's-eye studs on Barcelona tertiary streets today**), and the precast-compound-wall + arched-gate blocks of `barrierRenderer.js`. Net **−1,243 lines**.
 
 - **Files:** `crashBarrierRenderer.js`, `dividerRenderer.js`, `reflectorRenderer.js`, `barrierRenderer.js:62-79,312-680,995-1183`, `tileManager.js:20,2403-2415`, `config.js:152-158`, `envToggle.js:7,155`
 - **Depends:** nothing
 - **Subsystem:** furniture
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `crashBarrier`/`reflector`/`divider`/`vendorCart` archived to `art-src/delhi/`. ⚠ **Reflectors were LIVE** (gated on `ENABLE_ROAD_INFRA`=true): Indian cat's-eye studs every 6 m, ~42k tris + 18 draws/tile.
 
-### `[ ]` P1-17 · 0.5d · risk low
+### `[x]` P1-17 · 0.5d · risk low
 **DELETE 1,679 lines of dead vegetation** — `bushRenderer.js` (344 L, zero importers), `zoneVegetationRenderer.js` (587 L, imported but `renderZoneVegetation` never called), `grassRenderer.js` (748 L, gated to zero since 2026-07-02)
 
 - **Files:** as listed + `tileManager.js:40,49,2253-2290`, `main.js:55,993`
 - **Depends:** nothing
 - **Subsystem:** vegetation
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `bushRenderer` (0 importers) + `zoneVegetationRenderer` (never called) + `grassRenderer` (gated to 0) deleted with their worker entry points — **−1,784 lines**. CraftPix vegetation archived. ⚠ See D-13: two flags had to be RESTORED.
 
-### `[ ]` P1-18 · 0.25d · risk low
+### `[x]` P1-18 · 0.25d · risk low
 **DELETE `trafficLightRenderer.js`** and its wiring — a disabled, duplicated, hard-coded-Y=0 version of code that already exists better in `roadInfraRenderer.js:326-435`
 
 - **Files:** `trafficLightRenderer.js`, `tileManager.js:15,2329`, `config.js:8,45-47`
 - **Depends:** nothing
 - **Subsystem:** signage
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `trafficLightRenderer` deleted — a disabled, hard-coded-Y=0 duplicate of roadInfraRenderer's bulbed lights.
 
 ### `[ ]` P1-19 · 0.5d · risk low
 **WIRE THE OSM SPECIES PIPE** — add `trees` to the `tileManager` destructure at `:1469` and pass into `tileData`. **35,580 real positioned Barcelona trees with 4,919 species tags** currently parsed (`tileParserWorker.js:935-940` includes `'trees'` in `PART_KEYS`) and dropped on the floor. No format change, no re-bake, no visual change yet.
@@ -522,7 +522,7 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Full spec:** this entry — added post-plan, not in v3-master-plan.md §4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-27 · 0.25d · risk low
+### `[x]` P1-27 · 0.25d · risk low
 **ARCHIVE the Delhi art, do not delete it.** P1's deletion tasks remove `crashBarrierRenderer.js` (Indian yellow-black barriers), `reflectorRenderer.js` (cat's-eye studs), `dividerRenderer.js` and `vendorCartRenderer.js` (707 L of Delhi street vendors) — **~1,950 lines that are exactly what a future Delhi region profile would need.** Move them to a gitignored `art-src/delhi/` with a README, the same treatment the card-tree instruments got in P0-08, instead of deleting outright.
 
 ⚠ Amends P1-16 and the vendor-cart line. They must stop being *built and shipped* in the Barcelona path — that part of the deletion stands — but the source should survive for [[P1-26]].
@@ -531,7 +531,7 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Depends:** run alongside P1-16
 - **Subsystem:** pipeline
 - **Full spec:** this entry
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `art-src/delhi/` created with a README recording what was archived, why, and that it must not be re-imported into the Barcelona path.
 
 ## P2 — LOD AND NIGHT · 15.5 days · 7 tasks
 **Goal.** Buy the GPU headroom the art wave spends, and answer the project's #1 unsolved problem. **The 1-day spike gates the 8 days behind it.**
@@ -985,6 +985,9 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-24 | **D-09 · empty-world scare — NOT a code fault** | Repeated automated navigations left one Chrome profile rendering an empty world. Proved it was not the code by stashing all changes back to `ab60bab` (the build that had rendered a full city) and reproducing the fault. User confirmed the city loads normally. **Do not clear IndexedDB + localStorage + sessionStorage as a diagnostic** — the game keeps mode and day/night state there, and it turned an empty world into a black screen. |
 | 2026-08-24 | **D-10 · the capture is at pixelRatio 1.2, not 1.0** | `adaptiveRes` owns pixel ratio and re-applies its CAP from `setSize()`, which runs on init and every resize — so `setPixelRatio(1.0)` at init never held, and two captures were taken at 1.2 before I noticed. **Not re-run, deliberately: 1.2 IS the shipping cap**, so this measures what players actually get. The pin is now re-asserted per frame, so a future 1.0 run is available for a like-for-like gate reading. |
 | 2026-08-24 | **D-11 · the frame is bimodal, and the two modes have DIFFERENT causes** | 2474 frames at 60 fps, 1442 at 30 fps, 10 anything else — **37% miss vsync**, and a missed 16.7 ms frame costs a full 33.3. At p95 the GPU is only 15.3 ms of a 33.4 ms frame, so **18.1 ms is NOT GPU** → worst frames are CPU/stream-bound (task #39). But at p50 the GPU is 13.3 ms of 16.7 ms → **the median frame IS GPU-bound with 3.4 ms spare.** Two distinct problems; fixing GPU alone will not move the 30 fps frames, and fixing streaming alone will not create art headroom. |
+| 2026-08-25 | **D-12 · P1-01, BC7-vs-BC1 left OPEN deliberately** | The plan called the BC1-over-BC7 `FORMAT_OPTIONS` patch mandatory. It is **not patchable**: `FORMAT_OPTIONS` lives inside the KTX2Loader *worker body* and is not exported. The only main-thread lever is claiming BC7 is unsupported — which fixes ETC1S (8→4 bpp, ~300→~160 MiB on Windows) but also drops **UASTC** to BC1, a real quality loss on exactly the maps that justify UASTC. Exposed as `setPreferBC1ForETC1S()` and left **off**: no assets to measure, and no BC machine here to measure them on. |
+| 2026-08-25 | **D-13 · deleting an "off" flag INVERTS it** | Retiring `ENABLE_BUSHES` and `MAX_GRASS_PER_TILE` as dead nearly switched both back ON: `meshMaterializer` tests `CONFIG.ENABLE_BUSHES !== false` (so `undefined` passes) and `vegetationWorker` reads `config.MAX_GRASS_PER_TILE ?? 50000`. Both restored with the trap documented in `config.js`. **Rule: before retiring a flag, read its GUARD, not just its name.** `if (CONFIG.X)` is safe to remove; `!== false` and `?? default` are not. |
+| 2026-08-25 | **D-14 · corrected myself mid-commit (P1-16)** | I claimed vendor-cart exclusion zones were running unconditionally and corrupting vegetation placement. Re-checked: the call sits inside `if (CONFIG.ENABLE_VENDOR_CARTS)`, which is false, so it never ran. Vegetation placement is unchanged. Commit amended. **Reading a call site is not the same as reading its guard** — same lesson as D-13, one task later. |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
