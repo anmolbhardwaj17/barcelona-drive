@@ -1,0 +1,27 @@
+# Cloudflare Pages headers (v3 P1-02).
+#
+# Everything below is CONTENT-ADDRESSED OR VERSIONED, so it can be cached forever. Vite hashes
+# /assets/* itself, but public/ filenames are NOT hashed — which is why the art library lives under
+# a versioned /art/v1/ path. Bump to /art/v2/ rather than mutating a file in place, or returning
+# players keep the stale one for a year.
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/basis/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/art/v1/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/models/*
+  Cache-Control: public, max-age=604800
+
+/tiles/*
+  Cache-Control: public, max-age=604800
+
+# The HTML entry point must never be cached, or a deploy does not reach anyone.
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

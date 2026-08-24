@@ -80,6 +80,7 @@ import { setOriginOffset, getOriginOffset } from './originOffset.js';
 import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
+import { initAssetRegistry } from './loaders.js';
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -106,6 +107,9 @@ const { scene, camera, renderer, world, groundBody, groundMesh, worldGroup, spaw
 
 setRendererAnisotropy(renderer.capabilities.getMaxAnisotropy());
 window._ddRenderer = renderer; // expose for env map generation in carModel
+// v3 P1-01: one KTX2Loader + one MeshoptDecoder for the whole app. MUST run before any asset
+// load — KTX2Loader cannot pick a transcode target without detectSupport(renderer).
+initAssetRegistry(renderer);
 window._clearTileCache = clearTileCache; // dev: call after re-bake to flush IndexedDB cache
 // Dev: _identify() then CLICK any surface — logs what mesh/material it is (mystery-geometry killer:
 // four look-alike "dark band" systems later, naming the thing beats guessing).

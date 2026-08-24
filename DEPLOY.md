@@ -157,3 +157,23 @@ mode the server sets immutable cache headers and gzips the citymap. Put a CDN in
 - [ ] **Set `VITE_MAP_API`** at build time — otherwise the site falls back to `localhost:4041` (broken/mixed-content).
 - [ ] **Purge CDN cache** after a re-bake (immutable tiles) and re-run `buildCityMap.js`.
 - [ ] Third-party calls to review for your privacy policy: Nominatim (spawn search) + Google Fonts. Self-host/proxy if desired.
+
+## ⚠ v3 build-order trap (P1-02)
+
+`vite build` **empties `frontend/dist`**, including the 547 MB of tiles copied in for the static
+bundle. So the copy step must run **after** the build and **before** `wrangler pages deploy` —
+`deploy-cloudflare.sh` already orders it that way, but if you ever run the steps by hand, that is
+the one that bites.
+
+`frontend/public/_headers` sets `immutable` on `/assets/*`, `/basis/*` and `/art/v1/*`.
+
+**The art library is served from a VERSIONED path (`/art/v1/`) on purpose.** Files under `public/`
+keep their own names — Vite does not content-hash them — so an immutable header on a mutable
+filename would pin a stale texture in players' caches for a year. To change art, bump the version
+directory; never edit a file in place under an immutable path.
+
+Benchmark runs (`?bench`) need the preview origin allowed by the tile server:
+```
+ALLOWED_ORIGINS="http://localhost:4040,http://localhost:4044" npm start   # in backend/
+```
+
