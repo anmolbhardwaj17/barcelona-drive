@@ -51,7 +51,7 @@ import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
 import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
-import { renderVegetation, preloadTreeModels, updateTreeWind } from './map/vegetationRenderer.js';
+import { renderVegetation, preloadTreeModels, updateTreeWind, getProceduralMaterial, getTreeBillboardMaterial, getBushMaterial } from './map/vegetationRenderer.js';
 import { createSpatialIndex, queryNearestRoadSegment } from './map/spatialIndex.js';
 import { createStreetDisplay } from './ui/streetDisplay.js';
 import { createSpeedDisplay } from './ui/speedDisplay.js';
@@ -695,15 +695,50 @@ spawnTileReady.finally(() => {
         // roof, details) on tiny hidden triangles — otherwise the first tile introducing a new
         // variant sync-compiles mid-drive (one-off ~100 ms render frames, forensics-confirmed).
         try {
+          // v3 P1-04: the warm set was buildings-only. Vegetation is the family that actually runs on
+          // BatchedMesh (the veg pools), so its materials are the ones whose USE_BATCHING variant was
+          // compiling mid-drive. Billboards are warmed for all 4 variant slots — they differ only by a
+          // uniform, but three keys the program on defines, so one warm covers the set.
           const _warmMats = [...warmAllBuildingMaterials(), getWaterMaterial()];
+          try {
+            _warmMats.push(getProceduralMaterial(), getBushMaterial());
+            for (let v = 0; v < 4; v++) { const bm = getTreeBillboardMaterial(v); if (bm) _warmMats.push(bm); }
+          } catch {}
           const _wg = new THREE.BufferGeometry();
           _wg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0.01, 0, 0.01, 0, 0], 3));
           _wg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
           _wg.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0], 2));
           _wg.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
           _wg.setAttribute('aWash', new THREE.Float32BufferAttribute([0, 0, 0], 1));
+          // v3 P1-04: the facade shader DECLARES `attribute float aAO` (patchRoadAO / the facade
+          // injection), and this geometry did not provide it. A warm mesh missing a declared
+          // attribute does not compile the same program the real mesh will.
+          _wg.setAttribute('aAO', new THREE.Float32BufferAttribute([0, 0, 0], 1));
           const _warmGrp = new THREE.Group();
-          for (const m of _warmMats) { const wm = new THREE.Mesh(_wg, m); wm.frustumCulled = false; _warmGrp.add(wm); }
+          // v3 P1-04: warm through the REAL mesh types, not just plain Mesh.
+          //
+          // three compiles a SEPARATE program per USE_BATCHING / USE_INSTANCING define. Warming
+          // every material on a plain THREE.Mesh therefore compiled only the vanilla variant, and
+          // the first BatchedMesh (vegetation pools) or InstancedMesh (parked cars, peds,
+          // streetlight parts) to appear mid-drive still sync-compiled — which is exactly what the
+          // P0-05 baseline caught: 141 -> 149 programs during a 90 s drive, against a gate of 0.
+          //
+          // Cost is a few more hidden triangles at boot, all through compileAsync, which is off the
+          // render path (KHR_parallel_shader_compile). That is the trade this warm-up exists to make.
+          for (const m of _warmMats) {
+            const wm = new THREE.Mesh(_wg, m); wm.frustumCulled = false; _warmGrp.add(wm);
+            try {
+              const im = new THREE.InstancedMesh(_wg, m, 1);
+              im.setMatrixAt(0, new THREE.Matrix4());
+              im.frustumCulled = false; _warmGrp.add(im);
+            } catch {}
+            try {
+              const bm = new THREE.BatchedMesh(1, 3, 3, m);
+              const gid = bm.addGeometry(_wg);
+              bm.addInstance(gid);
+              bm.frustumCulled = false; _warmGrp.add(bm);
+            } catch {}
+          }
           _warmGrp.position.set(0, -5000, 0);
           scene.add(_warmGrp);
           const _p = renderer.compileAsync?.(scene, camera);
