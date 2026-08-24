@@ -81,14 +81,33 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
 
   function pips(v) { const n = Math.round(v / 20); return '★'.repeat(n) + '☆'.repeat(5 - n); }
 
+  // v3 P1-23: the live HUD is BUILT ONCE and updated through cached nodes. This used to reassign
+  // hud.innerHTML every frame of a pursuit — parsing HTML and rebuilding four elements 60x a second,
+  // in the one mode where the player is also being chased and the frame budget is tightest.
+  // dashMode already did it this way; police and delivery never got the treatment.
+  let _hudBuilt = false, _nWanted = null, _nBarFill = null, _nStats = null;
+  function buildHudOnce() {
+    if (_hudBuilt) return;
+    _hudBuilt = true;
+    hud.textContent = '';
+    _nWanted = document.createElement('div');
+    _nWanted.style.cssText = 'font-weight:800;color:#ff5a5a';
+    const barWrap = document.createElement('div');
+    barWrap.style.cssText = 'margin-top:5px;height:8px;width:100%;background:rgba(255,255,255,.15);border-radius:4px;overflow:hidden';
+    _nBarFill = document.createElement('div');
+    _nBarFill.style.cssText = 'height:100%;background:linear-gradient(90deg,#ffb347,#ff3b3b)';
+    barWrap.appendChild(_nBarFill);
+    _nStats = document.createElement('div');
+    _nStats.style.cssText = 'margin-top:6px;opacity:.9';
+    hud.append(_nWanted, barWrap, _nStats);
+  }
+
   function updateHud(nearest) {
     if (state !== 'chase') return;
-    const barW = Math.round(wanted);
-    hud.innerHTML =
-      `<div style="font-weight:800;color:#ff5a5a">🚨 WANTED ${pips(wanted)}</div>` +
-      `<div style="margin-top:5px;height:8px;width:100%;background:rgba(255,255,255,.15);border-radius:4px;overflow:hidden">` +
-        `<div style="height:100%;width:${barW}%;background:linear-gradient(90deg,#ffb347,#ff3b3b)"></div></div>` +
-      `<div style="margin-top:6px;opacity:.9">⏱️ ${elapsed.toFixed(0)}s &nbsp; 🚓 ${cops.length} &nbsp; ${Math.round(nearest)}m</div>`;
+    buildHudOnce();
+    _nWanted.textContent = `🚨 WANTED ${pips(wanted)}`;
+    _nBarFill.style.width = `${Math.round(wanted)}%`;
+    _nStats.textContent = `⏱️ ${elapsed.toFixed(0)}s   🚓 ${cops.length}   ${Math.round(nearest)}m`;
     if (bustT > 0.3) {
       banner.style.display = 'block'; banner.style.color = '#ff4444';
       banner.textContent = `🚨 BUSTED IN ${Math.max(0, BUST_HOLD - bustT).toFixed(1)}s`;

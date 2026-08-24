@@ -104,16 +104,33 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
         `<div style="opacity:.8;font-size:12px">best streak ${best}</div>`;
     }
   }
+  // v3 P1-23: built once, updated via cached nodes — see the same fix in policeMode. This ran
+  // hud.innerHTML on every frame of a delivery, rebuilding five elements 60x a second.
+  let _dBuilt = false, _dTitle = null, _dObj = null, _dStreak = null, _dParcel = null, _dCash = null;
+  function buildLiveHudOnce() {
+    if (_dBuilt) return;
+    _dBuilt = true;
+    hud.textContent = '';
+    const mk = (css) => { const d = document.createElement('div'); d.style.cssText = css; return d; };
+    _dTitle  = mk('font-weight:800;color:#ff8a33');
+    _dObj    = mk('margin-top:3px');
+    _dStreak = mk('margin-top:4px;opacity:.9');
+    _dParcel = mk('opacity:.9');
+    _dCash   = mk('opacity:.75;font-size:12px;margin-top:2px');
+    _dTitle.textContent = '📦 RUSH HOUR';
+    hud.append(_dTitle, _dObj, _dStreak, _dParcel, _dCash);
+  }
+
   function updateLiveHud() {
     if (state !== 'toPickup' && state !== 'toDropoff') return;
+    buildLiveHudOnce();
     const f = Math.round(integrity * 5);
     const bars = '▮'.repeat(f) + '▯'.repeat(5 - f);
-    hud.innerHTML =
-      `<div style="font-weight:800;color:#ff8a33">📦 RUSH HOUR</div>` +
-      `<div style="margin-top:3px">${state === 'toPickup' ? 'Grab the parcel' : 'Deliver!'}</div>` +
-      `<div style="margin-top:4px;opacity:.9">🔥 Streak ${streak}${streak > 1 ? ` ×${streakMult().toFixed(1)}` : ''}</div>` +
-      (state === 'toDropoff' ? `<div style="opacity:.9">📦 Parcel ${bars}</div>` : '') +
-      `<div style="opacity:.75;font-size:12px;margin-top:2px">$${earned}</div>`;
+    _dObj.textContent = state === 'toPickup' ? 'Grab the parcel' : 'Deliver!';
+    _dStreak.textContent = `🔥 Streak ${streak}${streak > 1 ? ` ×${streakMult().toFixed(1)}` : ''}`;
+    _dParcel.textContent = state === 'toDropoff' ? `📦 Parcel ${bars}` : '';
+    _dParcel.style.display = state === 'toDropoff' ? '' : 'none';
+    _dCash.textContent = `$${earned}`;
     if (state === 'toDropoff') {
       timerEl.textContent = Math.max(0, timeLeft).toFixed(1);
       timerEl.style.color = timeLeft < 5 ? '#ff5a5a' : '#fff';
