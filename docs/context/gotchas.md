@@ -578,7 +578,20 @@ Billboard trees (`getTreeBillboardMaterial()`) are a separate code path — unaf
 
 If you change the sky palette, update **only** the three constants in `scene.js`. All four systems update automatically. Do NOT hardcode sky colors in `carModel.js`, `dayNight.js`, or anywhere else.
 
-**Fog is drive-mode only:** `main.js` sets `scene.fog.density = 0` in drone/free-camera mode and `0.005` in car mode. The fog object always exists when `ENABLE_FOG: true`; only density is toggled.
+**Fog is drive-mode only** — still true, but the number changed (v3 D-06, 2026-08-24):
+
+`main.js` **modulates the active day/night preset**, it no longer writes a constant:
+```js
+const _fogBase = getPresetFogDensity();            // envToggle: DAY 0.0032 / NIGHT 0.0045
+scene.fog.density = carDriver ? (_titleLive ? _fogBase * 0.12 : _fogBase * _fogAltFade) : 0;
+```
+Until v3 this line wrote a hardcoded `0.005` **every frame**, silently overwriting `envToggle`'s
+tuned presets — so DAY 0.0032 and NIGHT 0.0045 had never once been seen on screen. The
+drone-mode-zero, title-cinematic and altitude-fade behaviours are unchanged.
+
+**The invariant now:** `envToggle` owns *what density this time of day wants*; `main.js` owns *what
+the camera situation allows*, as a MULTIPLIER. Never write `scene.fog.density` to a literal — change
+the preset in `envToggle.js` instead, or you re-introduce the same silent clobber.
 
 ---
 

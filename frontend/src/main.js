@@ -49,7 +49,7 @@ import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
 import { setLampEmissiveIntensity, setPoolOpacity } from './map/streetlightRenderer.js';
 import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
 import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
-import { createEnvToggle, onNightModeChange } from './ui/envToggle.js';
+import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { renderVegetation, preloadTreeModels, updateTreeWind } from './map/vegetationRenderer.js';
 import { updateGrassWind } from './map/grassRenderer.js';
@@ -767,9 +767,13 @@ function animate(time = 0) {
     // ALTITUDE FADE (user report: "huge blur at certain angles" from the in-car drone view): the
     // same white-soup applies whenever the camera climbs, so full density only below ~40 m,
     // fading to near-none by ~180 m. Ground driving is unchanged (camera ≈ 5 m).
+    // v3 D-06: modulate the ACTIVE day/night preset (DAY 0.0032 / NIGHT 0.0045) rather than a
+    // hardcoded 0.005. The old constant overwrote envToggle every frame, so neither tuned value had
+    // ever shipped. Drone/title/altitude behaviour below is unchanged — G-44's invariant holds.
     const _camAlt = camera?.position?.y ?? 0;
     const _fogAltFade = Math.max(0.08, Math.min(1, 1 - (_camAlt - 40) / 140));
-    scene.fog.density = carDriver ? (_titleLive ? 0.0006 : 0.005 * _fogAltFade) : 0;
+    const _fogBase = getPresetFogDensity();
+    scene.fog.density = carDriver ? (_titleLive ? _fogBase * 0.12 : _fogBase * _fogAltFade) : 0;
   }
 
   // Title-up detection: while the title screen is visible the world streams around the CINEMATIC

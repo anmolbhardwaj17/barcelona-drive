@@ -83,6 +83,19 @@ const NIGHT = {
  * }} refs
  * @returns {{ element: HTMLButtonElement, isNight: () => boolean }}
  */
+/**
+ * The fog density the CURRENT day/night preset wants, tracked through transitions.
+ *
+ * v3 D-06: main.js modulates fog per camera situation (drone mode → 0, title cinematic → near-zero,
+ * altitude fade above ~40 m) and used to write a hardcoded 0.005, which silently overwrote these
+ * presets every frame — so DAY 0.0032 and NIGHT 0.0045 had never actually shipped. main.js now
+ * multiplies THIS value instead of replacing it, so both systems keep their job: the preset owns
+ * "what this time of day wants", main.js owns "what the camera situation allows".
+ * Gotcha G-44's drive-mode-only invariant is preserved exactly.
+ */
+let _presetFogDensity = DAY.fogDensity;
+export function getPresetFogDensity() { return _presetFogDensity; }
+
 export function createEnvToggle(refs) {
   const { scene, renderer, ambientLight, hemiLight, dirLight, sky,
           setLampEmissiveIntensity, setPoolOpacity, setBloom } = refs;
@@ -126,7 +139,8 @@ export function createEnvToggle(refs) {
     if (scene.fog) {
       scene.fog.color.copy(lerpColor(from.fogColor, to.fogColor, t));
       if (scene.fog.density !== undefined) {
-        scene.fog.density = lerpNum(from.fogDensity, to.fogDensity, t);
+        _presetFogDensity = lerpNum(from.fogDensity, to.fogDensity, t);
+        scene.fog.density = _presetFogDensity;   // main.js re-modulates this per camera situation
       }
     }
 
