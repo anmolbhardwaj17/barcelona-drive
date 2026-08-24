@@ -6,6 +6,7 @@ initAnalytics();   // Cloudflare Web Analytics — no-op unless VITE_CF_BEACON i
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { createRadialBlurPass } from './ui/radialBlurPass.js';
@@ -174,6 +175,19 @@ composer.addPass(radialBlurPass);
 const colorGradePass = createColorGradePass();
 composer.addPass(colorGradePass);
 window._colorGradePass = colorGradePass; // DevTools tuning: .uniforms.uGradeStrength.value
+// v3 P1-07: SMAA — the largest hole in the corpus. There is NO anti-aliasing anywhere today:
+// scene.js requests antialias:false (correct — the composer's HalfFloat targets never got the MSAA
+// backbuffer anyway), EffectComposer allocates its targets with no `samples`, and no AA pass
+// existed. Three separate v3 audits called AA a hard prerequisite and none of them owned it.
+//
+// It matters most for what comes NEXT: P4 replaces the solid low-poly foliage blobs with
+// alpha-tested cards, and alpha-tested edges in a zero-AA forward pipeline crawl and shimmer at
+// speed — visibly worse than the blobs they replace. SMAA rather than FXAA because FXAA smears
+// the thin high-contrast lines this game is full of (lane paint, kerbs, window mullions).
+//
+// LAST before OutputPass: it must run on the graded image, in the same space the player sees.
+const smaaPass = new SMAAPass();
+composer.addPass(smaaPass);
 composer.addPass(new OutputPass());
 
 // Adaptive resolution — auto-drops pixel ratio when the GPU is behind, restores it when there's
