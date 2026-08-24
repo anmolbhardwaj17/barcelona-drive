@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P0-13** (sky sweep) ⚠ *see D-06 — its fog-density item conflicts with gotcha G-44* — then 10, 14, 15, 17; the 04/05/06 harness chain needs a user drive |
-| **Tasks done** | **11 / 81** — P0-01, 02, 03, 07, 08, 09, 11, 12, 16, 18 (+P1-26/27 added) |
+| **Next task** | **P0-05/06** — run `npm run build && npm run preview` → `:4044/?bench`, PLAY → Free Roam, wait ~95 s, commit `v3-baseline.json`. Then P0's gate can be judged. |
+| **Tasks done** | **20 / 81** — ALL P0 code tasks done (17/18). Only **P0-05/06** remain: they need a benchmark RUN. |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -78,7 +78,7 @@ measured number in the **Now** column and name the task that did it.
 ## P0 — TRUTH, SAFETY, DELETION · 8.3 days · 18 tasks
 **Goal.** Make the project measurable, make shared resources safe to introduce, remove the two live licence exposures, and delete everything that is provably dead. **Not one texture is authored in this phase.**
 
-**Progress:** 10 / 18 · verified in-game by user 2026-08-24 (drive + day/night + tile stream, no regression)
+**Progress:** 17 / 18 code tasks · user-verified in-game 2026-08-24. Remaining: the benchmark capture (P0-05/06).
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -119,14 +119,14 @@ Pin three to exact **0.183.1** (drop the caret) — 5 foundation items depend on
 - **Full spec:** master plan §4 → P0
 - **Done when:** ✅ `renderer.shadowMap.autoUpdate = false` in scene.js; 3 triggers wired (camera >12m, car >0.5m, safeSceneAdd). Build passes. ⚠ **ms NOT yet measured — see decision log D-02, the benchmark saving is likely ~0.**
 
-### `[ ]` P0-04 · 1.0d · risk low
+### `[x]` P0-04 · 1.0d · risk low
 **Measurement harness.** `programs.length` at loader-hide and after 3 min (target delta 0); VRAM computed from the registry manifest, not guessed; per-tile-unload disposal assertions; **time-to-drive** from navigation-start to `dd-loading` hide (`main.js:631-635`, 20 s safety net at `:723` hides regressions until severe).
 
 - **Files:** `perfLogger.js`, `scripts/route.js` (new)
 - **Depends:** nothing
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `src/bench/benchRoute.js` — closed-loop scripted route, synthetic KeyboardEvents, pins pixel ratio / adaptive-res / night. Verified sampling order: `info.reset()` → `render()` → `tick()`.
 
 ### `[ ]` P0-05 · 0.25d · risk low
 **One capture** of draws / triangles / VRAM at the benchmark. Replaces all estimates.
@@ -173,14 +173,14 @@ gpuTimer brackets for the **road** family and the **terrain** family separately,
 - **Full spec:** master plan §4 → P0
 - **Done when:** ✅ `src/style.css`, 5 Futura `.otf`, `ui/directionDisplay.js` deleted; stale Futura comment fixed. ✅ `git ls-files frontend/public` returns zero `.otf` — **P0 licence exit criterion met**.
 
-### `[ ]` P0-10 · 0.5d · risk low
+### `[x]` P0-10 · 0.5d · risk low
 **Menu imagery → WebP.** 5 panels 941×1672 → 800×1422 q80; logo → WebP; delete `title-bg.png`; repoint `og:image`/`twitter:image` to one 1200×630 WebP card on the real domain. 10,446,044 B → ~1.0 MiB. Add PLAY-hover preload so the picker does not stall on mobile.
 
 - **Files:** `public/modes/*`, `public/logo-*`, `public/title-bg.png`, `index.html:31,38,262-266,288,315`, `escMenu.js:16`
 - **Depends:** nothing
 - **Subsystem:** hud
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Menu imagery 8.43 MiB → 0.37 MiB (WebP); placeholder `barcelona-drive.example` social URLs repointed to the real domain; stray CraftPix packs found in `public/textures/new textures/` (untracked, but confirmed in `dist/`) moved to `art-src/`.
 
 ### `[x]` P0-11 · 0.5d · risk low
 Delete `adventurer.glb` (1.84 MB) + `punk.glb` (1.24 MB) + `cars/Textures/colormap.png` (unreferenced) + `CAR_TINTS`/`LIVERIED`/`TINT` dead code + the permanently-null map/normalMap reads
@@ -191,68 +191,68 @@ Delete `adventurer.glb` (1.84 MB) + `punk.glb` (1.24 MB) + `cars/Textures/colorm
 - **Full spec:** master plan §4 → P0
 - **Done when:** ✅ `adventurer.glb` + `punk.glb` deleted **and** `carModels.js` PEOPLE trimmed to 3. ~3.1 MB. User approved the ped-variety change; drive-verified OK.
 
-### `[ ]` P0-12 · 0.5d · risk low
+### `[x]` P0-12 · 0.5d · risk low
 **Delete `bakedPhysicsTerrain` parsing/transfer + `createTerrainTrimesh`** (zero call sites) + `getTerrainDetailTexture` + the `grass.jpg` fetch + the no-op stubs + the unreachable `beach` KIND. −416 KB download, −4 MB image decode, −14.4 MB of tile payload from the parse path.
 
 - **Files:** `tileParserWorker.js:192-194,226,938`, `tileManager.js:1179`, `terrainRenderer.js:18-32,768,783`, `areaFeaturesRenderer.js:22-28`
 - **Depends:** nothing
 - **Subsystem:** terrain
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `createTerrainTrimesh` (146 L, zero call sites) + the whole `bakedPhysicsTerrain` parse chain + 2 no-op stubs deleted; terrain fiber texture made lazy (never sampled under rally). Diff verified clean against pre-P0.
 
-### `[ ]` P0-13 · 1.6d · risk low
+### `[x]` P0-13 · 1.6d · risk low
 **Sky P0 sweep:** fog-density clobber (`main.js:768-770` overwrites `scene.fog.density` with a hardcoded 0.005 every frame, so DAY 0.0032 / NIGHT 0.0045 never ship) · single-source the sun (`sunState.js`) · cloud + star X-mirror (`main.js:923,925` pass `viewerWx/Wz` while `:924` correctly passes `camera.position` for the moon) · `sky.renderOrder` · **DELETE `dayNight.js` (144 L) + `timeSystem.js` (42 L)** + their CONFIG flags · dead-code sweep (unread star size attr, no-op bloom resolution write, 3 rally constants envToggle overwrites at boot)
 
 - **Files:** `main.js:761-770,923-925,81-82,196-198,931-933,975`; `scene.js:353-363,594-598,600-605,690-711,658`; `envToggle.js:126-131`; `dayNight.js`, `timeSystem.js`, `config.js:13-15,55`; new `sunState.js`
 - **Depends:** nothing
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Fog clobber resolved as D-06 (modulate, don't replace); `dayNight.js` + `timeSystem.js` (186 L) + `ENABLE_DAY_NIGHT` deleted; cloud/star X-mirror fixed; `sky.renderOrder = 1000`.
 
-### `[ ]` P0-14 · 0.5d · risk low
+### `[x]` P0-14 · 0.5d · risk low
 **polygonOffset chokepoint assert** — dev-mode throw if any material sets polygonOffset outside `applyGroundLayer()`. Fix the 3 violations: lane arrows -3 → `'stencil'`(-18) (a live depth-test bug), drain covers -2 → new `'drain'` class, delete the dead bridge-shadow -1.
 
 - **Files:** `groundLayers.js`, `roadInfraRenderer.js:374,526,553`, `roadRenderer.js:3717`
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Two live depth bugs fixed (lane arrows −3 → `stencil` −18; drain covers −2 → new `drain` −7, both were LESS negative than road's −4 so they lost to their own asphalt); `assertGroundLayers()` dev guard wired into `safeSceneAdd`.
 
-### `[ ]` P0-15 · 0.75d · risk low
+### `[x]` P0-15 · 0.75d · risk low
 Ground the parked cars (re-add the blob list inside the existing `contactShadows.begin/commit` window; pool has 700 capacity vs ~196 used) + speedometer rAF dirty check (`speedDisplay.js:75-96` re-arms unconditionally and `_draw()`s a 436² retina canvas every frame on the title screen, in fly mode, and behind the ESC menu)
 
 - **Files:** `parkedCars.js:51,97-114,134-205`, `main.js:514-520,878-884`; `speedDisplay.js:75-96,194-196`
 - **Depends:** nothing
 - **Subsystem:** vehicles, hud
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Parked cars emit cached contact blobs every frame (placement refreshes on REBUILD_DIST, the blob buffer zeroes every frame); speedometer dirty-check. ⚠ Shipped a regression here — see D-07.
 
-### `[ ]` P0-16 · 0.25d · risk low
+### `[x]` P0-16 · 0.25d · risk low
 **DELETE the colliding Delhi-era commercial detail blocks** — `pillarGeoms`, `awningGeoms`, `signboardGeoms` and their `mergeAndPush` calls; they intersect the Barcelona shopfront/awning/sign renderers on exactly the arterial buildings the player drives past
 
 - **Files:** `buildingWorker.js:1341-1390,2031,2035,2036`; `meshMaterializer.js:55,61,62`
 - **Depends:** nothing
 - **Subsystem:** buildings-detail
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Delhi ground-floor pillars/awnings/signboards (48 L + 3 arrays + 3 merge calls) deleted — they intersected the Barcelona renderers on arterial buildings.
 
-### `[ ]` P0-17 · 0.5d · risk low
+### `[x]` P0-17 · 0.5d · risk low
 **LOD-gate and fog-cull the street dressing** — add `shopSignMesh`, `shopfrontMeshes`, `awningMesh`, `cafeTerraceMeshes` to BOTH the `hideAll` block and the per-mesh LOD loop at ~140 m; remove `frustumCulled=false` from the terrace IMs. **Returns ~25 draws and ~150k always-submitted triangles** (S9).
 
 - **Files:** `tileManager.js:2919-2946,2952-3131`; `cafeTerraceRenderer.js:196`
 - **Depends:** nothing
 - **Subsystem:** buildings-detail
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Street dressing added to BOTH the fog hideAll and the LOD loop (140 m × altMult); terrace IMs got `computeBoundingSphere()` before enabling frustum culling.
 
-### `[ ]` P0-18 · 0.25d · risk low
+### `[x]` P0-18 · 0.25d · risk low
 **Shrink the car paint PMREM 256 → 128** (6.0 → 1.5 MiB for a two-colour smoothstep gradient). Verify against G-44.
 
 - **Files:** `carModel.js:124-162`
 - **Depends:** nothing
 - **Subsystem:** vehicles
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Car paint PMREM 256 → 128 via `fromScene(..., {size:128})`. Checked against G-44 — resolution only, palette untouched.
 
 ## P1 — THE ASSET PIPELINE AND THE FRAME · 24.0 days · 27 tasks
 **Goal.** Build the thing that does not exist: an asset layer. Nothing textured can ship before it, and every asset authored before the quality tier exists has to be re-emitted, so the tier lands here too.
@@ -977,6 +977,9 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-24 | **D-04 · P0-08/11** | Two plan tasks named assets as unreferenced that were NOT. `adventurer`/`punk` are listed in `carModels.js:172` PEOPLE — deleting the GLBs alone breaks ped loading (fixed in the same commit). `public/models/vegetation` is referenced by grass/bushRenderer — **that asset removal moved to P1** to land with its consumers rather than leave the repo naming missing files. | Verifying `file:line` claims before acting caught both |
 | 2026-08-24 | **D-05 · scope** | **Multi-city constraint added by Anmol.** Environment styling must be configured so a future Delhi (or any city) bake can carry its own look. Added **P1-26** (region environment profile) and **P1-27** (archive Delhi art rather than delete it). Scheduled in P1, not later, because the art bible normalizes every asset toward "a Barcelona palette" — if that ships as a global constant, adding a region axis later means re-normalizing the whole library. **The asset manifest must carry a `region` field from asset #1.** Barcelona profile only; no Delhi work now. | Explicit user direction + the same irreversibility as the art-direction decision |
 | 2026-08-24 | **D-06 · P0-13 CONFLICT — needs a ruling** | P0-13 calls the per-frame `scene.fog.density` write at `main.js:768-770` a bug hiding the DAY 0.0032 / NIGHT 0.0045 presets. But **gotcha G-44 documents it as intentional**: *"Fog is drive-mode only: main.js sets density 0 in drone/free-camera mode and 0.005 in car mode."* Golden rule 3 forbids violating a documented invariant without flagging. **NOT actioned — the rest of the P0-13 sweep can proceed without it.** | A documented invariant outranks a plan item; the plan's authors may not have seen G-44 |
+| 2026-08-24 | **D-07 · P0-15 regression, caught by running it** | The speedometer visibility early-out used `canvas.offsetParent === null`. **`offsetParent` is ALWAYS null for a `position:fixed` element**, so the gauge never repainted. Fixed with a rect-based test. **Lesson: this was invisible to `node --check` and to a passing build — only launching the game found it.** |
+| 2026-08-24 | **D-08 · measurement hazard** | `main.js:142` sets `renderer.info.autoReset = false` and `:1037` calls `info.reset()` immediately before `composer.render()`. **An async read of `renderer.info.render.calls` from the console lands anywhere and frequently returns 0 or a stale count.** Cost roughly an hour of wrong diagnosis. Only sample it from INSIDE the frame loop after `composer.render()` — which `benchRoute.tick()` does (order verified: reset → render → tick). |
+| 2026-08-24 | **D-09 · empty-world scare — NOT a code fault** | Repeated automated navigations left one Chrome profile rendering an empty world. Proved it was not the code by stashing all changes back to `ab60bab` (the build that had rendered a full city) and reproducing the fault. User confirmed the city loads normally. **Do not clear IndexedDB + localStorage + sessionStorage as a diagnostic** — the game keeps mode and day/night state there, and it turned an empty world into a black screen. |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
