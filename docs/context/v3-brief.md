@@ -64,6 +64,28 @@ Nothing on this list may be missing from the plan:
 
 ---
 
+## Multi-city from the start (added 2026-08-24)
+
+> *"I want our styling of environment configured in a way that if we bake Delhi map and set its env
+> properly for this, we can have Delhi vibe as well later, or any city. I don't want you to work on
+> the Delhi part right now, but keep config setup in that way."*
+
+Barcelona is the only city we build. But the environment's **look** must live in a swappable
+**region profile**, not inlined across renderers — palette anchors, road-marking standard, tree
+species, sky/lighting keys, architecture rules, signage language.
+
+This is scheduled as **P1-26**, deliberately early: the art bible normalizes every asset toward "a
+Barcelona palette", so if that ships as a global constant, adding a region axis afterwards means
+re-normalizing the entire library. **The asset manifest carries a `region` field from asset #1.**
+
+Corollary (**P1-27**): Delhi-era art being removed from the Barcelona build is **archived, not
+deleted** — it is precisely what a Delhi profile would need.
+
+**Scope discipline: build the abstraction, populate Barcelona only.** Adding `regions/delhi.js`
+later must be a data task, not a refactor.
+
+---
+
 ## Binding constraints
 
 1. **IT STAYS A BROWSER GAME.** Zero-install, click-a-link-and-drive. This is the product's best

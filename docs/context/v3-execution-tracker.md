@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P0-12** (delete dead bakedPhysicsTerrain path) — then 10, 13-18; the 04/05/06 harness chain needs a user drive |
-| **Tasks done** | **7 / 79** — P0-01, 02, 03, 07, 08, 09, 11 |
+| **Next task** | **P0-13** (sky sweep) ⚠ *see D-06 — its fog-density item conflicts with gotcha G-44* — then 10, 14, 15, 17; the 04/05/06 harness chain needs a user drive |
+| **Tasks done** | **11 / 81** — P0-01, 02, 03, 07, 08, 09, 11, 12, 16, 18 (+P1-26/27 added) |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -78,7 +78,7 @@ measured number in the **Now** column and name the task that did it.
 ## P0 — TRUTH, SAFETY, DELETION · 8.3 days · 18 tasks
 **Goal.** Make the project measurable, make shared resources safe to introduce, remove the two live licence exposures, and delete everything that is provably dead. **Not one texture is authored in this phase.**
 
-**Progress:** 7 / 18 · verified in-game by user 2026-08-24 (drive + day/night + tile stream, no regression)
+**Progress:** 10 / 18 · verified in-game by user 2026-08-24 (drive + day/night + tile stream, no regression)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -254,7 +254,7 @@ Ground the parked cars (re-add the blob list inside the existing `contactShadows
 - **Full spec:** master plan §4 → P0
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-## P1 — THE ASSET PIPELINE AND THE FRAME · 21.2 days · 25 tasks
+## P1 — THE ASSET PIPELINE AND THE FRAME · 24.0 days · 27 tasks
 **Goal.** Build the thing that does not exist: an asset layer. Nothing textured can ship before it, and every asset authored before the quality tier exists has to be re-emitted, so the tier lands here too.
 
 **Progress:** 0 / 25
@@ -494,6 +494,40 @@ Fix the live per-frame-`innerHTML` FPS regression in the two modes that never go
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-26 · 2.5d · risk medium
+**REGION ENVIRONMENT PROFILE — the multi-city abstraction.** (Anmol, 2026-08-24: *"I want our styling of environment configured in a way that if we bake Delhi map and set its env properly, we can have Delhi vibe as well later, or any city. I don't want you to work on Delhi right now, but keep config setup in that way."*)
+
+`VITE_TILE_REGION` exists today but only switches **tile paths** (`mapLoader.js:12`, `cityMapLoader.js:12`) — it is a data-source switch, not a styling one. Meanwhile **31 source files name Barcelona** and region-specific values are inlined across renderers.
+
+Promote it into a **region profile** — one module per city owning everything the environment's *look* depends on, with Barcelona as the first (and only implemented) profile:
+- **palette anchors** — the art bible's §2.4 hex set becomes `profile.palette`, NOT a global constant. Assets normalize toward *their region's* anchors.
+- **road standard** — `barcelona-constants.js` (Norma 8.2-IC: white-only lines, 0.10 m, 2/2 m urban dash) becomes `profile.roadStandard`. Delhi's IRC standard differs (yellow centre lines) and that is data, not code.
+- **vegetation species set** + per-context placement weights (Barcelona: pollarded plane, palm, orange; Delhi: neem, peepal, gulmohar)
+- **sky/lighting keys** — sun elevation and azimuth, TOD keys, fog tint, night colour temperature (sodium vs LED)
+- **architecture rules** — facade layer set, roof kind (Catalan *terrat* vs Delhi flat-slab), storey height, tower/heuristic thresholds
+- **signage** — language, script, fascia styles, regulatory sign set
+
+**Why P1 and not later:** the art bible has every asset normalizing toward "a Barcelona palette", and P1 builds `materialRegistry` + `build-art.mjs`. If the palette ships as a global constant and assets are authored against it, retrofitting a region axis means re-normalizing the whole library. This is the same "free today, unrecoverable after 100 assets" trap as the art direction itself. **The asset manifest must carry a `region` field (or `shared`) from asset #1.**
+
+**Scope discipline:** build the abstraction and populate the Barcelona profile ONLY. Do not author a Delhi profile, do not bake Delhi tiles, do not re-add Delhi art. The deliverable is that adding `regions/delhi.js` later is a data task, not a refactor.
+
+- **Files:** new `src/regions/index.js` + `src/regions/barcelona.js`; fold in `map/barcelona-constants.js`; consumers via `materialRegistry` (P1-03); `scripts/build-art.mjs` manifest schema (P1-05)
+- **Depends:** P1-03 materialRegistry, P1-05 build-art
+- **Subsystem:** pipeline / art direction
+- **Full spec:** this entry — added post-plan, not in v3-master-plan.md §4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-27 · 0.25d · risk low
+**ARCHIVE the Delhi art, do not delete it.** P1's deletion tasks remove `crashBarrierRenderer.js` (Indian yellow-black barriers), `reflectorRenderer.js` (cat's-eye studs), `dividerRenderer.js` and `vendorCartRenderer.js` (707 L of Delhi street vendors) — **~1,950 lines that are exactly what a future Delhi region profile would need.** Move them to a gitignored `art-src/delhi/` with a README, the same treatment the card-tree instruments got in P0-08, instead of deleting outright.
+
+⚠ Amends P1-16 and the vendor-cart line. They must stop being *built and shipped* in the Barcelona path — that part of the deletion stands — but the source should survive for [[P1-26]].
+
+- **Files:** `art-src/delhi/` (new, gitignored); amends the P1 Delhi-deletion tasks
+- **Depends:** run alongside P1-16
+- **Subsystem:** pipeline
+- **Full spec:** this entry
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
 ## P2 — LOD AND NIGHT · 15.5 days · 7 tasks
@@ -941,6 +975,8 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-24 | **D-02 · P0-03** | **The plan's premise is partly wrong and the budget is optimistic.** `carModel.js:169` sets `castShadow` on the hero car, so it IS a dynamic caster. At 80 km/h it moves 22 m/s, so the car trigger fires nearly every frame and **the budgeted −1.35 ms does not materialise at the 80 km/h benchmark.** Landed anyway — it is never slower, and it is a real saving when stationary, slow, or in fly mode. **P0-05 must MEASURE it; do not carry −1.35 ms in the budget as fact.** | Implementing it blind would have silently put a phantom saving into the ledger — the exact failure the ledger exists to prevent |
 | 2026-08-24 | **D-03 · P0-02** | **Deviated from the plan.** It called for inverting the disposal default to an `ownedMaterial` opt-in, as a P0 blocker. A survey of all 169 material-construction sites found **103 that build a material PER CALL** (urbanFeatureRenderer ×16, roadInfraRenderer ×13), so inverting without a registry to enforce tagging would LEAK them — and long-session heap is a phase gate. Marked the MATERIAL instead (`sharedMaterial.js`): same protection, zero leak risk. **P1-03's materialRegistry should call `markShared()` on everything it owns; the inversion becomes safe then and this module folds into it.** Note both cited "live misses" sit behind disabled CONFIG flags — latent, not breaking. | Better end result within the constraints; not slack, and not a rewrite for its own sake |
 | 2026-08-24 | **D-04 · P0-08/11** | Two plan tasks named assets as unreferenced that were NOT. `adventurer`/`punk` are listed in `carModels.js:172` PEOPLE — deleting the GLBs alone breaks ped loading (fixed in the same commit). `public/models/vegetation` is referenced by grass/bushRenderer — **that asset removal moved to P1** to land with its consumers rather than leave the repo naming missing files. | Verifying `file:line` claims before acting caught both |
+| 2026-08-24 | **D-05 · scope** | **Multi-city constraint added by Anmol.** Environment styling must be configured so a future Delhi (or any city) bake can carry its own look. Added **P1-26** (region environment profile) and **P1-27** (archive Delhi art rather than delete it). Scheduled in P1, not later, because the art bible normalizes every asset toward "a Barcelona palette" — if that ships as a global constant, adding a region axis later means re-normalizing the whole library. **The asset manifest must carry a `region` field from asset #1.** Barcelona profile only; no Delhi work now. | Explicit user direction + the same irreversibility as the art-direction decision |
+| 2026-08-24 | **D-06 · P0-13 CONFLICT — needs a ruling** | P0-13 calls the per-frame `scene.fog.density` write at `main.js:768-770` a bug hiding the DAY 0.0032 / NIGHT 0.0045 presets. But **gotcha G-44 documents it as intentional**: *"Fog is drive-mode only: main.js sets density 0 in drone/free-camera mode and 0.005 in car mode."* Golden rule 3 forbids violating a documented invariant without flagging. **NOT actioned — the rest of the P0-13 sweep can proceed without it.** | A documented invariant outranks a plan item; the plan's authors may not have seen G-44 |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
