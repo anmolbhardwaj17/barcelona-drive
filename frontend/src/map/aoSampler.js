@@ -99,7 +99,7 @@ export function bindAoScaleUniform(shader) { shader.uniforms.uAoScale = _aoScale
 
 /**
  * Patch any built-in material to consume the per-vertex `aAO` DARKENING attribute (default 0 →
- * untouched). Same shader fragment as roadRenderer's patchRoadWash AO half, for materials that
+ * untouched). Same shader fragment as roadRenderer's patchRoadAO, for materials that
  * don't need the night-wash machinery (e.g. greens). Identical patch source on every call → three
  * shares one compiled program across all patched materials of a type.
  */

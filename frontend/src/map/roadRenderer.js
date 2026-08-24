@@ -207,10 +207,10 @@ function getPanotMaterial() {
   if (_panotMaterial) return _panotMaterial;
   const { panotTexture } = createRoadTextures();
   panotTexture.anisotropy = _maxAnisotropy;
-  _panotMaterial = patchRoadWash(new THREE.MeshLambertMaterial({
+  _panotMaterial = patchRoadNightWash(patchRoadAO(new THREE.MeshLambertMaterial({
     map: panotTexture,
     color: 0xffffff,
-  }));
+  })));
   applyGroundLayer(_panotMaterial, 'sidewalk');
   return _panotMaterial;
 }
@@ -280,18 +280,49 @@ export function setRoadDecalNightMode(isNight) {
   if (_blueZoneMaterial) _blueZoneMaterial.color.setHex(isNight ? 0x3a6ea8 : BCN_COLORS.PAINT_BLUE);
   if (_bikeLaneMaterial) _bikeLaneMaterial.color.setHex(isNight ? 0x55906b : BCN_COLORS.PAINT_BIKE_GREEN);
 }
-function patchRoadWash(mat) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uNightWash = _roadWashUniform;
+/**
+ * Baked sky-visibility AO (tile v9) — **PERMANENT**.
+ * `aAO` stores a DARKENING amount, so meshes without the attribute (default 0) render unchanged.
+ * `uAoScale` softens AO under the night rig.
+ *
+ * ⚠ v3 P0-07: split out of the old combined `patchRoadWash`. This half MUST SURVIVE the P2
+ * night-stack deletion — removing it strips baked AO from every road in the city with no error.
+ *
+ * Chains `onBeforeCompile` instead of assigning it, so it composes with `patchRoadNightWash`
+ * (and with anything that patches these materials later — see gotcha H9: three's CSM hard-assigns).
+ */
+function patchRoadAO(mat) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
     bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWash;\nattribute float aAO;\nvarying float vWash;\nvarying float vAoDark;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;\nvAoDark = aAO;');
+      .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nuniform float uAoScale;\nvarying float vWash;\nvarying float vAoDark;')
-      // Baked sky-visibility AO (v9): aAO stores a DARKENING amount, so meshes without the
-      // attribute (default 0) render unchanged. uAoScale softens AO under the night rig.
-      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`)
+      .replace('#include <common>', '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;')
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`);
+  };
+  return mat;
+}
+
+/**
+ * Night "urban glow" wash on road surfaces — **DELETABLE**.
+ * One of the six fake-night systems the P2 light grid (`lightGrid.js`) replaces. When that lands,
+ * delete this function and drop it from the call sites below; `patchRoadAO` stays untouched.
+ *
+ * Chains `onBeforeCompile` — see `patchRoadAO` above.
+ */
+function patchRoadNightWash(mat) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
+    shader.uniforms.uNightWash = _roadWashUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
   };
@@ -301,14 +332,14 @@ function patchRoadWash(mat) {
 /** Asphalt road material with vertex color variation (stylized mode). */
 function getSharedRoadMaterial() {
   if (sharedRoadMaterial) return sharedRoadMaterial;
-  sharedRoadMaterial = patchRoadWash(new THREE.MeshStandardMaterial({
+  sharedRoadMaterial = patchRoadNightWash(patchRoadAO(new THREE.MeshStandardMaterial({
     color: 0xffffff,       // white base — actual color comes from vertex colors
     vertexColors: true,
     roughness: 0.9,
     metalness: 0,
     depthWrite: true,
     side: THREE.DoubleSide,  // visible from below bridges
-  }));
+  })));
   applyGroundLayer(sharedRoadMaterial, 'road');   // above terrain/greens, below all paint
   return sharedRoadMaterial;
 }
@@ -373,12 +404,12 @@ function getSharedMaterials() {
   if (sharedMaterials) return sharedMaterials;
   sharedMaterials = {};
   for (const [type, hex] of Object.entries(COLOR_BY_TYPE)) {
-    sharedMaterials[type] = patchRoadWash(new THREE.MeshStandardMaterial({
+    sharedMaterials[type] = patchRoadNightWash(patchRoadAO(new THREE.MeshStandardMaterial({
       color: hex,
       roughness: 0.9,
       metalness: 0,
       flatShading: false,
-    }));
+    })));
   }
   return sharedMaterials;
 }
@@ -386,10 +417,10 @@ function getSharedMaterials() {
 /** Flat beige sidewalk material (stylized mode — no textures). */
 function getSidewalkMaterial() {
   if (sidewalkMaterial) return sidewalkMaterial;
-  sidewalkMaterial = patchRoadWash(new THREE.MeshLambertMaterial({
+  sidewalkMaterial = patchRoadNightWash(patchRoadAO(new THREE.MeshLambertMaterial({
     color: 0xb8bab5,
     depthWrite: true,
-  }));
+  })));
   return sidewalkMaterial;
 }
 
