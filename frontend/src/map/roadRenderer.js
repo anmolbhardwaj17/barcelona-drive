@@ -10,6 +10,7 @@ import { worldToLatLon } from '../projection.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { aoDarkening, AO_ROAD_STRENGTH, bindAoScaleUniform, AO_FRAG_APPLY } from './aoSampler.js';
+import { markShared } from '../sharedMaterial.js';
 import { mergeGeometriesChunked } from './chunkedMerge.js';
 
 // Frame-budgeted merge for the BIG internal families ("p1 roadgen" chunks) — chunked path for
@@ -212,7 +213,7 @@ function getPanotMaterial() {
     color: 0xffffff,
   })));
   applyGroundLayer(_panotMaterial, 'sidewalk');
-  return _panotMaterial;
+  return markShared(_panotMaterial);
 }
 
 /** MeshStandardMaterial for granite curbs (Phase 3). */
@@ -223,7 +224,7 @@ function getCurbMaterial() {
     roughness: 0.6,
     metalness: 0.1,
   });
-  return _curbMaterial;
+  return markShared(_curbMaterial);
 }
 
 /** MeshLambertMaterial for green bike lane surface (Phase 3). */
@@ -233,7 +234,7 @@ function getBikeLaneMaterial() {
     color: _decalNight ? 0x55906b : BCN_COLORS.PAINT_BIKE_GREEN,   // night lift — see setRoadDecalNightMode
   });
   applyGroundLayer(_bikeLaneMaterial, 'bikeLane');
-  return _bikeLaneMaterial;
+  return markShared(_bikeLaneMaterial);
 }
 
 /** MeshBasicMaterial for bike pictogram InstancedMesh (Phase 3). */
@@ -246,7 +247,7 @@ function getBikePictogramMaterial() {
     alphaTest: 0.1,
     depthWrite: false,
   }), 'stencil');
-  return _bikePictogramMaterial;
+  return markShared(_bikePictogramMaterial);
 }
 
 // Shared quad geometry for bike pictograms (1 draw call per tile via InstancedMesh)
@@ -341,7 +342,7 @@ function getSharedRoadMaterial() {
     side: THREE.DoubleSide,  // visible from below bridges
   })));
   applyGroundLayer(sharedRoadMaterial, 'road');   // above terrain/greens, below all paint
-  return sharedRoadMaterial;
+  return markShared(sharedRoadMaterial);
 }
 
 /** Deterministic noise for road surface variation. */
@@ -421,7 +422,7 @@ function getSidewalkMaterial() {
     color: 0xb8bab5,
     depthWrite: true,
   })));
-  return sidewalkMaterial;
+  return markShared(sidewalkMaterial);
 }
 
 /**
@@ -1056,7 +1057,7 @@ function getMarkingMaterial() {
       vertexColors: true,
     }), 'marking');
   }
-  return _mergedMarkingMaterial;
+  return markShared(_mergedMarkingMaterial);
 }
 let _mergedPedestrianMaterial = null;
 function getWhiteLineMaterial() {
@@ -2264,7 +2265,7 @@ function getTactileMaterial() {
   _tactileMat = applyGroundLayer(new THREE.MeshLambertMaterial({
     map: getTactileTexture(),
   }), 'tactile');
-  return _tactileMat;
+  return markShared(_tactileMat);
 }
 
 const TACTILE_DEPTH   = 0.6;  // depth of the strip (perpendicular to crosswalk)
@@ -2377,7 +2378,7 @@ function getNoParkingMaterial() {
   _noParkingMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: BCN_COLORS.PAINT_YELLOW,
   }), 'parkingZone');
-  return _noParkingMaterial;
+  return markShared(_noParkingMaterial);
 }
 
 /**
@@ -2464,7 +2465,7 @@ function getBlueZoneMaterial() {
   _blueZoneMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: _decalNight ? 0x3a6ea8 : BCN_COLORS.PAINT_BLUE,   // night lift — see setRoadDecalNightMode
   }), 'parkingZone');
-  return _blueZoneMaterial;
+  return markShared(_blueZoneMaterial);
 }
 
 /**
@@ -4222,7 +4223,7 @@ function getBillboardAtlasMaterial() {
     side: THREE.DoubleSide,
   });
   registerBillboardMat(_billboardAtlasMaterial);
-  return _billboardAtlasMaterial;
+  return markShared(_billboardAtlasMaterial);
 }
 
 /**
@@ -4926,7 +4927,7 @@ function getChamferMaterial() {
   _chamferMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
     color: 0x4a4a4a,   // BCN_COLORS.ASPHALT_BASE
   }), 'gore');   // junction chamfer fill: same slot as gores — asphalt-plane fills under paint
-  return _chamferMaterial;
+  return markShared(_chamferMaterial);
 }
 
 /**

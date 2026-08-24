@@ -6,6 +6,7 @@
  * All geometry data arrives pre-merged from workers — no mergeGeometries calls.
  */
 import * as THREE from 'three';
+import { markShared } from '../sharedMaterial.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import {
@@ -670,7 +671,7 @@ function getFacadeMaterial(hexColor, category) {
   };
 
   injectFogShader(mat);
-  _facadeMaterialCache.set(cacheKey, mat);
+  _facadeMaterialCache.set(cacheKey, markShared(mat));
   return mat;
 }
 
@@ -685,7 +686,7 @@ function getRoofMaterial(hexColor) {
   const mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, side: BUILDING_SIDE });
   mat.userData._dayHex = hexColor;
   if (_facadeNight) mat.color.multiply(_ROOF_NIGHT_TINT);
-  _roofMaterialCache.set(hexColor, mat);
+  _roofMaterialCache.set(hexColor, markShared(mat));
   return mat;
 }
 
@@ -699,7 +700,7 @@ function getDetailMaterial(type) {
   if (!def) {
     // Fallback: neutral grey Lambert
     const fallback = new THREE.MeshLambertMaterial({ color: 0x888888, side: THREE.DoubleSide });
-    _detailMaterialCache.set(type, fallback);
+    _detailMaterialCache.set(type, markShared(fallback));
     return fallback;
   }
 
@@ -717,7 +718,7 @@ function getDetailMaterial(type) {
     mat = new THREE.MeshLambertMaterial(opts);
   }
 
-  _detailMaterialCache.set(type, mat);
+  _detailMaterialCache.set(type, markShared(mat));
   return mat;
 }
 

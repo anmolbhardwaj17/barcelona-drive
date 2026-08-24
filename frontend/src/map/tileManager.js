@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { requestShadowRefresh } from '../shadowRefresh.js';
+import { isShared } from '../sharedMaterial.js';
 import * as CANNON from 'cannon-es';
 import { worldToSlippyTile, tileCenterToWorld, worldToLatLon, latLonToWorld, TILE_ZOOM, getTileBboxLatLon } from '../projection.js';
 import { loadTile } from './mapLoader.js';
@@ -2864,7 +2865,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           m.traverse((child) => {
             if (child.isMesh) {
               child.geometry?.dispose();
-              if (!child.userData?.sharedMaterial) {
+              // v3 P0-02: isShared() consults the MATERIAL, which always knows what it is;
+              // userData.sharedMaterial on the mesh is kept for back-compat with existing tags.
+              if (!child.userData?.sharedMaterial && !isShared(child.material)) {
                 if (child.material?.map) child.material.map.dispose();
                 if (child.material?.dispose) child.material.dispose();
               }
@@ -2872,7 +2875,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           });
         } else if (m.isMesh) {
           if (!m.userData?.sharedGeometry) m.geometry?.dispose();
-          if (!m.userData?.sharedMaterial && m.material) {
+          if (!m.userData?.sharedMaterial && !isShared(m.material) && m.material) {
             if (Array.isArray(m.material)) m.material.forEach((mat) => { if (mat.map) mat.map.dispose(); mat.dispose(); });
             else { if (m.material.map) m.material.map.dispose(); m.material.dispose(); }
           }
