@@ -40,7 +40,6 @@ import { buildShopfrontMeshes } from './shopfrontRenderer.js';
 import { buildDecalMeshes, disposeDecalMeshes } from './decalRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
-import { renderZoneVegetation } from './zoneVegetationRenderer.js';
 import { buildCrashBarriers, buildCrashBarrierColliders } from './crashBarrierRenderer.js';
 import { buildReflectors } from './reflectorRenderer.js';
 import { buildRoadInfrastructure } from './roadInfraRenderer.js';
@@ -49,12 +48,11 @@ import { buildVendorCartMeshes, getVendorCartExclusionZones } from './vendorCart
 import { buildTunnelMeshes, buildTunnelFloor, buildApproachCanopy, buildRetainingWalls, buildTrenchRetainingWalls, buildTrenchCliffWalls, buildTrenchPortals, buildPedestrianPortals, buildPortalApproaches } from './tunnelRenderer.js';
 import { registerTunnelZones, unregisterTunnelZones } from '../tunnelZones.js';
 import { buildVegetationMask } from './vegetationMask.js';
-import { renderGrass, getFallbackGrassGeometry, getProceduralGrassMaterial } from './grassRenderer.js';
 import { renderLODBuildings } from './buildingRenderer.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createFastElevation } from './fastElevation.js';
-import { initWorkerPool, processBuildings as workerProcessBuildings, processVegetation as workerProcessVegetation, processGrass as workerProcessGrass, cancelTile } from '../workers/workerPool.js';
-import { materializeBuildingMeshes, materializeVegetationMeshes, materializeGrassMeshes, getVegPools } from '../workers/meshMaterializer.js';
+import { initWorkerPool, processBuildings as workerProcessBuildings, processVegetation as workerProcessVegetation, cancelTile } from '../workers/workerPool.js';
+import { materializeBuildingMeshes, materializeVegetationMeshes, getVegPools } from '../workers/meshMaterializer.js';
 
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
@@ -2115,44 +2113,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     buildPhase('p4 grass/detail');
 
-    // Grass (off main thread) — skipped entirely when disabled (no worker cost either).
-    if (!skipNonRoad && (CONFIG.MAX_GRASS_PER_TILE ?? 0) > 0) {
-      let vegTileBounds = null;
-      if (elevation) {
-        vegTileBounds = { south: elevation.south, west: elevation.west, north: elevation.north, east: elevation.east };
-      } else {
-        vegTileBounds = getTileBboxLatLon(tx0, ty0, TILE_ZOOM);
-      }
-
-      try {
-        buildPhase('p4 grass');
-        const grassWorkerResult = await workerProcessGrass(
-          key,
-          tileData,
-          elevation,
-          elevationOffset,
-          CONFIG,
-          vegTreePositionsFlat || new Float32Array(0),
-          vegTileBounds,
-          options.neighborRoads || [],
-        );
-        if (!aborted() && grassWorkerResult?.grassInstances?.count > 0) {
-          const grassMesh = materializeGrassMeshes(grassWorkerResult, getFallbackGrassGeometry(), getProceduralGrassMaterial());
-          if (grassMesh) {
-            grassMesh.userData.type = 'grass';
-            grassMesh.userData.maxInstanceCount = grassMesh.count;
-            // geometry + material are module-level singletons (getFallbackGrassGeometry/getProceduralGrassMaterial)
-            // — flag them so tile unload doesn't dispose them out from under every other grass tile.
-            grassMesh.userData.sharedGeometry = true;
-            grassMesh.userData.sharedMaterial = true;
-            safeSceneAdd(scene, grassMesh);
-            vegetationMeshes.push(grassMesh);
-          }
-        }
-      } catch (err) {
-        if (!aborted()) console.warn('[TileManager] Grass worker error:', err.message);
-      }
-    }
+    // v3 P1-17: the grass block is GONE. It was gated on CONFIG.MAX_GRASS_PER_TILE, which has
+    // been 0 since 2026-07-02, so the worker call, the materialize and grassRenderer.js itself
+    // were all unreachable. Roadside greenery returns in P4 as part of the terrain splat.
 
     await yieldToMain();
 

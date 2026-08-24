@@ -52,7 +52,6 @@ import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } 
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { renderVegetation, preloadTreeModels, updateTreeWind } from './map/vegetationRenderer.js';
-import { updateGrassWind } from './map/grassRenderer.js';
 import { createSpatialIndex, queryNearestRoadSegment } from './map/spatialIndex.js';
 import { createStreetDisplay } from './ui/streetDisplay.js';
 import { createSpeedDisplay } from './ui/speedDisplay.js';
@@ -1028,7 +1027,6 @@ function animate(time = 0) {
   updateCollisionDebug(scene, world, camera);
 
   // Animate grass + tree wind (same time base for spatial coherence)
-  updateGrassWind(time / 1000);
   updateTreeWind(time / 1000);
   cpuTimer.lap('ui'); // hud/minimap/shadow-follow/wind/infra since the last lap
 

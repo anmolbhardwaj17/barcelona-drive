@@ -320,30 +320,8 @@ export function processVegetation(tileKey, tileData, elevation, elevationOffset,
   );
 }
 
-/**
- * Process a tile's grass off the main thread.
- *
- * @param {string} tileKey
- * @param {object} tileData
- * @param {object} elevation
- * @param {number} elevationOffset
- * @param {object} config
- * @param {Array} treePositions  Positions of placed trees (to avoid overlap).
- * @param {{ minX: number, maxX: number, minZ: number, maxZ: number }} tileBounds
- * @returns {Promise<{ grassInstances: * }>}
- */
-export function processGrass(tileKey, tileData, elevation, elevationOffset, config, treePositions, tileBounds, neighborRoads) {
-  const { cloned: elevClone, transferable: elevBuf } = cloneElevation(elevation);
-  const transferables = elevBuf ? [elevBuf] : [];
-
-  return enqueue(
-    'PROCESS_GRASS',
-    tileKey,
-    { tileData, tileKey, elevation: elevClone, elevationOffset, treePositions, tileBounds, neighborRoads },
-    config,
-    transferables,
-  );
-}
+// v3 P1-17: processGrass() removed — its only caller was the tileManager grass block, deleted with
+// grassRenderer.js. The worker-side grass collection in vegetationWorker.js is now unreachable too.
 
 /**
  * Cancel all pending work for the given tile. Workers that are mid-computation

@@ -1308,29 +1308,4 @@ export async function materializeVegetationMeshes(workerResult, yieldFn, pools =
 //  GRASS MATERIALIZER
 // =============================================================================
 
-/**
- * Takes grass instance data from a worker and wraps it into an InstancedMesh
- * using caller-provided geometry and material.
- *
- * @param {object} workerResult - Output from grass worker
- * @param {THREE.BufferGeometry} grassGeometry - Shared grass blade geometry
- * @param {THREE.Material} grassMaterial - Shared grass material
- * @returns {THREE.InstancedMesh|null}
- */
-export function materializeGrassMeshes(workerResult, grassGeometry, grassMaterial) {
-  if (!workerResult.grassInstances || !workerResult.grassInstances.count) return null;
-
-  const { matrices, colors, count } = workerResult.grassInstances;
-  const mesh = new THREE.InstancedMesh(grassGeometry, grassMaterial, count);
-  mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
-    matrices instanceof Float32Array ? matrices : new Float32Array(matrices), 16
-  );
-  if (colors) {
-    mesh.instanceColor = new THREE.InstancedBufferAttribute(
-      colors instanceof Float32Array ? colors : new Float32Array(colors), 3
-    );
-  }
-  mesh.count = count;
-  mesh.frustumCulled = true;
-  return mesh;
-}
+// v3 P1-17: materializeGrassMeshes() removed — unreachable since the grass block was deleted.

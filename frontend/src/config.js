@@ -54,6 +54,16 @@ export const CONFIG = {
   ENABLE_SHADOWS: true,
   SHADOW_MAP_SIZE: 1024,
 
+  /** Procedural roadside/tree-base bush tufts. OFF — they scattered clumps over streets and
+   *  crosswalks. ⚠ v3 P1-17: this gates the LIVE procedural path (vegetationRenderer's
+   *  getBushGeometry + meshMaterializer's bush branch), NOT the deleted GLB bushRenderer.js.
+   *  meshMaterializer tests `!== false`, so DELETING this flag switches bushes back ON. */
+  ENABLE_BUSHES: false,
+  /** Grass instances per tile. 0 = off. ⚠ v3 P1-17: the RENDER path is deleted, but
+   *  vegetationWorker reads `config.MAX_GRASS_PER_TILE ?? 50000` — so deleting this flag would
+   *  make the worker collect 50k grass points per tile. Keep it pinned at 0. */
+  MAX_GRASS_PER_TILE: 0,
+
   /** Max tree instances per tile. Halved (was 3000) — 128k trees / 4M tris was a big FPS drain. */
   MAX_TREES_PER_TILE: 1500,
   /** Distance (m) within which all tree instances are shown at full density. */
@@ -70,11 +80,6 @@ export const CONFIG = {
   BUILDING_LOD_START: 200,
   /** Distance (m) beyond which even LOD buildings are hidden. */
   BUILDING_LOD_END: 380,
-  MAX_GRASS_PER_TILE: 0,
-  /** Distance (m) within which grass is shown. */
-  GRASS_MAX_DISTANCE: 60,
-  /** Roadside/tree-base bush tufts. OFF — they scattered grass clumps all over streets & crosswalks. */
-  ENABLE_BUSHES: false,
   /** Shop name boards on building fronts (random Spanish/English names, atlas-instanced). */
   ENABLE_SHOP_SIGNS: true,
   /** Projecting fabric awnings (toldos) over ground-floor shopfronts — one merged mesh per tile. */
@@ -152,7 +157,6 @@ export const CONFIG = {
   ENABLE_STREETLIGHTS: true, // procedural poles + lamp heads along road edges; glow at night (bloom)
   MAX_DYNAMIC_STREETLIGHTS: 8,
   ENABLE_ROAD_SHOULDERS: false,
-  ENABLE_ZONE_VEGETATION: false,
   ENABLE_WATER: false,
   /**
    * When false (default), natural=coastline water features are NOT rendered as

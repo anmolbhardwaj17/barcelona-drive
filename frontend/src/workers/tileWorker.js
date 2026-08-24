@@ -7,7 +7,7 @@
  */
 
 import { processBuildingsInWorker } from './buildingWorker.js';
-import { processVegetationInWorker, processGrassInWorker } from './vegetationWorker.js';
+import { processVegetationInWorker } from './vegetationWorker.js';
 
 // ---------------------------------------------------------------------------
 // Cancellation tracking
@@ -47,10 +47,6 @@ self.onmessage = function (event) {
 
       case 'PROCESS_VEGETATION':
         result = processVegetationInWorker(data, config);
-        break;
-
-      case 'PROCESS_GRASS':
-        result = processGrassInWorker(data, config);
         break;
 
       default:
