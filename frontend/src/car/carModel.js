@@ -152,7 +152,10 @@ export async function createCarModel(scene) {
       });
       const skyMesh = new THREE.Mesh(skyGeo, skyMat);
       envScene.add(skyMesh);
-      const envMap = pmremGen.fromScene(envScene, 0, 0.1, 200).texture;
+      // v3 P0-18: size 128 instead of three's default 256. The env scene is a two-colour
+      // smoothstep gradient built from SKY_HORIZON/SKY_ZENITH (see gotcha G-44) — there is no
+      // high-frequency detail for the extra mip level to carry. 6.0 MiB → 1.5 MiB.
+      const envMap = pmremGen.fromScene(envScene, 0, 0.1, 200, { size: 128 }).texture;
       pmremGen.dispose();
       skyGeo.dispose();
       skyMat.dispose();

@@ -838,12 +838,9 @@ export function processBuildingsInWorker(data, config) {
   let balconySlabVerts = 0;
   let balconyRailVerts = 0;
 
-  const awningGeoms = [];
   const acUnitGeoms = [];
   const acFanGeoms = [];
   const parapetGeoms = [];
-  const pillarGeoms = [];
-  const signboardGeoms = [];
   const barExtrudeGeoms = [];
   let commercialVerts = 0;
 
@@ -1340,53 +1337,10 @@ export function processBuildingsInWorker(data, config) {
 
         const edgeHash = deterministicIndex(b.id * 31 + ei * 13);
 
-        // Ground-floor pillars
-        if (edgeLen >= 5 && numFloors >= 2) {
-          const PILLAR_SPACING = 3.0;
-          const PILLAR_W = 0.3;
-          const PILLAR_D = 0.3;
-          const PILLAR_H = floorH - 0.1;
-          const numPillars = Math.max(2, Math.floor(edgeLen / PILLAR_SPACING));
-          for (let pi = 0; pi <= numPillars; pi++) {
-            if (commercialVerts >= COMMERCIAL_VERT_CAP) break;
-            const t = pi / numPillars;
-            const px = p0.x + edx * t;
-            const pz = p0.y + edz * t;
-            const ox = px + nx * 0.05, oz = pz + nz * 0.05;
-            pillarGeoms.push(makeBoxGeom(
-              ox - ex * PILLAR_W / 2, oz - ez * PILLAR_W / 2,
-              ox + ex * PILLAR_W / 2, oz + ez * PILLAR_W / 2,
-              nx, nz, PILLAR_D, baseY, PILLAR_H
-            ));
-            commercialVerts += 8;
-          }
-        }
-
-        // Shop awnings
-        if ((edgeHash % 100) < 65 && edgeLen >= 3) {
-          const AWNING_DEPTH = 1.2;
-          const AWNING_THICK = 0.06;
-          const awningY = baseY + floorH - 0.3;
-          awningGeoms.push(makeBoxGeom(
-            p0.x + edx * 0.05, p0.y + edz * 0.05,
-            p0.x + edx * 0.95, p0.y + edz * 0.95,
-            nx, nz, AWNING_DEPTH, awningY, AWNING_THICK
-          ));
-          commercialVerts += 8;
-        }
-
-        // Signboard panel
-        if ((edgeHash % 100) < 50 && edgeLen >= 4) {
-          const SIGN_H = 0.6;
-          const SIGN_D = 0.05;
-          const signY = baseY + floorH + 0.1;
-          signboardGeoms.push(makeBoxGeom(
-            p0.x + edx * 0.08, p0.y + edz * 0.08,
-            p0.x + edx * 0.92, p0.y + edz * 0.92,
-            nx, nz, SIGN_D, signY, SIGN_H
-          ));
-          commercialVerts += 8;
-        }
+        // v3 P0-16: Delhi-era ground-floor pillars / shop awnings / signboard panels DELETED.
+        // They intersected the Barcelona shopfront, awning and shop-sign renderers on exactly the
+        // arterial buildings the player drives past. The Barcelona versions live in
+        // map/shopfrontRenderer.js, map/awningRenderer.js and map/shopSignRenderer.js.
 
         // AC outdoor units ── Barcelona: removed (Delhi facade clutter).
         if (ENABLE_DELHI_DETAILS && edgeLen >= 3) {
@@ -2028,12 +1982,9 @@ export function processBuildingsInWorker(data, config) {
   mergeAndPush(balconyRailGeoms, 'balconyRail', 'balconyRail');
   mergeAndPush(boundaryWallGeoms, 'boundaryWall', 'boundaryWall');
   mergeAndPush(gateGeoms, 'gate', 'gate');
-  mergeAndPush(awningGeoms, 'awning', 'awning');
   mergeAndPush(acUnitGeoms, 'acUnit', 'acUnit');
   mergeAndPush(acFanGeoms, 'acFan', 'acFan');
   mergeAndPush(parapetGeoms, 'parapet', 'parapet');
-  mergeAndPush(pillarGeoms, 'pillar', 'pillar');
-  mergeAndPush(signboardGeoms, 'signboard', 'signboard');
   mergeAndPush(barExtrudeGeoms, 'barExtrude', 'barExtrude');
   mergeAndPush(shikharaGeoms, 'shikhara', 'shikhara');
   mergeAndPush(templeBaseGeoms, 'templeBase', 'templeBase');
