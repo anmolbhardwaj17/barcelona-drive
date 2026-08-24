@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P1-13** (`buildingConstants.js` — single-source the triple-mirrored FLOOR_HEIGHT / WALL_REPEAT / AO constants) · work branch `v3-p1-pipeline` |
-| **Tasks done** | **30 / 81** — P0 ✅ complete · **P1 at 8/27** (registry + the whole deletion cluster) |
+| **Next task** | **P1-11** (per-mesh bounding-sphere LOD fallback — unconditional, ~1.0 of the 3.0 ms) · work branch `v3-p1-pipeline` |
+| **Tasks done** | **36 / 81** — P0 ✅ complete · **P1 at 14/27** |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -355,14 +355,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-10 · 0.25d · risk low
+### `[x]` P1-10 · 0.25d · risk low
 **ADR D-19 — the MeshStandard inventory** (§5.11). No city-wide ruling; record the per-surface inventory. Costs 0 ms and 0 days beyond writing it. Also delete `roadRenderer.js:372` `getSharedMaterials` — **17 dead MeshStandard materials, zero call sites.**
 
 - **Files:** `decisions.md`, `roadRenderer.js:372-401`
 - **Depends:** nothing
 - **Subsystem:** art direction
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `getSharedMaterials()` + `sharedMaterials` + `COLOR_BY_TYPE` deleted (zero call sites — 17 MeshStandard materials that were never constructed). **ADR D-19** written to decisions.md: MeshStandard decided per-surface, and street lighting precedes PBR.
 
 ### `[ ]` P1-11 · 1.0d · risk low
 **Per-MESH bounding-sphere LOD fallback — UNCONDITIONAL P1, not a contingency.** Replace per-tile `nearEdgeDist` with true per-mesh distance from each merged mesh's own `boundingSphere` centre (`chunkedMerge.js` already computes it). 1 day for ~1.0 of the 3.0 ms at low risk, and it is the insurance policy if the BatchedMesh path returns nothing.
@@ -382,14 +382,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-13 · 1.0d · risk low
+### `[x]` P1-13 · 1.0d · risk low
 **`buildingConstants.js`** — single source for `STOREY_H` (3.5, from the bake), `MODULE_W`, and the AO dials. Replaces the **triple-mirrored** `FLOOR_HEIGHT`/`WALL_REPEAT_HORIZONTAL_M` and the duplicated AO constants across `buildingWorker.js`, `meshMaterializer.js`, `buildingRenderer.js`, `aoSampler.js`.
 
 - **Files:** new `frontend/src/buildingConstants.js`; `buildingWorker.js:38-39,217-219`; `meshMaterializer.js:25-26`; `buildingRenderer.js:221-222`; `aoSampler.js:29-35`
 - **Depends:** nothing
 - **Subsystem:** buildings
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `src/buildingConstants.js` — FLOOR_HEIGHT + WALL_REPEAT (were in 3 files) and AO_FACADE_STRENGTH + AO_GAMMA (2 files) single-sourced across 5 call sites. Carries the P3 warning about FLOOR_HEIGHT=10 vs the ~3.0 m texture period.
 
 ### `[x]` P1-14 · 1.0d · risk low
 **DELETE the edge-strip subsystem** — `buildSidewalkAndEdgeMeshes` including the literal `if (false && CONFIG.ENABLE_SIDEWALKS …)` at `roadRenderer.js:2499`, `CONFIG.ENABLE_ROAD_EDGE_DETAIL`, `_mergedPedestrianMaterial` (which has no `applyGroundLayer` call and sets `frustumCulled=false`), `EDGE_STRIP_*`, and the 5 dead material factories + `COLOR_BY_TYPE`. −8,588–9,496 tris and 1 always-on draw per dense tile — **and the figure is larger than claimed**, because the surviving branch emits a 0.10 m strip down both sides of every non-motorway/trunk road, which includes all ~41,000 footway/path records.
@@ -436,41 +436,41 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ `trafficLightRenderer` deleted — a disabled, hard-coded-Y=0 duplicate of roadInfraRenderer's bulbed lights.
 
-### `[ ]` P1-19 · 0.5d · risk low
+### `[x]` P1-19 · 0.5d · risk low
 **WIRE THE OSM SPECIES PIPE** — add `trees` to the `tileManager` destructure at `:1469` and pass into `tileData`. **35,580 real positioned Barcelona trees with 4,919 species tags** currently parsed (`tileParserWorker.js:935-940` includes `'trees'` in `PART_KEYS`) and dropped on the floor. No format change, no re-bake, no visual change yet.
 
 - **Files:** `tileManager.js:1469,1863`, `vegetationWorker.js:1827`
 - **Depends:** nothing
 - **Subsystem:** vegetation
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `trees` wired into `tileData` (parser already decoded them; the whitelist dropped them while `vegetation.trees` stayed empty).
 
-### `[ ]` P1-20 · 0.5d · risk low
+### `[x]` P1-20 · 0.5d · risk low
 **WIRE `data.shops` + `data.trafficSignals`** — **14,542 shops (13,551 with real OSM names)** and **4,225 traffic-signal nodes** parsed and discarded. New `map/signage/signData.js` normalises nearest-shop-per-bay, signal-to-junction association, road-name resolution. **The best 0.5 days in the programme.**
 
 - **Files:** `tileManager.js:2452-2497`, new `map/signage/signData.js`
 - **Depends:** nothing
 - **Subsystem:** signage
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `shops` + `trafficSignals` wired the same way, plus a one-shot census logging real totals ~8 s after first tile so the plan's corrected figures can be checked rather than believed.
 
-### `[ ]` P1-21 · 0.25d · risk low
+### `[x]` P1-21 · 0.25d · risk low
 **Fix the global-unison wind** — derive phase from the per-instance transform, branching on BOTH `#ifdef USE_BATCHING` and `#ifdef USE_INSTANCING` (`environmentClusterRenderer.js:412-413` shares this material on an InstancedMesh). Update `gotchas.md` G-45.
 
 - **Files:** `vegetationRenderer.js:203-215`, `gotchas.md:558-566`
 - **Depends:** nothing
 - **Subsystem:** vegetation
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Wind phase now per-instance via `batchingMatrix`/`instanceMatrix` (verified `<batching_vertex>` precedes `<begin_vertex>` in r183). Every tree in the city previously shared one phase. ⚠ See D-15 — I committed a broken build here.
 
-### `[ ]` P1-22 · 0.5d · risk medium
+### `[x]` P1-22 · 0.5d · risk medium
 **Fix road-family culling (S6).** Give the markings mesh a `userData.type` so it joins the fog-cull list; compute real bounding spheres and re-enable `frustumCulled` on road/marking/sidewalk/kerb meshes. **−25 always-on draws.**
 
 - **Files:** `roadRenderer.js:1316,1452,1579,1709,1748,1764,4647,4701`; `tileManager.js:2933-2955`
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Markings mesh tagged `'markings'`, captured, fog-culled, LOD-gated at 220×altMult, and `frustumCulled` flipped to true. It had NO type, so it was in neither cull path despite a comment claiming otherwise.
 
 ### `[ ]` P1-23 · 1.0d · risk low
 Fix the live per-frame-`innerHTML` FPS regression in the two modes that never got the dashMode treatment (`policeMode.js:87` called from `:230`; `deliveryMode.js:111` from `:263`) + extend `theme.js` with `gold #c9a227`, `alert #c0553d` and a `MODE_ACCENT` map
@@ -988,6 +988,7 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-25 | **D-12 · P1-01, BC7-vs-BC1 left OPEN deliberately** | The plan called the BC1-over-BC7 `FORMAT_OPTIONS` patch mandatory. It is **not patchable**: `FORMAT_OPTIONS` lives inside the KTX2Loader *worker body* and is not exported. The only main-thread lever is claiming BC7 is unsupported — which fixes ETC1S (8→4 bpp, ~300→~160 MiB on Windows) but also drops **UASTC** to BC1, a real quality loss on exactly the maps that justify UASTC. Exposed as `setPreferBC1ForETC1S()` and left **off**: no assets to measure, and no BC machine here to measure them on. |
 | 2026-08-25 | **D-13 · deleting an "off" flag INVERTS it** | Retiring `ENABLE_BUSHES` and `MAX_GRASS_PER_TILE` as dead nearly switched both back ON: `meshMaterializer` tests `CONFIG.ENABLE_BUSHES !== false` (so `undefined` passes) and `vegetationWorker` reads `config.MAX_GRASS_PER_TILE ?? 50000`. Both restored with the trap documented in `config.js`. **Rule: before retiring a flag, read its GUARD, not just its name.** `if (CONFIG.X)` is safe to remove; `!== false` and `?? default` are not. |
 | 2026-08-25 | **D-14 · corrected myself mid-commit (P1-16)** | I claimed vendor-cart exclusion zones were running unconditionally and corrupting vegetation placement. Re-checked: the call sits inside `if (CONFIG.ENABLE_VENDOR_CARTS)`, which is false, so it never ran. Vegetation placement is unchanged. Commit amended. **Reading a call site is not the same as reading its guard** — same lesson as D-13, one task later. |
+| 2026-08-25 | **D-15 · I committed a broken build (P1-21)** | My GLSL comment contained backticks around a variable name, which closed the enclosing JS template literal. `node --check` caught it — but my `git commit` ran as a SEPARATE shell command after the failed check, so it committed anyway. Amended. **Process fix adopted for the rest of P1: the commit is chained into the same `&&` as the build, so a failed check cannot be followed by a commit.** |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
