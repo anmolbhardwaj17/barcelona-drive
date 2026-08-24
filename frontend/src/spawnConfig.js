@@ -23,12 +23,14 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
-  // Passeig Marítim beside the BIGGEST baked beach polygon (tile 33167/24478 — Barceloneta/
-  // Somorrostro, verified in tile headers) — checking the terrain-painted coast (2026-07-11).
-  // (Was 41.3786/2.1925 — one tile SOUTH of the beach data, which is why no sand was visible;
-  // before that central Eixample 41.3925/2.1650; Diagonal 41.3948/2.1602; Sagrada 41.4036/2.1744.)
-  lat: 41.3838,
-  lon: 2.1930,
+  // v3 (2026-08-24): central EIXAMPLE — the Cerdà grid, dense chamfered blocks, continuous street
+  // walls. This is deliberately the same place as the v3 performance benchmark (docs/context/
+  // v3-execution-tracker.md P0-05): the densest thing the renderer has to survive, so both the
+  // everyday drive and the numbers we gate on describe the same worst case.
+  // (Previous: Passeig Marítim 41.3838/2.1930 beside the biggest baked beach polygon, for the
+  // terrain-painted coast check; before that Diagonal 41.3948/2.1602; Sagrada 41.4036/2.1744.)
+  lat: 41.3920,
+  lon: 2.1650,
   heading: null,
 };
 

@@ -79,6 +79,7 @@ import { toNormalizedRoadY } from './roadElevation.js';
 import { setOriginOffset, getOriginOffset } from './originOffset.js';
 import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
+import { isBenchMode, startBenchRoute } from './bench/benchRoute.js';
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -174,6 +175,18 @@ composer.addPass(new OutputPass());
 
 // Adaptive resolution — auto-drops pixel ratio when the GPU is behind, restores it when there's
 // headroom. Owns renderer/composer pixel-ratio + sizing from here on (keeps framerate smooth).
+// ── v3 P0-04: benchmark mode (?bench) ──────────────────────────────────────────────────────
+// Pin everything that would otherwise silently change what we are measuring. adaptiveResolution
+// trades resolution for frame time, so an unpinned run measures the CONTROLLER, not the frame.
+const _BENCH = isBenchMode();
+let _benchRoute = null;
+let _programsAtLoaderHide = null;
+let _timeToDriveMs = null;
+if (_BENCH) {
+  renderer.setPixelRatio(1.0);
+  console.warn('[bench] pixel ratio pinned to 1.0; adaptive resolution disabled; night forced');
+}
+
 const adaptiveRes = createAdaptiveResolution(renderer, composer, bloomPass, {
   width: container.clientWidth || window.innerWidth,
   height: container.clientHeight || window.innerHeight,
@@ -621,7 +634,15 @@ spawnTileReady.finally(() => {
     // (animate() already started earlier, before this async block — see the render-loop note above.)
     // Hold the loading screen until the spawn-area tiles are actually built (not just the first frame),
     // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.
-    const _hideLoader = () => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) { l.classList.add('hide'); setTimeout(() => l.remove(), 700); } };
+    const _hideLoader = () => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) {
+      // v3 P0-04: time-to-drive — navigation start to the moment the world is actually playable.
+      // Binding constraint 1 (it stays a browser game) has never had a number; this is it.
+      if (_timeToDriveMs == null) {
+        _timeToDriveMs = Math.round(performance.now());
+        _programsAtLoaderHide = renderer.info.programs?.length ?? null;
+        console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
+      }
+      l.classList.add('hide'); setTimeout(() => l.remove(), 700); } };
     let _polls = 0;
     const _pollLoad = setInterval(() => {
       _polls++;
@@ -1054,7 +1075,25 @@ function animate(time = 0) {
   // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is
   // cleared before the next frame; we don't set preserveDrawingBuffer, so reading here is the reliable path).
   if (_captureRequested) { _captureRequested = false; captureScreenshot(); }
-  adaptiveRes.tick(frameDt);
+  if (!_BENCH) adaptiveRes.tick(frameDt);   // v3 P0-04: pinned during a benchmark run
+
+  // v3 P0-04: benchmark route — starts once the world is playable, drives itself, saves the JSON.
+  if (_BENCH && _timeToDriveMs != null && carDriver) {
+    if (!_benchRoute) {
+      if (envToggle && !envToggle.isNight()) envToggle.element.click();   // force NIGHT: the binding regime
+      _benchRoute = startBenchRoute({
+        latLonToWorld,
+        getCarPos: () => { const lp = carDriver.getLocalPosition(); const o = getOriginOffset();
+                           return { wx: -lp.lx + o.x, wz: lp.lz + o.z }; },
+        getSpeedKmh: () => Math.abs(carDriver.getSpeedKmh() || 0),
+        getHeadingDeg: () => carDriver.getHeadingDeg(),
+        renderer, gpuTimer,
+        programsAtLoaderHide: _programsAtLoaderHide,
+        timeToDriveMs: _timeToDriveMs,
+      });
+    }
+    _benchRoute.tick(frameDt * 1000);
+  }
   performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale(), gpuMs: gpuTimer.getMs(), cpuTimer });
 }
 
