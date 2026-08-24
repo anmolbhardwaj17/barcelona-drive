@@ -67,6 +67,7 @@ export function createSpeedDisplay() {
   let _gearShiftAnim = 0;  // 0 = idle, 0→1 = animating
   let _gearShiftDir = 1;   // 1 = upshift, -1 = downshift
   let _gearOld = 1;
+  let _lastDrawnSpeed = -1, _lastDrawnRpm = -1, _lastDrawnGear = 0;  // v3 P0-15 dirty check
   let _lastFrame = performance.now();
   let _rafId = null;
 
@@ -90,6 +91,20 @@ export function createSpeedDisplay() {
     if (_gearShiftAnim > 0) {
       _gearShiftAnim = Math.max(0, _gearShiftAnim - GEAR_ANIM_SPEED * dt);
     }
+
+    // v3 P0-15: only repaint when something actually moved. This redrew a 436x436 retina canvas
+    // EVERY frame regardless — including on the title screen, in fly mode and behind the ESC menu,
+    // where the gauge is not even visible. The smoothing above still runs every frame so the
+    // needle converges; we just skip the paint.
+    if (canvas.style.display === 'none' || canvas.offsetParent === null) return;
+    const moved = Math.abs(_displaySpeed - _lastDrawnSpeed) > 0.05
+               || Math.abs(_displayRpm - _lastDrawnRpm) > 0.005
+               || _currentGear !== _lastDrawnGear
+               || _gearShiftAnim > 0;
+    if (!moved) return;
+    _lastDrawnSpeed = _displaySpeed;
+    _lastDrawnRpm = _displayRpm;
+    _lastDrawnGear = _currentGear;
 
     _draw(_displaySpeed, _currentGear, _displayRpm);
   }

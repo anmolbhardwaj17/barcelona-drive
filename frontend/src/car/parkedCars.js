@@ -58,6 +58,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
   // Glowing head/tail lights (so parked cars read at night). Two shared InstancedMeshes; each parked
   // car contributes 2 white front + 2 red rear quads, transformed by the car matrix.
   const LIGHT_CAP = 1400;
+  const BLOB_SIZE_X = 2.1, BLOB_SIZE_Z = 4.4;   // v3 P0-15: a shade wider/longer than a Kenney car body
   let tailIM = null, headIM = null, lightLocals = [];
   let tailCount = 0, headCount = 0;
   const _lm = new THREE.Matrix4();
@@ -94,6 +95,13 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3(), _col = new THREE.Color();
   const counts = [];
 
+  // v3 P0-15: cached blob-shadow transforms. Parked cars are castShadow:false (the shadow pass
+  // tanked FPS with 45 instanced casters), so without a contact blob they read as floating. They
+  // cannot push blobs from put() directly: rebuild() only runs when the player has moved
+  // REBUILD_DIST, while contactShadows.begin() zeroes the buffer EVERY frame — so the blobs are
+  // cached here at placement time and re-pushed each frame by drawShadows().
+  const _blobs = [];
+
   function put(variant, px, py, pz, yaw, colorHex) {
     if (counts[variant] >= CAPACITY_PER) return;
     _q.setFromAxisAngle(YAXIS, yaw);
@@ -101,6 +109,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     _m.compose(_p, _q, _s);
     const idx = counts[variant]++;
     meshes[variant].setMatrixAt(idx, _m);
+    _blobs.push(px, py, pz, yaw);   // v3 P0-15 — flat quads: x, y, z, yaw
     // No per-car tint: the Kenney atlas already colours the body. Instance colour stays white so the texture
     // shows through instead of being multiplied into a muddy over-tint. (colorHex kept for signature compat.)
     meshes[variant].setColorAt(idx, _col.setHex(0xffffff));
@@ -138,6 +147,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     const origin = getOrigin();
     for (let v = 0; v < nVar; v++) counts[v] = 0;
     tailCount = 0; headCount = 0;
+    _blobs.length = 0;   // v3 P0-15: rebuilt in lockstep with the instance buffers
     const rangeSq = RANGE * RANGE;
 
     // Player position in world frame (roads are stored world-frame). Computed once, not per segment.
@@ -223,5 +233,18 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     for (const im of [tailIM, headIM]) { if (im) { scene.remove(im); im.geometry.dispose(); im.material.dispose?.(); } }
   }
 
-  return { update, setEnabled, getCount, dispose };
+  /**
+   * v3 P0-15: push a contact-shadow blob for every placed parked car. MUST be called every frame,
+   * between contactShadows.begin() and .commit() — that buffer is zeroed each frame while our
+   * placement only refreshes on REBUILD_DIST. Cheap: a flat array walk, no allocation.
+   * The shared pool has capacity 700 against roughly 200 parked cars, so it fits alongside traffic.
+   */
+  function drawShadows(cs) {
+    if (!_enabled || !cs) return;
+    for (let i = 0; i < _blobs.length; i += 4) {
+      cs.add(_blobs[i], _blobs[i + 1], _blobs[i + 2], BLOB_SIZE_X, BLOB_SIZE_Z, _blobs[i + 3]);
+    }
+  }
+
+  return { update, setEnabled, getCount, dispose, drawShadows };
 }

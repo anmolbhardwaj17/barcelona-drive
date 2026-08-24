@@ -879,7 +879,7 @@ function animate(time = 0) {
     if (contactShadows) contactShadows.begin();
     if (trafficSystem) trafficSystem.update(lp.lx, lp.lz, frameDt, speedKmh);
     cpuTimer.lap('traffic');
-    if (parkedCars) parkedCars.update(lp.lx, lp.lz);
+    if (parkedCars) { parkedCars.update(lp.lx, lp.lz); parkedCars.drawShadows(contactShadows); }
     cpuTimer.lap('parked');
     if (pedestrians) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
