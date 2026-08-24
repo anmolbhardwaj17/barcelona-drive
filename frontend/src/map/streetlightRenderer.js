@@ -6,6 +6,7 @@
  * coords (used by the dynamic PointLight pool in main.js).
  */
 import * as THREE from 'three';
+import { getLightPoolGeometry, makeLightPoolMaterial, POOL_SIZE } from './lightPoolDecal.js';   // v3 P1-24
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
@@ -21,7 +22,6 @@ const EDGE_OFFSET    = 0.6;   // pole close to curb
 const JUNCTION_SKIP  = 10;
 const LAYER_HEIGHT_STEP = 6;
 
-const POOL_SIZE      = 16;    // m diameter — falloff room without an 18 m plane that fights slopes
 const POOL_Y_OFFSET  = 0.22;  // above the sidewalk top (base+0.19: curb 0.12 + zfight 0.02 + lift 0.05)
                               // but no longer tyre-height: 0.38 predated the road double-lift fix
                               // (2026-07-16) and visibly hovered ~26cm over the road at night. The pool
@@ -209,25 +209,10 @@ function getSharedResources() {
   }
 
   // --- Ground pool decal ----------------------------------------------------
-  if (!sharedPoolGeom) {
-    // Pre-rotate plane to lie flat (XZ) so instance matrices only need translation.
-    sharedPoolGeom = new THREE.PlaneGeometry(POOL_SIZE, POOL_SIZE);
-    sharedPoolGeom.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
-    sharedPoolGeom.userData.sharedGeometry = true;
-  }
-  if (!sharedPoolMat) {
-    sharedPoolMat = new THREE.MeshBasicMaterial({
-      map: createPoolTexture(),
-      transparent: true,
-      opacity: _poolOpacity,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      // Light ADDS onto the surface it hits (real photometric behaviour) — normal alpha blending
-      // mixed the glow toward grey at the edges and read as a translucent sticker.
-      blending: THREE.AdditiveBlending,
-    });
-    sharedPoolMat.userData.sharedMaterial = true;
-  }
+  // v3 P1-24: geometry + material now come from lightPoolDecal.js. P2 deletes the streetlamp
+  // INSTANCES below, not this mechanism — headlight spill and hero-building glow still want it.
+  if (!sharedPoolGeom) sharedPoolGeom = getLightPoolGeometry();
+  if (!sharedPoolMat) sharedPoolMat = makeLightPoolMaterial(createPoolTexture(), _poolOpacity);
 
   // --- Pole shadow decal (fake ground shadow) --------------------------------
   if (!sharedPoleShadowGeom) {
