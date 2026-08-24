@@ -2792,6 +2792,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         hideAll(entry.vendorCartMeshes);
         hideAll(entry.decalMeshes);
         hideAll(entry.clusterMeshes);
+        // v3 P0-17: street dressing was absent from BOTH this block and the LOD loop below,
+        // so shopfronts/awnings/signs/terraces rendered at every distance in every loaded tile.
+        hideAll(entry.shopfrontMeshes);
+        hideAll(entry.cafeTerraceMeshes);
+        if (entry.shopSignMesh) entry.shopSignMesh.visible = false;
+        if (entry.awningMesh)   entry.awningMesh.visible   = false;
         if (entry.terrainMesh) entry.terrainMesh.visible = false;
         if (entry.lodBuildingMesh) entry.lodBuildingMesh.visible = false;
         if (entry.propMesh) entry.propMesh.visible = false;
@@ -2977,6 +2983,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (entry.bcnCurbMesh)      entry.bcnCurbMesh.visible      = nearEdgeDist <= 200 * altMult;
       if (entry.bcnBikeLaneMesh)  entry.bcnBikeLaneMesh.visible  = nearEdgeDist <= 120 * altMult;
       if (entry.bcnBikePictoMesh) entry.bcnBikePictoMesh.visible = nearEdgeDist <= 50  * altMult;
+      // v3 P0-17: street dressing — ground-floor detail that is unreadable past ~140 m, but was
+      // rendering in EVERY loaded tile at EVERY distance (absent from this loop entirely).
+      // Altitude-aware like the Phase 3 meshes so drone/fly mode still sees it from above.
+      const dressDist = 140 * altMult;
+      if (entry.shopSignMesh)   entry.shopSignMesh.visible = nearEdgeDist <= dressDist;
+      if (entry.awningMesh)     entry.awningMesh.visible   = nearEdgeDist <= dressDist;
+      if (entry.shopfrontMeshes)   for (const m of entry.shopfrontMeshes)   m.visible = nearEdgeDist <= dressDist;
+      if (entry.cafeTerraceMeshes) for (const m of entry.cafeTerraceMeshes) m.visible = nearEdgeDist <= dressDist;
       if (entry.tramRailMesh)     entry.tramRailMesh.visible     = nearEdgeDist <= 200 * altMult;
       if (entry.noParkingMesh)    entry.noParkingMesh.visible    = nearEdgeDist <= 80  * altMult;
       if (entry.chamferSwMesh)    entry.chamferSwMesh.visible    = nearEdgeDist <= 80  * altMult;

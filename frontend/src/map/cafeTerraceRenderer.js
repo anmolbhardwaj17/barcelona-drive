@@ -198,7 +198,12 @@ export function buildCafeTerrace(buildings, opts = {}) {
   for (const mesh of [furniture, canopies]) {
     mesh.castShadow = false;
     mesh.receiveShadow = false;
-    mesh.frustumCulled = false;
+    // v3 P0-17: frustum culling was OFF because three never computes an InstancedMesh's bounds
+    // automatically ("must be called by your app" — InstancedMesh.js:122), so culling would have
+    // used the base geometry's tiny origin sphere and wrongly culled the whole tile's terraces.
+    // Computing it from the instance matrices makes culling correct, so it can be enabled.
+    mesh.computeBoundingSphere();
+    mesh.frustumCulled = true;
     // geometry + material are module-level singletons shared across all tiles — don't dispose on unload
     mesh.userData = { type: 'cafeTerrace', sharedGeometry: true, sharedMaterial: true };
   }
