@@ -150,17 +150,7 @@ function getSidewalkWidthForRoad(highwayType) {
   return w !== undefined ? w : DEFAULT_SIDEWALK_WIDTH;
 }
 
-/** Asphalt colors by highway type (hex) — unified dark asphalt. */
-const COLOR_BY_TYPE = {
-  motorway: 0x3A414B,
-  trunk: 0x3A414B,
-  primary: 0x3A414B,
-  secondary: 0x3A414B,
-  tertiary: 0x3A414B,
-  residential: 0x3A414B,
-  service: 0x3A414B,
-  unclassified: 0x3A414B,
-};
+// v3 P1-10: COLOR_BY_TYPE deleted with its only consumer.
 
 /** Road width (m) by highway type. Used when road.width is not set.
  *  Values scaled so one lane ≈ 4 m (fits car ~2 m wide with margin).
@@ -259,7 +249,6 @@ function getBikePictogramGeometry() {
 }
 
 let sharedRoadMaterial = null;
-let sharedMaterials = null;
 let sidewalkMaterial = null;
 let edgeStripMaterial = null;
 
@@ -399,19 +388,9 @@ function applyRoadVertexColors(geometry) {
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 }
 
-function getSharedMaterials() {
-  if (sharedMaterials) return sharedMaterials;
-  sharedMaterials = {};
-  for (const [type, hex] of Object.entries(COLOR_BY_TYPE)) {
-    sharedMaterials[type] = patchRoadNightWash(patchRoadAO(new THREE.MeshStandardMaterial({
-      color: hex,
-      roughness: 0.9,
-      metalness: 0,
-      flatShading: false,
-    })));
-  }
-  return sharedMaterials;
-}
+// v3 P1-10: getSharedMaterials() DELETED — zero call sites. It lazily built one
+// MeshStandardMaterial per highway type from COLOR_BY_TYPE (the flat per-type colour palette that
+// the vertex-colour path replaced), so nothing ever called it and none of those materials existed.
 
 /** Flat beige sidewalk material (stylized mode — no textures). */
 function getSidewalkMaterial() {

@@ -303,3 +303,35 @@ fallback silently takes over again. Treat them as a coupled pair.
 **Rationale:** Trimesh colliders were tried first. `RaycastVehicle` wheel rays have a `skipBackfaces` flag that, combined with near-flat geometry (road ribbons are very thin), caused rays to miss the trimesh entirely (rays hit the back face instead of the top face). Box shapes have well-defined normals and are not susceptible to near-flat Trimesh issues. Box shapes also build and update faster.
 
 **Trade-off:** Box colliders approximate the road surface; there is no per-vertex elevation matching. Bumpy road surfaces (e.g., on ramps) are represented as the average slope, not the exact profile. The car may experience slight "stepping" at segment boundaries on long ramps.
+
+---
+
+## D-19: MeshStandard is used per-surface, on evidence — no city-wide ruling (v3 P1-10)
+
+**Status:** accepted, 2026-08-25 · supersedes the v2 "MeshStandard is dropped" line.
+
+v2 concluded MeshStandard should be dropped wholesale, on the grounds that Lambert + scene IBL gets
+most of the benefit for a fraction of the fragment cost. That reasoning still holds **at night** —
+see below — but "drop it everywhere" turned out to be the wrong shape of decision, because the
+surfaces do not share a lighting situation.
+
+### The inventory
+
+| Surface | Material today | v3 ruling | Why |
+|---|---|---|---|
+| **Asphalt** | already `MeshStandardMaterial({roughness:0.9})` | **KEEP Standard** | The two headlight SpotLights are the only directional light on the road at night, and wet asphalt under them is the one ETS2 night image reachable without new lighting. The roughness term is already paid for. |
+| Facades | Lambert + vertex colour | **Lambert + normalMap** | `MeshLambertMaterial` takes `normalMap` and `aoMap` in r183. At a 35° sun a normal map gives ~3.16× N·L modulation on a horizontal surface and ~1.68× on a sun-facing wall — the payoff is in the DIFFUSE term, which Lambert has. |
+| Roofs / terrain / vegetation | Lambert | **Lambert** | Same reasoning; no specular story worth 3 ms. |
+| Glass / towers | Phong | **revisit in P4** | Specular is the whole point of glass; Phong may be enough. |
+
+### The load-bearing fact
+
+There are **zero punctual lights in the world at night** (`main.js:192` removed the dynamic
+PointLights; the rig is 1 ambient + 1 hemisphere + 1 directional + 2 car headlights). MeshStandard's
+advantage over Lambert *is* specular response to punctual lights plus IBL. With none present, a
+city-wide migration buys a slightly different ambient term for roughly +3 ms.
+
+**So the ordering is: street lighting first (P2 light grid), then re-open PBR — not the reverse.**
+Anything that says "migrate materials to get a better night" has the dependency backwards.
+
+Related: `v3-master-plan.md` §5.11, §7 · [[G-44]] (sky/ambient/fog/car-env are linked)
