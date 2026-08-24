@@ -169,7 +169,10 @@ export async function loadCitySceneTemplates(basePath = '/models/cars/', targetL
 
 // ── Real low-poly people (Poly Pizza rigged GLBs) for pedestrians ──
 // Rigged → baked to static walk-frames + idle (loadWalkFramesTemplate) so they can be instanced.
-export const PEOPLE = ['man', 'woman-casual', 'woman-dress', 'punk', 'adventurer'];
+// v3 P0-11: 'punk' (1.24 MB) and 'adventurer' (1.84 MB, a 10,198-tri fantasy RPG model with a
+// 1,748-tri backpack) removed — 3.1 MB of page weight for two of five ped variants. The v3 plan
+// cuts the pedestrian art pass entirely and drops PED_CAP 168→60, so variety here is not the lever.
+export const PEOPLE = ['man', 'woman-casual', 'woman-dress'];
 
 function bakePosedMesh(mesh) {
   const geo = mesh.geometry;

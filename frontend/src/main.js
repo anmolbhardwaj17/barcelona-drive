@@ -564,7 +564,7 @@ spawnTileReady.finally(() => {
           'box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;white-space:nowrap;';
         recoverHint.innerHTML = 'Flipped over — press <b style="font-family:monospace;background:rgba(255,255,255,.22);padding:1px 7px;border-radius:5px;letter-spacing:0">R</b> to recover';
         document.body.appendChild(recoverHint);
-        // Subtle controls hint, bottom-centre — thin uppercase Futura, wide tracking (art-of-rally caption).
+        // Subtle controls hint, bottom-centre — thin uppercase, wide tracking (art-of-rally caption).
         const controlsStrip = document.createElement('div');
         controlsStrip.id = 'controls-strip';
         controlsStrip.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:900;' +
