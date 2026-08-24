@@ -20,22 +20,22 @@
     <meta name="description" content="Drive an open-world 3D Barcelona built from real map data — free roam, taxi, deliveries and police chases. Runs in your browser." />
     <meta name="theme-color" content="#0b0e15" />
     <meta name="color-scheme" content="dark" />
-    <link rel="canonical" href="https://barcelona-drive.example/" />
+    <link rel="canonical" href="https://drive.anmolbhardwaj.com/" />
 
     <!-- ── Open Graph (Facebook / iMessage / Discord / LinkedIn) ── -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Barcelona Drive" />
     <meta property="og:title" content="Barcelona Drive — Open-World 3D Driving Game" />
     <meta property="og:description" content="Drive an open-world 3D Barcelona built from real map data — free roam, taxi, deliveries and police chases. In your browser." />
-    <meta property="og:image" content="https://barcelona-drive.example/title-bg.png" />
+    <meta property="og:image" content="https://drive.anmolbhardwaj.com/og-card.webp" />
     <meta property="og:image:alt" content="Barcelona Drive title screen" />
-    <meta property="og:url" content="https://barcelona-drive.example/" />
+    <meta property="og:url" content="https://drive.anmolbhardwaj.com/" />
 
     <!-- ── Twitter / X ── -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Barcelona Drive — Open-World 3D Driving Game" />
     <meta name="twitter:description" content="Drive an open-world 3D Barcelona built from real map data. In your browser." />
-    <meta name="twitter:image" content="https://barcelona-drive.example/title-bg.png" />
+    <meta name="twitter:image" content="https://drive.anmolbhardwaj.com/og-card.webp" />
 
     <!-- ── PWA / mobile web-app ── -->
     <link rel="manifest" href="/site.webmanifest" />
@@ -161,7 +161,7 @@
       #dd-title.reveal .logo    { opacity: 1; transform: none; transition: opacity .8s ease .15s, transform .8s ease .15s; }
       #dd-title.reveal .tagline { opacity: 1; transform: none; transition: opacity .8s ease .45s, transform .8s ease .45s; }
       #dd-title.reveal .play    { opacity: 1; transform: none; transition: opacity .8s ease .7s,  transform .8s ease .7s; }
-      /* Background image layer (swap /title-bg.png for the dark artwork when ready). Kept dim + slightly
+      /* Background image layer (title-bg.webp). Kept dim + slightly
          desaturated under a dark scrim so the screen reads dark-mode even with a bright source image. */
       #dd-title .bg {
         position: absolute; inset: -3%; z-index: 0; transform-origin: center;
@@ -259,11 +259,11 @@
       }
       /* Themed placeholder gradients — replaced automatically once the /modes images exist
          (image layer is painted ON TOP of the gradient). */
-      #dd-title .mode[data-mode="free"]     .art { background-image: url('/modes/mode-free.png'),     linear-gradient(168deg, #8fc4ec 0%, #4a7fae 52%, #2c4a6a 100%); }
-      #dd-title .mode[data-mode="dash"]     .art { background-image: url('/modes/mode-dash.png'),     linear-gradient(168deg, #e0785c 0%, #b4523a 52%, #6e2f22 100%); }
-      #dd-title .mode[data-mode="taxi"]     .art { background-image: url('/modes/mode-taxi.png'),     linear-gradient(168deg, #e6c25c 0%, #b48d3a 52%, #6e5322 100%); }
-      #dd-title .mode[data-mode="delivery"] .art { background-image: url('/modes/mode-delivery.png'), linear-gradient(168deg, #6cbf96 0%, #3f8a66 52%, #24513c 100%); }
-      #dd-title .mode[data-mode="police"]   .art { background-image: url('/modes/mode-police.png'),   linear-gradient(168deg, #7a8fc0 0%, #46578a 52%, #262f4e 100%); }
+      #dd-title .mode[data-mode="free"]     .art { background-image: url('/modes/mode-free.webp'),     linear-gradient(168deg, #8fc4ec 0%, #4a7fae 52%, #2c4a6a 100%); }
+      #dd-title .mode[data-mode="dash"]     .art { background-image: url('/modes/mode-dash.webp'),     linear-gradient(168deg, #e0785c 0%, #b4523a 52%, #6e2f22 100%); }
+      #dd-title .mode[data-mode="taxi"]     .art { background-image: url('/modes/mode-taxi.webp'),     linear-gradient(168deg, #e6c25c 0%, #b48d3a 52%, #6e5322 100%); }
+      #dd-title .mode[data-mode="delivery"] .art { background-image: url('/modes/mode-delivery.webp'), linear-gradient(168deg, #6cbf96 0%, #3f8a66 52%, #24513c 100%); }
+      #dd-title .mode[data-mode="police"]   .art { background-image: url('/modes/mode-police.webp'),   linear-gradient(168deg, #7a8fc0 0%, #46578a 52%, #262f4e 100%); }
       #dd-title .mode .label {
         position: absolute; right: 0; bottom: 0; z-index: 2;
         display: block; padding: 0 22px 20px 12px;
@@ -291,7 +291,7 @@
         <div class="cap">Loading Barcelona</div>
         <div class="bbar"><i></i></div>
       </div>
-      <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
+      <img class="logo" src="/logo-barcelona-drive.webp" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
       <div id="dd-modes" class="modes">
@@ -321,7 +321,7 @@
     </div>
 
     <div id="dd-loading">
-      <img class="logo" src="/logo-barcelona-drive.png" alt="Barcelona Drive" />
+      <img class="logo" src="/logo-barcelona-drive.webp" alt="Barcelona Drive" />
       <div class="bar"><i></i></div>
       <div class="factlabel">✦ Did you know?</div>
       <div class="fact" id="dd-fact"></div>
@@ -493,6 +493,20 @@
         setTimeout(function () { if (window._ddBootDone) window._ddBootDone(); }, 30000);
 
         // PLAY just reveals the mode picker; picking a mode drops into the game.
+        // v3 P0-10: warm the five mode panels on PLAY hover/touch so the picker does not stall on
+        // first paint — especially on mobile, where the request would otherwise start at click time.
+        var _preloaded = false;
+        function preloadModeArt() {
+          if (_preloaded) return; _preloaded = true;
+          ['free', 'dash', 'taxi', 'delivery', 'police'].forEach(function (m) {
+            var i = new Image(); i.src = '/modes/mode-' + m + '.webp';
+          });
+        }
+        if (play) {
+          play.addEventListener('mouseenter', preloadModeArt, { once: true });
+          play.addEventListener('touchstart', preloadModeArt, { once: true, passive: true });
+        }
+
         if (play) play.addEventListener('click', function () {
           play.style.display = 'none';
           if (tagline) tagline.textContent = 'Choose Your Mode';

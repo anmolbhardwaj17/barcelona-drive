@@ -13,7 +13,7 @@ const PRESETS = [
   { name: 'Port Olímpic', lat: 41.3875, lon: 2.1969 }, { name: 'Montjuïc', lat: 41.3641, lon: 2.1585 },
   { name: 'Gothic Quarter', lat: 41.3833, lon: 2.1777 }, { name: 'Camp Nou', lat: 41.3809, lon: 2.1228 },
 ];
-const LOGO_URL = '/logo-barcelona-drive.png';
+const LOGO_URL = '/logo-barcelona-drive.webp';
 
 import { uiSound } from './uiSound.js';
 import { audio } from '../audio/audioManager.js';
