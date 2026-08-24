@@ -17,6 +17,7 @@
  *   want local +X = (−tz, 0, tx) → same θ = atan2(−tx, −tz)
  */
 import * as THREE from 'three';
+import { applyGroundLayer } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
@@ -520,12 +521,9 @@ function getDrainResources() {
     sharedDrainGeom.userData.sharedGeometry = true;
   }
   if (!sharedDrainMat) {
-    sharedDrainMat = new THREE.MeshLambertMaterial({
+    sharedDrainMat = applyGroundLayer(new THREE.MeshLambertMaterial({
       color: 0x333333,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-    });
+    }), 'drain');   // v3 P0-14: was -2, LESS negative than road's -4 → lost to its own asphalt
     sharedDrainMat.userData.sharedMaterial = true;
   }
   return { geom: sharedDrainGeom, mat: sharedDrainMat };
@@ -547,13 +545,11 @@ function getArrowResources() {
     sharedArrowGeom.userData.sharedGeometry = true;
   }
   if (!sharedArrowMat) {
-    sharedArrowMat = new THREE.MeshBasicMaterial({
+    sharedArrowMat = applyGroundLayer(new THREE.MeshBasicMaterial({
       color: 0xffffff,
-      polygonOffset: true,
-      polygonOffsetFactor: -3,
-      polygonOffsetUnits: -3,
       side: THREE.DoubleSide,
-    });
+    }), 'stencil');   // v3 P0-14: was -3 — LESS negative than road's -4, so arrows lost the depth
+                      // test to their own asphalt. Matches the "arrows only sometimes visible" report.
     sharedArrowMat.userData.sharedMaterial = true;
   }
   return { geom: sharedArrowGeom, mat: sharedArrowMat };

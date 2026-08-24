@@ -25,6 +25,9 @@ export const GROUND_LAYERS = {
                        //  (conservative: promote above roads only after checking plaza-road overlaps)
   road:        -4,     // asphalt ribbons (per-type priority Y-bumps still break carriageway ties)
   gore:        -5,     // junction gore fills sit ON asphalt, under everything painted
+  drain:       -7,     // drain covers / utility plates — opaque, in the carriageway, ON asphalt but
+                       //  UNDER all paint. Was hand-rolled at -2 (v3 P0-14), i.e. LESS negative than
+                       //  road's -4, so covers lost the depth test to the asphalt they sit on.
   sidewalk:    -6,     // panot / plain sidewalk / chamfer fills
   bikeLane:    -8,     // green carril bici surface (on asphalt, under paint)
   tactile:     -10,    // tactile paving pads (on sidewalk)
@@ -38,6 +41,8 @@ export const GROUND_LAYERS = {
 export function applyGroundLayer(material, layerClass) {
   const bias = GROUND_LAYERS[layerClass];
   if (bias === undefined) throw new Error(`groundLayers: unknown class '${layerClass}'`);
+  (material.userData ||= {})._groundLayer = layerClass;   // v3 P0-14: lets assertGroundLayers() tell
+                                                          // a compliant material from a hand-rolled one
   if (bias === 0) {
     material.polygonOffset = false;
   } else {
@@ -46,4 +51,30 @@ export function applyGroundLayer(material, layerClass) {
     material.polygonOffsetUnits = bias;
   }
   return material;
+}
+
+/**
+ * v3 P0-14 — dev guard. Flags any mesh whose material sets polygonOffset without going through
+ * applyGroundLayer(). Warns rather than throws: a false positive should not be able to take the
+ * game down mid-drive, and console.warn is visible in this project's DevTools setup where
+ * console.log is filtered out.
+ *
+ * EXEMPT, per the RULES above: transparent decals with depthWrite:false (streetlight pools, hero
+ * spills, pole shadows) are ordered by renderOrder, not by depth bias.
+ */
+let _glWarned = 0;
+export function assertGroundLayers(mesh) {
+  if (!import.meta.env?.DEV || _glWarned > 12) return;
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  for (const m of mats) {
+    if (!m?.polygonOffset) continue;
+    if (m.userData?._groundLayer) continue;              // compliant
+    if (m.transparent && m.depthWrite === false) continue; // decal — ordered by renderOrder
+    _glWarned++;
+    console.warn(
+      `[groundLayers] hand-rolled polygonOffset (factor ${m.polygonOffsetFactor}) on ` +
+      `"${mesh.userData?.type || mesh.name || m.type}" — add a class to groundLayers.js and use ` +
+      `applyGroundLayer() instead. Ad-hoc biases collide and make stacking GPU luck.`
+    );
+  }
 }

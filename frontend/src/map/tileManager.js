@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { requestShadowRefresh } from '../shadowRefresh.js';
 import { isShared } from '../sharedMaterial.js';
+import { assertGroundLayers } from './groundLayers.js';
 import * as CANNON from 'cannon-es';
 import { worldToSlippyTile, tileCenterToWorld, worldToLatLon, latLonToWorld, TILE_ZOOM, getTileBboxLatLon } from '../projection.js';
 import { loadTile } from './mapLoader.js';
@@ -123,6 +124,7 @@ function safeSceneAdd(scene, mesh) {
   // for every tile mesh (45 call sites), so one line here covers all of them. The flag is idempotent
   // — setting it 45 times during one tile build costs nothing.
   requestShadowRefresh();
+  assertGroundLayers(mesh);   // v3 P0-14 dev guard (no-op in prod)
   if (mesh.isGroup) { scene.add(mesh); queueGroupWarmup(mesh); return true; }
   if (!mesh.userData?._nanChecked && meshHasNaN(mesh)) {   // materializer-scanned meshes skip the 2nd full pass
     mesh.geometry.dispose();
