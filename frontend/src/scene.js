@@ -536,6 +536,10 @@ export function createScene(container) {
   // PCFShadowMap: three r183 deprecated PCFSoftShadowMap and auto-swaps it to this on first render anyway —
   // set it directly so output is identical but without the console deprecation warning.
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  // v3 P0-03: the depth pass only re-renders on frames that ask for it (shadowRefresh.js).
+  // Previously autoUpdate was left at three's default TRUE while main.js:969 claimed it was false,
+  // so the shadow map re-rendered every frame and the throttled needsUpdate write was a no-op.
+  renderer.shadowMap.autoUpdate = false;
   const canvas = renderer.domElement;
   canvas.style.display = 'block';
   canvas.style.width = '100%';

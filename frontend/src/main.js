@@ -78,6 +78,7 @@ import { setWorldElevationOffset, getWorldElevationOffset } from './elevationOff
 import { toNormalizedRoadY } from './roadElevation.js';
 import { setOriginOffset, getOriginOffset } from './originOffset.js';
 import { CONFIG } from './config.js';
+import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import * as timeSystem from './timeSystem.js';
 import { createDayNight } from './dayNight.js';
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
@@ -737,6 +738,8 @@ let _cachedNearestRoad = null;
 const ROAD_QUERY_THRESHOLD_SQ = 10 * 10; // re-query every 10m of movement
 
 let _lastShadowX = -Infinity, _lastShadowZ = -Infinity;
+let _lastCarShadowX = -Infinity, _lastCarShadowZ = -Infinity;
+const CAR_SHADOW_THRESHOLD_SQ = 0.5 * 0.5; // hero car is the only dynamic caster — refresh its shadow every 0.5m
 const SHADOW_UPDATE_THRESHOLD_SQ = 12 * 12; // update shadow camera every 12m (was 5) — fewer full shadow re-renders (less per-frame Three.js churn + GPU); imperceptible for a 200m-radius directional shadow
 
 function animate(time = 0) {
@@ -966,7 +969,22 @@ function animate(time = 0) {
       dirLight.target.updateMatrixWorld();
       _lastShadowX = camera.position.x;
       _lastShadowZ = camera.position.z;
-      renderer.shadowMap.needsUpdate = true; // shadow map is autoUpdate=false → refresh only when the light moved
+      requestShadowRefresh();   // the shadow camera moved — its whole frustum is stale
+    }
+  }
+
+  // v3 P0-03: the hero car is the only remaining DYNAMIC caster (traffic, peds and parked cars are
+  // all castShadow:false). Its shadow must track it, so ask for a refresh whenever it has moved a
+  // meaningful distance. NOTE this means that while driving we refresh most frames — the real
+  // saving from autoUpdate=false lands when stationary, slow, or in fly mode, NOT at the 80 km/h
+  // benchmark. See docs/context/v3-execution-tracker.md P0-03 for the measurement.
+  if (dirLight && dirLight.castShadow && carDriver) {
+    const cp = carDriver.getLocalPosition();          // physics coords; distance is mirror-invariant
+    const cDx = cp.lx - _lastCarShadowX, cDz = cp.lz - _lastCarShadowZ;
+    if (cDx * cDx + cDz * cDz > CAR_SHADOW_THRESHOLD_SQ) {
+      _lastCarShadowX = cp.lx;
+      _lastCarShadowZ = cp.lz;
+      requestShadowRefresh();
     }
   }
 
@@ -1006,6 +1024,10 @@ function animate(time = 0) {
   // GPU pre-upload: force a few queued (prefetched, off-screen) tile meshes through this render so their
   // vertex buffers upload NOW, spread over frames — instead of all at once when the tile reveals (the
   // "stutter driving into a new tile"). Restore culling right after. See map/gpuWarmup.js.
+  // v3 P0-03: drain the shadow-refresh request. autoUpdate is false, so the directional light's
+  // depth pass only re-renders on frames that asked for it. three clears needsUpdate inside
+  // render(), so this must be set immediately before the render call, not after.
+  renderer.shadowMap.needsUpdate = consumeShadowRefresh();
   warmupBegin(3);
   composer.render();
   warmupEnd();
