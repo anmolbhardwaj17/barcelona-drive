@@ -1,0 +1,324 @@
+{
+ "meta": {
+  "label": "v3-baseline",
+  "reason": "manual-complete",
+  "git": null,
+  "durationS": 92,
+  "frames": 3926,
+  "mode": "night / 80kmh target / Gran Via eastbound",
+  "pixelRatio": 1.2,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+  "savedAt": "2026-08-24T18:00:25.901Z",
+  "note": "v3 P0 BASELINE. Manual drive, Gran Via NE, night, production build. VALID: mean 74.9 km/h, p50 89, 74.8% of frames above 60 km/h, ~1883 m in 90 s, 1.2% stationary. CAVEAT: pixelRatio 1.2, not the intended 1.0 \u2014 adaptiveRes owns pixel ratio and re-applied its own CAP before the pin could hold. 1.2 IS the shipping cap, so this is representative of what players get; it is simply not the 1.0 the P0 gate was written against. Fragment-bound work at 1.0 would be roughly (1/1.2)^2 = 0.69x of the fragment portion."
+ },
+ "gates": {
+  "frameMs": {
+   "mean": 22.87,
+   "p50": 16.7,
+   "p95": 33.4,
+   "p99": 34.2,
+   "max": 50
+  },
+  "gpuMs": {
+   "mean": 12.96,
+   "p50": 13.31,
+   "p95": 15.32,
+   "p99": 15.7,
+   "max": 16.28
+  },
+  "draws": {
+   "mean": 218.19,
+   "p50": 218,
+   "p95": 261,
+   "p99": 271,
+   "max": 279
+  },
+  "tris": {
+   "mean": 1533712.36,
+   "p50": 1561735,
+   "p95": 1881208,
+   "p99": 1970068,
+   "max": 2119818
+  },
+  "programsAtLoaderHide": 141,
+  "programsAtEnd": 149,
+  "programsDelta": 8,
+  "timeToDriveMs": 21452,
+  "heapStartMB": 382,
+  "heapEndMB": 345.4,
+  "heapGrowthPct": -9.6
+ },
+ "worstFrames": [
+  {
+   "t": 1.73,
+   "ms": 50,
+   "gpuMs": 7.44,
+   "draws": 192,
+   "tris": 1191693,
+   "kmh": 16,
+   "wp": 0
+  },
+  {
+   "t": 1.96,
+   "ms": 50,
+   "gpuMs": 7.28,
+   "draws": 224,
+   "tris": 1405746,
+   "kmh": 18,
+   "wp": 0
+  },
+  {
+   "t": 2.46,
+   "ms": 50,
+   "gpuMs": 7.02,
+   "draws": 235,
+   "tris": 1417494,
+   "kmh": 29,
+   "wp": 0
+  },
+  {
+   "t": 2.64,
+   "ms": 50,
+   "gpuMs": 7.17,
+   "draws": 210,
+   "tris": 1205070,
+   "kmh": 31,
+   "wp": 0
+  },
+  {
+   "t": 3.46,
+   "ms": 50,
+   "gpuMs": 5.53,
+   "draws": 210,
+   "tris": 877419,
+   "kmh": 45,
+   "wp": 0
+  },
+  {
+   "t": 4.66,
+   "ms": 50,
+   "gpuMs": 6.14,
+   "draws": 233,
+   "tris": 1240379,
+   "kmh": 62,
+   "wp": 0
+  },
+  {
+   "t": 18.47,
+   "ms": 50,
+   "gpuMs": 15.55,
+   "draws": 279,
+   "tris": 1831502,
+   "kmh": 105,
+   "wp": 0
+  },
+  {
+   "t": 40.42,
+   "ms": 50,
+   "gpuMs": 13.06,
+   "draws": 213,
+   "tris": 1353374,
+   "kmh": 4,
+   "wp": 0
+  },
+  {
+   "t": 69.33,
+   "ms": 50,
+   "gpuMs": 14.13,
+   "draws": 216,
+   "tris": 1935484,
+   "kmh": 1,
+   "wp": 0
+  },
+  {
+   "t": 69.67,
+   "ms": 50,
+   "gpuMs": 15.1,
+   "draws": 237,
+   "tris": 1930480,
+   "kmh": 6,
+   "wp": 0
+  },
+  {
+   "t": 10.02,
+   "ms": 34.4,
+   "gpuMs": 13.27,
+   "draws": 260,
+   "tris": 1621140,
+   "kmh": 105,
+   "wp": 0
+  },
+  {
+   "t": 35.67,
+   "ms": 34.4,
+   "gpuMs": 14.55,
+   "draws": 235,
+   "tris": 1830016,
+   "kmh": 83,
+   "wp": 0
+  },
+  {
+   "t": 0.08,
+   "ms": 34.3,
+   "gpuMs": 7.16,
+   "draws": 211,
+   "tris": 1596226,
+   "kmh": 6,
+   "wp": 0
+  },
+  {
+   "t": 3.06,
+   "ms": 34.3,
+   "gpuMs": 6.23,
+   "draws": 236,
+   "tris": 1417495,
+   "kmh": 38,
+   "wp": 0
+  },
+  {
+   "t": 5.17,
+   "ms": 34.3,
+   "gpuMs": 7.17,
+   "draws": 262,
+   "tris": 1776027,
+   "kmh": 71,
+   "wp": 0
+  },
+  {
+   "t": 5.48,
+   "ms": 34.3,
+   "gpuMs": 8.73,
+   "draws": 261,
+   "tris": 1773695,
+   "kmh": 75,
+   "wp": 0
+  },
+  {
+   "t": 5.66,
+   "ms": 34.3,
+   "gpuMs": 10.38,
+   "draws": 259,
+   "tris": 1608475,
+   "kmh": 77,
+   "wp": 0
+  },
+  {
+   "t": 6.8,
+   "ms": 34.3,
+   "gpuMs": 12.8,
+   "draws": 253,
+   "tris": 1555445,
+   "kmh": 91,
+   "wp": 0
+  },
+  {
+   "t": 7.02,
+   "ms": 34.3,
+   "gpuMs": 13.3,
+   "draws": 253,
+   "tris": 1591300,
+   "kmh": 93,
+   "wp": 0
+  },
+  {
+   "t": 7.19,
+   "ms": 34.3,
+   "gpuMs": 13.83,
+   "draws": 251,
+   "tris": 1591304,
+   "kmh": 95,
+   "wp": 0
+  },
+  {
+   "t": 13.56,
+   "ms": 34.3,
+   "gpuMs": 13.66,
+   "draws": 244,
+   "tris": 1814273,
+   "kmh": 96,
+   "wp": 0
+  },
+  {
+   "t": 14.94,
+   "ms": 34.3,
+   "gpuMs": 15.33,
+   "draws": 253,
+   "tris": 1848851,
+   "kmh": 101,
+   "wp": 0
+  },
+  {
+   "t": 15.92,
+   "ms": 34.3,
+   "gpuMs": 14.08,
+   "draws": 268,
+   "tris": 1866774,
+   "kmh": 97,
+   "wp": 0
+  },
+  {
+   "t": 16.05,
+   "ms": 34.3,
+   "gpuMs": 14.31,
+   "draws": 269,
+   "tris": 1866772,
+   "kmh": 96,
+   "wp": 0
+  },
+  {
+   "t": 16.32,
+   "ms": 34.3,
+   "gpuMs": 14.58,
+   "draws": 270,
+   "tris": 1864010,
+   "kmh": 94,
+   "wp": 0
+  },
+  {
+   "t": 19.21,
+   "ms": 34.3,
+   "gpuMs": 14.99,
+   "draws": 273,
+   "tris": 1735136,
+   "kmh": 102,
+   "wp": 0
+  },
+  {
+   "t": 20.96,
+   "ms": 34.3,
+   "gpuMs": 14.59,
+   "draws": 259,
+   "tris": 1631952,
+   "kmh": 93,
+   "wp": 0
+  },
+  {
+   "t": 23.73,
+   "ms": 34.3,
+   "gpuMs": 14.31,
+   "draws": 210,
+   "tris": 1568670,
+   "kmh": 34,
+   "wp": 0
+  },
+  {
+   "t": 27.14,
+   "ms": 34.3,
+   "gpuMs": 15.19,
+   "draws": 243,
+   "tris": 1864465,
+   "kmh": 67,
+   "wp": 0
+  },
+  {
+   "t": 56.9,
+   "ms": 34.3,
+   "gpuMs": 12.9,
+   "draws": 194,
+   "tris": 1602600,
+   "kmh": 103,
+   "wp": 0
+  }
+ ],
+ "samples": "STRIPPED \u2014 3926 per-frame samples removed to keep the committed baseline small. Full file: Downloads/v3-baseline (3).json"
+}

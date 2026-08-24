@@ -195,6 +195,11 @@ export function startBenchRoute(deps) {
   /** Call once per frame from main.js's loop, after metrics for the frame are available. */
   function tick(frameMs) {
     if (done) return;
+    // v3: re-assert the pin EVERY frame. Setting it once at init did not hold — adaptiveRes owns
+    // pixel ratio and re-applies its own CAP (1.2) from setSize(), which runs on init and on every
+    // resize. Two captures were silently taken at 1.2 before this was noticed. Cheap: a getter
+    // compare, and setPixelRatio is only called if something actually moved it.
+    if (renderer && renderer.getPixelRatio() !== 1.0) renderer.setPixelRatio(1.0);
     const pos = getCarPos();
     if (!pos) return;
 

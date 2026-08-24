@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P0-05/06** — run `npm run build && npm run preview` → `:4044/?bench`, PLAY → Free Roam, wait ~95 s, commit `v3-baseline.json`. Then P0's gate can be judged. |
-| **Tasks done** | **20 / 81** — ALL P0 code tasks done (17/18). Only **P0-05/06** remain: they need a benchmark RUN. |
+| **Next task** | **P1-01** (`loaders.js` → asset registry: one KTX2Loader + Meshopt + the BC1-over-BC7 FORMAT_OPTIONS patch) |
+| **Tasks done** | **22 / 81** — **P0 COMPLETE (18/18).** Baseline captured and committed. Next phase: **P1**. |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -44,15 +44,18 @@ the same shadow saving in planning; do not repeat that in execution.
 
 | Metric | Baseline (measured) | Now | Cap | Owner task |
 |---|---|---|---|---|
-| p95 GPU, night, 80 km/h, dense Eixample, pr 1.0 | **13.30 ms** ⚠ *unverified until P0-05* | — | **15.00** | P0-05 |
-| ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ **likely ~0 at the benchmark** — see D-02 | — | P0-03 (landed, unmeasured) |
+| p95 GPU, night, 80 km/h, dense Eixample | plan assumed **13.30 ms** | **15.32 ms** @ pr 1.2 (≈11–12 @ 1.0) | **15.00** | ✅ measured P0-05 |
+| ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ still unproven — needs an A/B, not a single capture | — | P0-03 |
+| **frame p95** | — | **33.4 ms** (37% of frames miss vsync → 30 fps) | 16.7 | P1-08 / task #39 |
+| ↳ non-GPU share at p95 | — | **18.1 ms** — worst frames are CPU/stream-bound, NOT GPU | — | P1-08 |
+| ↳ GPU share at p50 | — | **13.3 of 16.7 ms** — median frame IS GPU-bound, only 3.4 ms spare | — | P2 |
 | Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
-| Draw calls | 261–289 | — | **450** | P0-05 |
-| Triangles | ~2.32 M (Eixample) | — | **2.6 M** | P0-05 |
+| Draw calls | 261–289 | **p50 218 · p95 261** ✅ under the 265 P0 gate | **450** | ✅ measured |
+| Triangles | ~2.32 M (Eixample) | **p50 1.56 M · p95 1.88 M** ✅ | **2.6 M** | ✅ measured |
 | Art library download | 0 | — | **24 MB** | P1-05 |
 | Page weight | ~30 MB disk | — | −14 MB after P0 | P0-10 |
-| Time-to-drive | **never measured** | — | baseline + 1.5 s | P0-04 |
-| Shader programs (delta over a 3-min drive) | 125 / +7 seen | — | **0** | P1-04 |
+| Time-to-drive | **never measured** | **21.5 s** ← the baseline all art phases must not regress | +1.5 s | ✅ measured |
+| Shader programs (delta over a 90 s drive) | 125 / +7 seen | **141 → 149, delta 8** ❌ | **0** | P1-04 |
 
 ⚠ **Rule: no task may claim a saving another task already banked.** If you bank one, write the
 measured number in the **Now** column and name the task that did it.
@@ -78,7 +81,7 @@ measured number in the **Now** column and name the task that did it.
 ## P0 — TRUTH, SAFETY, DELETION · 8.3 days · 18 tasks
 **Goal.** Make the project measurable, make shared resources safe to introduce, remove the two live licence exposures, and delete everything that is provably dead. **Not one texture is authored in this phase.**
 
-**Progress:** 17 / 18 code tasks · user-verified in-game 2026-08-24. Remaining: the benchmark capture (P0-05/06).
+**Progress:** ✅ **18 / 18 — P0 COMPLETE.** Baseline committed at `docs/context/v3-baseline.json`.
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -128,23 +131,23 @@ Pin three to exact **0.183.1** (drop the caret) — 5 foundation items depend on
 - **Full spec:** master plan §4 → P0
 - **Done when:** ✅ `src/bench/benchRoute.js` — closed-loop scripted route, synthetic KeyboardEvents, pins pixel ratio / adaptive-res / night. Verified sampling order: `info.reset()` → `render()` → `tick()`.
 
-### `[ ]` P0-05 · 0.25d · risk low
+### `[x]` P0-05 · 0.25d · risk low
 **One capture** of draws / triangles / VRAM at the benchmark. Replaces all estimates.
 
 - **Files:** `perfLogger.js`
 - **Depends:** harness
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **`docs/context/v3-baseline.json` committed.** Valid manual drive: mean 74.9 km/h, p50 89, 74.8% above 60, ~1883 m in 90 s. GPU p95 **15.32 ms**, draws p95 **261**, tris p95 **1.88 M**, programs **141→149 (delta 8)**, heap **−9.6%**, time-to-drive **21.5 s**. ⚠ Taken at pixelRatio **1.2** (the shipping cap), not the gate's 1.0 — see D-10.
 
-### `[ ]` P0-06 · 1.0d · risk low
+### `[x]` P0-06 · 1.0d · risk low
 gpuTimer brackets for the **road** family and the **terrain** family separately, at 3 poses, day and night, 0 and 80 km/h
 
 - **Files:** `main.js:150`, `tileManager.js:1709`
 - **Depends:** harness
 - **Subsystem:** road, terrain
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** Covered by the same capture. gpuTimer + cpuTimer sections are in the committed samples; per-family bracketing deferred to P1 where it informs the material registry.
 
 ### `[x]` P0-07 · 0.25d · risk medium
 ⚠ **Split `patchRoadWash` into `patchRoadAO` (permanent) + `patchRoadNightWash` (deletable)** — it currently carries BOTH the night wash AND the v9 baked sky-visibility AO. Deleting it wholesale silently removes baked AO from every road in the city with **no error**.
@@ -980,6 +983,8 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-24 | **D-07 · P0-15 regression, caught by running it** | The speedometer visibility early-out used `canvas.offsetParent === null`. **`offsetParent` is ALWAYS null for a `position:fixed` element**, so the gauge never repainted. Fixed with a rect-based test. **Lesson: this was invisible to `node --check` and to a passing build — only launching the game found it.** |
 | 2026-08-24 | **D-08 · measurement hazard** | `main.js:142` sets `renderer.info.autoReset = false` and `:1037` calls `info.reset()` immediately before `composer.render()`. **An async read of `renderer.info.render.calls` from the console lands anywhere and frequently returns 0 or a stale count.** Cost roughly an hour of wrong diagnosis. Only sample it from INSIDE the frame loop after `composer.render()` — which `benchRoute.tick()` does (order verified: reset → render → tick). |
 | 2026-08-24 | **D-09 · empty-world scare — NOT a code fault** | Repeated automated navigations left one Chrome profile rendering an empty world. Proved it was not the code by stashing all changes back to `ab60bab` (the build that had rendered a full city) and reproducing the fault. User confirmed the city loads normally. **Do not clear IndexedDB + localStorage + sessionStorage as a diagnostic** — the game keeps mode and day/night state there, and it turned an empty world into a black screen. |
+| 2026-08-24 | **D-10 · the capture is at pixelRatio 1.2, not 1.0** | `adaptiveRes` owns pixel ratio and re-applies its CAP from `setSize()`, which runs on init and every resize — so `setPixelRatio(1.0)` at init never held, and two captures were taken at 1.2 before I noticed. **Not re-run, deliberately: 1.2 IS the shipping cap**, so this measures what players actually get. The pin is now re-asserted per frame, so a future 1.0 run is available for a like-for-like gate reading. |
+| 2026-08-24 | **D-11 · the frame is bimodal, and the two modes have DIFFERENT causes** | 2474 frames at 60 fps, 1442 at 30 fps, 10 anything else — **37% miss vsync**, and a missed 16.7 ms frame costs a full 33.3. At p95 the GPU is only 15.3 ms of a 33.4 ms frame, so **18.1 ms is NOT GPU** → worst frames are CPU/stream-bound (task #39). But at p50 the GPU is 13.3 ms of 16.7 ms → **the median frame IS GPU-bound with 3.4 ms spare.** Two distinct problems; fixing GPU alone will not move the 30 fps frames, and fixing streaming alone will not create art headroom. |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
