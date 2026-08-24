@@ -1108,6 +1108,9 @@ window.addEventListener('resize', () => {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   adaptiveRes.setSize(w, h); // owns renderer/composer pixel-ratio + size + bloom resolution
+  // v3 P0-04: setSize() re-applies adaptiveRes's own CAP, which silently overrode the benchmark's
+  // 1.0 pin — the first capture ran at 1.2 (≈44% more fragments) and its GPU numbers were void.
+  if (_BENCH) renderer.setPixelRatio(1.0);
 });
 
 // ── Photo Mode (press P) — clean fly-through screenshots ─────────────────────────────────────────

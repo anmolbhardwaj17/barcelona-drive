@@ -23,14 +23,16 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
-  // v3 (2026-08-24): central EIXAMPLE — the Cerdà grid, dense chamfered blocks, continuous street
+  // v3 (2026-08-24): GRAN VIA at Plaça Universitat — on the arterial itself, in the Cerdà grid.
+  // Deliberately the START of the benchmark route (bench/benchRoute.js) so the car begins on the
+  // street the benchmark drives. Dense chamfered blocks, continuous street
   // walls. This is deliberately the same place as the v3 performance benchmark (docs/context/
   // v3-execution-tracker.md P0-05): the densest thing the renderer has to survive, so both the
   // everyday drive and the numbers we gate on describe the same worst case.
   // (Previous: Passeig Marítim 41.3838/2.1930 beside the biggest baked beach polygon, for the
   // terrain-painted coast check; before that Diagonal 41.3948/2.1602; Sagrada 41.4036/2.1744.)
-  lat: 41.3920,
-  lon: 2.1650,
+  lat: 41.3866,
+  lon: 2.1640,
   heading: null,
 };
 

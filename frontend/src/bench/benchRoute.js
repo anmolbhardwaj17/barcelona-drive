@@ -20,21 +20,31 @@
  * controller give up" rather than "how expensive is the frame".
  */
 
-// Gran Via de les Corts Catalanes, eastbound through the dense Eixample grid.
-// Straight arterial: keeps the car at speed, crosses ~12 chamfered junctions, streams a fresh tile
-// row roughly every 12 s. Fixed lat/lon so the route is identical across runs and across branches.
+// Gran Via de les Corts Catalanes, north-eastbound through the dense Eixample grid.
+//
+// ⚠ THESE MUST LIE ON THE STREET. The first version of this list ran lat-DOWN / lon-UP, which is
+// roughly PERPENDICULAR to Gran Via — the Cerdà grid is rotated ~45°, so that diagonal steered the
+// car straight into building blocks. It reached 1 of 6 waypoints, spent 29% of the run at 0 km/h,
+// and produced a "benchmark" of a stationary car. Gran Via runs lat-UP as lon-UP (SW→NE):
+// Pl. Espanya 41.3754/2.1490 → Universitat → Tetuan → Glòries 41.4030/2.1870.
+//
+// If you re-route this, plot the points on a map first and confirm they follow one continuous
+// street. Straight-line steering has no idea buildings exist.
 const ROUTE = [
-  { lat: 41.3920, lon: 2.1650 },
-  { lat: 41.3906, lon: 2.1690 },
-  { lat: 41.3892, lon: 2.1730 },
-  { lat: 41.3878, lon: 2.1770 },
-  { lat: 41.3864, lon: 2.1810 },
-  { lat: 41.3850, lon: 2.1850 },
+  { lat: 41.3866, lon: 2.1640 },   // Plaça Universitat
+  { lat: 41.3888, lon: 2.1672 },
+  { lat: 41.3912, lon: 2.1710 },
+  { lat: 41.3936, lon: 2.1745 },   // Plaça Tetuan
+  { lat: 41.3968, lon: 2.1793 },
+  { lat: 41.4000, lon: 2.1838 },   // toward Glòries  (~2.25 km ≈ 101 s at 80 km/h)
 ];
 
 const TARGET_KMH = 80;
-const MAX_SECONDS = 95;
+const MAX_SECONDS = 130;   // ~2.25 km route needs ~101 s at target speed, plus recovery slack
 const WAYPOINT_RADIUS_M = 45;
+const WAYPOINT_TIMEOUT_MS = 20000;   // skip a waypoint we cannot reach rather than grind on it
+const STUCK_MS = 1800;               // <3 km/h for this long = wedged
+const REVERSE_MS = 1400;             // back out, steering the opposite way
 
 function key(type, code) {
   window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true }));
@@ -69,8 +79,12 @@ export function startBenchRoute(deps) {
   const { latLonToWorld, getCarPos, getSpeedKmh, getHeadingDeg, renderer, gpuTimer } = deps;
   const wps = ROUTE.map((p) => latLonToWorld(p.lat, p.lon));
   let wi = 1;
-  let held = { up: false, left: false, right: false };
+  let held = { up: false, down: false, left: false, right: false };
   let _prev = null, _lastBearing = 0;   // for movement-derived bearing (see tick)
+  // Stuck recovery. Closed-loop steering fixes HEADING but has no answer to "wedged against a
+  // building" — holding throttle into a wall does nothing forever. The first run spent 29% of its
+  // time at 0 km/h and reached 1 of 6 waypoints because of exactly this.
+  let _stuckSince = 0, _reverseUntil = 0, _reverseDir = 1, _wpDeadline = 0;
   const t0 = performance.now();
   const samples = [];
   const heap0 = performance.memory?.usedJSHeapSize ?? 0;
@@ -78,11 +92,15 @@ export function startBenchRoute(deps) {
 
   console.warn('[bench] START — night, Gran Via eastbound, %d waypoints, cap %ds', wps.length, MAX_SECONDS);
 
+  function holdBack(want) { hold('down', 'ArrowDown', want); }
   function hold(name, code, want) {
     if (want && !held[name]) { key('keydown', code); held[name] = true; }
     else if (!want && held[name]) { key('keyup', code); held[name] = false; }
   }
-  function release() { hold('up', 'ArrowUp', false); hold('left', 'ArrowLeft', false); hold('right', 'ArrowRight', false); }
+  function release() {
+    hold('up', 'ArrowUp', false); hold('down', 'ArrowDown', false);
+    hold('left', 'ArrowLeft', false); hold('right', 'ArrowRight', false);
+  }
 
   function finish(reason) {
     if (done) return; done = true;
@@ -151,9 +169,37 @@ export function startBenchRoute(deps) {
     const tgt = wps[wi];
     const dx = tgt.x - pos.wx, dz = tgt.z - pos.wz;
     const dist = Math.hypot(dx, dz);
+    const nowMs = performance.now();
+    if (_wpDeadline === 0) _wpDeadline = nowMs + WAYPOINT_TIMEOUT_MS;
     if (dist < WAYPOINT_RADIUS_M) {
+      _wpDeadline = nowMs + WAYPOINT_TIMEOUT_MS;
       if (++wi >= wps.length) { finish('route-complete'); return; }
+    } else if (nowMs > _wpDeadline) {
+      // Unreachable in a sane time — skip it rather than grind for the whole run.
+      console.warn('[bench] waypoint %d unreachable in %ds — skipping', wi, WAYPOINT_TIMEOUT_MS / 1000);
+      _wpDeadline = nowMs + WAYPOINT_TIMEOUT_MS;
+      if (++wi >= wps.length) { finish('route-exhausted'); return; }
     }
+
+    // ── stuck recovery ──
+    const kmh = getSpeedKmh();
+    if (nowMs < _reverseUntil) {
+      hold('up', 'ArrowUp', false); holdBack(true);
+      hold('left', 'ArrowLeft', _reverseDir < 0); hold('right', 'ArrowRight', _reverseDir > 0);
+      _prev = { wx: pos.wx, wz: pos.wz };
+      return;   // no sample while recovering: this is harness behaviour, not game behaviour
+    }
+    if (kmh < 3) {
+      if (_stuckSince === 0) _stuckSince = nowMs;
+      else if (nowMs - _stuckSince > STUCK_MS) {
+        _reverseUntil = nowMs + REVERSE_MS;
+        _reverseDir = -_reverseDir;          // alternate, so we do not re-wedge the same way
+        _stuckSince = 0;
+        console.warn('[bench] stuck — reversing out');
+        return;
+      }
+    } else { _stuckSince = 0; }
+    holdBack(false);
     // Bearing is derived from ACTUAL MOVEMENT, not getHeadingDeg(). The reported heading and the
     // world XZ frame do not share a sign convention — main.js:955 passes -headingDeg to the minimap
     // precisely because physics X is mirrored — so mixing them risks steering the wrong way. A
