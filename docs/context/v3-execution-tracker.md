@@ -11,9 +11,9 @@
 | | |
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
-| **Current phase** | **P0 — Truth, Safety, Deletion** |
-| **Next task** | **P0-01** (pin three to exact 0.183.1) |
-| **Tasks done** | 0 / 92 |
+| **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
+| **Next task** | **P0-02** (invert shared-material disposal default) |
+| **Tasks done** | **3 / 79** — P0-01, P0-03, P0-07 |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -45,6 +45,7 @@ the same shadow saving in planning; do not repeat that in execution.
 | Metric | Baseline (measured) | Now | Cap | Owner task |
 |---|---|---|---|---|
 | p95 GPU, night, 80 km/h, dense Eixample, pr 1.0 | **13.30 ms** ⚠ *unverified until P0-05* | — | **15.00** | P0-05 |
+| ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ **likely ~0 at the benchmark** — see D-02 | — | P0-03 (landed, unmeasured) |
 | Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
 | Draw calls | 261–289 | — | **450** | P0-05 |
 | Triangles | ~2.32 M (Eixample) | — | **2.6 M** | P0-05 |
@@ -77,7 +78,7 @@ measured number in the **Now** column and name the task that did it.
 ## P0 — TRUTH, SAFETY, DELETION · 8.3 days · 18 tasks
 **Goal.** Make the project measurable, make shared resources safe to introduce, remove the two live licence exposures, and delete everything that is provably dead. **Not one texture is authored in this phase.**
 
-**Progress:** 0 / 18
+**Progress:** 3 / 18 (P0-01 ✅, P0-03 ✅, P0-07 ✅)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -91,14 +92,14 @@ measured number in the **Now** column and name the task that did it.
 </details>
 
 
-### `[ ]` P0-01 · 0.1d · risk low
+### `[x]` P0-01 · 0.1d · risk low
 Pin three to exact **0.183.1** (drop the caret) — 5 foundation items depend on r183 private internals (`FORMAT_OPTIONS` ordering, `bm._visibilityChanged`, `painterSortStable` field order, `BatchedMesh._reserveRange`, the DOUBLE_SIDED derivative-TBN flip)
 
 - **Files:** `frontend/package.json:22`
 - **Depends:** nothing
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `frontend/package.json:22` reads `"three": "0.183.1"`; `require('three/package.json').version` → `0.183.1`. Build passes.
 
 ### `[ ]` P0-02 · 0.75d · risk medium
 **Invert the shared-material disposal default** to an explicit `userData.ownedMaterial` opt-in, and tag the **13** untagged sites. Add a dev assert that no material reachable from the art registry is ever disposed. **P0 BLOCKER: without this, the first shared KTX2 texture is destroyed on the first tile unload.**
@@ -109,14 +110,14 @@ Pin three to exact **0.183.1** (drop the caret) — 5 foundation items depend on
 - **Full spec:** master plan §4 → P0
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P0-03 · 0.5d · risk medium
+### `[x]` P0-03 · 0.5d · risk medium
 `renderer.shadowMap.autoUpdate = false` **plus explicit `needsUpdate` on tile reveal AND on car movement.** Do not ship the flag alone — the player car is the only remaining dynamic caster, so tiles streaming in while stationary would get no shadow. Fix the lying comment at `main.js:969`. **Banked ONCE.**
 
 - **Files:** `scene.js` (renderer ctor), `main.js:955-970`, tile-reveal hook in `tileManager.js`
 - **Depends:** pin three
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `renderer.shadowMap.autoUpdate = false` in scene.js; 3 triggers wired (camera >12m, car >0.5m, safeSceneAdd). Build passes. ⚠ **ms NOT yet measured — see decision log D-02, the benchmark saving is likely ~0.**
 
 ### `[ ]` P0-04 · 1.0d · risk low
 **Measurement harness.** `programs.length` at loader-hide and after 3 min (target delta 0); VRAM computed from the registry manifest, not guessed; per-tile-unload disposal assertions; **time-to-drive** from navigation-start to `dd-loading` hide (`main.js:631-635`, 20 s safety net at `:723` hides regressions until severe).
@@ -145,14 +146,14 @@ gpuTimer brackets for the **road** family and the **terrain** family separately,
 - **Full spec:** master plan §4 → P0
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P0-07 · 0.25d · risk medium
+### `[x]` P0-07 · 0.25d · risk medium
 ⚠ **Split `patchRoadWash` into `patchRoadAO` (permanent) + `patchRoadNightWash` (deletable)** — it currently carries BOTH the night wash AND the v9 baked sky-visibility AO. Deleting it wholesale silently removes baked AO from every road in the city with **no error**.
 
 - **Files:** `roadRenderer.js:283-301`
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `patchRoadAO` (permanent) + `patchRoadNightWash` (deletable) both CHAIN onBeforeCompile; 4 call sites apply AO then wash. Build passes. Verified the two halves touch different fragment hooks and nest without clobbering.
 
 ### `[ ]` P0-08 · 0.25d · risk low
 **DELETE the CraftPix set from the served build** (move to a git-ignored `art-src/`). `frontend/public/models/vegetation/*` (20 tracked files) + `frontend/public/textures/trees/*` (8 `.obj`, 4 `.webp`). Also delete `frontend/public/textures/new textures/craftpix-*`.
@@ -936,6 +937,9 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | Date | Task | Decision | Why |
 |---|---|---|---|
 | 2026-08-24 | — | Tracker created from the 17-agent master plan | State needed to survive session loss |
+| 2026-08-24 | P0 order | Ran P0-07 before P0-13 (sky sweep), against tracker order | Hazard H1 — `patchRoadWash` must be split before anything touches lighting |
+| 2026-08-24 | **D-02 · P0-03** | **The plan's premise is partly wrong and the budget is optimistic.** `carModel.js:169` sets `castShadow` on the hero car, so it IS a dynamic caster. At 80 km/h it moves 22 m/s, so the car trigger fires nearly every frame and **the budgeted −1.35 ms does not materialise at the 80 km/h benchmark.** Landed anyway — it is never slower, and it is a real saving when stationary, slow, or in fly mode. **P0-05 must MEASURE it; do not carry −1.35 ms in the budget as fact.** | Implementing it blind would have silently put a phantom saving into the ledger — the exact failure the ledger exists to prevent |
+| 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
 
