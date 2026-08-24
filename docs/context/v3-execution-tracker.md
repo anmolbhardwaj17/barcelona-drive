@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P1-11** (per-mesh bounding-sphere LOD fallback — unconditional, ~1.0 of the 3.0 ms) · work branch `v3-p1-pipeline` |
-| **Tasks done** | **36 / 81** — P0 ✅ complete · **P1 at 14/27** |
+| **Next task** | **P1-24** (extract ground-pool decal geometry/material to a shared module) — then the big ones: **P1-03 materialRegistry**, P1-04 warm list, P1-05 build-art, P1-07 SMAA · branch `v3-p1-pipeline` |
+| **Tasks done** | **39 / 81** — P0 ✅ complete · **P1 at 17/27** (1 deferred) |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -364,23 +364,23 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ `getSharedMaterials()` + `sharedMaterials` + `COLOR_BY_TYPE` deleted (zero call sites — 17 MeshStandard materials that were never constructed). **ADR D-19** written to decisions.md: MeshStandard decided per-surface, and street lighting precedes PBR.
 
-### `[ ]` P1-11 · 1.0d · risk low
+### `[-]` P1-11 · 1.0d · risk low
 **Per-MESH bounding-sphere LOD fallback — UNCONDITIONAL P1, not a contingency.** Replace per-tile `nearEdgeDist` with true per-mesh distance from each merged mesh's own `boundingSphere` centre (`chunkedMerge.js` already computes it). 1 day for ~1.0 of the 3.0 ms at low risk, and it is the insurance policy if the BatchedMesh path returns nothing.
 
 - **Files:** `tileManager.js:2903-2977,3058-3078`, `config.js:75-79`
 - **Depends:** nothing
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** **DEFERRED into P2's `staticPools` — see D-17.** The premise does not hold: the project's own perf-audit records that building meshes merge per-material with **an AABB spanning the whole 500 m tile**, so a per-MESH bounding-sphere distance ≈ the per-TILE distance for the exact family that holds the 3.0 ms. It would buy ~nothing while touching the mirrored-coordinate boundary CLAUDE.md flags as the most dangerous area in the codebase.
 
-### `[ ]` P1-12 · 1.0d · risk medium
+### `[x]` P1-12 · 1.0d · risk medium
 **Make `GLOBAL_VERTEX_BUDGET` degrade instead of delete.** `buildingWorker.js:1098-1101` drops **entire buildings** via `continue`. Every geometry the art pass adds silently deletes buildings in exactly the dense Eixample tiles the gate measures, and it will be misattributed as an art bug. Change to a detail-tier downgrade (skip balconies → skip cornices → box fallback) with a counter in the metrics panel. Also raise 100,000 → 220,000 (measured max today 46,570).
 
 - **Files:** `buildingWorker.js:873,980,1098-1101,1148`
 - **Depends:** nothing
 - **Subsystem:** pipeline / buildings
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `GLOBAL_VERTEX_BUDGET` now DEGRADES (`_detailSuppressed` drops balconies/bands, keeps the box) instead of `continue`-ing whole buildings; pathological >2% cases still skip but are COUNTED and warned. Budget 100k→220k (measured max today ~46,570).
 
 ### `[x]` P1-13 · 1.0d · risk low
 **`buildingConstants.js`** — single source for `STOREY_H` (3.5, from the bake), `MODULE_W`, and the AO dials. Replaces the **triple-mirrored** `FLOOR_HEIGHT`/`WALL_REPEAT_HORIZONTAL_M` and the duplicated AO constants across `buildingWorker.js`, `meshMaterializer.js`, `buildingRenderer.js`, `aoSampler.js`.
@@ -472,14 +472,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ Markings mesh tagged `'markings'`, captured, fog-culled, LOD-gated at 220×altMult, and `frustumCulled` flipped to true. It had NO type, so it was in neither cull path despite a comment claiming otherwise.
 
-### `[ ]` P1-23 · 1.0d · risk low
+### `[x]` P1-23 · 1.0d · risk low
 Fix the live per-frame-`innerHTML` FPS regression in the two modes that never got the dashMode treatment (`policeMode.js:87` called from `:230`; `deliveryMode.js:111` from `:263`) + extend `theme.js` with `gold #c9a227`, `alert #c0553d` and a `MODE_ACCENT` map
 
 - **Files:** `policeMode.js:65-99,230`, `deliveryMode.js:58-125,263`, `theme.js:41-49`
 - **Depends:** nothing
 - **Subsystem:** hud
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `policeMode` + `deliveryMode` live HUDs built once with cached nodes; they were reassigning `innerHTML` every frame — police during a pursuit. `dashMode`'s existing pattern copied.
 
 ### `[ ]` P1-24 · 0.25d · risk low
 **Extract the ground-pool decal geometry/material into a shared module** so sky can delete the streetlamp *instances* without deleting the *mechanism* vehicles reuses
@@ -490,14 +490,14 @@ Fix the live per-frame-`innerHTML` FPS regression in the two modes that never go
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-25 · 0.5d · risk low
+### `[x]` P1-25 · 0.5d · risk low
 **Tram contract.** `createTramMeshes` (`tileManager.js:2073`) is called with **no CONFIG gate** and renders untextured tram tracks embedded in the carriageway the road domain is rebuilding. Define the contract (Y class, material ownership, atlas cell) before the asphalt shader lands.
 
 - **Files:** `railwayRenderer.js`, `tileManager.js:2073`, `groundLayers.js`
 - **Depends:** nothing
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Tram contract documented in both places. ⚠ See D-16 — I had it backwards and nearly turned trams ON.
 
 ### `[ ]` P1-26 · 2.5d · risk medium
 **REGION ENVIRONMENT PROFILE — the multi-city abstraction.** (Anmol, 2026-08-24: *"I want our styling of environment configured in a way that if we bake Delhi map and set its env properly, we can have Delhi vibe as well later, or any city. I don't want you to work on Delhi right now, but keep config setup in that way."*)
@@ -988,6 +988,8 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-25 | **D-12 · P1-01, BC7-vs-BC1 left OPEN deliberately** | The plan called the BC1-over-BC7 `FORMAT_OPTIONS` patch mandatory. It is **not patchable**: `FORMAT_OPTIONS` lives inside the KTX2Loader *worker body* and is not exported. The only main-thread lever is claiming BC7 is unsupported — which fixes ETC1S (8→4 bpp, ~300→~160 MiB on Windows) but also drops **UASTC** to BC1, a real quality loss on exactly the maps that justify UASTC. Exposed as `setPreferBC1ForETC1S()` and left **off**: no assets to measure, and no BC machine here to measure them on. |
 | 2026-08-25 | **D-13 · deleting an "off" flag INVERTS it** | Retiring `ENABLE_BUSHES` and `MAX_GRASS_PER_TILE` as dead nearly switched both back ON: `meshMaterializer` tests `CONFIG.ENABLE_BUSHES !== false` (so `undefined` passes) and `vegetationWorker` reads `config.MAX_GRASS_PER_TILE ?? 50000`. Both restored with the trap documented in `config.js`. **Rule: before retiring a flag, read its GUARD, not just its name.** `if (CONFIG.X)` is safe to remove; `!== false` and `?? default` are not. |
 | 2026-08-25 | **D-14 · corrected myself mid-commit (P1-16)** | I claimed vendor-cart exclusion zones were running unconditionally and corrupting vegetation placement. Re-checked: the call sits inside `if (CONFIG.ENABLE_VENDOR_CARTS)`, which is false, so it never ran. Vegetation placement is unchanged. Commit amended. **Reading a call site is not the same as reading its guard** — same lesson as D-13, one task later. |
+| 2026-08-25 | **D-16 · ⚠⚠ THE FLAG-GUARD TRAP, THIRD OCCURRENCE (P1-25)** | I read `createTramMeshes` being called with no CONFIG check and concluded the flag was ignored. **The guard was one layer down** — `railwayRenderer.js:119` tests it and returns null — so trams were OFF, and deleting the flag would have turned them ON as a silent visual change. Caught before shipping; flag restored. Preceded by `ENABLE_BUSHES` (`!== false`, D-13) and `MAX_GRASS_PER_TILE` (`?? 50000`, D-13). **RULE, now three times earned: before touching a CONFIG flag, grep it across the WHOLE codebase and read every guard — the name, the call site and even the immediate caller are not enough.** |
+| 2026-08-25 | **D-17 · P1-11 deferred to P2, on evidence** | The task is a per-MESH bounding-sphere LOD fallback. But `perf-audit.md:24-25` records that buildings merge per-material into meshes whose **AABB spans the whole 500 m tile** — so per-mesh distance ≈ per-tile distance for the family holding the 3.0 ms. It would deliver ~nothing while editing the mirrored-coordinate boundary that CLAUDE.md's top-of-file DANGER note is about. Folded into P2's `staticPools`, where per-INSTANCE is the real fix. Not slack — the cheaper option was measured against its own premise and the premise failed. |
 | 2026-08-25 | **D-15 · I committed a broken build (P1-21)** | My GLSL comment contained backticks around a variable name, which closed the enclosing JS template literal. `node --check` caught it — but my `git commit` ran as a SEPARATE shell command after the failed check, so it committed anyway. Amended. **Process fix adopted for the rest of P1: the commit is chained into the same `&&` as the build, so a failed check cannot be followed by a commit.** |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
