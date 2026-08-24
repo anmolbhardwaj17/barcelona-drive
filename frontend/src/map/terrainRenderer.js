@@ -15,13 +15,14 @@ import { isRallyStyle } from '../rallyStyle.js';
 import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH, bindAoScaleUniform } from './aoSampler.js';
 import { coastSample, seaPolygonWorld } from './coastline.js';
 
-/** No-op stubs kept for API compatibility. */
-export function loadTerrainGroundTextures() { return Promise.resolve([]); }
-export function getTerrainTextureIndexForTile() { return 0; }
-
 // World-space terrain detail texture — grayscale fiber for fine ground detail over vertex colors
 let _terrainDetailTex = null;
 function getTerrainDetailTexture() {
+  // v3 P0-12: the rally shader path (the default) replaces the fiber fetch with a constant
+  // multiply, so this 416 KB JPEG was downloaded, decoded and held as ~5.6 MiB of RGBA8+mips
+  // purely to satisfy a uniform nothing sampled. Only load it when the branch that reads it is
+  // actually compiled in. ?style=normal still works.
+  if (isRallyStyle()) return null;
   if (_terrainDetailTex) return _terrainDetailTex;
   _terrainDetailTex = new THREE.TextureLoader().load('/textures/terrain/grass.15f2422c.jpg');
   _terrainDetailTex.wrapS = THREE.RepeatWrapping;

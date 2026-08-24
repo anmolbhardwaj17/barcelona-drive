@@ -189,10 +189,10 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
     bakedTerrain = readBakedTerrain(header.bakedTerrain, buffer, binOffset);
   }
 
-  let bakedPhysicsTerrain = null;
-  if (header.bakedPhysicsTerrain) {
-    bakedPhysicsTerrain = readBakedPhysicsTerrain(header.bakedPhysicsTerrain, buffer, binOffset);
-  }
+  // v3 P0-12: bakedPhysicsTerrain parsing DELETED. Its only consumer was createTerrainTrimesh
+  // (tileManager), which has zero call sites — terrain physics is a Heightfield, not a Trimesh.
+  // The section is still present in v9 tiles; it is simply no longer read into memory.
+
 
   const result = {
     roads,
@@ -223,7 +223,6 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
   };
 
   if (bakedTerrain) result.bakedTerrain = bakedTerrain;
-  if (bakedPhysicsTerrain) result.bakedPhysicsTerrain = bakedPhysicsTerrain;
   if (header.bakedVegetation) {
     result.bakedVegetation = readBakedVegetation(header.bakedVegetation, buffer, binOffset, ox, oy);
   }
@@ -627,19 +626,6 @@ function readBakedTerrain(bt, buffer, binOffset) {
   return result;
 }
 
-function readBakedPhysicsTerrain(bp, buffer, binOffset) {
-  const result = {
-    gridSize: bp.gridSize,
-    vertExag: bp.vertExag,
-  };
-  if (bp.vertsOffset !== undefined && bp.vertsCount > 0) {
-    result.verts = new Float32Array(buffer, binOffset + bp.vertsOffset, bp.vertsCount);
-  }
-  if (bp.indicesOffset !== undefined && bp.indicesCount > 0) {
-    result.indices = new Uint32Array(buffer, binOffset + bp.indicesOffset, bp.indicesCount);
-  }
-  return result;
-}
 
 function readBakedVegetation(bv, buffer, binOffset, ox, oy) {
   ox = ox || 0;
@@ -935,7 +921,7 @@ function idbDel(key) {
 const PART_KEYS = [
   'roads', 'buildings', 'water', 'greens', 'barriers', 'junctions', 'urbanFeatures',
   'trees', 'streetLamps', 'pedestrianAreas', 'marinas', 'beaches',
-  'bakedVegetation', 'bakedTerrain', 'bakedPhysicsTerrain', 'bakedRoads', 'bakedSidewalks',
+  'bakedVegetation', 'bakedTerrain', 'bakedRoads', 'bakedSidewalks',
   'elevation', 'aoGrid',
 ];
 // Slice size for the big object arrays (roads/buildings). 150 was still 10-20ms of
