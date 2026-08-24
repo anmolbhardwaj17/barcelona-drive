@@ -96,7 +96,9 @@ export function createSpeedDisplay() {
     // EVERY frame regardless — including on the title screen, in fly mode and behind the ESC menu,
     // where the gauge is not even visible. The smoothing above still runs every frame so the
     // needle converges; we just skip the paint.
-    if (canvas.style.display === 'none' || canvas.offsetParent === null) return;
+    // NOTE: do NOT test offsetParent here — it is null for ANY position:fixed element (which this
+    // canvas is), so that check disabled the gauge permanently. Rect width is the honest test.
+    if (canvas.style.display === 'none' || canvas.getBoundingClientRect().width === 0) return;
     const moved = Math.abs(_displaySpeed - _lastDrawnSpeed) > 0.05
                || Math.abs(_displayRpm - _lastDrawnRpm) > 0.005
                || _currentGear !== _lastDrawnGear

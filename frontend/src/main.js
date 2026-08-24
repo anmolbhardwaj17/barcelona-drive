@@ -635,13 +635,6 @@ spawnTileReady.finally(() => {
     // Hold the loading screen until the spawn-area tiles are actually built (not just the first frame),
     // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.
     const _hideLoader = () => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) {
-      // v3 P0-04: time-to-drive — navigation start to the moment the world is actually playable.
-      // Binding constraint 1 (it stays a browser game) has never had a number; this is it.
-      if (_timeToDriveMs == null) {
-        _timeToDriveMs = Math.round(performance.now());
-        _programsAtLoaderHide = renderer.info.programs?.length ?? null;
-        console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
-      }
       l.classList.add('hide'); setTimeout(() => l.remove(), 700); } };
     let _polls = 0;
     const _pollLoad = setInterval(() => {
@@ -1075,6 +1068,18 @@ function animate(time = 0) {
   // Screenshot capture must read the canvas in the SAME tick as the render (the WebGL drawing buffer is
   // cleared before the next frame; we don't set preserveDrawingBuffer, so reading here is the reliable path).
   if (_captureRequested) { _captureRequested = false; captureScreenshot(); }
+  // v3 P0-04: time-to-drive — navigation start → the world is actually PLAYABLE. Deliberately not
+  // hooked to a single loader-hide call site: there are three (#dd-loading via two paths, plus
+  // #dd-modeload for the mode picker), and instrumenting one of them meant entering through the
+  // picker never recorded anything. This tests the observable end state instead, so it is correct
+  // for every entry path. Binding constraint 1 has never had a number; this is it.
+  if (_timeToDriveMs == null && carDriver
+      && !document.getElementById('dd-loading') && !document.getElementById('dd-modeload')) {
+    _timeToDriveMs = Math.round(performance.now());
+    _programsAtLoaderHide = renderer.info.programs?.length ?? null;
+    console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
+  }
+
   if (!_BENCH) adaptiveRes.tick(frameDt);   // v3 P0-04: pinned during a benchmark run
 
   // v3 P0-04: benchmark route — starts once the world is playable, drives itself, saves the JSON.

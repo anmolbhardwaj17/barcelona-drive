@@ -6,6 +6,14 @@ export default defineConfig({
   server: {
     port: 4040,
   },
+  // v3 P0-04: the benchmark (?bench) must run against a PRODUCTION build, not the dev server —
+  // dev is unminified and has different CPU characteristics, so a dev baseline describes something
+  // we never ship. Pinned so the backend's CORS allow-list has a stable origin to name; start the
+  // tile server with ALLOWED_ORIGINS="http://localhost:4040,http://localhost:4044".
+  preview: {
+    port: 4044,
+    strictPort: true,
+  },
   // Prod builds also drop console.log/info/debug (pure → removed during minification). The dev server
   // isn't minified, so console silencing there is handled by the inline script in index.html. warn/error kept.
   esbuild: {
