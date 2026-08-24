@@ -79,7 +79,7 @@ import { toNormalizedRoadY } from './roadElevation.js';
 import { setOriginOffset, getOriginOffset } from './originOffset.js';
 import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
-import { isBenchMode, startBenchRoute } from './bench/benchRoute.js';
+import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -1095,6 +1095,7 @@ function animate(time = 0) {
         renderer, gpuTimer,
         programsAtLoaderHide: _programsAtLoaderHide,
         timeToDriveMs: _timeToDriveMs,
+        manual: benchModeKind() === 'manual',   // ?bench = you drive · ?bench=auto = scripted route
       });
     }
     _benchRoute.tick(frameDt * 1000);

@@ -43,6 +43,7 @@ const TARGET_KMH = 80;
 const MAX_SECONDS = 130;   // ~2.25 km route needs ~101 s at target speed, plus recovery slack
 const WAYPOINT_RADIUS_M = 45;
 const WAYPOINT_TIMEOUT_MS = 20000;   // skip a waypoint we cannot reach rather than grind on it
+const RECORD_SECONDS = 90;           // manual mode: seconds of driving to record once moving
 const STUCK_MS = 1800;               // <3 km/h for this long = wedged
 const REVERSE_MS = 1400;             // back out, steering the opposite way
 
@@ -71,6 +72,20 @@ export function isBenchMode() {
 }
 
 /**
+ * 'manual' (default) — YOU drive; the harness only pins settings and records.
+ * 'auto'             — the scripted waypoint route drives itself.
+ *
+ * Manual is the default because a human trivially does the one thing the bot could not: avoid
+ * traffic and street furniture. The bot's route is geometrically correct but it steers straight
+ * lines and has no idea a fountain is there, so it wedges. A person driving the same avenue twice
+ * is far more reproducible than a bot that spends a third of the run stationary.
+ */
+export function benchModeKind() {
+  try { return new URLSearchParams(location.search).get('bench') === 'auto' ? 'auto' : 'manual'; }
+  catch { return 'manual'; }
+}
+
+/**
  * @param {object} deps
  *  latLonToWorld, getCarPos()->{wx,wz}, getSpeedKmh(), getHeadingDeg(),
  *  renderer, gpuTimer, programsAtLoaderHide, timeToDriveMs
@@ -90,7 +105,25 @@ export function startBenchRoute(deps) {
   const heap0 = performance.memory?.usedJSHeapSize ?? 0;
   let done = false;
 
-  console.warn('[bench] START — night, Gran Via eastbound, %d waypoints, cap %ds', wps.length, MAX_SECONDS);
+  const manual = deps.manual !== false;
+  let armed = !manual;          // manual: wait for the driver to actually move before timing
+  let armT = 0;
+
+  let hud = null;
+  if (manual) {
+    hud = document.createElement('div');
+    hud.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:100000;' +
+      "font:600 13px/1.5 'Inter',system-ui,sans-serif;color:#f3ede1;background:rgba(28,25,22,0.72);" +
+      'backdrop-filter:blur(15px);border:1px solid rgba(243,237,225,0.16);border-radius:13px;' +
+      'padding:10px 16px;text-align:center;letter-spacing:0.02em;pointer-events:none;';
+    hud.innerHTML = '<b>BENCHMARK — drive normally</b><br>' +
+      'Head NE along Gran Via, hold ~80 km/h.<br>' +
+      '<span style="opacity:.7">Recording starts when you move · ' + RECORD_SECONDS + 's</span>';
+    document.body.appendChild(hud);
+  }
+  console.warn('[bench] START — %s, night, %ds of recording',
+    manual ? 'MANUAL (you drive)' : 'AUTO (' + wps.length + ' waypoints)',
+    manual ? RECORD_SECONDS : MAX_SECONDS);
 
   function holdBack(want) { hold('down', 'ArrowDown', want); }
   function hold(name, code, want) {
@@ -105,6 +138,7 @@ export function startBenchRoute(deps) {
   function finish(reason) {
     if (done) return; done = true;
     release();
+    if (hud) hud.remove();
     const frame = stats(samples.map((s) => s.ms));
     const gpu = stats(samples.filter((s) => s.gpuMs > 0).map((s) => s.gpuMs));
     const draws = stats(samples.map((s) => s.draws));
@@ -161,9 +195,36 @@ export function startBenchRoute(deps) {
   /** Call once per frame from main.js's loop, after metrics for the frame are available. */
   function tick(frameMs) {
     if (done) return;
-    const elapsed = (performance.now() - t0) / 1000;
     const pos = getCarPos();
     if (!pos) return;
+
+    // ── MANUAL: the driver steers. We only pin, sample and stop. ──
+    if (manual) {
+      const kmhNow = getSpeedKmh();
+      if (!armed) {
+        if (kmhNow < 5) return;             // not rolling yet — do not start the clock
+        armed = true; armT = performance.now();
+        if (hud) hud.innerHTML = '<b>BENCHMARK — recording</b><br><span style="opacity:.7">' +
+          RECORD_SECONDS + 's · keep driving</span>';
+        console.warn('[bench] recording started');
+      }
+      const el = (performance.now() - armT) / 1000;
+      samples.push({
+        t: +el.toFixed(2), ms: +frameMs.toFixed(2),
+        gpuMs: +(gpuTimer?.getMs?.() ?? 0).toFixed(2),
+        draws: renderer?.info?.render?.calls ?? 0,
+        tris: renderer?.info?.render?.triangles ?? 0,
+        kmh: Math.round(kmhNow), wp: 0,
+      });
+      if (hud && (samples.length % 30) === 0) {
+        hud.innerHTML = '<b>BENCHMARK — recording</b><br><span style="opacity:.7">' +
+          Math.max(0, Math.round(RECORD_SECONDS - el)) + 's left · keep driving</span>';
+      }
+      if (el > RECORD_SECONDS) finish('manual-complete');
+      return;
+    }
+
+    const elapsed = (performance.now() - t0) / 1000;
 
     // ── closed-loop steering toward the current waypoint ──
     const tgt = wps[wi];
