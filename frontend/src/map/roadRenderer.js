@@ -81,8 +81,6 @@ const SIDEWALK_WIDTH_BY_TYPE = {
   unclassified: 1.2,
 };
 const DEFAULT_SIDEWALK_WIDTH = 1.2;
-const EDGE_STRIP_WIDTH = 0.1;
-const EDGE_STRIP_Y_OFFSET = 0.02;
 /** Norma 8.2-IC road marking constants. All longitudinal lines are 0.10 m wide. */
 const CENTER_LINE_WIDTH       = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10 m
 const MARKING_EDGE_LINE_WIDTH = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10 m
@@ -1059,7 +1057,6 @@ function getMarkingMaterial() {
   }
   return markShared(_mergedMarkingMaterial);
 }
-let _mergedPedestrianMaterial = null;
 function getWhiteLineMaterial() {
   if (!whiteLineMaterial) {
     whiteLineMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({ color: BCN_COLORS.PAINT_WHITE, flatShading: false }), 'marking');
@@ -2509,127 +2506,13 @@ async function buildBlueZoneStripes(roads, options, yieldFn) {
   } catch { geoms.forEach(g => g.dispose()); return null; }
 }
 
-/** Build sidewalk + edge strip geometries for eligible roads; merge and return meshes. */
-function buildSidewalkAndEdgeMeshes(roads, options) {
-  if (!CONFIG.ENABLE_SIDEWALKS && !CONFIG.ENABLE_ROAD_EDGE_DETAIL) return { sidewalkMesh: null, edgeStripMesh: null };
-  const sidewalkGeoms = [];
-  const edgeStripGeoms = [];
-  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
-  const getElevationAt = options?.getElevationAt;
-
-  for (const road of roads) {
-    const pts = road.points;
-    if (!pts || pts.length < 2) continue;
-    const type = road.highwayType || '';
-    const roadWidth = Math.max(4, Math.min(30, Number(road.width) || 6));
-    const half = roadWidth / 2;
-    const roadHeights = getRoadPointHeights(road, options);
-
-    const sidewalkWidth = getSidewalkWidthForRoad(type);
-    const roadLayer = road.layer != null && Number.isFinite(road.layer) ? road.layer : 0;
-    const sidewalkBaseOffset = roadLayer * LAYER_HEIGHT_STEP + SIDEWALK_OFFSET;
-    if (false && CONFIG.ENABLE_SIDEWALKS && sidewalkWidth > 0) { // superseded by buildSidewalks() Phase 3
-      // offsetDistance = (roadWidth/2) + (sidewalkWidth/2): centerline at road edge + half sidewalk width so mesh sits fully outside road
-      const offsetFromCenter = half + sidewalkWidth / 2;
-      const leftSidewalk = getOffsetPolyline(pts, -offsetFromCenter);
-      const rightSidewalk = getOffsetPolyline(pts, offsetFromCenter);
-      const getJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS);
-      const leftRuns = junctionPoints.length > 0
-        ? clipPolylineNearJunctions(leftSidewalk, junctionPoints, getJunctionRadius)
-        : [leftSidewalk];
-      const rightRuns = junctionPoints.length > 0
-        ? clipPolylineNearJunctions(rightSidewalk, junctionPoints, getJunctionRadius)
-        : [rightSidewalk];
-      for (const run of leftRuns) {
-        const heights = getElevationAt ? run.map((p) => { const { lat, lon } = worldToLatLon(p.x, p.y); return (getElevationAt(lat, lon) ?? 0) + sidewalkBaseOffset; }) : sidewalkBaseOffset;
-        const g = buildFlatRibbonGeometry(run, sidewalkWidth, heights);
-        if (g) sidewalkGeoms.push(g);
-      }
-      for (const run of rightRuns) {
-        const heights = getElevationAt ? run.map((p) => { const { lat, lon } = worldToLatLon(p.x, p.y); return (getElevationAt(lat, lon) ?? 0) + sidewalkBaseOffset; }) : sidewalkBaseOffset;
-        const g = buildFlatRibbonGeometry(run, sidewalkWidth, heights);
-        if (g) sidewalkGeoms.push(g);
-      }
-    }
-
-    if (CONFIG.ENABLE_ROAD_EDGE_DETAIL
-        // NO edge strips on motorways/trunks (user call 2026-07-11): the dark bands flanking the
-        // Ronda Litoral carriageways read as broad black lines, not kerb detail. Highways keep
-        // clean asphalt edges; city streets keep the strip.
-        && type !== 'motorway' && type !== 'motorway_link' && type !== 'trunk' && type !== 'trunk_link') {
-      const leftEdge = getOffsetPolyline(pts, -half);
-      const rightEdge = getOffsetPolyline(pts, half);
-      const yLeft = roadHeights || EDGE_STRIP_Y_OFFSET;
-      const yRight = roadHeights || EDGE_STRIP_Y_OFFSET;
-      const e1 = buildFlatRibbonGeometry(leftEdge, EDGE_STRIP_WIDTH, yLeft);
-      const e2 = buildFlatRibbonGeometry(rightEdge, EDGE_STRIP_WIDTH, yRight);
-      if (e1) edgeStripGeoms.push(e1);
-      if (e2) edgeStripGeoms.push(e2);
-    }
-  }
-
-  // Merge sidewalk + edge strip into one mesh using vertex colors
-  const out = { sidewalkMesh: null, edgeStripMesh: null };
-  const sidewalkColor = new THREE.Color(0xb8bab5);
-  const edgeColor = new THREE.Color(0x6e7580);
-  const allPedestrianGeoms = [];
-
-  if (sidewalkGeoms.length > 0) {
-    const merged = mergeGeometries(sidewalkGeoms);
-    sidewalkGeoms.forEach((g) => g.dispose());
-    if (merged) {
-      if (!merged.attributes.uv) console.warn('[UV] Sidewalk merged geometry missing uv attribute');
-      clampSidewalkVerticesOutsideRoads(roads, merged.attributes.position);
-      merged.attributes.position.needsUpdate = true;
-      merged.computeVertexNormals();
-      // Bake sidewalk color
-      const count = merged.attributes.position.count;
-      const colors = new Float32Array(count * 3);
-      for (let i = 0; i < count; i++) { colors[i*3] = sidewalkColor.r; colors[i*3+1] = sidewalkColor.g; colors[i*3+2] = sidewalkColor.b; }
-      merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-      allPedestrianGeoms.push(merged);
-    }
-  }
-  if (edgeStripGeoms.length > 0) {
-    const merged = mergeGeometries(edgeStripGeoms);
-    edgeStripGeoms.forEach((g) => g.dispose());
-    if (merged) {
-      // Bake edge strip color
-      const count = merged.attributes.position.count;
-      const colors = new Float32Array(count * 3);
-      for (let i = 0; i < count; i++) { colors[i*3] = edgeColor.r; colors[i*3+1] = edgeColor.g; colors[i*3+2] = edgeColor.b; }
-      merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-      allPedestrianGeoms.push(merged);
-    }
-  }
-
-  if (allPedestrianGeoms.length > 0) {
-    // Ensure compatible attributes — add missing 'uv' or 'normal' to make mergeGeometries work
-    const hasUV = allPedestrianGeoms.some(g => g.attributes.uv);
-    const hasNormal = allPedestrianGeoms.some(g => g.attributes.normal);
-    for (const g of allPedestrianGeoms) {
-      if (hasUV && !g.attributes.uv) {
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
-      }
-      if (hasNormal && !g.attributes.normal) {
-        g.computeVertexNormals();
-      }
-    }
-    const finalMerge = allPedestrianGeoms.length === 1 ? allPedestrianGeoms[0] : mergeGeometries(allPedestrianGeoms);
-    if (allPedestrianGeoms.length > 1) allPedestrianGeoms.forEach(g => g.dispose());
-    if (finalMerge) {
-      if (!_mergedPedestrianMaterial) {
-        _mergedPedestrianMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-      }
-      out.sidewalkMesh = new THREE.Mesh(finalMerge, _mergedPedestrianMaterial);
-      out.sidewalkMesh.castShadow = false;
-      out.sidewalkMesh.receiveShadow = false;
-      out.sidewalkMesh.frustumCulled = false;
-      out.sidewalkMesh.userData.sharedMaterial = true;
-    }
-  }
-  return out;
-}
+// v3 P1-14: buildSidewalkAndEdgeMeshes() DELETED.
+// Its sidewalk half had been dead since Phase 3 — the branch literally read
+//   `if (false && CONFIG.ENABLE_SIDEWALKS && sidewalkWidth > 0)`
+// because buildSidewalks() superseded it. What remained was the EDGE STRIP: a 0.10 m ribbon down
+// both sides of every non-motorway road, ~8.5-9.5k triangles per dense tile, on a material with no
+// applyGroundLayer() call and frustumCulled=false, i.e. always submitted. Barcelona's kerb comes
+// from the v8 baked sidewalk polygons and the P3 kerb profile, not from a painted strip.
 
 let sharedPillarMaterial = null;
 function getPillarMaterial() {
@@ -4563,7 +4446,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   const { whiteMarkingsMesh, yellowMarkingsMesh } = await buildRoadMarkings(roads, options, yieldFn);
   if (yieldFn) await yieldFn();
   ph('p1 rg:sidewalk-edge');
-  const { sidewalkMesh, edgeStripMesh } = buildSidewalkAndEdgeMeshes(roads, options);
+  const sidewalkMesh = null, edgeStripMesh = null;   // v3 P1-14: edge-strip subsystem deleted
   if (yieldFn) await yieldFn();
   ph('p1 rg:crosswalks');
   const crosswalkMesh      = await buildCrosswalks(roads, options, yieldFn);

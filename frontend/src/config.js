@@ -6,8 +6,7 @@
 //   ENABLE_BUILDINGS: true,
 //   ENABLE_SIDEWALKS: true,
 //   ENABLE_TREES: true,
-//   ENABLE_ROAD_EDGE_DETAIL: true,
-//   ENABLE_PROCEDURAL_INFILL: true,
+// //   ENABLE_PROCEDURAL_INFILL: true,
 //   /** Enable shadow mapping (sun only); use PCFSoftShadowMap. */
 //   ENABLE_SHADOWS: true,
 //   /** Shadow map resolution (max 1024 for performance). */
@@ -38,7 +37,6 @@ export const CONFIG = {
   ENABLE_BUILDINGS: true,
   ENABLE_SIDEWALKS: true,     // OSM-driven panot sidewalks (Phase 2 bake provides road.sidewalk)
   ENABLE_TREES: true,
-  ENABLE_ROAD_EDGE_DETAIL: true,
   ENABLE_PROCEDURAL_INFILL: false, // Delhi-era procedural building infill — keep off
   ENABLE_TRAFFIC: true, // AI traffic cars driving the loaded road network (car mode only)
   ENABLE_PARKED_CARS: true, // instanced parked cars lining both curbs (the Barcelona look)
