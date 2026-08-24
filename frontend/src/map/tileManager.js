@@ -19,7 +19,6 @@ import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buil
 import { createAoSampler, AO_DISABLED, AO_GREEN_STRENGTH } from './aoSampler.js';
 import { mergeGeometriesChunked } from './chunkedMerge.js';
 import { ingestCoastline } from './coastline.js';
-// import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
 import { buildTerrainMesh, buildTerrainHeightfield, getHeightfieldWorldAABB, darkenTerrainAroundTrees } from './terrainRenderer.js';
@@ -37,11 +36,8 @@ import { buildCafeTerrace } from './cafeTerraceRenderer.js';
 import { buildShopfrontMeshes } from './shopfrontRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
-import { buildCrashBarriers, buildCrashBarrierColliders } from './crashBarrierRenderer.js';
-import { buildReflectors } from './reflectorRenderer.js';
 import { buildRoadInfrastructure } from './roadInfraRenderer.js';
 import { buildUrbanFeatureMeshes, getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
-import { buildVendorCartMeshes, getVendorCartExclusionZones } from './vendorCartRenderer.js';
 import { buildTunnelMeshes, buildTunnelFloor, buildApproachCanopy, buildRetainingWalls, buildTrenchRetainingWalls, buildTrenchCliffWalls, buildTrenchPortals, buildPedestrianPortals, buildPortalApproaches } from './tunnelRenderer.js';
 import { registerTunnelZones, unregisterTunnelZones } from '../tunnelZones.js';
 import { buildVegetationMask } from './vegetationMask.js';
@@ -2218,19 +2214,11 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
     }
 
-    if (CONFIG.ENABLE_CRASH_BARRIERS) {
-      entry.crashBarrierMesh = buildCrashBarriers(roads);
-      if (entry.crashBarrierMesh) safeSceneAdd(scene, entry.crashBarrierMesh);
-      if (world) {
-        entry.crashBarrierBody = buildCrashBarrierColliders(roads);
-        if (entry.crashBarrierBody) world.addBody(entry.crashBarrierBody);
-      }
-    }
+    // v3 P1-16: crashBarrierRenderer DELETED — Indian yellow-black crash barriers.
 
-    if (CONFIG.ENABLE_ROAD_INFRA) {
-      entry.reflectorGroup = buildReflectors(roads);
-      if (entry.reflectorGroup) safeSceneAdd(scene, entry.reflectorGroup);
-    }
+    // v3 P1-16: reflectorRenderer DELETED. It was gated on ENABLE_ROAD_INFRA, which is TRUE, so it
+    // was LIVE: Indian cat's-eye studs every 6 m on Barcelona tertiary streets, ~42k tris and 18
+    // draws per tile. Barcelona uses painted markings and reflective delineators, not road studs.
 
     await yieldToMain();
     if (aborted()) return entry;
@@ -2286,11 +2274,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       entry.urbanFeatureMeshes = await mergeMeshesByMaterial(await buildUrbanFeatureMeshes(data.urbanFeatures, roads, buildings, getGroundY, yieldToMain), yieldToMain);
       for (const m of entry.urbanFeatureMeshes) { safeSceneAdd(scene, m); }
     }
-    if (CONFIG.ENABLE_VENDOR_CARTS && roads.length > 0) {
-      buildPhase('p4 vendor');
-      entry.vendorCartMeshes = await mergeMeshesByMaterial(buildVendorCartMeshes(roads, buildings, key, options.vegetationMask, getGroundY), yieldToMain);
-      for (const m of entry.vendorCartMeshes) { safeSceneAdd(scene, m); }
-    }
+    // v3 P1-16: vendorCartRenderer DELETED — Delhi street vendors.
 
     // Shop name boards on building fronts (one InstancedMesh per tile).
     if (CONFIG.ENABLE_SHOP_SIGNS !== false && CONFIG.ENABLE_BUILDINGS && buildings?.length) {

@@ -143,12 +143,10 @@ export const CONFIG = {
 
   ENABLE_PARKING: false,
   ENABLE_BARRIERS: false,
-  ENABLE_CRASH_BARRIERS: false,
   /** Physics collision on street trees. OFF — trees line the curb, so collision made the car stop dead
    *  the moment it touched a sidewalk. Trees are now decorative (drive-through); buildings still block. */
   ENABLE_TREE_COLLISION: false,
   ENABLE_BUS_STOPS: true, // bus shelters on the sidewalks
-  ENABLE_DIVIDERS: false,
   ENABLE_STREETLIGHTS: true, // procedural poles + lamp heads along road edges; glow at night (bloom)
   MAX_DYNAMIC_STREETLIGHTS: 8,
   ENABLE_WATER: false,
@@ -170,7 +168,6 @@ export const CONFIG = {
    */
   RENDER_OPEN_WATER_AS_POLYGONS: false,
   ENABLE_URBAN_FEATURES: true, // fountains, fire hydrants, public toilets, etc. from OSM
-  ENABLE_VENDOR_CARTS: false,  // Delhi-era street vendors — keep off for Barcelona
   ENABLE_ROAD_INFRA: true,     // traffic lights, speed/direction signs, lane arrows, road-name boards, drain covers
   /** Zebra crosswalks (paso de cebra) at every eligible junction. Norma 8.2-IC: 0.50m stripe / 0.50m gap.
    *  Phase 1 Barcelona road overhaul. LOD-culled at 80m to control vertex budget. */

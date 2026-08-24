@@ -9,7 +9,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
-import { getVendorCartExclusionZones } from './vendorCartRenderer.js';
 import { worldToLatLon } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 import { rasterizeSegment } from './roadOccupancyGrid.js';
@@ -653,12 +652,10 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads = []) {
   const buildings = tileData.buildings || [];
   const veg = tileData.vegetation || {};
   const debug = CONFIG.DEBUG_TREE_SOURCES;
-  // Exclusion zones around urban features (fuel stations, towers, etc.) + vendor carts
+  // Exclusion zones around urban features (fuel stations, towers, etc.)
   const ufZones = getUrbanFeatureExclusionZones(tileData.urbanFeatures);
-  if (CONFIG.ENABLE_VENDOR_CARTS) {
-    const vcZones = getVendorCartExclusionZones(roads, buildings, tileKey, vegMask);
-    ufZones.push(...vcZones);
-  }
+  // v3 P1-16: the vendor-cart exclusion block is gone with vendorCartRenderer. It was correctly
+  // gated on ENABLE_VENDOR_CARTS (false), so it never ran and vegetation placement is UNCHANGED.
 
   const hasUF = ufZones.length > 0;
 

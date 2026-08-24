@@ -4,7 +4,6 @@
  */
 import * as THREE from 'three';
 import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, setRoadNightWash, setRoadDecalNightMode } from '../map/roadRenderer.js';
-import { setDividerNightMode } from '../map/dividerRenderer.js';
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
 import { setVegNightWash } from '../map/vegetationRenderer.js';
 import { setAoNightScale } from '../map/aoSampler.js';
@@ -12,7 +11,6 @@ import { setBuildingNightMode } from '../map/buildingRenderer.js';
 import { setFacadeNightMode, setHeroSpillNight } from '../workers/meshMaterializer.js';
 import { setBusStopNightMode } from '../map/busStopRenderer.js';
 import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
-import { setVendorCartNightMode } from '../map/vendorCartRenderer.js';
 import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetlightRenderer.js';
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
@@ -165,7 +163,6 @@ export function createEnvToggle(refs) {
     setShopSignNightMode(isNight);
     setShopfrontNightMode(isNight);
     setStreetlightNightMode(isNight);
-    setDividerNightMode(isNight);
     setCloudNightMode(isNight);
     setMoonNightMode(isNight);
     setStarsNightMode(isNight);
@@ -178,7 +175,6 @@ export function createEnvToggle(refs) {
     setRoadDecalNightMode(isNight); // bike-lane green + blue-zone stripes crush to black otherwise
     setBusStopNightMode(isNight);
     setFuelStationNightMode(isNight);
-    setVendorCartNightMode(isNight);
     setBridgePoleNightMode(isNight);
     for (const cb of _nightModeCallbacks) cb(isNight);
   }
