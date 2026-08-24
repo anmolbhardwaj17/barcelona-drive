@@ -92,6 +92,14 @@ export const CONFIG = {
 
   /** DEM terrain: when true, fetch elevation per tile and layer roads/buildings/vegetation on it. */
   /** Render railway lines from OSM (rail, light_rail, subway, tram). */
+  /** Tram rails (railway=tram) embedded flush in the road surface, separate from heavy rail.
+   *  ⚠ v3 P1-25: this IS honoured — but inside railwayRenderer.js:119, not at the tileManager call
+   *  site, whose comment claims trams are "always rendered when present". The comment is wrong and
+   *  the flag is right: with this false, createTramMeshes() returns null and NO trams render.
+   *  Deleting this flag TURNS TRAMS ON (`!undefined` is true), which is a visual change, not a
+   *  cleanup. Barcelona does have a real tram network, so switching this on is a legitimate scope
+   *  decision — but it is a decision, and it belongs to P4 signage/infra, not to a P1 tidy-up. */
+  ENABLE_TRAM_TRACKS: false,
   ENABLE_RAILWAYS: false,
   /** Phase 4B-1: octagonal asphalt fill at Eixample-scale crossing junctions (chamfered plazas). */
   ENABLE_CHAMFER_FILLS: false,
@@ -107,8 +115,6 @@ export const CONFIG = {
   ENABLE_BLUE_PARKING_ZONES: false,
   /** Phase 4D-2: skip barrier=wall polygons whose midpoint is within 5m of a building centroid (ghost-wall filter). */
   ENABLE_GHOST_WALL_FILTER: true,
-  /** Phase 4A: tram rails (railway=tram) embedded flush in road surface. Separate from heavy-rail. */
-  ENABLE_TRAM_TRACKS: false,
   /** Phase 4A: yellow no-parking/no-stopping curb stripes from parking:lane:* OSM tags. Re-bake required. */
   ENABLE_NO_PARKING_STRIPES: false,
 

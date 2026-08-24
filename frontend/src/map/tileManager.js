@@ -1955,7 +1955,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     railwayMeshes.forEach((m) => safeSceneAdd(scene, m));
     entry.railwayMeshes = railwayMeshes;
 
-    // Phase 4A: tram rails — separate from heavy rail, always rendered when present
+    // TRAM CONTRACT (v3 P1-25). The comment that used to sit here said trams were "always rendered
+    // when present". That is FALSE: createTramMeshes() checks CONFIG.ENABLE_TRAM_TRACKS itself
+    // (railwayRenderer.js:119) and returns null when it is off — which it is. No trams render today.
+    // The gate is simply in the renderer rather than at this call site, which is why it reads as
+    // ungated from here. Turning trams on is a legitimate scope decision for P4 (Barcelona has a
+    // real network) — it is just not a P1 cleanup, because it CHANGES WHAT IS ON SCREEN.
     const tramMesh = skipNonRoad ? null : createTramMeshes(railways, options);
     if (tramMesh && safeSceneAdd(scene, tramMesh)) entry.tramRailMesh = tramMesh;
 
