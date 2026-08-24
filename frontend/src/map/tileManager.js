@@ -108,6 +108,27 @@ function queueGroupWarmup(group) {
 }
 
 /** Safe scene.add that skips meshes with NaN positions to prevent render errors. */
+/**
+ * v3 P1-19/20 — census of the OSM data that reaches the renderer. Logged once, ~8 s after the first
+ * tile, so the corrected figures in the v3 plan (14,542 shops / 4,225 signals / 35,580 trees
+ * city-wide) can be checked against what actually arrives rather than taken on faith.
+ * Delete once the consumers exist and the counts are visible in-game.
+ */
+const _census = { tiles: 0, trees: 0, shops: 0, namedShops: 0, signals: 0 };
+let _censusTimer = null;
+function _censusAdd(td) {
+  _census.tiles++;
+  _census.trees += td.trees?.length || 0;
+  _census.shops += td.shops?.length || 0;
+  _census.namedShops += (td.shops || []).filter((x) => x?.name).length;
+  _census.signals += td.trafficSignals?.length || 0;
+  if (_censusTimer) return;
+  _censusTimer = setTimeout(() => {
+    console.warn('[census] %d tiles → %d trees · %d shops (%d named) · %d traffic signals — all previously dropped',
+      _census.tiles, _census.trees, _census.shops, _census.namedShops, _census.signals);
+  }, 8000);
+}
+
 function safeSceneAdd(scene, mesh) {
   if (!mesh) return false;
   // v3 P0-03: shadowMap.autoUpdate is false, so new geometry entering the scene would otherwise
@@ -1717,7 +1738,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     options.buildPhase = buildPhase; // sub-attribution inside createRoadMeshes ('p1 rg:*' tags name the sync builder)
     if (data.bakedRoads) options.bakedRoads = data.bakedRoads;
     if (data.bakedSidewalks) options.bakedSidewalks = data.bakedSidewalks;   // v8 — pre-baked sidewalks/curbs
-    const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [], beaches: data.beaches || [] };
+    const tileData = { roads, buildings, railways: railways || [], vegetation: vegetation || { trees: [], greenAreas: [] }, water: water || [], greens: greens || [], barriers: data.barriers || [], urbanFeatures: data.urbanFeatures || [], beaches: data.beaches || [],
+      // v3 P1-19/20: real OSM trees, shops and traffic signals. tileParserWorker has been decoding
+      // all three for a long time (readTrees / readShops / trafficSignals) and this whitelist
+      // silently dropped them — note `vegetation.trees` above is EMPTY, so every tree in the city is
+      // currently placed procedurally while 35k surveyed positions with species tags go unread.
+      // No consumer yet; this is the plumbing P3 vegetation and P4 signage need. Costs one reference.
+      trees: data.trees || [], shops: data.shops || [], trafficSignals: data.trafficSignals || [] };
+    _censusAdd(tileData);
     if (data.bakedVegetation) tileData.bakedVegetation = data.bakedVegetation;
 
     _perfMark('tunnels+setup');
