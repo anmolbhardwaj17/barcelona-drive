@@ -5,7 +5,6 @@
 // export const CONFIG = {
 //   ENABLE_BUILDINGS: true,
 //   ENABLE_SIDEWALKS: true,
-//   ENABLE_TRAFFIC_LIGHTS: false,
 //   ENABLE_TREES: true,
 //   ENABLE_ROAD_EDGE_DETAIL: true,
 //   ENABLE_PROCEDURAL_INFILL: true,
@@ -38,9 +37,6 @@ export const CONFIG = {
   // remain off pending their own verification pass on the new terrain.
   ENABLE_BUILDINGS: true,
   ENABLE_SIDEWALKS: true,     // OSM-driven panot sidewalks (Phase 2 bake provides road.sidewalk)
-  ENABLE_TRAFFIC_LIGHTS: false, // OFF — this renderer draws featureless dark boxes on poles (no bulbs) that
-                                // read as random "floating things". Real bulbed traffic lights come from
-                                // roadInfraRenderer (ENABLE_ROAD_INFRA).
   ENABLE_TREES: true,
   ENABLE_ROAD_EDGE_DETAIL: true,
   ENABLE_PROCEDURAL_INFILL: false, // Delhi-era procedural building infill — keep off
@@ -146,7 +142,6 @@ export const CONFIG = {
   DEBUG_ROAD_WIREFRAMES: false,
 
   ENABLE_PARKING: false,
-  ENABLE_DECALS: false,
   ENABLE_BARRIERS: false,
   ENABLE_CRASH_BARRIERS: false,
   /** Physics collision on street trees. OFF — trees line the curb, so collision made the car stop dead
@@ -156,7 +151,6 @@ export const CONFIG = {
   ENABLE_DIVIDERS: false,
   ENABLE_STREETLIGHTS: true, // procedural poles + lamp heads along road edges; glow at night (bloom)
   MAX_DYNAMIC_STREETLIGHTS: 8,
-  ENABLE_ROAD_SHOULDERS: false,
   ENABLE_WATER: false,
   /**
    * When false (default), natural=coastline water features are NOT rendered as

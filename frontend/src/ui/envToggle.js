@@ -5,7 +5,6 @@
 import * as THREE from 'three';
 import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, setRoadNightWash, setRoadDecalNightMode } from '../map/roadRenderer.js';
 import { setDividerNightMode } from '../map/dividerRenderer.js';
-import { setShoulderNightMode } from '../map/shoulderRenderer.js';
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
 import { setVegNightWash } from '../map/vegetationRenderer.js';
 import { setAoNightScale } from '../map/aoSampler.js';
@@ -167,7 +166,6 @@ export function createEnvToggle(refs) {
     setShopfrontNightMode(isNight);
     setStreetlightNightMode(isNight);
     setDividerNightMode(isNight);
-    setShoulderNightMode(isNight);
     setCloudNightMode(isNight);
     setMoonNightMode(isNight);
     setStarsNightMode(isNight);

@@ -15,7 +15,6 @@ import { CONFIG } from '../config.js';
 import { COLLISION_GROUP_GROUND, COLLISION_GROUP_VEHICLE, COLLISION_GROUP_WORLD, COLLISION_GROUP_TERRAIN, assertTerrainVehicleHandshake } from '../collisionGroups.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
-import { renderTrafficLights } from './trafficLightRenderer.js';
 import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
 import { createAoSampler, AO_DISABLED, AO_GREEN_STRENGTH } from './aoSampler.js';
 import { mergeGeometriesChunked } from './chunkedMerge.js';
@@ -23,7 +22,6 @@ import { ingestCoastline } from './coastline.js';
 // import { buildDividers } from './dividerRenderer.js'; // disabled
 import { buildStreetlights, registerBridgeNightCallback, unregisterBridgeNightCallback, BRIDGE_NIGHT_COLORS, DAY_POLE_COLOR } from './streetlightRenderer.js';
 import { createVegPoolSet } from './vegPools.js';
-import { buildShoulderMesh } from './shoulderRenderer.js';
 import { buildTerrainMesh, buildTerrainHeightfield, getHeightfieldWorldAABB, darkenTerrainAroundTrees } from './terrainRenderer.js';
 import { renderWater } from './waterRenderer.js';
 import { createRailwayMeshes, createTramMeshes } from './railwayRenderer.js';
@@ -37,7 +35,6 @@ import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildAwningMesh } from './awningRenderer.js';
 import { buildCafeTerrace } from './cafeTerraceRenderer.js';
 import { buildShopfrontMeshes } from './shopfrontRenderer.js';
-import { buildDecalMeshes, disposeDecalMeshes } from './decalRenderer.js';
 import { renderProps } from './propRenderer.js';
 import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
 import { buildCrashBarriers, buildCrashBarrierColliders } from './crashBarrierRenderer.js';
@@ -2154,19 +2151,11 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     await yieldToMain();
 
     // Traffic lights — pooled like the streetlight parts (was 1 InstancedMesh per tile)
-    if (!skipNonRoad && CONFIG.ENABLE_TRAFFIC_LIGHTS) {
-      const tlMesh = renderTrafficLights(tileData, key);
-      if (tlMesh) {
-        const h = await poolLightIM('trafficLight', tlMesh);
-        if (h) { h.kind = 'light'; (entry.vegPoolHandles = entry.vegPoolHandles || []).push(h); }
-      }
-    }
+    // v3 P1-18: trafficLightRenderer DELETED — a disabled, hard-coded-Y=0 duplicate of the bulbed
+    // traffic lights roadInfraRenderer already builds (ENABLE_ROAD_INFRA, which is ON).
 
     // Shoulders + Dividers + Streetlights
-    if (CONFIG.ENABLE_ROAD_SHOULDERS) {
-      entry.shoulderMesh = buildShoulderMesh(roads);
-      if (entry.shoulderMesh) safeSceneAdd(scene, entry.shoulderMesh);
-    }
+    // v3 P1-15: shoulderRenderer DELETED — Delhi dirt shoulders. Barcelona has kerbs.
     // Dividers disabled
 
     await yieldToMain();
@@ -2286,11 +2275,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     // Decals
-    if (!skipNonRoad && CONFIG.ENABLE_DECALS) {
-      buildPhase('p4 decals');
-      const dm = await buildDecalMeshes({ buildings: buildings || [], barriers: data.barriers || [] }, key);
-      for (const m of dm) { safeSceneAdd(scene, m); entry.decalMeshes.push(m); }
-    }
+    // v3 P1-15: decalRenderer DELETED — Delhi-era wall posters.
 
     await yieldToMain();
     if (aborted()) return entry;
