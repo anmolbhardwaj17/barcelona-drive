@@ -1,0 +1,960 @@
+# v3 Execution Tracker
+
+> **THIS FILE IS THE STATE. [v3-master-plan.md](v3-master-plan.md) IS THE SPEC.**
+> The plan says *what and why* in full. This file says *what is done, what is next, and how to
+> verify it*. Never duplicate spec text here — link to it. Never track state there.
+
+---
+
+## ⏯ RESUME HERE
+
+| | |
+|---|---|
+| **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
+| **Current phase** | **P0 — Truth, Safety, Deletion** |
+| **Next task** | **P0-01** (pin three to exact 0.183.1) |
+| **Tasks done** | 0 / 92 |
+| **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
+| **Blocked on** | nothing |
+
+### If you are a fresh session, do exactly this
+1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.
+2. Read this file's **RESUME HERE** block and the current phase's task list below.
+3. Read the matching phase section in [v3-master-plan.md](v3-master-plan.md) for the full spec of
+   the next task. **Do not act from this tracker alone** — the tracker is deliberately terse.
+4. Do the task. Update its checkbox and the **Tasks done** count. Commit.
+5. If you finish a phase, run its **exit gate** below before starting the next one. A phase is not
+   done because its boxes are ticked; it is done when its gate passes.
+
+### Status legend
+`[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` cut/skipped (say why)
+
+### The two rules that override convenience
+- **No slacking.** If a task turns out to need a rebuild rather than a patch, rebuild it, and note
+  the change here. Sunk cost is not an argument. Neither is rewriting for its own sake.
+- **It stays a browser game.** Every task is performance-bound. See **Performance ledger** below —
+  update it as you land things, or the budget silently rots.
+
+---
+
+## 🖥 Performance ledger — update as you go
+
+The plan's budget only holds if each saving is banked **once**. Three domains each tried to bank
+the same shadow saving in planning; do not repeat that in execution.
+
+| Metric | Baseline (measured) | Now | Cap | Owner task |
+|---|---|---|---|---|
+| p95 GPU, night, 80 km/h, dense Eixample, pr 1.0 | **13.30 ms** ⚠ *unverified until P0-05* | — | **15.00** | P0-05 |
+| Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
+| Draw calls | 261–289 | — | **450** | P0-05 |
+| Triangles | ~2.32 M (Eixample) | — | **2.6 M** | P0-05 |
+| Art library download | 0 | — | **24 MB** | P1-05 |
+| Page weight | ~30 MB disk | — | −14 MB after P0 | P0-10 |
+| Time-to-drive | **never measured** | — | baseline + 1.5 s | P0-04 |
+| Shader programs (delta over a 3-min drive) | 125 / +7 seen | — | **0** | P1-04 |
+
+⚠ **Rule: no task may claim a saving another task already banked.** If you bank one, write the
+measured number in the **Now** column and name the task that did it.
+
+---
+
+## 🚨 Standing hazards — re-read before touching these
+
+| # | Hazard | Why it bites |
+|---|---|---|
+| H1 | `patchRoadWash` carries **both** the night wash **and** the v9 baked sky-AO | Deleting it wholesale silently removes baked AO from every road in the city **with no error**. **P0-07 splits it. Do that before any lighting work.** |
+| H2 | Buildings are **worker**-generated | `workers/buildingWorker.js` + `workers/meshMaterializer.js` are the real path. `map/buildingRenderer.js` is night-mode + distant LOD only. Editing the wrong one does nothing and has cost a full session before. |
+| H3 | `vegPools.js` invariants | Fixed 16384-cap pools. **NEVER** `setInstanceCount`-grow (re-uploads every texture). **NEVER** `deleteInstance` (its freed-list sort is O(n log n) per add). |
+| H4 | `GLOBAL_VERTEX_BUDGET` drops **entire buildings** via `continue` | Any geometry the art pass adds silently deletes buildings in exactly the dense tiles the gate measures — and it will be misread as an art bug. **P1-12 makes it degrade instead.** |
+| H5 | Triple-mirrored constants | `FLOOR_HEIGHT` / `WALL_REPEAT_HORIZONTAL_M` live in three files; AO constants in four. **P1-13 single-sources them.** |
+| H6 | Shared-material disposal defaults to **dispose** | `tileManager.js:2856-2874` disposes unless `userData.sharedMaterial` is set; 13 untagged sites. Under a shared KTX2 library the first tile unload destroys a city-wide texture. **P0-02 inverts it.** |
+| H7 | A re-bake is expensive | ~10–30 min, re-commits 547 MB, bumps `TILE_VERSION` in `mapLoader.js` **and** `tileParserWorker.js`, and every player needs `window._clearTileCache()`. 17 of 426 tiles are still v7 with no AO grid. Only **P4** tasks re-bake, and they share ONE window. |
+| H8 | Card foliage before the light grid | Alpha-tested foliage under zero punctual lights is a **black cutout** — worse than the current blob. **P4 trees must not ship before P2's light grid.** |
+| H9 | `CSM.js:443` hard-assigns `onBeforeCompile` | It would silently delete both the road night wash and the baked AO. The registry (P1-03) must **chain**, never assign. |
+
+---
+
+## P0 — TRUTH, SAFETY, DELETION · 8.3 days · 18 tasks
+**Goal.** Make the project measurable, make shared resources safe to introduce, remove the two live licence exposures, and delete everything that is provably dead. **Not one texture is authored in this phase.**
+
+**Progress:** 0 / 18
+
+<details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
+
+- `renderer.info.render.{calls, triangles}` and texture VRAM captured at the benchmark (80 km/h, night, dense Eixample, production build, pr 1.0) and committed. This single capture **replaces all five domains' triangle estimates**.
+- Night GPU improves by **≥1.0 ms** from `shadowMap.autoUpdate` alone.
+- Page weight down **≥14 MB**; `git ls-files frontend/public` returns **zero** CraftPix files and **zero** `.otf`.
+- Time-to-drive (navigation-start → `dd-loading` hide) recorded as a committed baseline number.
+- Tile payload down **383.4 MB**; per-tile fetch 1.27 → 0.41 MB.
+- Zero regressions in a 3-minute drive: `renderer.info.programs.length` delta = 0.
+
+</details>
+
+
+### `[ ]` P0-01 · 0.1d · risk low
+Pin three to exact **0.183.1** (drop the caret) — 5 foundation items depend on r183 private internals (`FORMAT_OPTIONS` ordering, `bm._visibilityChanged`, `painterSortStable` field order, `BatchedMesh._reserveRange`, the DOUBLE_SIDED derivative-TBN flip)
+
+- **Files:** `frontend/package.json:22`
+- **Depends:** nothing
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-02 · 0.75d · risk medium
+**Invert the shared-material disposal default** to an explicit `userData.ownedMaterial` opt-in, and tag the **13** untagged sites. Add a dev assert that no material reachable from the art registry is ever disposed. **P0 BLOCKER: without this, the first shared KTX2 texture is destroyed on the first tile unload.**
+
+- **Files:** `tileManager.js:2856-2874`; `roadRenderer.js:2088,2198,2744,2963,4325,4879`; `crashBarrierRenderer.js:401,406`; `reflectorRenderer.js:312,321`; `waterRenderer.js:236,309`; `vegetationRenderer.js:1124`
+- **Depends:** pin three
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-03 · 0.5d · risk medium
+`renderer.shadowMap.autoUpdate = false` **plus explicit `needsUpdate` on tile reveal AND on car movement.** Do not ship the flag alone — the player car is the only remaining dynamic caster, so tiles streaming in while stationary would get no shadow. Fix the lying comment at `main.js:969`. **Banked ONCE.**
+
+- **Files:** `scene.js` (renderer ctor), `main.js:955-970`, tile-reveal hook in `tileManager.js`
+- **Depends:** pin three
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-04 · 1.0d · risk low
+**Measurement harness.** `programs.length` at loader-hide and after 3 min (target delta 0); VRAM computed from the registry manifest, not guessed; per-tile-unload disposal assertions; **time-to-drive** from navigation-start to `dd-loading` hide (`main.js:631-635`, 20 s safety net at `:723` hides regressions until severe).
+
+- **Files:** `perfLogger.js`, `scripts/route.js` (new)
+- **Depends:** nothing
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-05 · 0.25d · risk low
+**One capture** of draws / triangles / VRAM at the benchmark. Replaces all estimates.
+
+- **Files:** `perfLogger.js`
+- **Depends:** harness
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-06 · 1.0d · risk low
+gpuTimer brackets for the **road** family and the **terrain** family separately, at 3 poses, day and night, 0 and 80 km/h
+
+- **Files:** `main.js:150`, `tileManager.js:1709`
+- **Depends:** harness
+- **Subsystem:** road, terrain
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-07 · 0.25d · risk medium
+⚠ **Split `patchRoadWash` into `patchRoadAO` (permanent) + `patchRoadNightWash` (deletable)** — it currently carries BOTH the night wash AND the v9 baked sky-visibility AO. Deleting it wholesale silently removes baked AO from every road in the city with **no error**.
+
+- **Files:** `roadRenderer.js:283-301`
+- **Depends:** nothing
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-08 · 0.25d · risk low
+**DELETE the CraftPix set from the served build** (move to a git-ignored `art-src/`). `frontend/public/models/vegetation/*` (20 tracked files) + `frontend/public/textures/trees/*` (8 `.obj`, 4 `.webp`). Also delete `frontend/public/textures/new textures/craftpix-*`.
+
+- **Files:** `frontend/public/models/vegetation/`, `frontend/public/textures/trees/`, `.gitignore`
+- **Depends:** nothing
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-09 · 0.25d · risk low
+**DELETE `frontend/src/style.css` + `frontend/public/fonts/*.otf`** (5 commercial Monotype Futura PT, 764 KB, served on a custom domain) + `ui/directionDisplay.js` (58 L, zero importers) + the stale Futura comment at `main.js:566`
+
+- **Files:** as listed
+- **Depends:** nothing
+- **Subsystem:** hud
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-10 · 0.5d · risk low
+**Menu imagery → WebP.** 5 panels 941×1672 → 800×1422 q80; logo → WebP; delete `title-bg.png`; repoint `og:image`/`twitter:image` to one 1200×630 WebP card on the real domain. 10,446,044 B → ~1.0 MiB. Add PLAY-hover preload so the picker does not stall on mobile.
+
+- **Files:** `public/modes/*`, `public/logo-*`, `public/title-bg.png`, `index.html:31,38,262-266,288,315`, `escMenu.js:16`
+- **Depends:** nothing
+- **Subsystem:** hud
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-11 · 0.5d · risk low
+Delete `adventurer.glb` (1.84 MB) + `punk.glb` (1.24 MB) + `cars/Textures/colormap.png` (unreferenced) + `CAR_TINTS`/`LIVERIED`/`TINT` dead code + the permanently-null map/normalMap reads
+
+- **Files:** `car/trafficSystem.js:22-29,68-70`, `car/parkedCars.js:35-49,97-106,187-190`, `car/carModel.js:113-114`
+- **Depends:** nothing
+- **Subsystem:** vehicles
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-12 · 0.5d · risk low
+**Delete `bakedPhysicsTerrain` parsing/transfer + `createTerrainTrimesh`** (zero call sites) + `getTerrainDetailTexture` + the `grass.jpg` fetch + the no-op stubs + the unreachable `beach` KIND. −416 KB download, −4 MB image decode, −14.4 MB of tile payload from the parse path.
+
+- **Files:** `tileParserWorker.js:192-194,226,938`, `tileManager.js:1179`, `terrainRenderer.js:18-32,768,783`, `areaFeaturesRenderer.js:22-28`
+- **Depends:** nothing
+- **Subsystem:** terrain
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-13 · 1.6d · risk low
+**Sky P0 sweep:** fog-density clobber (`main.js:768-770` overwrites `scene.fog.density` with a hardcoded 0.005 every frame, so DAY 0.0032 / NIGHT 0.0045 never ship) · single-source the sun (`sunState.js`) · cloud + star X-mirror (`main.js:923,925` pass `viewerWx/Wz` while `:924` correctly passes `camera.position` for the moon) · `sky.renderOrder` · **DELETE `dayNight.js` (144 L) + `timeSystem.js` (42 L)** + their CONFIG flags · dead-code sweep (unread star size attr, no-op bloom resolution write, 3 rally constants envToggle overwrites at boot)
+
+- **Files:** `main.js:761-770,923-925,81-82,196-198,931-933,975`; `scene.js:353-363,594-598,600-605,690-711,658`; `envToggle.js:126-131`; `dayNight.js`, `timeSystem.js`, `config.js:13-15,55`; new `sunState.js`
+- **Depends:** nothing
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-14 · 0.5d · risk low
+**polygonOffset chokepoint assert** — dev-mode throw if any material sets polygonOffset outside `applyGroundLayer()`. Fix the 3 violations: lane arrows -3 → `'stencil'`(-18) (a live depth-test bug), drain covers -2 → new `'drain'` class, delete the dead bridge-shadow -1.
+
+- **Files:** `groundLayers.js`, `roadInfraRenderer.js:374,526,553`, `roadRenderer.js:3717`
+- **Depends:** nothing
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-15 · 0.75d · risk low
+Ground the parked cars (re-add the blob list inside the existing `contactShadows.begin/commit` window; pool has 700 capacity vs ~196 used) + speedometer rAF dirty check (`speedDisplay.js:75-96` re-arms unconditionally and `_draw()`s a 436² retina canvas every frame on the title screen, in fly mode, and behind the ESC menu)
+
+- **Files:** `parkedCars.js:51,97-114,134-205`, `main.js:514-520,878-884`; `speedDisplay.js:75-96,194-196`
+- **Depends:** nothing
+- **Subsystem:** vehicles, hud
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-16 · 0.25d · risk low
+**DELETE the colliding Delhi-era commercial detail blocks** — `pillarGeoms`, `awningGeoms`, `signboardGeoms` and their `mergeAndPush` calls; they intersect the Barcelona shopfront/awning/sign renderers on exactly the arterial buildings the player drives past
+
+- **Files:** `buildingWorker.js:1341-1390,2031,2035,2036`; `meshMaterializer.js:55,61,62`
+- **Depends:** nothing
+- **Subsystem:** buildings-detail
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-17 · 0.5d · risk low
+**LOD-gate and fog-cull the street dressing** — add `shopSignMesh`, `shopfrontMeshes`, `awningMesh`, `cafeTerraceMeshes` to BOTH the `hideAll` block and the per-mesh LOD loop at ~140 m; remove `frustumCulled=false` from the terrace IMs. **Returns ~25 draws and ~150k always-submitted triangles** (S9).
+
+- **Files:** `tileManager.js:2919-2946,2952-3131`; `cafeTerraceRenderer.js:196`
+- **Depends:** nothing
+- **Subsystem:** buildings-detail
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P0-18 · 0.25d · risk low
+**Shrink the car paint PMREM 256 → 128** (6.0 → 1.5 MiB for a two-colour smoothstep gradient). Verify against G-44.
+
+- **Files:** `carModel.js:124-162`
+- **Depends:** nothing
+- **Subsystem:** vehicles
+- **Full spec:** master plan §4 → P0
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+## P1 — THE ASSET PIPELINE AND THE FRAME · 21.2 days · 25 tasks
+**Goal.** Build the thing that does not exist: an asset layer. Nothing textured can ship before it, and every asset authored before the quality tier exists has to be re-emitted, so the tier lands here too.
+
+**Progress:** 0 / 25
+
+<details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
+
+- `scripts/build-art.mjs` runs end-to-end on **three** pilot assets (asphalt, panot, roof) and **exits non-zero** on a deliberately-broken transfer function, a deliberately-broken tiling seam, and a deliberate byte-ceiling overrun.
+- A `.ktx2` texture loads, survives **20 tile unloads** without disposal, and transcodes to **BC1 (4bpp)** on a Windows/NVIDIA check — not BC7.
+- SMAA lands: measured cost **≤0.6 ms**, and a 80 km/h night pass shows no new shimmer on the existing flat road.
+- `renderer.info.programs.length` delta after a 3-minute drive = **0** with the extended warm list.
+- Draws down **≥25** from the road fog-cull fix; **≥8,588 tris/tile** removed from edge strips.
+- `art-manifest.json` exists with per-asset half-res variant paths, and `art-contact-sheet.png` renders.
+
+</details>
+
+
+### `[ ]` P1-01 · 1.5d · risk low
+**`loaders.js` → asset registry.** ONE module-level `KTX2Loader` with `setTranscoderPath('/basis/')` + `detectSupport(renderer)` called once; ONE `MeshoptDecoder`; both injected into every `GLTFLoader`; `getKTX2Texture(url)` promise-cache; central sampler policy (anisotropy, wrap, colorSpace, flipY) applied at load, not at 48 call sites. **Includes the mandatory FORMAT_OPTIONS BC1-over-BC7 patch.**
+
+- **Files:** `loaders.js` (rewrite), `main.js` (detectSupport wiring), `frontend/public/basis/`
+- **Depends:** P0 pin
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-02 · 0.5d · risk low
+Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/basis/*`, `/models/*`, `/art/*`; a **versioned `/art/v1/`** path (public/ filenames are unhashed); DEPLOY.md note that `vite build` empties `frontend/dist` and MUST precede the wrangler deploy at `deploy-cloudflare.sh:48`
+
+- **Files:** `public/_headers` (new), `DEPLOY.md`, `deploy-cloudflare.sh`
+- **Depends:** nothing
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-03 · 3.0d · risk medium
+**`materialRegistry.js` — the chokepoint that does not exist.** **CHAINS** `onBeforeCompile` instead of assigning it (three's `CSM.js:443` hard-assigns and would silently delete both the road night wash and the baked v9 AO from every road in the city). Routes all 68 `get*Material()` factories and the 10 current `onBeforeCompile` owners; owns sampler + colour-space policy, the night-mode hooks currently scattered across `setFacadeNightMode`/`setRoadDecalNightMode`/`setRoadNightWash`, the `aWash`+`aAO` injection, and the warm-variant list. **GATES: IBL, the light grid, the detail map, wet road.**
+
+- **Files:** new `map/materialRegistry.js`; `scene.js:430`, `terrainRenderer.js:781`, `shopSignRenderer.js:88`, `aoSampler.js:107`, `vegetationRenderer.js:183,914,1188`, `roadRenderer.js:284`, `meshMaterializer.js:656`; ~20 modules
+- **Depends:** asset registry
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-04 · 1.0d · risk medium
+**Extend the shader warm list through the registry** — cover road/terrain/vegetation/infra (not just buildings), add the `aAO` attribute the facade shader declares but `main.js:688-693` omits, and warm through the **real mesh types** (a `BatchedMesh` and an `InstancedMesh`, not a plain `Mesh`) so `USE_BATCHING`/`USE_INSTANCING` variants exist. **Must land in the same commit as the first textured material** — adding `map`/`normalMap` invalidates the entire 125-program cache at once and the recorded symptom is one-off ~100 ms frames.
+
+- **Files:** `meshMaterializer.js:965-984`, `main.js:686-699`, `materialRegistry.js`
+- **Depends:** registry
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-05 · 3.0d · risk medium
+**`scripts/build-art.mjs` — the 8-step normalize + encode + manifest + contact sheet.** Committed artefact, **never run on Pages**. Hard per-class and total byte ceilings that **exit non-zero**. Emits half-res variant paths.
+
+- **Files:** new `scripts/build-art.mjs`, `scripts/normalize-art.mjs`; fold in `scripts/optimize-textures.js`
+- **Depends:** asset registry
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-06 · 1.0d · risk low
+**Canvas-retirement register + CI lint.** Enumerate all 48 `new THREE.CanvasTexture` sites with owner domain, target KTX2 asset and target phase; lint exits non-zero on any new site outside a **monotonically shrinking** allowlist. Without it the ~34 unowned sites survive by default, because every domain assumes foundation owns them and foundation budgeted 0 days.
+
+- **Files:** new `scripts/lint-canvas.mjs`, `docs/context/canvas-register.md`
+- **Depends:** nothing
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-07 · 1.0d · risk medium
+**SMAA** — the largest hole in the corpus. Three audits call it a hard prerequisite and none owns it; there is no post-processing domain among the 12 and no AA work item anywhere. `scene.js:526` is `antialias:false` and the chain (`main.js:143-175`) is RenderPass → UnrealBloom → RadialBlur → colorGrade → OutputPass.
+
+- **Files:** `main.js:143-175`, new `ui/smaaPass.js`
+- **Depends:** nothing
+- **Subsystem:** sky (post owner)
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-08 · 2.0d · risk medium
+**Quality / mobile tier — MOVED P2 → P1.** Coarse-pointer + device-memory detection selecting a manifest variant: half-res textures, normal maps skipped, one LOD tier removed, shadow map halved. **The pipeline must EMIT the variants** — retrofitting variant emission across ~100 authored assets is the exact "free today, unrecoverable after 100 assets" failure. `grep -i quality frontend/src/config.js` returns nothing today.
+
+- **Files:** `config.js` (new QUALITY block), `materialRegistry.js`, `loaders.js`, `build-art.mjs`
+- **Depends:** build-art
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-09 · 1.0d · risk high
+**`rallyStyle` ADR + 7-consumer migration.** Flip the default, make `?style=rally` the escape hatch, audit all 7 consumers. Currently owned by nobody, allocated 0.25 d as "not my call", and it **gates ~26 days of vehicle art plus terrain's flatShading item**.
+
+- **Files:** `rallyStyle.js:8`; `scene.js`, `main.js`, `ui/colorGradePass.js`, `car/carModel.js`, `car/carEffects.js`, `map/buildingRenderer.js`, `map/terrainRenderer.js`; `decisions.md` (new ADR D-18)
+- **Depends:** nothing
+- **Subsystem:** art direction
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-10 · 0.25d · risk low
+**ADR D-19 — the MeshStandard inventory** (§5.11). No city-wide ruling; record the per-surface inventory. Costs 0 ms and 0 days beyond writing it. Also delete `roadRenderer.js:372` `getSharedMaterials` — **17 dead MeshStandard materials, zero call sites.**
+
+- **Files:** `decisions.md`, `roadRenderer.js:372-401`
+- **Depends:** nothing
+- **Subsystem:** art direction
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-11 · 1.0d · risk low
+**Per-MESH bounding-sphere LOD fallback — UNCONDITIONAL P1, not a contingency.** Replace per-tile `nearEdgeDist` with true per-mesh distance from each merged mesh's own `boundingSphere` centre (`chunkedMerge.js` already computes it). 1 day for ~1.0 of the 3.0 ms at low risk, and it is the insurance policy if the BatchedMesh path returns nothing.
+
+- **Files:** `tileManager.js:2903-2977,3058-3078`, `config.js:75-79`
+- **Depends:** nothing
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-12 · 1.0d · risk medium
+**Make `GLOBAL_VERTEX_BUDGET` degrade instead of delete.** `buildingWorker.js:1098-1101` drops **entire buildings** via `continue`. Every geometry the art pass adds silently deletes buildings in exactly the dense Eixample tiles the gate measures, and it will be misattributed as an art bug. Change to a detail-tier downgrade (skip balconies → skip cornices → box fallback) with a counter in the metrics panel. Also raise 100,000 → 220,000 (measured max today 46,570).
+
+- **Files:** `buildingWorker.js:873,980,1098-1101,1148`
+- **Depends:** nothing
+- **Subsystem:** pipeline / buildings
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-13 · 1.0d · risk low
+**`buildingConstants.js`** — single source for `STOREY_H` (3.5, from the bake), `MODULE_W`, and the AO dials. Replaces the **triple-mirrored** `FLOOR_HEIGHT`/`WALL_REPEAT_HORIZONTAL_M` and the duplicated AO constants across `buildingWorker.js`, `meshMaterializer.js`, `buildingRenderer.js`, `aoSampler.js`.
+
+- **Files:** new `frontend/src/buildingConstants.js`; `buildingWorker.js:38-39,217-219`; `meshMaterializer.js:25-26`; `buildingRenderer.js:221-222`; `aoSampler.js:29-35`
+- **Depends:** nothing
+- **Subsystem:** buildings
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-14 · 1.0d · risk low
+**DELETE the edge-strip subsystem** — `buildSidewalkAndEdgeMeshes` including the literal `if (false && CONFIG.ENABLE_SIDEWALKS …)` at `roadRenderer.js:2499`, `CONFIG.ENABLE_ROAD_EDGE_DETAIL`, `_mergedPedestrianMaterial` (which has no `applyGroundLayer` call and sets `frustumCulled=false`), `EDGE_STRIP_*`, and the 5 dead material factories + `COLOR_BY_TYPE`. −8,588–9,496 tris and 1 always-on draw per dense tile — **and the figure is larger than claimed**, because the surviving branch emits a 0.10 m strip down both sides of every non-motorway/trunk road, which includes all ~41,000 footway/path records.
+
+- **Files:** `roadRenderer.js:155-168,372-401,482-495,1031-1050,2481-2601,5230`; `config.js:49`; `tileManager.js`
+- **Depends:** nothing
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-15 · 0.75d · risk low
+**DELETE the Delhi road subsystems** — `shoulderRenderer.js` (234 L, dirt shoulders; Barcelona has kerbs), `buildRoadsideBlendStrip` + its hardcoded dust palette, `buildBridgeShadowMesh` + textures (already force-nulled at `:4777`), `decalRenderer.js` (280 L of Delhi wall posters)
+
+- **Files:** `shoulderRenderer.js`, `decalRenderer.js`, `roadRenderer.js:3677-3990,4777`, `config.js:151,161`
+- **Depends:** nothing
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-16 · 1.0d · risk low
+**DELETE the Delhi road furniture** — `crashBarrierRenderer.js` (451 L), `dividerRenderer.js` (142 L), `reflectorRenderer.js` (329 L, **~42k tris + 18 draws of Indian cat's-eye studs on Barcelona tertiary streets today**), and the precast-compound-wall + arched-gate blocks of `barrierRenderer.js`. Net **−1,243 lines**.
+
+- **Files:** `crashBarrierRenderer.js`, `dividerRenderer.js`, `reflectorRenderer.js`, `barrierRenderer.js:62-79,312-680,995-1183`, `tileManager.js:20,2403-2415`, `config.js:152-158`, `envToggle.js:7,155`
+- **Depends:** nothing
+- **Subsystem:** furniture
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-17 · 0.5d · risk low
+**DELETE 1,679 lines of dead vegetation** — `bushRenderer.js` (344 L, zero importers), `zoneVegetationRenderer.js` (587 L, imported but `renderZoneVegetation` never called), `grassRenderer.js` (748 L, gated to zero since 2026-07-02)
+
+- **Files:** as listed + `tileManager.js:40,49,2253-2290`, `main.js:55,993`
+- **Depends:** nothing
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-18 · 0.25d · risk low
+**DELETE `trafficLightRenderer.js`** and its wiring — a disabled, duplicated, hard-coded-Y=0 version of code that already exists better in `roadInfraRenderer.js:326-435`
+
+- **Files:** `trafficLightRenderer.js`, `tileManager.js:15,2329`, `config.js:8,45-47`
+- **Depends:** nothing
+- **Subsystem:** signage
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-19 · 0.5d · risk low
+**WIRE THE OSM SPECIES PIPE** — add `trees` to the `tileManager` destructure at `:1469` and pass into `tileData`. **35,580 real positioned Barcelona trees with 4,919 species tags** currently parsed (`tileParserWorker.js:935-940` includes `'trees'` in `PART_KEYS`) and dropped on the floor. No format change, no re-bake, no visual change yet.
+
+- **Files:** `tileManager.js:1469,1863`, `vegetationWorker.js:1827`
+- **Depends:** nothing
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-20 · 0.5d · risk low
+**WIRE `data.shops` + `data.trafficSignals`** — **14,542 shops (13,551 with real OSM names)** and **4,225 traffic-signal nodes** parsed and discarded. New `map/signage/signData.js` normalises nearest-shop-per-bay, signal-to-junction association, road-name resolution. **The best 0.5 days in the programme.**
+
+- **Files:** `tileManager.js:2452-2497`, new `map/signage/signData.js`
+- **Depends:** nothing
+- **Subsystem:** signage
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-21 · 0.25d · risk low
+**Fix the global-unison wind** — derive phase from the per-instance transform, branching on BOTH `#ifdef USE_BATCHING` and `#ifdef USE_INSTANCING` (`environmentClusterRenderer.js:412-413` shares this material on an InstancedMesh). Update `gotchas.md` G-45.
+
+- **Files:** `vegetationRenderer.js:203-215`, `gotchas.md:558-566`
+- **Depends:** nothing
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-22 · 0.5d · risk medium
+**Fix road-family culling (S6).** Give the markings mesh a `userData.type` so it joins the fog-cull list; compute real bounding spheres and re-enable `frustumCulled` on road/marking/sidewalk/kerb meshes. **−25 always-on draws.**
+
+- **Files:** `roadRenderer.js:1316,1452,1579,1709,1748,1764,4647,4701`; `tileManager.js:2933-2955`
+- **Depends:** nothing
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-23 · 1.0d · risk low
+Fix the live per-frame-`innerHTML` FPS regression in the two modes that never got the dashMode treatment (`policeMode.js:87` called from `:230`; `deliveryMode.js:111` from `:263`) + extend `theme.js` with `gold #c9a227`, `alert #c0553d` and a `MODE_ACCENT` map
+
+- **Files:** `policeMode.js:65-99,230`, `deliveryMode.js:58-125,263`, `theme.js:41-49`
+- **Depends:** nothing
+- **Subsystem:** hud
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-24 · 0.25d · risk low
+**Extract the ground-pool decal geometry/material into a shared module** so sky can delete the streetlamp *instances* without deleting the *mechanism* vehicles reuses
+
+- **Files:** new `map/groundPoolDecal.js`; `streetlightRenderer.js:214,526`
+- **Depends:** nothing
+- **Subsystem:** sky / vehicles
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P1-25 · 0.5d · risk low
+**Tram contract.** `createTramMeshes` (`tileManager.js:2073`) is called with **no CONFIG gate** and renders untextured tram tracks embedded in the carriageway the road domain is rebuilding. Define the contract (Y class, material ownership, atlas cell) before the asphalt shader lands.
+
+- **Files:** `railwayRenderer.js`, `tileManager.js:2073`, `groundLayers.js`
+- **Depends:** nothing
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P1
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+## P2 — LOD AND NIGHT · 15.5 days · 7 tasks
+**Goal.** Buy the GPU headroom the art wave spends, and answer the project's #1 unsolved problem. **The 1-day spike gates the 8 days behind it.**
+
+**Progress:** 0 / 7
+
+<details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
+
+- Per-object LOD delivers **≥2.5 ms** of the budgeted 3.0 at the benchmark, **or** K-L fires and the per-mesh fallback's 1.0 ms is banked instead.
+- Light-grid spike returns **≤3.0 ms** for 32 lights, or K-N fires.
+- The fake-night stack is deleted **in the same commit** as the light-grid opt-in; a 3-pose night A/B shows no double-lighting.
+- Night GPU at or below **14.0 ms** with the grid on.
+- A `setGeometryIdAt` unit test asserts `bm._visibilityChanged === true` afterwards.
+
+</details>
+
+
+### `[ ]` P2-01 · 6.0d · risk high
+**`staticPools.js` — ONE owner, ONE pool system.** Generalise `vegPools.js` `createVegPool` into `createStaticPool`: global `BatchedMesh` pools keyed by facade category (16) instead of per-tile merged meshes, one geometry per building, `perObjectFrustumCulled = true` (recovering the culling the 500 m merge destroyed), discrete 3-tier bands via `setVisibleAt`/`setGeometryIdAt` with hysteresis. Worker emits per-building index ranges + centroids + radii — **postMessage change only, NOT a tile format change, NO re-bake.** buildings-facade's `buildingDetailPool.js` is a **second geometry source inside this**, not a…
+
+- **Files:** `vegPools.js` (generalise), new `map/staticPools.js`, `tileManager.js:2903-2977,3058-3078,141-215`, `buildingWorker.js:1976-1990,1104-1108`, `meshMaterializer.js:839-900`
+- **Depends:** P1 registry + warm list
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-02 · (inside 6.0)d · risk high
+⚠ **ONE implementation of the `bm._visibilityChanged = true` fix, asserted in a test.** `BatchedMesh.js:1185-1193` — `setGeometryIdAt` is the only mutator in the file that does not set it, and `:1507-1511` early-returns when `!_visibilityChanged && !perObjectFrustumCulled && !sortObjects`, which is exactly `vegPools.js:45-46`. **All three audits independently rediscovered this trap.** An implementation that forgets it appears to work, costs nothing, and changes nothing — a whole sprint could be spent tuning bands that never fire.
+
+- **Files:** `staticPools.js`, new test
+- **Depends:** nothing
+- **Subsystem:** pipeline
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-03 · 1.0d · risk medium
+**LIGHT-GRID SPIKE — 1 day, GATES THE NEXT 8.** Stub 32 hand-placed lights into a light-grid chunk on the road material only, one Eixample block, measure night GPU at 80 km/h. Converts a 1.2–2.0 ms estimate into a number. **>3.0 ms → re-scope to a 256 m window and 2 lights/cell before a line of production code.**
+
+- **Files:** throwaway `lightGrid.js` branch, `roadRenderer.js`
+- **Depends:** staticPools
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-04 · 5.0d · risk high
+**`lightGrid.js`** — world-space 2.5D clustered street lighting. 64×64 RGBA8 index texture over 8 m cells (512 m window, 4 nearest-first slots/cell) + an RGBA32F lamp-data texture, sourced from the **already-existing and unused** `tileManager.getStreetlightPositions()` (`:3482`, exported `:3523`, zero callers). Rebuilt only on cell crossing. One shared GLSL chunk: distance falloff + N·L + downward cone + one Blinn lobe with a per-material roughness uniform.
+
+- **Files:** new `lightGrid.js`, `tileManager.js:3482-3490,3523`, `streetlightRenderer.js:2348-2378`
+- **Depends:** spike PASS; registry
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-05 · 2.0d · risk high
+**Material opt-in + warm-list extension, SAME COMMIT.** Road, sidewalk, terrain, facade, vegetation, props, traffic/parked cars, pedestrians. Adding a define invalidates all 125 compiled programs at once.
+
+- **Files:** `roadRenderer.js`, `terrainRenderer.js`, `vegetationRenderer.js`, `meshMaterializer.js:965-984`, ~15 modules via the registry
+- **Depends:** lightGrid
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-06 · 1.0d · risk high
+**DELETE the fake-night stack, SAME COMMIT as the opt-in** — ground-pool decals (`streetlightRenderer.js:24,113-121,214,526-531,596-599`), hero-building spill decals (`meshMaterializer.js:917-946,1023`), road night wash (`roadRenderer.js:273` — **the AO half was already split out in P0**), vegetation night wash (`vegetationRenderer.js:235`). KEEP the lamp emissive (it becomes the corona source). Half-landed, night double-lights and looks **worse than today**. Capture 3 committed night poses **before** any of it starts.
+
+- **Files:** as listed + `envToggle.js:147-172`
+- **Depends:** material opt-in
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-07 · 0.5d · risk low
+**Headlight cookie** — a 512² single-channel Blender-authored beam pattern on the two existing SpotLights, with a flat low-beam cut-off, pulling the cone in from 56° to a real low-beam spread. **Cheapest ETS2-identifiable win in the whole domain.**
+
+- **Files:** `carModel.js:269-293`
+- **Depends:** nothing
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P2
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+## P3 — THE FIRST ART WAVE · 29 days · 11 tasks
+**Goal.** Spend the headroom on the surfaces that cover the most pixels per day of work: ground, facades, roofs, sky, and Barcelona's real tree species.
+
+**Progress:** 0 / 11
+
+<details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
+
+- p95 night GPU at the benchmark **≤ 15.0 ms** (target 13.75).
+- Texture VRAM **≤ 200 MiB** resident, measured from the registry manifest.
+- Art library over the wire **≤ 24.0 MB**; first-load page weight **not worse** than P0's.
+- Draws **≤ 450**, triangles **≤ 2.6 M**.
+- Time-to-drive regression **< 1.5 s** over the P0 baseline.
+- **Every** shipped asset passes all 14 gates of §2.7 and appears on the contact sheet.
+- Mid-air shopfronts: **0** (from 88.5% of buildings).
+- Building detail coverage: **≥95%** of eligible buildings (from a median 26.6%).
+
+</details>
+
+
+### `[ ]` P3-01 · 1.5d · risk medium
+**Per-building proportional TRIANGLE budgets** — replace first-come `BALCONY_VERT_CAP`/`COMMERCIAL_VERT_CAP`/`BOUNDARY_VERT_CAP` racing in tile order. Measured: median tile delivers detail to **26.6%** of eligible buildings, p10 14.6%, worst tiles 8.5–12.4%, **127 of 158 dense tiles below 50%**. Compute a per-tile allowance, divide by eligible count, redistribute unspent slices.
+
+- **Files:** `buildingWorker.js:43-47,873,1098,1148,1207-1310`
+- **Depends:** P1 vertex-budget degradation
+- **Subsystem:** buildings
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-02 · 4.0d · risk medium
+**MODULAR STOREY BANDS — the geometry rebuild.** Split each wall face from 1 quad (4 verts) into 3 UV-independent bands: ground (0→`STOREY_H`), body (`STOREY_H`→height−crownH, v-repeat = floors), crown. 12–16 verts/face. Simultaneously kills the 10 m wrap defect (mid-air shopfronts on 88.5% of buildings), gives the ground floor its own UV rect, **puts real vertices at 3.5/8/16 m so the baked AO fade finally works**, and creates the seam the array-texture layer index attaches to. Worst-tile wall verts 33,320 → ~100,000.
+
+- **Files:** new `extrudePolygonWallBands` in `workerGeometry.js:36-125`; `buildingWorker.js:494-520,1040-1092`
+- **Depends:** buildingConstants; triangle budgets
+- **Subsystem:** buildings
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-03 · 2.0d · risk medium
+**Normalise building winding at source** → flip `BUILDING_SIDE` to `FrontSide`. Signed-area check per outer and inner ring, reverse when needed. Halves raster and shadow cost on the largest triangle population. **NOTE: flipping the flag alone was tried 2026-07-06 and reverted (`changelog.md:930`) — the fix must be in the worker,** with a debug pass colouring back-facing walls.
+
+- **Files:** `buildingWorker.js:494-520,592-609`; `workerGeometry.js:36-125`; `meshMaterializer.js:558-562`
+- **Depends:** nothing
+- **Subsystem:** buildings
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-04 · 4.0d · risk medium
+**FACADE ARRAY-TEXTURE MATERIAL.** Delete `getWindowTexture` (`meshMaterializer.js:118-365`). `CompressedArrayTexture`: 8 × 1024² albedo + 8 × 1024² normal + 8 × 512² window mask. Per-vertex uint8 `aLayer`. Requires an `onBeforeCompile` chunk swap (`sampler2D` → `sampler2DArray`). **Array textures wrap per-layer natively, which our band UVs need — an atlas + `fract()` + `textureGrad` would seam.** Anisotropy from the registry (currently unset, default 1).
+
+- **Files:** `meshMaterializer.js:118-365 (delete),596-670`; `buildingWorker.js`; new `map/facadeArray.js`
+- **Depends:** modular bands; P1 pipeline
+- **Subsystem:** buildings
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-05 · 6.0d · risk medium
+**Author the 8 facade layers** to the band UV spec at **128 texels/m** (`1024² over 8.0 m × 8.0 m = 2 storeys of 4.0 m`): 5 residential variants + 1 commercial + 1 office/institutional + 1 industrial-brick. Albedo (weathering baked in), normal, window mask. Ground-floor module rect and body module rect on the same layer.
+
+- **Files:** new `frontend/public/art/v1/facades/*.ktx2`
+- **Depends:** array material UV spec
+- **Subsystem:** buildings
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-06 · 1.5d · risk low
+**Real roof UVs + roof material — the best ratio in the entire programme.** Replace the zero-fill in `ensureUvs` (`buildingWorker.js:657-661`) with `planarRoofUvs`: `uv = (worldX / TILE_M, worldZ / TILE_M)`. World-space projection tiles continuously across the merged per-tile roof mesh with no seam, no unwrap. Then add `map` + `normalMap` to `getRoofMaterial` — because `getRoofMaterialKey()` is a literal constant, **1.5 days dresses every roof in Barcelona from one 2K 3-cell atlas** (Catalan clay pantile / gravel-bitumen terrat / poured concrete), with the peach/terracotta palette staying in the vertex-colour…
+
+- **Files:** `buildingWorker.js:657-661,592-624,365-378,1137-1152`; `meshMaterializer.js:678-690,585-587`
+- **Depends:** P1 pipeline
+- **Subsystem:** buildings-detail
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-07 · 3.0d · risk medium
+**ASPHALT SHADER v2 — the core road rebuild.** Extend `patchRoadAO` into a proper road material: (a) world-metric UV from the already-baked `halfWidth` — `vAcross = (uv.y-0.5)*2.0*halfWidth`, `vAlong = uv.x*4.0`, **no re-bake**; (b) tiling albedo + normal at 4 m; (c) a second detail-normal sample at 8× frequency killing the close-range repeat; (d) macro wear from world-XZ noise **per-fragment** at ~40 m (replaces the per-vertex `roadNoise`, zero VRAM, strictly better); (e) **analytic wheel ruts** — two subtly polished bands per lane derived from `halfWidth`, ~10 ALU, zero VRAM, the single most recognisable "real…
+
+- **Files:** `roadRenderer.js:283-315,4593-4660`; new `map/roadMaterial.js`
+- **Depends:** P1 pipeline; **SMAA**
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-08 · 2.5d · risk medium
+**Road asset set** — `asphalt_worn_1k` (ambientCG CC0, normalized), `asphalt_detail_512` (normal only, AI tiling or high-pass), `panot_1k` (baked offline from the existing `makePanotCanvas` generator upgraded 256→1024 under node-canvas, Sobel normal, **AD-12 20×20 grid over 4.0 m**, and the AD-4 v-flip fix at `roadRenderer.js:1690-1694` lands with it), `concrete_kerb_512`. Ship `.ktx2`, keep the generator as the authoring tool.
+
+- **Files:** `frontend/public/art/v1/road/*`, `map/generate-road-atlas.js:14-71`
+- **Depends:** build-art.mjs
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-09 · 0.75d · risk low
+**Kerb material** — tiling granite/concrete albedo + normal at 512² with a chamfer highlight baked into the top edge. **The kerb is the silhouette element that reads at 200 m and is currently flat `0x5a5a5a`.** Also resolve the `ENABLE_CURBS` lie: the baked path bypasses the flag on all 409 v9 tiles.
+
+- **Files:** `roadRenderer.js:219-228,1758-1774,1777`; `config.js:187`
+- **Depends:** road asset set
+- **Subsystem:** road
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-10 · 3.5d · risk medium
+**Vegetation, data-only wave — no re-bake, no art, no KTX2.** (a) **Species-by-context classifier** replacing the species-blind `bakedVariantIndices[i] % 4`: three-tier — OSM tagged tree within 4 m → its species; else per-tile species histogram from that tile's own tagged trees; else context (inside a greens polygon → park set, adjacent to coast/beach → palm, road class primary/secondary → avenue set). **Species coverage is 13.8%, so graceful degradation is the whole design.** (b) **Roadside decimation** 2–5 m baked stride → ~7 m (fixes density realism and ~35–40% of the tree count). (c) **Billboard collapse**:…
+
+- **Files:** `vegetationWorker.js:1940-1975,1348-1400,679-720,128-129`; `vegetationRenderer.js:875-877,899-957`; `meshMaterializer.js:1068-1073`; `tileManager.js:2971-2975`; `config.js`
+- **Depends:** P1 species pipe; staticPools
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P3-11 · 1.5d · risk medium
+**Sky dome texture — 2 keys.** 2048×1024 equirect ETC1S per key (day/night), **2.67 MiB total**, cross-faded by the normalized sun-elevation scalar, with the existing analytic gradient retained underneath as the fallback tint and carrying dawn/dusk. Sourced by cropping **CC0 Poly Haven sky HDRIs** — real photographic cloud structure, and the same source the cloud atlas already prefers. **Un-hides the night sky** (`envToggle.js:63-64` `skyVisible:false` + flat `bgColor 0x0a1224`) and unblocks NIGHT-10 / BLK-9.
+
+- **Files:** `scene.js:552-598`; `envToggle.js:63-64,134-144`
+- **Depends:** P1 pipeline
+- **Subsystem:** sky
+- **Full spec:** master plan §4 → P3
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+## P4 — THE COMPLETION WAVE · 51 days · 18 tasks
+**Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.
+
+**Progress:** 0 / 18
+
+<details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
+
+- Same four caps as P3, re-measured, plus: draws ≤ 450 with all furniture, signage, vehicles and terrain live.
+- Vehicle triangle population 1.08 M → ≤ 300k.
+- Zero remaining palette-UV meshes in the shipped world (AD-1b).
+- The dynamic text page holds ≥128 cells and **never grows**; a 10-minute drive shows zero texture-cache growth.
+- The v10 re-bake happens **exactly once**.
+
+</details>
+
+
+### `[ ]` P4-01 · 3.0d · risk high · ⚠ **RE-BAKE**
+**TERRAIN: prove-then-delete the terrain bake.** Harness regenerating positions/uvs/indices from the elevation grid, bit-equal against `bakedTerrain` on 20 sampled tiles **including the 4 known NaN-normal sea tiles and 2 trench-carved tiles**. Only then move generation into the parser worker (Uint16 indices, computed smooth normals) and repoint `getElevationAt` at the grid. **Delete the second runtime water dip (`terrainRenderer.js:225-260`) in the SAME commit or it double-applies.** −369 MB of tile payload.
+
+- **Files:** `tileParserWorker.js`, `terrainRenderer.js:140-330,905-985`, `terrainBaker.js`, `buildRegion.js:1571-1574`
+- **Depends:** P0 measure
+- **Subsystem:** terrain
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-02 · 2.0d · risk medium
+**TERRAIN: LOD index rings** — from one vertex buffer emit three index sets (full 32,258 / 1:2 7,938 / 1:4 1,922), swap by distance with hysteresis, and **raise the terrain visibility cut from 280 m to ~1500 m at the coarse ring so the game finally has a distant landform silhouette.** LOD must never engage inside 500 m where roads drape on the full grid.
+
+- **Files:** `tileParserWorker.js`, `tileManager.js:2908-2932`, `terrainRenderer.js`
+- **Depends:** bake deletion
+- **Subsystem:** terrain
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-03 · 6.5d · risk high · ⚠ **RE-BAKE**
+**BAKE (v10) — ONE window, all domains.** (a) **Sea sink**, owned by terrain, implementing **water's profile** (−1.0 m at the waterline ramping to −8.0 m over ~200 m offshore) **and water's commit-blocking validator** (no sea cell above −0.5 m, no road-bearing cell below 0). Fixes the measured 2.05–5.78 m bumpy blue plateau. (b) **Clip `water[]` to the tile** — 280 of 426 tiles carry a byte-identical 254-feature set, 13.08 MB wasted. (c) **Per-vertex splat weights** (Uint8 ×4 = 4 B/vertex) from OSM landuse + slope + elevation + distance-to-coast, replacing the Float32 colour (192 KB) + `aCoast` (64 KB) — **the…
+
+- **Files:** `buildRegion.js:1178-1249,1194`, `demLoader.js`, new `terrain/seaMask.js`, new `splatBaker.js`, `roadBaker.js:400-504,555-608`, `convertToBinary.js:642-676`, `waterNormalize.js`, `mapLoader.js` + `tileParserWorker.js` TILE_VERSION
+- **Depends:** nothing
+- **Subsystem:** terrain (owner), water, road
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-04 · 4.0d · risk high
+**THE SPLAT SHADER — the core terrain move.** 4-layer 1K albedo + 4-layer 1K normal as `DataArrayTexture`s; height-blend the two dominant weights (**4 fetches, not 8**); one 512 R8 macro-breakup layer; keep the existing `aAO` multiply and `uAoScale` **verbatim**. **DELETE the CPU colour pass (`terrainRenderer.js:557-763`) and the 5-layer procedural FBM (`:836-897`)** — the FBM overrides the CPU vertex colours at 75% and is tuned as one closed system; a splat bolted on top loses to it by construction. **Parks fold in as a weight channel** (greensRenderer deleted). Register in a shared registry and set…
+
+- **Files:** `terrainRenderer.js:557-902`, new `map/terrainMaterials.js`, `tileManager.js:2868-2872`
+- **Depends:** splat bake; P1 pipeline
+- **Subsystem:** terrain
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-05 · 5.0d · risk medium
+**WATER.** Extract `map/waterMath.js` (`polygonArea`, `pointInWaterPolygon`, `WATER_DEPTH`, `SEA_LEVEL`) so `terrainRenderer.js:11`, `railwayRenderer.js:9`, `roadRenderer.js:23` keep compiling; **DELETE `waterRenderer.js`**; new `map/waterSurface.js` reading closed water bodies from `tileData.water[]` (**not** `tileData.marinas` — populated in only 8/426 tiles) at a single global sea-level Y; new `shaders/waterChunk.glsl.js` — two scrolling normal layers (swell ~40 m, chop ~6 m, opposite drift), world-space perturbation (no TBN on a flat surface), Schlick fresnel into the existing sky palette, Blinn glint…
+
+- **Files:** new `waterMath.js`, `waterSurface.js`, `shaders/waterChunk.glsl.js`; delete `waterRenderer.js`; `terrainRenderer.js:766,791-800,805-900`; `config.js:163`
+- **Depends:** sea sink
+- **Subsystem:** water
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-06 · 3.0d · risk medium
+**WET ROADS — one owner, joint item.** `uWet` uniform in the road material: roughness 0.9 → 0.25, albedo ×0.72, procedural world-space FBM puddle mask **biased toward the camber gutters using the existing `uv.y` + `halfWidth`**, ripple normal fetch inside the mask only. Promote the `carModel` PMREM to `scene.environment` (sky owns the object, size 128 per TOD key). Route through the boot warm-up.
+
+- **Files:** `roadRenderer.js:283-300,304,376,389`; `carModel.js:124-161`; `main.js:686`
+- **Depends:** asphalt shader v2
+- **Subsystem:** road (material+uniform), water (mask chunk), sky (weather driver)
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-07 · 1.0d · risk low
+**SHORE FOAM — one owner.** Foam band in `waterChunk.glsl.js` driven by `shoreD` with animated noise advance; quieter static ring around marina/breakwater edges. **Sells the beach at Barceloneta, which is the seafront spawn.**
+
+- **Files:** `waterChunk.glsl.js`, `waterSurface.js`, `terrainRenderer.js:713-745`
+- **Depends:** waterChunk
+- **Subsystem:** water
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-08 · 9.0d · risk medium
+**VEGETATION: card trees.** 2048×1024 (4×2 grid of 512 cells) albedo+opacity RGBA + tangent-space normal, bark strip in the bottom band of each cell, **3 LOD tiers × 8 species = 24 geometries in ONE pool.** Species: Platanus × hispanica, Tipuana tipu, Celtis australis, Washingtonia (palm), Phoenix (palm), Jacaranda, Citrus/ornamental, Pinus pinea. Plus the alpha-tested normal-mapped Lambert material (**MUST preserve the `patchVegWash` injection reading batching-colour alpha, or give it a compile-time define per §7 rule 6**) and **LOD2 impostors rendered OFFLINE from the finished LOD0 cards** (8 species × 4 yaw),…
+
+- **Files:** new `public/art/v1/vegetation/*`, `public/models/vegetation/bcn_trees_lod{0,1,2}.glb`; `vegetationRenderer.js:81-260,814-957`; `meshMaterializer.js:1053-1058`; new `backend/tools/bakeImpostors.mjs`
+- **Depends:** staticPools; P1 pipeline
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-09 · 1.5d · risk high
+**VEGETATION: LOD0-only tree shadow casting**, deleting the 13,963-instance transparent blob-shadow pool (S7). **Dappled tree shadow on asphalt is THE ETS2 road cue.** With the LOD ladder in place only ~1,100 trees × ~130 tris = ~143k enter the depth pass, vs the ~850k that originally tanked it. Blob shadows survive for the LOD1/LOD2 bands.
+
+- **Files:** `meshMaterializer.js:453-491,1053-1058,1188-1205`; `vegPools.js`
+- **Depends:** card trees; P0 shadow fix
+- **Subsystem:** vegetation
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-10 · 5.0d · risk medium
+**GROUND-FLOOR KIT REBUILD.** ONE `map/groundFloorKit.js` owning the bay grid — edge selection (**all street-facing edges**, not longest-edge-only), SEG_LEN/stride, skip hash, quantised ground Y — emitting shopfront + awning + fascia anchors as one co-registered result. Replaces `SEG_CAP` first-come clipping with per-building-fair allocation. Adds the UV channel `quad()` and `pushSegment()` never had. ~30% deterministic **closed roller shutters** off the existing hash (the most Barcelona thing in the frame at night and on Sundays, and cheaper than open shopfronts). Awning fabric with closed ends and 4 cm sag,…
+
+- **Files:** new `map/groundFloorKit.js`; `shopfrontRenderer.js:17-34,74-88,97-166`; `awningRenderer.js:60-90,96-153`; `shopSignRenderer.js:121-160`; `cafeTerraceRenderer.js`
+- **Depends:** modular bands; P1 pipeline
+- **Subsystem:** ground-floor kit (new owner)
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-11 · 7.0d · risk high
+**SIGNAGE: atlas + pool + text page.** Offline `scripts/build-sign-atlas.mjs` → `signs.ktx2` (2048², ETC1S+alpha) + `signs.cells.json`. `signAtlas.js` + `signPool.js` — ONE shared atlas material with per-instance `aUvOffset`/`aTint`/`aEmissive`, riding the existing city-wide pool, standardising on the **shader U-flip** and forbidding `tex.repeat.x = -1` forever. **Bounded 2048×1024 R8 text page**, 128 cells of 256×64, LRU-evicted by player distance, sub-region uploads via `renderer.copyTextureToTexture`, colour from `aTint` — 4× cheaper than the RGBA canvases it replaces, and it **deletes all three unbounded…
+
+- **Files:** new `scripts/build-sign-atlas.mjs`, `map/signage/{signAtlas,signPool,textAtlas}.js`; `roadInfraRenderer.js:260,456,579`
+- **Depends:** P1 pipeline + signData
+- **Subsystem:** signage
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-12 · 5.0d · risk medium
+**SIGNAGE: shop fascias + regulatory + lane arrows + traffic lights.** Fascias on the ground-floor kit's bay grid with **real OSM shop names from the 13,551 available**; delete the 24 fake `NAMES`. Restore `generateSpeedSigns` and route plates through the atlas pool. Replace the untextured 5-tri `ShapeGeometry` lane arrow with a 2-tri atlas quad carrying 6 real arrow types. Restore traffic lights seeded from the **4,225 unused OSM signal nodes**, fix the right-hand-drive placement (`:864` currently places left, citing India), assert every instance clears `isOnAnyRoad` (`:956` — that assert is the structural fix…
+
+- **Files:** `shopSignRenderer.js` (rebuilt); `roadInfraRenderer.js:265-308,534-560,724-849,852-910,864,1380-1451`
+- **Depends:** signAtlas, textAtlas, groundFloorKit
+- **Subsystem:** signage
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-13 · 2.0d · risk low
+**SIGNAGE: the Barcelona night set — highest night-look-per-MiB in the project.** Illuminated pharmacy green cross (from `data.shops` cat 16), metro M roundel (from the also-unused `metroStations`), tobacconist T, ONCE kiosk, hotel and parking P totems. Emissive from cells already budgeted. **This is how the night street gets believable light sources at zero additional punctual lights** — and it is the fallback that matters most if K-N fires.
+
+- **Files:** new `map/signage/nightSigns.js`; `envToggle.js:149`
+- **Depends:** signAtlas
+- **Subsystem:** signage
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-14 · 11.0d · risk high (P4h only)
+**ROAD FURNITURE (re-ordered).** P4a: **Barcelona bollards (pilones)** from the v8 baked sidewalk polygons — crosswalk mouths, chamfer corners, sidewalk-parking edges. Zero new draws (rides the pool), on every Eixample chamfer, i.e. in frame constantly on the benchmark route. P4b: extract the placement engine verbatim into `roadFurniture/placement.js`, widening the output from a boolean keep-mask to `{kind, side, s, e}`. P4c: post/bollard/delineator `BatchedMesh` pool on `createVegPool`, replacing `emitGuardRailRun`'s ~1,030 merges/tile. P4d: **kill `MeshBasic` on all railings** → Lambert + map + normalMap,…
+
+- **Files:** `map/roadFurniture/*` (new), `roadRenderer.js:2763-2797,3176-3517`, `barrierRenderer.js`
+- **Depends:** P1 deletes; P1 pipeline
+- **Subsystem:** furniture
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-15 · 19.5d · risk high
+**VEHICLES.** Shared template cache + single loader registry (kills 9 duplicate GLB parses, colormap 18 → 1 resident). Tire smoke 90 Sprites+90 SpriteMaterials → one InstancedMesh. **Blender modular Barcelona kit** — 6 bodies at 1,800–2,800 tris LOD0 + 500–700 LOD1, TRUE dimensions (the `carModels.js:75` squash deleted), one shared UV layout, modelled shutlines/bevels for the normal bake. 2048² albedo with a **paintjob mask** + 1024² normal (UASTC) + 1024² ORM. Rewire traffic 28 loose Meshes → 2 InstancedMeshes (30 → ~7 draws), parked 11 → ~8. **Hero car re-UV** on the existing 9,792-tri geometry, 11 materials →…
+
+- **Files:** `car/carModels.js`, `carModel.js`, `trafficSystem.js`, `parkedCars.js`, `carEffects.js`; new `public/models/vehicles/*`, `public/art/v1/vehicles/*`
+- **Depends:** rallyStyle ADR; P1 pipeline
+- **Subsystem:** vehicles
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-16 · 14.0d · risk medium
+**HUD + PROGRESSION** (§8, §9) — `routeAdvisor.js`, delete `compassBar.js`, minimap repalette + **scheduler rebuild**, `game/progress.js`, dual-currency payouts, licence gating, `ui/garage.js`, district map, landmarks, gameFx restraint, marker restraint
+
+- **Files:** see §8/§9
+- **Depends:** P1 theme tokens; vehicle kit (for the money sink)
+- **Subsystem:** hud
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-17 · 2.0d · risk low
+**urbanFeatureRenderer.js (1,022 L, live) + busStopRenderer.js (529 L, live)** — Barcelona's fountains, kiosks, monuments and glazed bus shelters with backlit ad panels, all flat-colour untextured today, all in frame constantly on any Eixample drive. **They become atlas clients of the signage pool.** Note `busStopRenderer`'s `glowMesh` is one of very few existing street-level emissive night sources.
+
+- **Files:** `urbanFeatureRenderer.js`, `busStopRenderer.js`, `signAtlas.js`
+- **Depends:** signAtlas
+- **Subsystem:** signage
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-18 · 3.0d · risk medium
+**Tunnel + trench interiors** — `tunnelRenderer.js` is **944 live lines** exporting 9 builders, all called from `tileManager.js:46`. This is the visual surface of the **Ronda de Dalt trench and the Gran Via tunnels — the project's own documented signature corridors, and the spawn is at a trench portal.** Nobody owned tunnel lining, portal faces, portal-mouth lighting, in-tunnel road surfacing, bridge decks, undersides, piers, or trench retaining-wall material. Scope for P4: tiled lining + a lamp strip + a lit portal mouth (the one place where interior punctual lighting is both expected and cheap), plus the rock…
+
+- **Files:** `tunnelRenderer.js`, `terrainMaterials.js`, `lightGrid.js`
+- **Depends:** splat shader; lightGrid
+- **Subsystem:** terrain (surfacing) + sky (portal lighting)
+- **Full spec:** master plan §4 → P4
+- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+
+---
+
+## 🏁 PHASE GATE MATRIX — the numbers each phase must hold
+
+Measured on the committed benchmark route (`scripts/route.js`), production build, pixel ratio 1.0,
+**night**, 80 km/h, dense Eixample. A phase is done when its column passes — not when its boxes are ticked.
+
+| Gate | P0 | P1 | P2 | **P3 (SHIP)** | P4 |
+|---|---|---|---|---|---|
+| p95 night GPU | ≤ 12.3 ms | ≤ 12.3 ms | ≤ 14.0 ms | **≤ 15.0 ms** | ≤ 15.0 ms |
+| Texture VRAM resident | ≤ 96 MiB | ≤ 100 MiB | ≤ 110 MiB | **≤ 200 MiB** | ≤ 200 MiB |
+| Art library over the wire | 0 | ≤ 1 MB | ≤ 1 MB | **≤ 18 MB** | **≤ 24 MB** |
+| Draws | ≤ 265 | ≤ 240 | ≤ 240 | **≤ 450** | ≤ 450 |
+| Triangles | (capture) | ≤ 2.32 M | ≤ 2.0 M | **≤ 2.6 M** | ≤ 2.6 M |
+| Time-to-drive vs P0 baseline | (baseline) | +0.0 s | +0.0 s | **< +1.5 s** | < +1.5 s |
+| `programs.length` delta after 3 min | 0 | 0 | 0 | **0** | 0 |
+| Disposal assertions | pass | pass | pass | **pass** | pass |
+| Page weight | −14 MB | −18.3 MB | −18.3 MB | −18.3 MB | −18.3 MB |
+| Mid-air shopfronts | — | — | — | **0** | 0 |
+| Building detail coverage | — | — | — | **≥ 95%** | ≥ 95% |
+| Every shipped asset on the contact sheet | n/a | n/a | n/a | **100%** | 100% |
+
+
+**P3 is the ship column.** Note the gates *tighten* through P0–P2 (GPU ≤12.3 ms, draws ≤240) and only
+open up at P3 — that is deliberate: P0–P2 spend nothing on art and must **bank** headroom, so the art wave
+has somewhere to put it. If you reach P3 without having tightened, the art will not fit.
+
+**If a row fails:** that is a scope decision, not a bug to paper over. Log it in the decision log with the
+measured number, then either cut scope (see the cut list) or fix the owner task.
+
+Asset-level acceptance is a separate per-asset checklist — master plan §2.7 (contact sheet, licence,
+normalize provenance, palette ΔE2000 ≤ 15). **Gate 1, the contact sheet, is the only one that catches a
+kitbash, which is why it is first.**
+
+---
+
+## 📋 Session protocol
+
+**At session start**
+1. `git rev-parse --abbrev-ref HEAD` — confirm you are on a `v3*` branch, never `main`.
+2. Read RESUME HERE. Read the standing hazards. Read the next task's full spec in the plan.
+3. If the next task is in a phase whose predecessor's exit gate has not passed, **stop and run the
+   gate first** — or say explicitly why you are proceeding anyway.
+
+**During**
+- One task per commit where possible. Commit message: `v3 <task-id>: <what>`.
+- Mark `[~]` when you start, `[x]` when done, `[!]` if blocked (and write what blocks it).
+- When a task lands a performance change, put the **measured** number in the ledger.
+
+**At session end (or when context runs low)**
+1. Update RESUME HERE: current phase, next task, done count.
+2. Any task left `[~]` gets a one-line note of exactly where it stopped.
+3. Commit the tracker. **An uncommitted tracker is a lost session.**
+
+**Deviating from the plan**
+Allowed and sometimes correct — the no-slacking rule cuts both ways. But write it down here under
+the task, with the reason. A silent deviation is indistinguishable from a mistake three sessions later.
+
+---
+
+## 📓 Decision log — append, never rewrite
+
+| Date | Task | Decision | Why |
+|---|---|---|---|
+| 2026-08-24 | — | Tracker created from the 17-agent master plan | State needed to survive session loss |
+
+---
+
+## ✂ Cut list — do not silently re-add
+
+These were cut in planning with a stated quality cost (master plan §3.7). Re-adding one is a
+scope decision that belongs in the decision log, not a quiet commit.
+
+Rain (all three implementations) · pedestrian art rebuild · `greensRenderer` as a surface ·
+separate sea mesh · marina boats · second hero facade tier *(the cut the judge was least
+comfortable with)* · second asphalt variant · direction boards + gantries → P4 · window recesses ·
+scooters *(first restore if the vehicle kit lands under estimate)* · Milky Way / moon phase /
+zona30 stencils / tactile paving
+
+---
+
+## ☠ Kill criteria — stop and re-scope if any measures true
+
+Full text in master plan §11.2. Summary: per-object LOD returns <2.5 ms **and** the per-mesh
+fallback also underperforms · the light-grid spike exceeds 3.0 ms for 32 lights · night GPU cannot
+hold ≤15 ms after P2 · time-to-drive regresses >3 s · texture VRAM exceeds 300 MiB on the BC path ·
+a blind screenshot A/B after P1 shows no perceived improvement.
