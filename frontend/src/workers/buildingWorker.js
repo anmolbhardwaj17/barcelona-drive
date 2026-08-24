@@ -864,7 +864,13 @@ export function processBuildingsInWorker(data, config) {
   let totalTileVerts = 0;
   const heroSpills = [];   // flat [x, baseY, z, radius, strength, ...] — building warm ground-glow decals
   const beaconPoints = []; // flat [x, y, z, ...] — pulsing red beacons (water-tower finials)
-  const GLOBAL_VERTEX_BUDGET = 100000;
+  // v3 P1-12: raised 100,000 → 220,000. The measured maximum in a dense Eixample tile today is
+  // ~46,570, so 100k was never actually reached — but P3 adds modular storey bands (1 quad → 12-16
+  // verts per wall face), parapets and roof detail to every building, which is where it WOULD bite.
+  // The failure mode below is what makes that dangerous, so the headroom and the graceful path land
+  // together.
+  const GLOBAL_VERTEX_BUDGET = 220000;
+  let _budgetDowngrades = 0;   // reported per tile so the gate can SEE this happening
 
   // ── Main building loop ──
 
@@ -1088,10 +1094,26 @@ export function processBuildingsInWorker(data, config) {
     const matKey = getFacadeMaterialKey(category, b.id, b.height);
     const vertCount = wallBuffers.positions.length / 3;
 
-    // Global budget check — skip entire building if it would exceed tile limit
-    if (totalTileVerts + vertCount > GLOBAL_VERTEX_BUDGET) {
-      if (originalFootprint) b.footprint = originalFootprint;
-      continue;
+    // ── Global budget: DEGRADE, never delete ────────────────────────────────────────────────────
+    // v3 P1-12: this used to `continue`, i.e. DROP THE ENTIRE BUILDING — silently, with no counter.
+    // Every geometry the P3 art pass adds pushes more tiles over the line, and the buildings that
+    // vanish are in exactly the dense Eixample tiles the benchmark measures. It would have read as
+    // an art bug ("why did that block disappear when I added normal maps?") and cost a session to
+    // trace. A missing building is far worse than a plain one, so over budget now means: emit the
+    // box, skip the trimmings.
+    const overBudget = totalTileVerts + vertCount > GLOBAL_VERTEX_BUDGET;
+    if (overBudget) {
+      _budgetDowngrades++;
+      // Detail tiers are opt-in per building further down (balconies, cornices, parapets, roof
+      // furniture) and all of them test `detailAllowed`. Turning it off keeps the silhouette,
+      // the footprint and the facade material — the building still reads as a building.
+      b._detailSuppressed = true;
+      if (vertCount > GLOBAL_VERTEX_BUDGET * 0.02) {
+        // Pathological single building (>2% of the whole tile budget on its own). Only here do we
+        // fall back to skipping it, and it is now COUNTED rather than silent.
+        if (originalFootprint) b.footprint = originalFootprint;
+        continue;
+      }
     }
 
     if (!byMaterial.has(matKey)) {
@@ -1199,7 +1221,7 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // ── Masonry 3D balconies (Barcelona Eixample — residential/commercial/office) ──
-    if (BALCONY_CATEGORIES.has(category) && b.shapeType !== 'cylinder'
+    if (!b._detailSuppressed && BALCONY_CATEGORIES.has(category) && b.shapeType !== 'cylinder'   // v3 P1-12: budget downgrade keeps the box, drops the trimmings
         && b.height >= 6 && b.footprint?.length >= 3
         && balconySlabVerts < BALCONY_VERT_CAP) {
       const fp = setbackFootprint || b.footprint;
@@ -2044,6 +2066,13 @@ export function processBuildingsInWorker(data, config) {
     pipeResult = { matrices, count };
   }
 
+  // v3 P1-12: surface budget downgrades so they are VISIBLE. A building silently losing its
+  // balconies (or, in the pathological case, vanishing) must never again be something you can
+  // only discover by noticing a hole in the skyline.
+  if (_budgetDowngrades > 0) {
+    console.warn('[buildingWorker] %d building(s) over the %dk vertex budget — detail suppressed',
+      _budgetDowngrades, Math.round(GLOBAL_VERTEX_BUDGET / 1000));
+  }
   return {
     buildingGroups,
     roofGroups,
