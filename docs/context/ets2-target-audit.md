@@ -10,6 +10,28 @@ more refined look — in a browser, on desktop, if we optimise properly? Not pix
 > answers it against a *shipped real-time game*, which is a much more useful target — and reaches
 > a different conclusion about **what** the gap is.
 
+
+> ## ⚠ SUPERSEDED IN PART — read [v2-plan-hardened.md](v2-plan-hardened.md) first
+>
+> A 12-agent adversarial cross-examination (2026-08-24) **refuted or corrected 5 of the 7
+> load-bearing claims below.** What still stands: §0 (binding browser-only constraints), §6 (the
+> free CC0 + AI asset strategy), and the core finding that lighting/atmosphere is already the
+> sophisticated part. What changed:
+>
+> | Claim | Status | Corrected |
+> |---|---|---|
+> | C1 70% art / 30% engineering | **corrected** | ~50/50, and **the engineering must go FIRST** — art on an ungated LOD + a broken resolution controller is invisible |
+> | C2 65–75% of the vibe | **corrected** | **65% day / 50% night.** Night is structurally capped: there are **zero punctual street lights** (`main.js:192`), and PBR's whole advantage is specular response to them |
+> | C3 25–30 MB / 15–20 MB VRAM | **download confirmed, VRAM refuted 8–15×** | Real VRAM is **153 MiB (ETC2) / 299 MiB (BC7)**. `.ktx2` file size ≠ resident size. **VRAM is a third binding constraint this audit omitted** |
+> | C4 draw calls binding at 790 | **refuted** | Real is **261–289**. The 790 was copied from a `perf-audit.md` that is 261 commits stale. Binding constraints are VRAM, fragment/overdraw at night+speed, CPU stream-in, and per-tile LOD granularity |
+> | C5 SSAO re-attemptable | **corrected → don't** | **Rejected.** Extend the baked v9 sky-AO instead (zero per-frame cost). A foliage-only prepass is worth it once cards land; a whole-scene prepass stays dead |
+> | C6 ~150 m near-field bubble | **refuted as-implemented** | The bubble **does not exist** — buildings render to ~700 m (`tileManager.js:2909`). Correct as a *target*; per-instance LOD is the prerequisite the whole budget rests on |
+> | C7 build trees in Blender | **corrected** | **The assets already exist, unused, in `public/textures/trees/`** — 8 card models + alpha atlas + an authored foliage normal map. Measure before opening Blender |
+>
+> Also dropped: **MeshStandard is out of v2 entirely.** v2 is Lambert + scene IBL + authored
+> albedo/normal/AO — IBL works on the existing Lambert materials with no migration, and that one
+> decision takes download 33.7 → 23.3 MB and night GPU from over-budget to under.
+
 ---
 
 ## 0. Non-negotiable constraints (Anmol, 2026-08-24) — READ BEFORE PROPOSING ANYTHING

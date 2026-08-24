@@ -96,12 +96,13 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 | [authored-tunnels-design.md](docs/context/authored-tunnels-design.md) | Phase 3 authored-tunnel design — open-cut trenches authored INTO the elevation grid vs covered sections with slab floors under untouched grid, the commit-blocking drivable-surface-implies-floor validator, portal-face cliff handling, 5 implementation slices |
 | [bake-surface-clipping.md](docs/context/bake-surface-clipping.md) | Bake-level ground-surface de-overlap — Phase 1 clips path-family polylines out of carriageway coverage (no format bump, crossing exception); Phase 2 bakes sidewalk polygons (v8). Fixes co-planar road/footpath stacking at the source |
 | [ets2-target-audit.md](docs/context/ets2-target-audit.md) | **v2 target audit** — can a browser build reach an ETS2-adjacent look? Verdict: yes to ~65-75%, and the gap is an ASSET gap not a tech gap (zero env normal maps, 172/218 materials diffuse-only, 20-tri tree blobs). Binding browser-only constraints, free+AI asset strategy, texture budget maths, 4-tier roadmap, one-block go/no-go slice. Read before any v2 visual work |
+| [v2-plan-hardened.md](docs/context/v2-plan-hardened.md) | **THE v2 PLAN — read before ets2-target-audit.md, it wins where they disagree.** 12-agent adversarial output: verdict 65% day / 50% night, engineering-first ordering, MeshStandard dropped (Lambert+IBL instead), SSAO rejected for baked-AO extension, real budget table, Tier 0-3 with per-item files/days/risk, an 11-threshold corridor gate, K1-K7 kill criteria |
 
 ---
 
 ## Domain-Specific Docs
 
-For any **v2 / visual-upgrade / asset-pipeline** work (PBR migration, KTX2, trees, facade textures, SSAO/CSM retry), read [docs/context/ets2-target-audit.md](docs/context/ets2-target-audit.md) FIRST — its §0 constraints are binding (browser-only, ~30 MB art budget, no 4K, atlas+instance everything).
+For any **v2 / visual-upgrade / asset-pipeline** work, read [docs/context/v2-plan-hardened.md](docs/context/v2-plan-hardened.md) FIRST — it is the executable plan and supersedes the audit's numbers. Then [ets2-target-audit.md](docs/context/ets2-target-audit.md) for the §0 binding constraints (browser-only, ≤24 MB art budget, ≤200 MiB texture VRAM, no 4K, atlas+instance everything) and the free CC0+AI asset strategy. **Engineering lands before art** — Tier 0/1 make the art visible and the measurements honest; art on top of the current per-tile LOD is invisible.
 
 For road system work, read [docs/context/barcelona-road-system.md](docs/context/barcelona-road-system.md) before starting.
 
