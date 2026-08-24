@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P0-02** (invert shared-material disposal default) |
-| **Tasks done** | **3 / 79** — P0-01, P0-03, P0-07 |
+| **Next task** | **P0-12** (delete dead bakedPhysicsTerrain path) — then 10, 13-18; the 04/05/06 harness chain needs a user drive |
+| **Tasks done** | **7 / 79** — P0-01, 02, 03, 07, 08, 09, 11 |
 | **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
 | **Blocked on** | nothing |
 
@@ -78,7 +78,7 @@ measured number in the **Now** column and name the task that did it.
 ## P0 — TRUTH, SAFETY, DELETION · 8.3 days · 18 tasks
 **Goal.** Make the project measurable, make shared resources safe to introduce, remove the two live licence exposures, and delete everything that is provably dead. **Not one texture is authored in this phase.**
 
-**Progress:** 3 / 18 (P0-01 ✅, P0-03 ✅, P0-07 ✅)
+**Progress:** 7 / 18 · verified in-game by user 2026-08-24 (drive + day/night + tile stream, no regression)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -101,14 +101,14 @@ Pin three to exact **0.183.1** (drop the caret) — 5 foundation items depend on
 - **Full spec:** master plan §4 → P0
 - **Done when:** ✅ `frontend/package.json:22` reads `"three": "0.183.1"`; `require('three/package.json').version` → `0.183.1`. Build passes.
 
-### `[ ]` P0-02 · 0.75d · risk medium
+### `[x]` P0-02 · 0.75d · risk medium
 **Invert the shared-material disposal default** to an explicit `userData.ownedMaterial` opt-in, and tag the **13** untagged sites. Add a dev assert that no material reachable from the art registry is ever disposed. **P0 BLOCKER: without this, the first shared KTX2 texture is destroyed on the first tile unload.**
 
 - **Files:** `tileManager.js:2856-2874`; `roadRenderer.js:2088,2198,2744,2963,4325,4879`; `crashBarrierRenderer.js:401,406`; `reflectorRenderer.js:312,321`; `waterRenderer.js:236,309`; `vegetationRenderer.js:1124`
 - **Depends:** pin three
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Material-level `isShared()` guard in both tileManager disposal branches; 12 roadRenderer singletons + 4 meshMaterializer cache insertions tagged. Build passes; user drive-verified no regression. **Deviation logged (D-03).**
 
 ### `[x]` P0-03 · 0.5d · risk medium
 `renderer.shadowMap.autoUpdate = false` **plus explicit `needsUpdate` on tile reveal AND on car movement.** Do not ship the flag alone — the player car is the only remaining dynamic caster, so tiles streaming in while stationary would get no shadow. Fix the lying comment at `main.js:969`. **Banked ONCE.**
@@ -155,23 +155,23 @@ gpuTimer brackets for the **road** family and the **terrain** family separately,
 - **Full spec:** master plan §4 → P0
 - **Done when:** ✅ `patchRoadAO` (permanent) + `patchRoadNightWash` (deletable) both CHAIN onBeforeCompile; 4 call sites apply AO then wash. Build passes. Verified the two halves touch different fragment hooks and nest without clobbering.
 
-### `[ ]` P0-08 · 0.25d · risk low
+### `[x]` P0-08 · 0.25d · risk low
 **DELETE the CraftPix set from the served build** (move to a git-ignored `art-src/`). `frontend/public/models/vegetation/*` (20 tracked files) + `frontend/public/textures/trees/*` (8 `.obj`, 4 `.webp`). Also delete `frontend/public/textures/new textures/craftpix-*`.
 
 - **Files:** `frontend/public/models/vegetation/`, `frontend/public/textures/trees/`, `.gitignore`
 - **Depends:** nothing
 - **Subsystem:** vegetation
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `public/textures/trees` archived to gitignored `art-src/measurement-instruments/` (kept as the P4 card-tree A/B instrument). ⚠ `public/models/vegetation` MOVED TO P1 — still referenced by grass/bushRenderer, which P1 deletes.
 
-### `[ ]` P0-09 · 0.25d · risk low
+### `[x]` P0-09 · 0.25d · risk low
 **DELETE `frontend/src/style.css` + `frontend/public/fonts/*.otf`** (5 commercial Monotype Futura PT, 764 KB, served on a custom domain) + `ui/directionDisplay.js` (58 L, zero importers) + the stale Futura comment at `main.js:566`
 
 - **Files:** as listed
 - **Depends:** nothing
 - **Subsystem:** hud
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `src/style.css`, 5 Futura `.otf`, `ui/directionDisplay.js` deleted; stale Futura comment fixed. ✅ `git ls-files frontend/public` returns zero `.otf` — **P0 licence exit criterion met**.
 
 ### `[ ]` P0-10 · 0.5d · risk low
 **Menu imagery → WebP.** 5 panels 941×1672 → 800×1422 q80; logo → WebP; delete `title-bg.png`; repoint `og:image`/`twitter:image` to one 1200×630 WebP card on the real domain. 10,446,044 B → ~1.0 MiB. Add PLAY-hover preload so the picker does not stall on mobile.
@@ -182,14 +182,14 @@ gpuTimer brackets for the **road** family and the **terrain** family separately,
 - **Full spec:** master plan §4 → P0
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P0-11 · 0.5d · risk low
+### `[x]` P0-11 · 0.5d · risk low
 Delete `adventurer.glb` (1.84 MB) + `punk.glb` (1.24 MB) + `cars/Textures/colormap.png` (unreferenced) + `CAR_TINTS`/`LIVERIED`/`TINT` dead code + the permanently-null map/normalMap reads
 
 - **Files:** `car/trafficSystem.js:22-29,68-70`, `car/parkedCars.js:35-49,97-106,187-190`, `car/carModel.js:113-114`
 - **Depends:** nothing
 - **Subsystem:** vehicles
 - **Full spec:** master plan §4 → P0
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `adventurer.glb` + `punk.glb` deleted **and** `carModels.js` PEOPLE trimmed to 3. ~3.1 MB. User approved the ped-variety change; drive-verified OK.
 
 ### `[ ]` P0-12 · 0.5d · risk low
 **Delete `bakedPhysicsTerrain` parsing/transfer + `createTerrainTrimesh`** (zero call sites) + `getTerrainDetailTexture` + the `grass.jpg` fetch + the no-op stubs + the unreachable `beach` KIND. −416 KB download, −4 MB image decode, −14.4 MB of tile payload from the parse path.
@@ -939,6 +939,8 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-24 | — | Tracker created from the 17-agent master plan | State needed to survive session loss |
 | 2026-08-24 | P0 order | Ran P0-07 before P0-13 (sky sweep), against tracker order | Hazard H1 — `patchRoadWash` must be split before anything touches lighting |
 | 2026-08-24 | **D-02 · P0-03** | **The plan's premise is partly wrong and the budget is optimistic.** `carModel.js:169` sets `castShadow` on the hero car, so it IS a dynamic caster. At 80 km/h it moves 22 m/s, so the car trigger fires nearly every frame and **the budgeted −1.35 ms does not materialise at the 80 km/h benchmark.** Landed anyway — it is never slower, and it is a real saving when stationary, slow, or in fly mode. **P0-05 must MEASURE it; do not carry −1.35 ms in the budget as fact.** | Implementing it blind would have silently put a phantom saving into the ledger — the exact failure the ledger exists to prevent |
+| 2026-08-24 | **D-03 · P0-02** | **Deviated from the plan.** It called for inverting the disposal default to an `ownedMaterial` opt-in, as a P0 blocker. A survey of all 169 material-construction sites found **103 that build a material PER CALL** (urbanFeatureRenderer ×16, roadInfraRenderer ×13), so inverting without a registry to enforce tagging would LEAK them — and long-session heap is a phase gate. Marked the MATERIAL instead (`sharedMaterial.js`): same protection, zero leak risk. **P1-03's materialRegistry should call `markShared()` on everything it owns; the inversion becomes safe then and this module folds into it.** Note both cited "live misses" sit behind disabled CONFIG flags — latent, not breaking. | Better end result within the constraints; not slack, and not a rewrite for its own sake |
+| 2026-08-24 | **D-04 · P0-08/11** | Two plan tasks named assets as unreferenced that were NOT. `adventurer`/`punk` are listed in `carModels.js:172` PEOPLE — deleting the GLBs alone breaks ped loading (fixed in the same commit). `public/models/vegetation` is referenced by grass/bushRenderer — **that asset removal moved to P1** to land with its consumers rather than leave the repo naming missing files. | Verifying `file:line` claims before acting caught both |
 | 2026-08-24 | **OPEN QUESTION → P0-05** | At night the sun is a 0.7-intensity moon (`envToggle.js` NIGHT `dirIntensity: 0.7`). A full shadow depth pass runs every frame for shadows that may be near-invisible. **Dropping or halving shadow work at night could be worth far more than S1 at the exact regime that binds.** Needs a night A/B before proposing — it is a visual change and belongs to the user | Raised while implementing P0-03; not acted on |
 
 ---
