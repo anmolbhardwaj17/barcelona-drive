@@ -1773,6 +1773,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Track crosswalk mesh separately for 80m LOD culling (Phase 1 Barcelona road overhaul).
     // The crosswalk mesh is already in scene via the forEach above; we just keep a reference.
+    entry.markingsMesh     = roadMeshes.find(m => m.userData?.type === 'markings')       || null;
     entry.crosswalkMesh    = roadMeshes.find(m => m.userData?.type === 'crosswalk')      || null;
     entry.onewayArrowMesh  = roadMeshes.find(m => m.userData?.type === 'onewayArrows')  || null;
     // Phase 3 Barcelona
@@ -2765,6 +2766,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.propMesh) entry.propMesh.visible = false;
         if (entry.reflectorGroup) entry.reflectorGroup.visible = false;
         if (entry.crashBarrierMesh) entry.crashBarrierMesh.visible = false;
+        if (entry.markingsMesh)     entry.markingsMesh.visible     = false;   // v3 P1-22
         if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = false;
         if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = false;
         if (entry.bcnSidewalkMesh)  entry.bcnSidewalkMesh.visible  = false;
@@ -2938,6 +2940,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
       // Fine detail meshes — barriers, bus stops, parking, urban features, vendor carts, decals
       const showDetail = nearEdgeDist <= detailDist;
+      // v3 P1-22: lane paint reads as the road's STRUCTURE at distance, not as detail, so it gets a
+      // generous band of its own — 220 m vs infra's 140 m. That sits below the 280 m fog cull (where
+      // FogExp2 has it ~90% attenuated anyway) so nothing should visibly pop, while still dropping
+      // the mesh for the outer ring of loaded tiles. Altitude-aware so drone views keep it.
+      // Most of this task's saving is the frustum culling enabled in roadRenderer, not this gate;
+      // if paint ever pops on a long straight like Gran Via, raise this before disabling it.
+      if (entry.markingsMesh)     entry.markingsMesh.visible     = nearEdgeDist <= 220 * altMult;
       if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = showDetail;
       if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = showDetail;
       // Phase 3: altitude-aware thresholds (altMult from building LOD, same variable)

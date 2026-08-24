@@ -1321,7 +1321,13 @@ async function buildRoadMarkings(roads, options, yieldFn) {
       const mesh = new THREE.Mesh(merged, getMarkingMaterial());
       mesh.castShadow = false;
       mesh.receiveShadow = false;
-      mesh.frustumCulled = false; // tile-level LOD handles visibility; avoids marking pop-in at distance
+      // v3 P1-22: frustumCulled was false with a comment claiming "tile-level LOD handles
+      // visibility". It did not: this mesh carried no userData.type, so tileManager could not find
+      // it, and it appeared in neither the fog hideAll nor the LOD loop. It was submitted every
+      // frame for every loaded tile, at every distance, off-screen included. It is a per-tile merged
+      // mesh with real bounds (chunkedMerge computes them), so culling is correct here.
+      mesh.frustumCulled = true;
+      mesh.userData.type = 'markings';
       mesh.userData.sharedMaterial = true;
       out.whiteMarkingsMesh = mesh; // reuse existing slot — tileManager expects this key
     }
