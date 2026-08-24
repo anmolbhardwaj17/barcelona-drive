@@ -1,5 +1,11 @@
 /**
  * Barcelona road system — cross-cutting constants.
+ *
+ * ⚠ v3 P1-26: colours that describe the CITY rather than the road standard now live in
+ * `src/regions/barcelona.js` and are re-exported here so the ~2 existing importers are unchanged.
+ * When adding a second city, move values here that would DIFFER (paint colour, kerb stone, surface
+ * tints) into the region profile; keep values that are fixed by the road STANDARD (Norma 8.2-IC
+ * line widths, crosswalk stripe geometry) — those are law, not art direction.
  * Single source of truth for all colors and dimensions.
  * Standard: Norma 8.2-IC (Instrucción de Carreteras 8.2-IC, Marcas Viales).
  *
@@ -7,15 +13,17 @@
  * See docs/context/barcelona-road-system.md Section 4 for full reference.
  */
 
+import { REGION } from '../regions/index.js';
+
 /** Road and marking colors (hex, Three.js compatible). */
 export const BCN_COLORS = {
   PAINT_WHITE:      0xf5f5f5,   // All longitudinal lines (Norma 8.2-IC — Spain uses white only)
   PAINT_YELLOW:     0xf5d000,   // No-parking curb stripe (Phase 4)
   PAINT_BLUE:       0x0066b3,   // Regulated parking stripe (Phase 4)
   PAINT_BIKE_GREEN: 0x3f9f4f,   // Carril bici surface (Phase 3)
-  SIDEWALK_PANOT:   0xc8c2b5,   // Panot tile base color (Phase 3)
-  CURB_GRANITE:     0x5a5a5a,   // Bordillo — granite curb (Phase 3)
-  ASPHALT_BASE:     0x4a4a4a,   // Road asphalt — unchanged from baseline
+  SIDEWALK_PANOT:   REGION.palette.panot,        // v3 P1-26: from the region profile
+  CURB_GRANITE:     REGION.palette.graniteKerb,  // v3 P1-26: from the region profile
+  ASPHALT_BASE:     REGION.palette.asphalt,      // v3 P1-26: from the region profile
   TRAM_RAIL_STEEL:  0x8a8a8a,   // Embedded tram rail (Phase 4)
 };
 
