@@ -5,6 +5,7 @@
  * Supports terrain: options.getElevationAt(lat, lon) for baseY at footprint center.
  */
 import * as THREE from 'three';
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
@@ -218,8 +219,6 @@ function getRoofMaterialForBuilding(category, buildingId) {
   return getRoofMaterial(pal[idx]);
 }
 // Larger repeat = texture spans more wall = bigger windows on facades (6m horizontal, 5m vertical per repeat)
-const FLOOR_HEIGHT = 10;
-const WALL_REPEAT_HORIZONTAL_M = 12;
 // (Unstretch-X, vertical-model-foundation-spec §3) The old MERCATOR_SCALE was a Delhi-latitude
 // unit-correction island for facade UV repeats. Purged: wall lengths are now real
 // metres straight from the honest projection, so UV repeat = wallLength / WALL_REPEAT_HORIZONTAL_M.

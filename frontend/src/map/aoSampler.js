@@ -26,13 +26,13 @@ export const AO_DISABLED = typeof location !== 'undefined'
 export const AO_TERRAIN_STRENGTH = 0.55;  // ground between buildings
 export const AO_ROAD_STRENGTH = 0.52;     // asphalt/sidewalk/curbs (slightly lighter than raw ground —
                                           //  streets receive more bounce than dirt in reality)
-export const AO_FACADE_STRENGTH = 0.50;   // building walls at street level (MIRRORED in buildingWorker.js)
+export { AO_FACADE_STRENGTH } from '../buildingConstants.js';   // v3 P1-13: no longer mirrored
 export const AO_GREEN_STRENGTH = 0.40;    // park/verge polygons. LOWER than terrain on purpose: green
                                           // ShapeGeometry only has vertices on the polygon OUTLINE
                                           // (which hugs the buildings), so sampled svf skews dark vs
                                           // the area average — _aoDebug measured mean 0.407 darkening
                                           // at 0.55 vs the adjacent roads' 0.199 (shadow-stripe look)
-const AO_GAMMA = 1.2;                     // >1 = keep mids bright, darken only genuinely enclosed spots
+import { AO_GAMMA } from '../buildingConstants.js';   // v3 P1-13: no longer mirrored
 
 /**
  * @param {{resolution:number, data:Uint8Array}|null} aoGrid  parsed tile aoGrid (null on pre-v9 tiles)

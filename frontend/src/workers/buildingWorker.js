@@ -25,6 +25,7 @@ import {
 } from './workerGeometry.js';
 
 import earcut from './earcut.js';
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -35,8 +36,6 @@ const ROOF_Y_OFFSET = 0.03;
 const MAX_VERTICES_PER_TILE = 60000;
 const CYLINDER_RADIAL_SEGMENTS = 6;
 const MAX_FOOTPRINT_VERTICES = 16;
-const FLOOR_HEIGHT = 10;
-const WALL_REPEAT_HORIZONTAL_M = 12;
 // (Unstretch-X §3) MERCATOR_SCALE purged — footprint wall lengths are now real metres from the
 // honest projection, so facade UV repeat = wallLength / WALL_REPEAT_HORIZONTAL_M directly.
 
@@ -214,8 +213,6 @@ function createFastElevation(elevation, offset) {
 // MUST MATCH frontend/src/map/aoSampler.js (workers are import-free): strength/gamma dials for the
 // svf → darkening curve, applied per facade vertex with a vertical fade (canyon floors dark, upper
 // storeys open to the sky).
-const AO_FACADE_STRENGTH = 0.50;
-const AO_GAMMA = 1.2;
 const AO_FACADE_FADE_M = 16;     // full AO at the base → none this many metres up
 const AO_SAMPLE_OUTSET = 2.5;    // sample the STREET next to the wall, not the wall itself —
                                  // the grid cell under a facade averages in the building interior (svf≈0)

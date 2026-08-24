@@ -6,6 +6,7 @@
  * All geometry data arrives pre-merged from workers — no mergeGeometries calls.
  */
 import * as THREE from 'three';
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -23,8 +24,6 @@ import { getBeaconMat, getBeaconGeom } from '../map/urbanFeatureRenderer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const FLOOR_HEIGHT = 10;
-const WALL_REPEAT_HORIZONTAL_M = 12;
 
 const FOG_COLOR_VEC = 'vec3(0.749, 0.843, 0.933)';
 
