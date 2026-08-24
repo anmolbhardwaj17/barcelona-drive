@@ -204,8 +204,22 @@ export function getProceduralMaterial() {
       float treeH = clamp(transformed.y / 10.0, 0.0, 1.0);
       float windInfluence = treeH * treeH;  // quadratic: trunk base ~0, foliage tip ~1
 
-      // World-space phase derived from model position (stable across instances)
+      // World-space phase derived from THIS INSTANCE's position (stable per tree, varies between).
+      //
+      // v3 P1-21: this used modelMatrix alone, and every tree in the city swayed in EXACT UNISON.
+      // The vegetation pools are BatchedMeshes parented straight to the Scene (getVegPools), so
+      // modelMatrix is identity and windOrigin evaluated to (0,0,0) for every vertex of every tree —
+      // one global phase. The per-instance transform lives in batchingMatrix / instanceMatrix, and
+      // neither is folded into transformed until <project_vertex>, which runs AFTER this chunk.
+      // Both branches are needed: the pools are batched, but environmentClusterRenderer puts the
+      // same material on an InstancedMesh.
       vec3 windOrigin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      #ifdef USE_BATCHING
+        windOrigin = (modelMatrix * batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      #endif
+      #ifdef USE_INSTANCING
+        windOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      #endif
 
       float windPhase = windOrigin.x * 0.08 + windOrigin.z * 0.06 + uTime * 1.8;
       float windGust  = sin(windPhase) * 0.6 + sin(windPhase * 2.3 + 1.4) * 0.3 + sin(windPhase * 0.4 - 0.7) * 0.1;
