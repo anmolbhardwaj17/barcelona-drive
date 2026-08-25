@@ -13,7 +13,7 @@
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
 | **Next task** | **P3-04 · array facade material · 4.0 d** (P3-03 ✅ FrontSide shipped). It also carries P3's "mid-air shopfronts: 0" gate, which P3-02 handed to it. ⚠ P3-03's fragment saving is unmeasured — a bench run would bank it. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **61 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **62 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
@@ -871,14 +871,31 @@ small value once this lands.**
 - **Full spec:** master plan §4 → P3
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P3-06 · 1.5d · risk low
+### `[x]` P3-06 · 1.5d · risk low
 **Real roof UVs + roof material — the best ratio in the entire programme.** Replace the zero-fill in `ensureUvs` (`buildingWorker.js:657-661`) with `planarRoofUvs`: `uv = (worldX / TILE_M, worldZ / TILE_M)`. World-space projection tiles continuously across the merged per-tile roof mesh with no seam, no unwrap. Then add `map` + `normalMap` to `getRoofMaterial` — because `getRoofMaterialKey()` is a literal constant, **1.5 days dresses every roof in Barcelona from one 2K 3-cell atlas** (Catalan clay pantile / gravel-bitumen terrat / poured concrete), with the peach/terracotta palette staying in the vertex-colour…
 
 - **Files:** `buildingWorker.js:657-661,592-624,365-378,1137-1152`; `meshMaterializer.js:678-690,585-587`
 - **Depends:** P1 pipeline
 - **Subsystem:** buildings-detail
 - **Full spec:** master plan §4 → P3
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **`planarRoofUvs` replaces the zero-fill** (`uv = worldXZ / ROOF_REPEAT_M`, 4.0 m).
+  Verified: a 12 m roof at world x=100 spans u 25.007 → 27.993, and two adjacent roofs CONTINUE each
+  other's projection rather than each resetting to 0. **10 tests (116 total.)** Deliberately world-
+  planar, not per-building 0→1 — the latter scales the texture with the roof, so a 6 m shed and a
+  60 m block show the same tile count and the pattern encodes building SIZE instead of material.
+- **Roof surfaces are a 3-layer ARRAY, not the specced 3-cell atlas.** An atlas cannot work with
+  world-planar UVs: they run to 25, 50, 300 across the city, so addressing a sub-rect needs `fract()`,
+  whose discontinuity seams every cell boundary — the trap P3-04 already documents. A 3-layer array
+  wraps per layer natively at the same memory, and **reuses P3-04's per-vertex `aLayer` channel**
+  rather than adding a second mechanism.
+- ⚠ **A distribution bug the tests caught.** Roof kind used `Math.abs(h) % 3 === 0` for pantile,
+  which *reads* as one-in-three but measured **169/300 (56%)** — xorshift's low bits are not uniform
+  mod 3, so the city came out mostly pitched tile when Barcelona is mostly flat `terrat`. Now takes
+  high bits as a percentage: **~23% pantile**, rest terrat. The test asserts a SHAPE (terrat > 2×
+  pantile, pantile > 20) rather than a range, which is why it failed instead of passing quietly.
+- ⚠ Placeholder layers, near-neutral per **D-31** — roof colour is the peach/terracotta palette in the
+  VERTEX COLOUR against a white material, so a tinted layer would drive dark roofs to black.
+  Rides the same `?facadearray=1` flag: shipping half a look is worse than shipping neither.
 
 ### `[ ]` P3-07 · 3.0d · risk medium
 **ASPHALT SHADER v2 — the core road rebuild.** Extend `patchRoadAO` into a proper road material: (a) world-metric UV from the already-baked `halfWidth` — `vAcross = (uv.y-0.5)*2.0*halfWidth`, `vAlong = uv.x*4.0`, **no re-bake**; (b) tiling albedo + normal at 4 m; (c) a second detail-normal sample at 8× frequency killing the close-range repeat; (d) macro wear from world-XZ noise **per-fragment** at ~40 m (replaces the per-vertex `roadNoise`, zero VRAM, strictly better); (e) **analytic wheel ruts** — two subtly polished bands per lane derived from `halfWidth`, ~10 ALU, zero VRAM, the single most recognisable "real…

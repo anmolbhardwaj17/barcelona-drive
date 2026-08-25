@@ -10,6 +10,7 @@ import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, FACADE_GROUND_H_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
 import { createFacadeArrays, patchFacadeArrayMaterial } from '../map/facadeArray.js';   // v3 P3-04
+import { createRoofArray, patchRoofArrayMaterial } from '../map/roofArray.js';   // v3 P3-06
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import {
@@ -643,6 +644,7 @@ export function setFacadeNightMode(isNight) {
 // worker cannot read the URL itself.
 const FACADE_ARRAY_ON = !!CONFIG.FACADE_ARRAY;
 let _facadeArrays = null;
+let _roofArray = null;   // v3 P3-06
 function facadeArrays() {
   if (!_facadeArrays) _facadeArrays = createFacadeArrays(THREE);
   return _facadeArrays;
@@ -747,6 +749,13 @@ function getRoofMaterial(hexColor) {
   const mat = new THREE.MeshLambertMaterial({ color: hexColor, vertexColors: true, side: BUILDING_SIDE });
   mat.userData._dayHex = hexColor;
   if (_facadeNight) mat.color.multiply(_ROOF_NIGHT_TINT);
+  // v3 P3-06: every roof in the city shares this material (`getRoofMaterialKey()` is a literal), so
+  // binding the array here dresses all of them. Rides the SAME flag as the facade array — both are
+  // placeholder art, and shipping half a look is worse than shipping neither.
+  if (FACADE_ARRAY_ON) {
+    if (!_roofArray) _roofArray = createRoofArray(THREE);
+    patchRoofArrayMaterial(mat, _roofArray);
+  }
   _roofMaterialCache.set(hexColor, markShared(mat));
   return mat;
 }

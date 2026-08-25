@@ -29,6 +29,7 @@ import {
 import earcut from './earcut.js';
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA, STOREY_H, CROWN_H, groundFloorH } from '../buildingConstants.js';
 import { facadeLayerFor, groundLayerFor, encodeGroundLayer } from '../map/facadeArray.js';   // v3 P3-04
+import { roofLayerFor } from '../map/roofArray.js';   // v3 P3-06
 
 // v3 P3-04 — mirrors meshMaterializer's `?facadearray=1`.
 //
@@ -50,6 +51,9 @@ const CYLINDER_RADIAL_SEGMENTS = 6;
 const MAX_FOOTPRINT_VERTICES = 16;
 // (Unstretch-X §3) MERCATOR_SCALE purged — footprint wall lengths are now real metres from the
 // honest projection, so facade UV repeat = wallLength / WALL_REPEAT_HORIZONTAL_M directly.
+
+/** v3 P3-06 — real-world metres per roof texture repeat. */
+const ROOF_REPEAT_M = 4.0;
 
 const BALCONY_VERT_CAP = 40000;
 const COMMERCIAL_VERT_CAP = 40000;
@@ -765,6 +769,35 @@ function ensureUvs(buffers) {
 }
 
 /**
+ * v3 P3-06 — WORLD-PLANAR roof UVs.
+ *
+ * Roofs went through `ensureUvs`, which fills a zero array: every roof vertex sampled uv (0,0), so no
+ * roof in Barcelona could carry a texture even if one were bound. From altitude roofs are a large
+ * share of what is on screen, and `getRoofMaterialKey()` is a literal constant — one material dresses
+ * the whole city — which is why the plan calls this the best ratio in the programme.
+ *
+ * Projection is world XZ over `metresPerRepeat`. There is no unwrap and no seam: the merged per-tile
+ * roof mesh is one buffer in one frame, so neighbouring roofs continue each other's pattern, and
+ * because 1 unit = 1 real metre (Unstretch-X) the repeat is a real-world size rather than a guess.
+ *
+ * ⚠ Deliberately NOT normalised per building. Per-building 0→1 UVs would scale the texture with the
+ * roof, so a 6 m shed and a 60 m block would show the same number of tiles — the pattern would encode
+ * building size instead of material, which reads as wrong long before anyone can say why.
+ */
+function planarRoofUvs(buffers, metresPerRepeat) {
+  const pos = buffers.positions;
+  const n = pos.length / 3;
+  const uvs = new Float32Array(n * 2);
+  const inv = 1 / (metresPerRepeat > 0 ? metresPerRepeat : 4);
+  for (let i = 0; i < n; i++) {
+    uvs[i * 2]     = pos[i * 3]     * inv;   // world X
+    uvs[i * 2 + 1] = pos[i * 3 + 2] * inv;   // world Z
+  }
+  buffers.uvs = uvs;
+  return buffers;
+}
+
+/**
  * Compute vertex normals from indexed positions.
  */
 function computeVertexNormals(positions, indices) {
@@ -1300,7 +1333,19 @@ export function processBuildingsInWorker(data, config) {
     if (roofBuffers) {
       const roofTint = getRoofTint(category, b.id, b.height);
       applyVertexColorToBuffers(roofBuffers, roofTint);
-      ensureUvs(roofBuffers);
+      // v3 P3-06: world-planar, not the zero-fill. ROOF_REPEAT_M is the real-world size of one
+      // texture repeat — 4 m reads as Catalan pantile courses at street level and does not turn
+      // into noise from altitude.
+      planarRoofUvs(roofBuffers, ROOF_REPEAT_M);
+      // v3 P3-06: which roof surface. Reuses P3-04's per-vertex `layers` channel rather than adding
+      // a second mechanism — it already survives merge, group assembly and the aLayer upload.
+      {
+        const rl = roofLayerFor(category, b.id, b.height);
+        const rn = roofBuffers.positions.length / 3;
+        const rlArr = new Float32Array(rn);
+        if (rl !== 0) rlArr.fill(rl);
+        roofBuffers.layers = rlArr;
+      }
 
       const roofKey = getRoofMaterialKey(category, b.id, b.height);
       const rc = roofBuffers.positions.length / 3;
@@ -2125,6 +2170,9 @@ export function processBuildingsInWorker(data, config) {
         uvs: merged.uvs || null,
         indices: merged.indices,
         colors: merged.colors || null,
+        layers: merged.layers || null,   // v3 P3-06 — roof surface kind. See D-29: this literal is
+                                         // the third of four places a new attribute must be added,
+                                         // and the one that fails SILENTLY when it is missed.
       });
     }
   }
