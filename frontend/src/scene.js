@@ -6,7 +6,6 @@ import * as CANNON from 'cannon-es';
 import { latLonToWorld } from './projection.js';
 import { START_LAT, START_LON } from './spawnConfig.js';
 import { CONFIG } from './config.js';
-import { isRallyStyle } from './rallyStyle.js';
 
 // ---------------------------------------------------------------------------
 // Shared sky palette — single source of truth for sky, fog, ambient, and car env.
@@ -530,7 +529,7 @@ export function createScene(container) {
   // the whole frame (bright skies/lights no longer clip to flat white). Exposure bumped to preserve the airy
   // high-key look. Tunable: swap to THREE.NeutralToneMapping for a gentler, more colour-preserving curve.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = isRallyStyle() ? 1.6 : 1.45;
+  renderer.toneMappingExposure = 1.6;   // v3 P1-09: was `isRallyStyle() ? 1.6 : 1.45`
   renderer.shadowMap.enabled = CONFIG.ENABLE_SHADOWS;
   // PCFShadowMap: three r183 deprecated PCFSoftShadowMap and auto-swaps it to this on first render anyway —
   // set it directly so output is identical but without the console deprecation warning.
@@ -560,7 +559,7 @@ export function createScene(container) {
       // Rally-only warm sun scatter (set from sunDir below) — the art-of-rally golden horizon glow.
       uSunDir:  { value: new THREE.Vector3(0, 0.5, 1) },
       uSunGlow: { value: new THREE.Color(0xffcf9e)    },
-      uRally:   { value: isRallyStyle() ? 1.0 : 0.0   },
+      uRally:   { value: 1.0 },   // v3 P1-09: rally is THE look; kept as a uniform so the shader is untouched
     },
     vertexShader: `
       varying vec3 vWorldPosition;
@@ -624,7 +623,7 @@ export function createScene(container) {
   // Base ambient — warm amber lerped 25% toward sky horizon for atmospheric cohesion.
   // Rally style: COOL sky-bounce fill (blue) so shadows read cool against the warm sun — that
   // warm-key / cool-shadow separation is what makes flat low-poly facets pop (the art-of-rally look).
-  const _rally = isRallyStyle();
+  const _rally = true;   // v3 P1-09: see decisions.md D-20
   const ambColor = _rally
     ? new THREE.Color(0xdfeaf7).lerp(SKY_HORIZON, 0.16)  // BRIGHT, faintly cool sky-bounce (airy high-key)
     : new THREE.Color(0xffe8c8).lerp(SKY_HORIZON, 0.25);
@@ -659,11 +658,11 @@ export function createScene(container) {
   scene.add(dirLight.target);  // target must be in scene for shadow camera to follow
   scene.add(dirLight);   // v3 P0-13: was gated on ENABLE_DAY_NIGHT, which is gone (dayNight.js deleted)
 
-  if (CONFIG.ENABLE_FOG || isRallyStyle()) {
+  if (true) {   // v3 P1-09: was `CONFIG.ENABLE_FOG || isRallyStyle()` — the second term was always true
     // Exponential fog — color matches sky horizon so terrain fades into sky seamlessly.
     // Density 0.005: reads as atmosphere without aggressively culling near tiles.
     // Rally style: a touch denser (0.0075) so distance melts into a soft haze — the diorama depth.
-    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), isRallyStyle() ? 0.0025 : 0.005);
+    scene.fog = new THREE.FogExp2(SKY_HORIZON.getHex(), 0.0025);   // v3 P1-09 (density is re-modulated per frame — D-06)
 
     // ── L2: AERIAL PERSPECTIVE (visual-target-analysis §5.4) ─────────────────
     // Globally patch the fog shader chunks (compiles lazily on first render, so patching here catches every

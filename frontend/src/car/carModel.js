@@ -9,7 +9,6 @@ import { makeGLTFLoader } from '../loaders.js';
 import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
 import { audio } from '../audio/audioManager.js';
-import { isRallyStyle } from '../rallyStyle.js';
 import { wallet } from '../game/wallet.js';
 
 const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this so it matches the physics box
@@ -99,7 +98,7 @@ export async function createCarModel(scene) {
   let carPaintMat = null;
   if (carPaintMesh) {
     const _src = carPaintMesh.material;
-    const _rally = isRallyStyle();
+    const _rally = true;   // v3 P1-09
     // Hero paint — punch the base colour's saturation in rally mode so the player car pops as the focal
     // point against the flat-shaded world (art-of-rally cars are vivid, clean-coated).
     const _paint = _src.color ? _src.color.clone() : new THREE.Color(0xff5a2a);

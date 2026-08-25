@@ -9,7 +9,6 @@
  *   window._colorGradePass.uniforms.uGradeStrength.value = 1.6  // punchier
  */
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { isRallyStyle } from '../rallyStyle.js';
 
 const ColorGradeShader = {
   uniforms: {
@@ -92,6 +91,6 @@ const ColorGradeShader = {
 
 export function createColorGradePass() {
   const pass = new ShaderPass(ColorGradeShader);
-  if (isRallyStyle()) pass.uniforms.uRally.value = 1.0;
+  pass.uniforms.uRally.value = 1.0;   // v3 P1-09: unconditional
   return pass;
 }

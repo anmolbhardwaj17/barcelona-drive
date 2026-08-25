@@ -59,7 +59,6 @@ import { createSpeedDisplay } from './ui/speedDisplay.js';
 import { createSpeedLines } from './ui/speedLines.js';
 import { createMetricsPanel } from './ui/metricsPanel.js';
 import { isInputBlocked, isTypingTarget } from './inputGate.js';
-import { isRallyStyle } from './rallyStyle.js';
 import { createMinimap } from './ui/minimap.js';
 import { createCustomMap } from './ui/customMap.js';
 import { loadCityMap } from './ui/cityMapLoader.js';
@@ -164,7 +163,7 @@ const perfLogger = createPerfLogger();
 // Bloom at half resolution for performance — still looks great
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-  isRallyStyle() ? 0.28 : 0.5, // strength — rally keeps bloom restrained/clean
+  0.28, // strength — restrained/clean bloom (v3 P1-09: was isRallyStyle() ? 0.28 : 0.5)
   0.15,   // radius — TIGHT: bright core with a crisp edge (reference-render glow character);
           // the old 0.4 smeared every emissive into a wide fuzzy orb
   1.1,    // threshold — above sky/clouds (~1.0 max) but reachable by car light emissives

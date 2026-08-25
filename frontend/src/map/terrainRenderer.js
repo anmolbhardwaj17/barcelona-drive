@@ -11,27 +11,11 @@ import { CONFIG } from '../config.js';
 import { WATER_DEPTH, pointInWaterPolygon, polygonArea } from './waterRenderer.js';
 const SEA_LEVEL = 0;
 import { getWorldElevationOffset, assertElevationOffsetResolved } from '../elevationOffset.js';
-import { isRallyStyle } from '../rallyStyle.js';
 import { createAoSampler, aoMultiplier, AO_TERRAIN_STRENGTH, bindAoScaleUniform } from './aoSampler.js';
 import { coastSample, seaPolygonWorld } from './coastline.js';
 
-// World-space terrain detail texture — grayscale fiber for fine ground detail over vertex colors
-let _terrainDetailTex = null;
-function getTerrainDetailTexture() {
-  // v3 P0-12: the rally shader path (the default) replaces the fiber fetch with a constant
-  // multiply, so this 416 KB JPEG was downloaded, decoded and held as ~5.6 MiB of RGBA8+mips
-  // purely to satisfy a uniform nothing sampled. Only load it when the branch that reads it is
-  // actually compiled in. ?style=normal still works.
-  if (isRallyStyle()) return null;
-  if (_terrainDetailTex) return _terrainDetailTex;
-  _terrainDetailTex = new THREE.TextureLoader().load('/textures/terrain/grass.15f2422c.jpg');
-  _terrainDetailTex.wrapS = THREE.RepeatWrapping;
-  _terrainDetailTex.wrapT = THREE.RepeatWrapping;
-  _terrainDetailTex.minFilter = THREE.LinearMipmapLinearFilter;
-  _terrainDetailTex.magFilter = THREE.LinearFilter;
-  _terrainDetailTex.anisotropy = 4;
-  return _terrainDetailTex;
-}
+// v3 P1-09: getTerrainDetailTexture() deleted — its only consumer was the non-rally shader
+// branch, which is gone with the ?style=normal path. The 416 KB JPEG is no longer fetched at all.
 
 
 function catmullRom(p0, p1, p2, p3, t) {
@@ -765,14 +749,12 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute('aAO', new THREE.BufferAttribute(aoAttr, 1));
   geometry.setAttribute('aCoast', new THREE.BufferAttribute(coastAttr, 1));
-
-  const terrainDetailTex = getTerrainDetailTexture();
   const material = new THREE.MeshLambertMaterial({
     vertexColors: true,
     side: THREE.FrontSide, // terrain is viewed from above — cull the rear-facing half (was DoubleSide, doubled fragment cost)
     depthWrite: true,
     fog: true,
-    flatShading: isRallyStyle(), // rally: faceted low-poly hills (each DEM triangle a distinct shade)
+    flatShading: true, // faceted low-poly hills — each DEM triangle a distinct shade (v3 P1-09)
   });
 
   // Inject world-space procedural terrain coloring + texture detail into shader.
@@ -780,7 +762,6 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   // macro patches, micro variation, soil blotches, and fiber texture detail
   // all sampled in world space for seamless cross-tile continuity.
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.terrainDetailTex = { value: terrainDetailTex };
     shader.uniforms.detailScale = { value: 0.07 };
     bindAoScaleUniform(shader);
 
@@ -810,7 +791,6 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       varying float vCoast;
       varying vec3 vWorldPos;
       uniform float uAoScale;
-      uniform sampler2D terrainDetailTex;
       uniform float detailScale;
 
       // GPU hash noise — matches CPU terrainNoise for consistency
@@ -833,7 +813,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       // clean in rally, so the 2nd-octave fine detail isn't visible; the biome-patch STRUCTURE (all 5
       // layers below) is unchanged, just slightly smoother within each patch. Non-rally keeps 2 octaves.
       float terrainFBM(vec2 p) {
-        return ${isRallyStyle() ? 'smoothNoise2D(p)' : 'smoothNoise2D(p) * 0.65 + smoothNoise2D(p * 2.3) * 0.35'};
+        return smoothNoise2D(p);   // v3 P1-09: rally path, now unconditional
       }`
     );
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -888,20 +868,19 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       float darkBlend = smoothstep(0.40, 0.28, vertLuma) * 0.35 * (1.0 - vCoast);
       diffuseColor.rgb = mix(diffuseColor.rgb, roadDirt, darkBlend);
 
-      // ── 7. Fiber texture micro-detail ── (rally keeps the ground flat/clean, so skip the per-pixel
-      //    texture fetch entirely and use a constant dim ≈ the old average — saves a sample over all ground)
-      ${isRallyStyle()
-        ? 'diffuseColor.rgb *= 0.98;'
-        : `vec2 fiberUV = wPos * detailScale;
-           float fiber = texture2D(terrainDetailTex, fiberUV).r;
-           diffuseColor.rgb *= 0.70 + fiber * 0.52;`}
+      // ── 7. Ground micro-detail ── v3 P1-09: the shipped look uses a constant dim instead of a
+      //    per-pixel fiber fetch, which saves one texture sample over ALL ground. The alternative
+      //    branch that did the fetch is deleted with the non-rally path (decisions.md D-20), and
+      //    with it the 416 KB JPEG it sampled. P3 replaces this constant with a real tiling
+      //    terrain material from the art library.
+      diffuseColor.rgb *= 0.98;
 
       // ── 8. Baked sky-visibility AO (v9) — street canyons darken, plazas stay bright ──
       // vAo is a MULTIPLIER (1 = open sky); uAoScale softens it under the night rig.
       diffuseColor.rgb *= (1.0 - (1.0 - vAo) * uAoScale);`
     );
   };
-  material.customProgramCacheKey = () => 'terrainBcnLush' + (isRallyStyle() ? '_rally' : '');
+  material.customProgramCacheKey = () => 'terrainBcnLush';   // v3 P1-09: one variant, not two
 
   const mesh = new THREE.Mesh(geometry, material);
   if (useBaked) {

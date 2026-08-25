@@ -335,3 +335,38 @@ city-wide migration buys a slightly different ambient term for roughly +3 ms.
 Anything that says "migrate materials to get a better night" has the dependency backwards.
 
 Related: `v3-master-plan.md` §5.11, §7 · [[G-44]] (sky/ambient/fog/car-env are linked)
+
+---
+
+## D-20: the "art of rally" look IS the game's look — the alternative is deleted (v3 P1-09)
+
+**Status:** accepted, 2026-08-25.
+
+`rallyStyle.js` presented the look as a switchable *style*: `_rally = true` by default, with
+`?style=normal` reverting to "the old plain look for A/B debugging". Fifteen call sites across eight
+files branched on it.
+
+**That framing stopped being true a long time ago.** The rally path is what ships, what every
+screenshot shows, what the grade, the fog, the exposure, the bloom threshold and the terrain palette
+were all tuned against. The `normal` path was never shipped, never tuned and never tested — and it
+was not free:
+
+- an extra terrain **shader variant** (`customProgramCacheKey` appended `_rally`), so every terrain
+  program compiled twice over a session
+- a **416 KB JPEG** (`grass.15f2422c.jpg`, ~5.6 MiB as RGBA8+mips) fetched, decoded and bound as a
+  uniform that only the dead branch sampled
+- fifteen `isRallyStyle() ? a : b` sites that every future change had to reason about twice
+
+So the branch is gone and the shipped values are now unconditional. **Nothing the player sees
+changes** — every collapsed branch kept the rally side, which is the side that was already running.
+
+### What this closes off
+
+`?style=normal` no longer exists. It was an A/B against a look we do not ship and are about to
+replace wholesale in P3 anyway, so the comparison had no remaining value.
+
+If a future A/B is wanted, it should compare **v2 vs v3 art** on the P3 corridor, not rally vs a
+2024 fallback.
+
+Related: `v3-master-plan.md` §5.7 · [[G-44]] · v3 P0-12 (which made the dead JPEG lazy before this
+made it unnecessary)

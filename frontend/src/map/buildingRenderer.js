@@ -11,7 +11,6 @@ import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
 import { findNearestRoadSegment } from './spatialIndex.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
-import { isRallyStyle } from '../rallyStyle.js';
 
 const CYLINDER_RADIAL_SEGMENTS = 5;
 const MAX_VERTICES_PER_TILE = 35000;
@@ -773,7 +772,7 @@ function getFacadeMaterial(hexColor, category = 'residential') {
   const emis = { emissive: new THREE.Color(0xffffff), emissiveMap: getNightEmissiveTexture(category), emissiveIntensity: _buildingNightMode ? NIGHT_EMISSIVE_INTENSITY : 0 };
   // Rally style: flat matte facades — drop the busy window texture (keep subtle night window glow) and
   // FLAT-shade so every facet catches the sun distinctly (the low-poly-but-banger look).
-  const rally = isRallyStyle();
+  const rally = true;   // v3 P1-09
   const faceMap = rally ? null : getWindowTexture(category);
   let mat;
   if (isGlass) {

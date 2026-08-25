@@ -3,7 +3,6 @@
  */
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { isRallyStyle } from '../rallyStyle.js';
 
 const SKID_POOL_SIZE = 200;
 const SMOKE_POOL_SIZE = 90; // shared by drift smoke + rally speed-dust; bigger so neither starves the other
@@ -11,7 +10,7 @@ const SMOKE_POOL_SIZE = 90; // shared by drift smoke + rally speed-dust; bigger 
 export function createCarEffects(scene, carModel, physics) {
   // Art-of-rally dust: warm tan puffs kicked up behind the wheels, and dust trailing at speed (not just
   // on drift). The smoke pool is enabled in rally even when CONFIG.ENABLE_TIRE_SMOKE is off.
-  const _rally = isRallyStyle();
+  const _rally = true;   // v3 P1-09
   const _smokeEnabled = CONFIG.ENABLE_TIRE_SMOKE || _rally;
   // ── Brake lights ──────────────────────────────────────────────────────────
   const tlMatL = carModel.taillightMeshL.material;
