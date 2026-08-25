@@ -945,14 +945,21 @@ export function createRoadMesh(road, options, taperedWidths) {
 let whiteLineMaterial = null;
 let _mergedMarkingMaterial = null;
 let _markingNight = false;                 // persisted so materials built AFTER a night toggle inherit it
-// Unlit paint → hand-tuned per time of day. Day: muted worn grey (0xB0B0B0 read too bright).
-// Night: soft moonlit grey (visible, not glaring). Both one-line tunable.
-const MARK_DAY = 0x8a8a8a, MARK_NIGHT = 0x565b62;
-/** Shared unlit material for all lane lines + zebra crosswalks (created once, night-state-aware). */
+// v3 P2-05: road paint is LIT, not unlit.
+//
+// This was MeshBasicMaterial — which ignores lighting entirely — with two hand-tuned colours to
+// fake a day/night difference. That is why markings "illuminate a lot at night": every other
+// surface darkened and the paint did not, so it read as self-lit. It also meant the light grid
+// could never touch it, so paint under a street lamp looked identical to paint in the dark.
+//
+// Lambert instead: one albedo, and the scene decides. Under a lamp or in headlights the paint
+// lifts the way real retroreflective marking does; away from light it falls back with the asphalt.
+const MARK_ALBEDO = 0xC4C4C4;   // worn white paint. The look now comes from lighting, not this.
+/** Shared LIT material for all lane lines + zebra crosswalks (created once). */
 function getMarkingMaterial() {
   if (!_mergedMarkingMaterial) {
-    _mergedMarkingMaterial = applyGroundLayer(new THREE.MeshBasicMaterial({
-      color: _markingNight ? MARK_NIGHT : MARK_DAY,
+    _mergedMarkingMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
+      color: MARK_ALBEDO,
       vertexColors: true,
     }), 'marking');
   }
@@ -2604,7 +2611,9 @@ export function setRoadMarkingNightMode(isNight) {
   // Lane lines + zebra crosswalks use an UNLIT MeshBasicMaterial, so they don't darken with the scene at
   // night → they glared bright white. Dim the shared colour by hand: moonlit worn paint, not glowing.
   _markingNight = isNight; // persist so crosswalks/lines built later also come up dimmed
-  if (_mergedMarkingMaterial) _mergedMarkingMaterial.color.set(isNight ? MARK_NIGHT : MARK_DAY);
+  // v3 P2-05: no longer swaps colour. The material is lit now, so night darkening happens through
+  // the light rig; applying a second darkening here would double it. Kept as the hook the env
+  // toggle calls, and because the marking day/night state is still read elsewhere.
 }
 
 export function setGuardRailNightMode(isNight) {

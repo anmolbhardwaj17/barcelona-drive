@@ -49,6 +49,11 @@ import { initWorkerPool, processBuildings as workerProcessBuildings, processVege
 import { materializeBuildingMeshes, materializeVegetationMeshes, getVegPools } from '../workers/meshMaterializer.js';
 
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
+// v3: ?debug=paint — per-second report of road-paint mesh state for the tile the car is in.
+const _DEBUG_PAINT = (() => {
+  try { return new URLSearchParams(location.search).get('debug') === 'paint'; } catch { return false; }
+})();
+let _paintDbgT = 0;
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
 const LOOKAHEAD_RADIUS = 2; // extend 1 extra tile in driving direction for seamless look-ahead
 const UNLOAD_DISTANCE = 2; // keep fewer tiles resident (was 3 → up to 49 tiles → 1GB heap, 38fps)
@@ -2963,6 +2968,19 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // Most of this task's saving is the frustum culling enabled in roadRenderer, not this gate;
       // if paint ever pops on a long straight like Gran Via, raise this before disabling it.
       if (entry.markingsMesh)     entry.markingsMesh.visible     = nearEdgeDist <= 220 * altMult;
+      // ?debug=paint — answers "why did the arrows vanish when I got close?" definitively rather
+      // than by inference. For the tile the car is IN, reports whether each paint mesh EXISTS at
+      // all (some street classes bake with no markings), whether the LOD gate passed, and whether
+      // three frustum-culled it anyway. On screen those three have identical symptoms.
+      if (_DEBUG_PAINT && nearEdgeDist === 0 && performance.now() - _paintDbgT > 1000) {
+        _paintDbgT = performance.now();
+        const st = (m, name) => !m ? `${name}:ABSENT` : `${name}:${m.visible ? 'vis' : 'HIDDEN'}${m.frustumCulled ? '/fc' : ''}`;
+        console.warn('[paint] tile %s alt=%s — %s · %s · %s · %s · %s',
+          key, altMult.toFixed(2),
+          st(entry.markingsMesh, 'markings'), st(entry.onewayArrowMesh, 'arrows'),
+          st(entry.crosswalkMesh, 'zebra'), st(entry.zona30Mesh, 'zona30'),
+          st(entry.bcnBikePictoMesh, 'bikePicto'));
+      }
       if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = showDetail;
       if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = showDetail;
       // Phase 3: altitude-aware thresholds (altMult from building LOD, same variable)
