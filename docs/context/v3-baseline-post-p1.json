@@ -1,0 +1,324 @@
+{
+ "meta": {
+  "label": "v3-baseline",
+  "reason": "manual-complete",
+  "git": null,
+  "durationS": 90.6,
+  "frames": 4097,
+  "mode": "night / 80kmh target / Gran Via eastbound",
+  "pixelRatio": 1,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+  "savedAt": "2026-08-25T07:01:12.008Z",
+  "note": "POST-P1 baseline. Manual drive, Gran Via NE, night, production build, pixelRatio 1.0 (the pin finally held \u2014 the P0 baseline was taken at 1.2, so GPU figures are NOT like-for-like and this file supersedes it as the reference point rather than beating it). Drive valid: mean 70.2 km/h, 81.1% of frames above 60, ~1742 m, 0.1% stationary. Driver reported 2 collisions and one reverse, which affects tile residency and therefore the triangle/heap figures."
+ },
+ "gates": {
+  "frameMs": {
+   "mean": 21.94,
+   "p50": 16.7,
+   "p95": 33.7,
+   "p99": 34.3,
+   "max": 50
+  },
+  "gpuMs": {
+   "mean": 9.14,
+   "p50": 8.02,
+   "p95": 13.85,
+   "p99": 14.58,
+   "max": 15.12
+  },
+  "draws": {
+   "mean": 205.46,
+   "p50": 205,
+   "p95": 246,
+   "p99": 256,
+   "max": 278
+  },
+  "tris": {
+   "mean": 1626474.29,
+   "p50": 1681123,
+   "p95": 1956288,
+   "p99": 2133255,
+   "max": 2357695
+  },
+  "programsAtLoaderHide": 186,
+  "programsAtEnd": 191,
+  "programsDelta": 5,
+  "timeToDriveMs": 21300,
+  "heapStartMB": 343.6,
+  "heapEndMB": 537.1,
+  "heapGrowthPct": 56.3
+ },
+ "worstFrames": [
+  {
+   "t": 0.15,
+   "ms": 50,
+   "gpuMs": 8.37,
+   "draws": 170,
+   "tris": 1148720,
+   "kmh": 6,
+   "wp": 0
+  },
+  {
+   "t": 0.43,
+   "ms": 50,
+   "gpuMs": 7.51,
+   "draws": 221,
+   "tris": 1588372,
+   "kmh": 9,
+   "wp": 0
+  },
+  {
+   "t": 0.92,
+   "ms": 50,
+   "gpuMs": 7.3,
+   "draws": 221,
+   "tris": 1582000,
+   "kmh": 11,
+   "wp": 0
+  },
+  {
+   "t": 5.12,
+   "ms": 50,
+   "gpuMs": 7.84,
+   "draws": 264,
+   "tris": 1813220,
+   "kmh": 30,
+   "wp": 0
+  },
+  {
+   "t": 5.78,
+   "ms": 50,
+   "gpuMs": 8.06,
+   "draws": 215,
+   "tris": 1757957,
+   "kmh": 37,
+   "wp": 0
+  },
+  {
+   "t": 6.23,
+   "ms": 50,
+   "gpuMs": 8.37,
+   "draws": 219,
+   "tris": 1757465,
+   "kmh": 45,
+   "wp": 0
+  },
+  {
+   "t": 8.04,
+   "ms": 50,
+   "gpuMs": 7.74,
+   "draws": 195,
+   "tris": 1412997,
+   "kmh": 75,
+   "wp": 0
+  },
+  {
+   "t": 32.7,
+   "ms": 50,
+   "gpuMs": 11.74,
+   "draws": 196,
+   "tris": 1988463,
+   "kmh": 83,
+   "wp": 0
+  },
+  {
+   "t": 32.9,
+   "ms": 50,
+   "gpuMs": 13.54,
+   "draws": 195,
+   "tris": 2003981,
+   "kmh": 86,
+   "wp": 0
+  },
+  {
+   "t": 44.78,
+   "ms": 50,
+   "gpuMs": 13.28,
+   "draws": 203,
+   "tris": 1883079,
+   "kmh": 74,
+   "wp": 0
+  },
+  {
+   "t": 3.86,
+   "ms": 34.4,
+   "gpuMs": 7.95,
+   "draws": 175,
+   "tris": 1170728,
+   "kmh": 20,
+   "wp": 0
+  },
+  {
+   "t": 4.98,
+   "ms": 34.4,
+   "gpuMs": 7.9,
+   "draws": 266,
+   "tris": 1813948,
+   "kmh": 30,
+   "wp": 0
+  },
+  {
+   "t": 6.07,
+   "ms": 34.4,
+   "gpuMs": 8.37,
+   "draws": 215,
+   "tris": 1757457,
+   "kmh": 43,
+   "wp": 0
+  },
+  {
+   "t": 17.82,
+   "ms": 34.4,
+   "gpuMs": 7.04,
+   "draws": 203,
+   "tris": 1835529,
+   "kmh": 94,
+   "wp": 0
+  },
+  {
+   "t": 77.26,
+   "ms": 34.4,
+   "gpuMs": 13.23,
+   "draws": 227,
+   "tris": 1815093,
+   "kmh": 77,
+   "wp": 0
+  },
+  {
+   "t": 0.78,
+   "ms": 34.3,
+   "gpuMs": 7.19,
+   "draws": 219,
+   "tris": 1580698,
+   "kmh": 10,
+   "wp": 0
+  },
+  {
+   "t": 1.03,
+   "ms": 34.3,
+   "gpuMs": 7.55,
+   "draws": 209,
+   "tris": 1575340,
+   "kmh": 12,
+   "wp": 0
+  },
+  {
+   "t": 1.36,
+   "ms": 34.3,
+   "gpuMs": 7.85,
+   "draws": 174,
+   "tris": 1428234,
+   "kmh": 13,
+   "wp": 0
+  },
+  {
+   "t": 1.78,
+   "ms": 34.3,
+   "gpuMs": 7.52,
+   "draws": 175,
+   "tris": 1528348,
+   "kmh": 10,
+   "wp": 0
+  },
+  {
+   "t": 2.24,
+   "ms": 34.3,
+   "gpuMs": 7.99,
+   "draws": 219,
+   "tris": 1579940,
+   "kmh": 1,
+   "wp": 0
+  },
+  {
+   "t": 3.74,
+   "ms": 34.3,
+   "gpuMs": 8.24,
+   "draws": 172,
+   "tris": 1153840,
+   "kmh": 18,
+   "wp": 0
+  },
+  {
+   "t": 4.23,
+   "ms": 34.3,
+   "gpuMs": 7.63,
+   "draws": 214,
+   "tris": 1563450,
+   "kmh": 23,
+   "wp": 0
+  },
+  {
+   "t": 5.32,
+   "ms": 34.3,
+   "gpuMs": 8.43,
+   "draws": 229,
+   "tris": 1601221,
+   "kmh": 31,
+   "wp": 0
+  },
+  {
+   "t": 5.45,
+   "ms": 34.3,
+   "gpuMs": 8.32,
+   "draws": 194,
+   "tris": 1398899,
+   "kmh": 31,
+   "wp": 0
+  },
+  {
+   "t": 5.85,
+   "ms": 34.3,
+   "gpuMs": 8,
+   "draws": 215,
+   "tris": 1757447,
+   "kmh": 39,
+   "wp": 0
+  },
+  {
+   "t": 6.22,
+   "ms": 34.3,
+   "gpuMs": 8.37,
+   "draws": 192,
+   "tris": 1549257,
+   "kmh": 44,
+   "wp": 0
+  },
+  {
+   "t": 12.43,
+   "ms": 34.3,
+   "gpuMs": 7.45,
+   "draws": 225,
+   "tris": 1831952,
+   "kmh": 76,
+   "wp": 0
+  },
+  {
+   "t": 12.57,
+   "ms": 34.3,
+   "gpuMs": 7.87,
+   "draws": 224,
+   "tris": 1841372,
+   "kmh": 75,
+   "wp": 0
+  },
+  {
+   "t": 12.9,
+   "ms": 34.3,
+   "gpuMs": 7.54,
+   "draws": 222,
+   "tris": 1841124,
+   "kmh": 75,
+   "wp": 0
+  },
+  {
+   "t": 13.39,
+   "ms": 34.3,
+   "gpuMs": 7.24,
+   "draws": 219,
+   "tris": 1823184,
+   "kmh": 82,
+   "wp": 0
+  }
+ ],
+ "samples": "STRIPPED \u2014 4097 per-frame samples removed to keep the committed baseline small."
+}
