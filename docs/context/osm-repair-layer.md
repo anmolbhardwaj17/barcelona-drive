@@ -111,6 +111,23 @@ patches fired and which did not match (a stale patch must be loud, not silent). 
 **Done when:** a hand-written patch reconstructing ONE known-broken flyover survives a bake and shows
 in the report; a deliberately stale patch fails loudly.
 
+### P-R2.5 · The review map — `?debug=defects` (2.5 d)
+A 2D map view over `defect-census.json`: every defect as a marker, filterable by class, click to zoom
+to it, and for each one a short list of candidate actions (snap these two ends · stitch these ways ·
+insert a portal here · leave it). Choosing one writes a `provenance: human` entry into `repairs.json`.
+
+**Why it comes AFTER the census, not before.** The UI is a thin viewer over data the census produces
+— its filters, its candidate actions and its very layout are all shaped by which classes turn out to
+be common. Built first, it is a guess at a UI for defects nobody has counted.
+
+**Why it is not the primary mechanism.** Hand-review does not scale past a few hundred, and the
+census will very likely report more than that. The division of labour: **rules do the bulk, the map
+does the residue and the judgement calls.** It is also the natural place to eyeball what the `M`
+rules propose (P-R5) and, later, to place landmarks — same file, same provenance field.
+
+**Done when:** a defect can be found, zoomed to, resolved from a candidate list, and the resulting
+patch survives a re-bake and shows in the bake report.
+
 ### P-R3 · Horizontal rules (3 d)
 `H1`-`H3` as rule generators emitting patches. Snapping tolerances derived from the census, not
 guessed. **`H4` already works — do not rewrite it.**
@@ -146,3 +163,22 @@ still reproduces the same tiles.
 - **Re-bake required** at P-R3 and beyond. Golden Rule 5 applies: warn first.
 - **Do not let this block v3.** It is orthogonal to P3's art wave and must not be sequenced ahead of
   the minimum-shippable path unless the user re-prioritises.
+
+---
+
+## 5. Recommended sequencing (2026-08-25)
+
+**Do P-R1 (census) now. Stop. Return to v3 P3. Revisit the rest after P3.**
+
+- The census is 1.5 d, ships nothing, and answers the one question that changes the plan's size: are
+  there 50 defects region-wide or 5,000? Every later phase is sized off that number, and the review
+  map's design depends on it.
+- P-R2..P-R6 is ~19 d that does not move the *look*, which is what v3 exists to fix. P3 does.
+- Ordering is safe: art is materials and assets, topology repair is geometry. Repairing roads after
+  the art wave does not invalidate the art wave.
+- **Exception — the buried-road bug (`V5`, `terrain-tunnel-rework-plan.md`) should be fixed on its
+  own, now, not held for P-R4.** It is live, visible on an ordinary drive, and it is one bug rather
+  than a subsystem.
+
+Revisit if the census reports a defect count high enough that the city cannot read as "professional
+and covered" at ship. That is a number, so the decision will be made on evidence rather than feel.
