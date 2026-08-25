@@ -25,7 +25,22 @@ import { getWorldElevationOffset } from '../elevationOffset.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const LAYER_HEIGHT_STEP = 6;
-const ROAD_Y_OFFSET = 0.06; // above road surface for decals
+// Height of road decals above the sampled surface.
+//
+// ⚠ 0.06 WAS NOT ENOUGH, and the evidence was already in this repo: buildOnewayArrows notes that
+// 0.035 left arrows "3.5-4.5cm BURIED (arrows invisible)". The baked road surface sits up to ~4.5 cm
+// above the elevation these decals sample — lane arrows sample INTERSECTION points while the road
+// mesh is built from its own geometry, so the two do not agree — which left barely 1.5 cm of margin.
+//
+// That is exactly the reported "arrows disappear when I get close": polygonOffset's slope term is
+// large at the grazing angles you see distant road at, so it pulled buried arrows forward and they
+// looked fine; up close you view them far more steeply, the slope term collapses, and the real
+// burial shows. Depth bias was masking a geometry problem, which is why raising the bias "fixed"
+// it once before and the symptom came back.
+//
+// 0.11 clears the known worst case with margin. At driving distances 11 cm reads flat on the road,
+// and the 'stencil' bias still prevents z-fighting where the surfaces do agree.
+const ROAD_Y_OFFSET = 0.11;
 
 /**
  * Normalize a raw road-point elevation to render-Y, matching the road deck.
@@ -545,8 +560,18 @@ function getArrowResources() {
     sharedArrowGeom.userData.sharedGeometry = true;
   }
   if (!sharedArrowMat) {
-    sharedArrowMat = applyGroundLayer(new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+    // v3 P2-05: LIT paint, and not pure white.
+    //
+    // This was MeshBasicMaterial at 0xffffff. Unlit means it outputs 1.0 regardless of the scene,
+    // and the night bloom threshold is 0.72 — so every lane arrow sat above the threshold and
+    // bloomed into a glowing blob, brighter than the street lamps lighting it. It also never
+    // darkened at night, so arrows read as light SOURCES painted on the asphalt.
+    //
+    // Lambert at a worn-paint albedo instead: at night it lands far under the bloom threshold and
+    // lifts only where a lamp or the headlights actually reach it, which is how real road paint
+    // behaves. Matches getMarkingMaterial() — all road paint is now lit paint.
+    sharedArrowMat = applyGroundLayer(new THREE.MeshLambertMaterial({
+      color: 0xC4C4C4,
       side: THREE.DoubleSide,
     }), 'stencil');   // v3 P0-14: was -3 — LESS negative than road's -4, so arrows lost the depth
                       // test to their own asphalt. Matches the "arrows only sometimes visible" report.
@@ -1458,6 +1483,10 @@ export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
     arrowMesh.castShadow = false;
     arrowMesh.receiveShadow = false;
     arrowMesh.renderOrder = 1;
+    // Tagged so tileManager can find it for ?debug=paint. Untagged, it vanished into the merged
+    // roadInfraMeshes array and the diagnostic could not report on it — which is the same reason
+    // the markings mesh went unnoticed in P1-22.
+    arrowMesh.userData.type = 'laneArrows';
     for (let i = 0; i < arrowInstances.length; i++) {
       const a = arrowInstances[i];
       _pos.set(a.x, a.baseY, a.z);

@@ -2311,6 +2311,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       buildPhase('p4 infra');
       const { meshes: infraMeshesRaw } = buildRoadInfrastructure(roads, key, getGroundY);
       entry.roadInfraMeshes = await mergeMeshesByMaterial(infraMeshesRaw, yieldToMain);
+      entry.laneArrowMesh = entry.roadInfraMeshes.find(m => m.userData?.type === 'laneArrows') || null;
       for (const m of entry.roadInfraMeshes) { safeSceneAdd(scene, m); }
     }
 
@@ -2999,13 +3000,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         };
         _paintFrustum.setFromProjectionMatrix(
           _paintMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-        console.warn('[paint] tile %s alt=%s — %s · %s · %s · %s · %s',
+        console.warn('[paint] tile %s alt=%s — %s · %s · %s · %s · %s · %s',
           key, altMult.toFixed(2),
           st(entry.markingsMesh, 'markings', undefined),
           st(entry.onewayArrowMesh, 'arrows', CONFIG.ENABLE_ONEWAY_ARROWS),
           st(entry.crosswalkMesh, 'zebra', CONFIG.ENABLE_CROSSWALKS),
           st(entry.zona30Mesh, 'zona30', undefined),
-          st(entry.bcnBikePictoMesh, 'bikePicto', CONFIG.ENABLE_BIKE_LANES));
+          st(entry.bcnBikePictoMesh, 'bikePicto', CONFIG.ENABLE_BIKE_LANES),
+          st(entry.laneArrowMesh, 'laneArrows', CONFIG.ENABLE_ROAD_INFRA));
       }
       if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = showDetail;
       if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = showDetail;

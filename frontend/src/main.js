@@ -1244,7 +1244,10 @@ function animate(time = 0) {
 
   // v3 P2 spike: arm on first frame with a car, then rebuild the grid ONLY when the camera crosses
   // an 8 m cell — the rebuild is O(lights x cells) and has no business running every frame.
-  if (_LIGHTGRID && carDriver) {
+  // v3 P2: NOT gated on carDriver. It was, and fly mode has no carDriver — so the street lighting
+  // simply never armed there and the roads stayed dark, which looked like the grid was broken
+  // rather than absent. rebuildLightGrid() works off camera.position, which both modes have.
+  if (_LIGHTGRID && tileManager) {
     if (!_lgArmed) {
       _lgArmed = true;
       initLightGrid();
