@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (ALLOW_ANY) res.setHeader('Access-Control-Allow-Origin', '*');
   else if (origin && ALLOWED_ORIGINS.includes(origin)) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');   // POST: /api/debug/report only (dev-only, see below)
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('X-Content-Type-Options', 'nosniff');   // no MIME sniffing
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -124,6 +124,41 @@ app.get('/api/citymap', (req, res) => {
     return res.end(gz);
   }
   return res.end(zlib.gunzipSync(gz));
+});
+
+/**
+ * POST /api/debug/report   — DEV ONLY, refuses to exist under NODE_ENV=production.
+ *
+ * WHY A WRITE ENDPOINT EXISTS AT ALL. The frame/shader investigation (D-33 → D-38) is driven by
+ * measurements taken in the browser, and its bottleneck stopped being the measuring: by D-38 a
+ * single drive produced 66 shader cache keys plus 40 long-frame lines, which is far more console
+ * output than anyone can copy out of DevTools. A drive that cannot be reported is a drive wasted,
+ * and D-35 already cost one to a blind instrument.
+ *
+ * So the browser ships its aggregated report here and this writes it into the repo, where it can be
+ * read directly. No copying, no truncation, no scrollback limit.
+ *
+ * Kept safe by being uninteresting: dev-only, body capped, no path comes from the client (the
+ * filename is generated here), and it writes to one fixed directory that is gitignored.
+ */
+const REPORT_DIR = path.join(__dirname, 'debug-reports');
+app.post('/api/debug/report', express.json({ limit: '8mb' }), (req, res) => {
+  if (IS_PROD) return res.status(404).json({ error: 'Not found' });
+  const body = req.body;
+  if (!body || typeof body !== 'object') return res.status(400).json({ error: 'Expected a JSON object' });
+  try {
+    fs.mkdirSync(REPORT_DIR, { recursive: true });
+    // Filename is generated SERVER-side — nothing from the request reaches the path.
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const name = `drive-report-${stamp}.json`;
+    fs.writeFileSync(path.join(REPORT_DIR, name), JSON.stringify(body, null, 2));
+    const rel = path.join('backend', 'debug-reports', name);
+    console.log(`[debug] wrote ${rel}`);
+    return res.json({ ok: true, file: rel });
+  } catch (e) {
+    console.error('[debug] report write failed:', e.message);
+    return res.status(500).json({ error: 'Write failed' });
+  }
 });
 
 app.listen(PORT, () => {

@@ -84,6 +84,7 @@ import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
 import { probeRoadFit } from './ui/roadFitProbe.js';   // ?debug=roadfit — measurement only
+import { armReport, noteVariant, noteLongFrame, shipReport } from './ui/driveReport.js';   // F9 → one file, see below
 import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, assertLightingVisible, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
@@ -215,9 +216,17 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   const gpuTag = _g != null ? `  gpu ${_g.toFixed(1)}ms (${Math.round(_g / wall * 100)}% of frame)` : '  gpu n/a';
   const heapMB = (typeof performance !== 'undefined' && performance.memory)
     ? `  heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)}MB` : '';
-  console.warn('[frame] %sms — %s%s%s%s%s', wall.toFixed(0), str,
-    async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB + info,
-    alloc ? `\n         ↳ allocated: ${alloc}` : '  (no section allocated ≥0.05MB — the churn is elsewhere)');
+  // ⚠ RECORD ALWAYS, PRINT ONLY WHEN ASKED. 40 of these lines, each carrying a section breakdown
+  // and a renderer.info dump, is more console output than can be copied out of DevTools — which is
+  // exactly how this investigation stalled at D-38. driveReport aggregates them instead, and F9
+  // ships the aggregate to a file. `?debug=frames` brings the live firehose back for a human
+  // watching a drive, which is the only case it was ever good for.
+  noteLongFrame({ wall, sections: _b, async: async_, gpu: _g, heap: heapMB ? performance.memory.usedJSHeapSize / 1048576 : null, alloc: heapBySection, info });
+  if (DEBUG_FRAMES) {
+    console.warn('[frame] %sms — %s%s%s%s%s', wall.toFixed(0), str,
+      async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB + info,
+      alloc ? `\n         ↳ allocated: ${alloc}` : '  (no section allocated ≥0.05MB — the churn is elsewhere)');
+  }
 }, 50);
 // Hold the budget until the car is drivable — see cpuTimer.holdLongFrames(). Without this the load
 // burns all 40 report slots on frames main.js then discards, and no [frame] line ever prints.
@@ -234,12 +243,22 @@ cpuTimer.holdLongFrames();
 // every feature that changes the generated GLSL — map / vertexColors / fog / side / transparent /
 // LIGHT COUNTS / shadows — plus our own patch tags. Two materials sharing all of that share ONE
 // program; differ in any one and it is a whole new compile.
+// Both firehoses are OFF by default and recorded instead — see driveReport.js. Comma-tolerant so
+// `?debug=frames,variants` works; the single-value form matches the existing `?debug=loaf` style.
+const _dbg = (() => { try { return new Set((new URLSearchParams(location.search).get('debug') || '').split(',').map((x) => x.trim())); } catch { return new Set(); } })();
+const DEBUG_FRAMES = _dbg.has('frames');
+const DEBUG_VARIANTS = _dbg.has('variants');
 let _progSeen = renderer.info.programs?.length ?? 0;
 function watchShaderVariants() {
   const list = renderer.info.programs;
   if (!list || list.length <= _progSeen) return;
   for (let i = _progSeen; i < list.length; i++) {
-    console.warn('[variant] NEW shader program #%d — %s', i + 1, list[i]?.cacheKey ?? '(no cacheKey)');
+    const key = list[i]?.cacheKey ?? '(no cacheKey)';
+    // Aggregated, not printed: 66 of these per drive, each a few hundred characters of cache key,
+    // is unreadable AND unshippable. driveReport diffs each one against the warm-up's vocabulary so
+    // the report names the FEATURE that differs, which is the thing a fix can target.
+    noteVariant(i + 1, key);
+    if (DEBUG_VARIANTS) console.warn('[variant] NEW shader program #%d — %s', i + 1, key);
   }
   _progSeen = list.length;
 }
@@ -1391,6 +1410,9 @@ function animate(time = 0) {
       && !document.getElementById('dd-loading') && !document.getElementById('dd-modeload')) {
     _timeToDriveMs = Math.round(performance.now());
     cpuTimer.armLongFrames();   // fresh budget now that the measured thing has actually started
+    // Same instant, same reason: D-38 measured "153 programs at time-to-drive", so the report's
+    // warm-vs-late split has to be taken here or it is measuring a different thing.
+    armReport(renderer.info.programs);
     _programsAtLoaderHide = renderer.info.programs?.length ?? null;
     console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
   }
@@ -1535,6 +1557,8 @@ function setPhotoMode(on) {
 }
 window.addEventListener('keydown', (e) => {
   if (isInputBlocked() || isTypingTarget(document.activeElement)) return;
+  // F9 — ship the drive report. The one keypress that ends "drive and paste the console output".
+  if (e.code === 'F9') { e.preventDefault(); shipReport({ trigger: 'F9' }); return; }
   if (e.code === 'KeyP') { e.preventDefault(); setPhotoMode(!_photoOn); return; }
   if (e.code === 'KeyL') { e.preventDefault(); carDriver?.toggleHeadlights?.(); return; } // headlights: auto→on→off
   // While in Photo Mode, +/- grow/shrink the loaded area (push it up until your machine strains).
@@ -1545,4 +1569,5 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+window._ddReport = shipReport;   // console equivalent of F9
 window._debugWorld = world;

@@ -36,3 +36,7 @@ npm-debug.log*
 .env.*
 !.env.example
 art-src/
+
+# ── Drive reports (browser → POST /api/debug/report, dev only) ────────────
+# Measurement output, not source. Read them, act on them, let them rot.
+backend/debug-reports/
