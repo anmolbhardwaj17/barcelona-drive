@@ -33,8 +33,14 @@ const _registry = new Set();
  * @param {(shader: object, renderer: object) => void} patch
  * @param {string} tag  short, stable, unique per patch KIND (e.g. 'roadAO'). Feeds the program
  *                      cache key — two materials differing only in patches MUST differ in tag set.
+ * @param {{requires?: 'instancing'|'batching'}} [opts]
+ *   `requires` declares that the injected GLSL only compiles on that mesh kind — e.g. a patch that
+ *   reads `instanceMatrix` is INVALID on a plain Mesh and will fail to compile with
+ *   "'instanceMatrix' : undeclared identifier". The boot warm-up reads this so it cannot build an
+ *   invalid material/mesh combination. (Learned the hard way: the warm list built a plain Mesh for
+ *   the instanced cloud material and spammed VALIDATE_STATUS failures every frame.)
  */
-export function patchMaterial(mat, patch, tag) {
+export function patchMaterial(mat, patch, tag, opts = {}) {
   if (!mat || typeof patch !== 'function') return mat;
   const ud = (mat.userData ||= {});
   const tags = (ud._patchTags ||= []);
@@ -42,6 +48,8 @@ export function patchMaterial(mat, patch, tag) {
     if (tags.includes(tag)) return mat;   // idempotent: re-patching with the same tag is a no-op
     tags.push(tag);
   }
+
+  if (opts.requires) ud._requires = opts.requires;
 
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, renderer) => {
@@ -67,6 +75,17 @@ export function registerMaterial(mat, kind) {
 
 /** Every material the registry knows about. Used by the boot shader warm-up (P1-04). */
 export function getRegisteredMaterials() { return [..._registry]; }
+
+/**
+ * Which mesh kinds it is VALID to compile this material on — the warm-up asks before building one.
+ * Returns a subset of ['mesh','instanced','batched'].
+ */
+export function meshKindsFor(mat) {
+  const req = mat?.userData?._requires;
+  if (req === 'instancing') return ['instanced'];
+  if (req === 'batching') return ['batched'];
+  return ['mesh', 'instanced', 'batched'];
+}
 
 /** What patches a material carries — for debugging "why does this look wrong". */
 export function describeMaterial(mat) {

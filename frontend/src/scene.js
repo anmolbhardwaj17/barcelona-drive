@@ -448,7 +448,7 @@ function addClouds(scene, spawnX, spawnZ) {
         // moon, fog, curtains all ruled out first). Fully gone within 350m, untouched past 850m.
         'diffuseColor.a *= smoothstep(350.0, 850.0, vCloudDist);',
       ].join('\n'));
-  }, 'sceneMat');
+  }, 'sceneMat', { requires: 'instancing' });   // reads instanceMatrix — invalid on a plain Mesh
   _cloudMaterials = [mat];   // setCloudNightMode tints through this list
 
   // Fuller sky — several populated rings from near-mid out to high wisps. Each ring wraps 360° with

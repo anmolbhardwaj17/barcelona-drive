@@ -80,7 +80,7 @@ import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
-import { getRegisteredMaterials } from './map/materialRegistry.js';   // v3 P1-03
+import { getRegisteredMaterials, meshKindsFor } from './map/materialRegistry.js';   // v3 P1-03
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -747,18 +747,29 @@ spawnTileReady.finally(() => {
           // Cost is a few more hidden triangles at boot, all through compileAsync, which is off the
           // render path (KHR_parallel_shader_compile). That is the trade this warm-up exists to make.
           for (const m of _warmMats) {
-            const wm = new THREE.Mesh(_wg, m); wm.frustumCulled = false; _warmGrp.add(wm);
-            try {
-              const im = new THREE.InstancedMesh(_wg, m, 1);
-              im.setMatrixAt(0, new THREE.Matrix4());
-              im.frustumCulled = false; _warmGrp.add(im);
-            } catch {}
-            try {
-              const bm = new THREE.BatchedMesh(1, 3, 3, m);
-              const gid = bm.addGeometry(_wg);
-              bm.addInstance(gid);
-              bm.frustumCulled = false; _warmGrp.add(bm);
-            } catch {}
+            // v3: ask the registry which mesh kinds this material is VALID on. A patch that reads
+            // instanceMatrix (the cloud material) does not compile on a plain Mesh — warming it
+            // that way produced "'instanceMatrix' : undeclared identifier" and a VALIDATE_STATUS
+            // failure on every frame. Warming the wrong combination is worse than not warming.
+            const kinds = meshKindsFor(m);
+            if (kinds.includes('mesh')) {
+              const wm = new THREE.Mesh(_wg, m); wm.frustumCulled = false; _warmGrp.add(wm);
+            }
+            if (kinds.includes('instanced')) {
+              try {
+                const im = new THREE.InstancedMesh(_wg, m, 1);
+                im.setMatrixAt(0, new THREE.Matrix4());
+                im.frustumCulled = false; _warmGrp.add(im);
+              } catch {}
+            }
+            if (kinds.includes('batched')) {
+              try {
+                const bm = new THREE.BatchedMesh(1, 3, 3, m);
+                const gid = bm.addGeometry(_wg);
+                bm.addInstance(gid);
+                bm.frustumCulled = false; _warmGrp.add(bm);
+              } catch {}
+            }
           }
           _warmGrp.position.set(0, -5000, 0);
           scene.add(_warmGrp);
