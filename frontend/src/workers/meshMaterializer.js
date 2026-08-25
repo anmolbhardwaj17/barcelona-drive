@@ -851,6 +851,10 @@ function materializeGroup(group, material, shadowsOn) {
   // still computes group.wash; leaving the upload in would cost VRAM and bandwidth per building for
   // an attribute no shader reads. (Removing its PRODUCTION is a worker change, tracked separately.)
   if (group.ao) geo.setAttribute('aAO', new THREE.Float32BufferAttribute(group.ao, 1));
+  // v3 P3-04: array-texture layer index, one per vertex. Uploaded as float — GLSL ES 3.0 takes a
+  // float third coordinate for texture(sampler2DArray, vec3), and an integer attribute would need
+  // flat-qualified varyings that three's chunk system does not expose.
+  if (group.layers) geo.setAttribute('aLayer', new THREE.Float32BufferAttribute(group.layers, 1));
   if (group.indices) geo.setIndex(new THREE.Uint32BufferAttribute(group.indices, 1));
 
   const mesh = new THREE.Mesh(geo, material);

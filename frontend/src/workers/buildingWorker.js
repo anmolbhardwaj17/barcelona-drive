@@ -27,7 +27,8 @@ import {
 } from './workerGeometry.js';
 
 import earcut from './earcut.js';
-import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA, STOREY_H, CROWN_H, groundFloorH } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA, STOREY_H, CROWN_H, groundFloorH } from '../buildingConstants.js';
+import { facadeLayerFor, groundLayerFor } from '../map/facadeArray.js';   // v3 P3-04   // v3 P1-13: single source (was mirrored here)
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -576,6 +577,10 @@ function createPolygonWallBuffers(building, baseY, category) {
     storeyH: STOREY_H,
     crownH: CROWN_H,
     windowOnlyTile: false,
+    // v3 P3-04: per-vertex array-texture layer. Ground-band vertices index the GROUND array, body
+    // and crown index the BODY array — see map/facadeArray.js for why they are separate arrays.
+    groundLayer: groundLayerFor(category, building.id),
+    bodyLayer: facadeLayerFor(category, building.id),
   };
 
   // Handle inner rings (holes) — walls also needed for inner edges
@@ -2088,6 +2093,7 @@ export function processBuildingsInWorker(data, config) {
         colors: merged.colors || null,
         wash: merged.wash || null,   // facade ground-glow factor (night shader)
         ao: merged.ao || null,       // baked sky-AO darkening (0 = open sky; v9 tiles)
+        layers: merged.layers || null,   // v3 P3-04: per-vertex facade array-texture layer index
       });
     }
   }

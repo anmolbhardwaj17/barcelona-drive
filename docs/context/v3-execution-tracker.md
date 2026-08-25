@@ -812,10 +812,21 @@ small value once this lands.**
   ~4:1 under KTX2/BC7. **Must be counted against the 200 MiB budget and not double-counted with
   P3-05's art budget.** If the overrun matters more than the seams, the lever is 4 ground layers
   instead of 8. (An earlier draft of the module comment claimed the split was CHEAPER — it is not.)
+- **`aLayer` PLUMBING LANDED (2026-08-25)** — bands emit a per-vertex layer (ground band → ground
+  array, body/crown → body array), `mergeBufferSets` carries it, group assembly forwards it,
+  `materializeGroup` uploads it as `aLayer`. Verified end to end: three buildings, three different
+  residential variants, deterministic from their OSM ids. **7 more tests (98 total).**
+- ⚠ **Caught during wiring, and it is the D-29 pattern again:** bands emitted `layers` and the merge
+  carried them, but **group assembly lists attributes by hand in an object literal and simply did not
+  mention them** — so the attribute reached the GPU as nothing while both halves' unit tests passed.
+  Now covered by an end-to-end test. **Any new per-vertex attribute must be added in FOUR places**
+  (emit → merge detect/allocate/copy → group literal → `materializeGroup`); miss the third and it
+  fails silently.
 - **Remaining:** the `DataArrayTexture`/`CompressedArrayTexture` construction, the `onBeforeCompile`
-  chunk swap (`sampler2D` → `sampler2DArray`), the per-vertex `aLayer` attribute in
-  `buildingWorker.js`, deleting `getWindowTexture`, and flipping `windowOnlyTile` — which is what
-  finally takes **mid-air shopfronts to 0**, the P3 gate metric P3-02 handed forward.
+  chunk swap (`sampler2D` → `sampler2DArray`), deleting `getWindowTexture`, and flipping
+  `windowOnlyTile` — which is what finally takes **mid-air shopfronts to 0**, the P3 gate metric
+  P3-02 handed forward. **Blocked in practice on P3-05's art** (or a decision to generate placeholder
+  layers from the existing canvas painter so the shader path can ship before the art does).
 - **Done when:** _(mid-air shopfronts = 0, measured; texel density in the 85–150 band; VRAM banked once)_
 
 ### `[ ]` P3-05 · 6.0d · risk medium

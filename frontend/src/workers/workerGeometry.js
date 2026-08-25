@@ -156,7 +156,7 @@ export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
   const bodyRepeats = bodyH > 0 ? Math.max(1, bodyH / storeyH) : 0;
 
   const bands = [];
-  if (groundH > 1e-4) bands.push({ y0: baseY, y1: baseY + groundH, v0: 0, v1: gFrac });
+  if (groundH > 1e-4) bands.push({ kind: 'ground', y0: baseY, y1: baseY + groundH, v0: 0, v1: gFrac });
   // ⚠ THE MID-AIR SHOPFRONT IS NOT FIXED BY GEOMETRY ALONE — measured here, 2026-08-25.
   // Against TODAY'S tile the shopfront occupies v 0..gFrac, so a body band spanning more than one
   // repeat crosses v=1.0, which wraps to the same rows and paints the shopfront again. Verified:
@@ -170,9 +170,9 @@ export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
   if (bodyH > 1e-4) {
     const bodyV0 = opts.windowOnlyTile ? 0 : gFrac;
     const bodyV1 = opts.windowOnlyTile ? bodyRepeats : gFrac + bodyRepeats * bodyVPerTile;
-    bands.push({ y0: baseY + groundH, y1: baseY + groundH + bodyH, v0: bodyV0, v1: bodyV1 });
+    bands.push({ kind: 'body', y0: baseY + groundH, y1: baseY + groundH + bodyH, v0: bodyV0, v1: bodyV1 });
   }
-  if (crownH > 1e-4)  bands.push({ y0: baseY + height - crownH, y1: baseY + height, v0: gFrac, v1: 1 });
+  if (crownH > 1e-4)  bands.push({ kind: 'crown', y0: baseY + height - crownH, y1: baseY + height, v0: gFrac, v1: 1 });
   if (!bands.length) return null;
 
   const quadCount = edgeCount * bands.length;
@@ -180,6 +180,13 @@ export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
   const normals   = new Float32Array(quadCount * 4 * 3);
   const uvs       = new Float32Array(quadCount * 4 * 2);
   const indices   = new Uint32Array(quadCount * 2 * 3);
+  // v3 P3-04: per-VERTEX array-texture layer. This is why `aLayer` is per-vertex and not per-building
+  // — the ground band indexes the GROUND array while body and crown index the BODY array, which is
+  // what lets each layer wrap independently and removes the fract() seam the plan warns about.
+  const wantLayers = opts.groundLayer != null || opts.bodyLayer != null;
+  const layers = wantLayers ? new Float32Array(quadCount * 4) : null;
+  const groundLayer = opts.groundLayer ?? 0;
+  const bodyLayer = opts.bodyLayer ?? 0;
 
   let q = 0;
   for (let i = 0; i < edgeCount; i++) {
@@ -205,13 +212,17 @@ export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
       uvs[bu + 2] = uRepeat; uvs[bu + 3] = bnd.v0;
       uvs[bu + 4] = uRepeat; uvs[bu + 5] = bnd.v1;
       uvs[bu + 6] = 0;       uvs[bu + 7] = bnd.v1;
+      if (layers) {
+        const L = bnd.kind === 'ground' ? groundLayer : bodyLayer;
+        layers[base] = L; layers[base + 1] = L; layers[base + 2] = L; layers[base + 3] = L;
+      }
       const bi = q * 6;
       indices[bi] = base; indices[bi + 1] = base + 1; indices[bi + 2] = base + 2;
       indices[bi + 3] = base; indices[bi + 4] = base + 2; indices[bi + 5] = base + 3;
       q++;
     }
   }
-  return { positions, normals, uvs, indices };
+  return layers ? { positions, normals, uvs, indices, layers } : { positions, normals, uvs, indices };
 }
 
 export function extrudePolygonWalls(footprintPoints, height, baseY, uvConfig) {
@@ -859,6 +870,7 @@ export function mergeBufferSets(geometryArray) {
   let hasColors = false;
   let hasWash = false;
   let hasAo = false;
+  let hasLayers = false;   // v3 P3-04
 
   // First pass: count totals and detect optional attributes
   for (let i = 0; i < geometryArray.length; i++) {
@@ -875,6 +887,7 @@ export function mergeBufferSets(geometryArray) {
     if (g.colors) hasColors = true;
     if (g.wash) hasWash = true;
     if (g.ao) hasAo = true;
+    if (g.layers) hasLayers = true;
   }
 
   if (totalVerts === 0) return null;
@@ -885,6 +898,7 @@ export function mergeBufferSets(geometryArray) {
   const colors = hasColors ? new Float32Array(totalVerts * 3) : null;
   const wash = hasWash ? new Float32Array(totalVerts) : null;   // 1 float/vertex — facade ground-glow factor
   const ao = hasAo ? new Float32Array(totalVerts) : null;       // 1 float/vertex — baked sky-AO darkening (0 = open)
+  const layers = hasLayers ? new Float32Array(totalVerts) : null;  // v3 P3-04: 1 float/vertex — array-texture layer index
   const indices = new Uint32Array(totalIndices);
 
   let vertOffset = 0;
@@ -915,6 +929,7 @@ export function mergeBufferSets(geometryArray) {
       wash.set(g.wash, vertOffset);
     }
 
+    if (hasLayers && g.layers) layers.set(g.layers, vertOffset);
     if (hasAo && g.ao) {
       ao.set(g.ao, vertOffset);
     }
@@ -940,6 +955,7 @@ export function mergeBufferSets(geometryArray) {
   if (colors) result.colors = colors;
   if (wash) result.wash = wash;
   if (ao) result.ao = ao;
+  if (layers) result.layers = layers;   // v3 P3-04
   return result;
 }
 

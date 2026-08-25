@@ -80,3 +80,47 @@ test('u repeat is height-independent — the same wall length gives the same u a
   assert.equal(bandUV('ground', 24, 3.8).uRepeat, bandUV('body', 24, 40).uRepeat,
     'ground and body must share u so their vertical seam lines up horizontally');
 });
+
+// ── v3 P3-04: the per-vertex aLayer path ─────────────────────────────────────────────────────────
+import { extrudePolygonWallBands, mergeBufferSets } from '../src/workers/workerGeometry.js';
+
+const SQ = [{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }, { x: 10, y: 0 }];   // CW
+const OPTS = { hRepeatM: 8, groundH: 3.8, gFrac: 0.38, storeyH: 3.5, crownH: 1.2 };
+
+test('aLayer is PER-BAND — ground indexes one array, body and crown the other', () => {
+  // This is the whole reason aLayer is per-vertex rather than per-building: each array layer then
+  // wraps independently, which is what removes the fract() seam the task warns about.
+  const g = extrudePolygonWallBands(SQ, 21, 0, { ...OPTS, groundLayer: 3, bodyLayer: 6 });
+  const quads = g.layers.length / 4;
+  assert.ok(quads > 0);
+  for (let q = 0; q < quads; q++) {
+    const y0 = g.positions[q * 12 + 1];
+    const L = [0, 1, 2, 3].map((k) => g.layers[q * 4 + k]);
+    assert.ok(L.every((v) => v === L[0]), `quad ${q} has mixed layers ${L} — it straddles two arrays`);
+    // The band starting at baseY is the ground band; every other band is body or crown.
+    assert.equal(L[0], y0 === 0 ? 3 : 6, `quad ${q} (y0=${y0}) got layer ${L[0]}`);
+  }
+});
+
+test('no layers are emitted when none are asked for — nothing pays for the attribute', () => {
+  const g = extrudePolygonWallBands(SQ, 21, 0, OPTS);
+  assert.equal(g.layers, undefined, 'emitting an unused per-vertex float costs VRAM and bandwidth');
+});
+
+test('mergeBufferSets carries layers through — merging is where attributes get silently dropped', () => {
+  const g = extrudePolygonWallBands(SQ, 21, 0, { ...OPTS, groundLayer: 1, bodyLayer: 2 });
+  const m = mergeBufferSets([g, g]);
+  assert.ok(m.layers, 'layers vanished in the merge — the attribute would reach the GPU as zeros');
+  assert.equal(m.layers.length, m.positions.length / 3, 'one layer index per vertex');
+  assert.equal(m.layers.length, g.layers.length * 2);
+});
+
+test('merging a layered set with an UNLAYERED one does not corrupt indices', () => {
+  // Detail geometry has no layers. If the merge allocated but skipped the copy, those vertices would
+  // silently read layer 0 — a wrong facade rather than an obvious failure.
+  const a = extrudePolygonWallBands(SQ, 21, 0, { ...OPTS, groundLayer: 5, bodyLayer: 5 });
+  const b = extrudePolygonWallBands(SQ, 21, 0, OPTS);        // no layers
+  const m = mergeBufferSets([a, b]);
+  assert.equal(m.layers.length, m.positions.length / 3);
+  for (let i = 0; i < a.layers.length; i++) assert.equal(m.layers[i], 5, 'layered half was corrupted');
+});
