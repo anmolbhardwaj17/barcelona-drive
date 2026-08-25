@@ -81,6 +81,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor } from './map/materialRegistry.js';   // v3 P1-03
+import { initLightGrid, setLights, updateLightGrid, patchLightGrid, stubSpikeLights, CELL_M } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -196,6 +197,11 @@ composer.addPass(new OutputPass());
 // Pin everything that would otherwise silently change what we are measuring. adaptiveResolution
 // trades resolution for frame time, so an unpinned run measures the CONTROLLER, not the frame.
 const _BENCH = isBenchMode();
+// ── v3 P2 LIGHT-GRID SPIKE (?lightgrid) ────────────────────────────────────────────────────────
+// Measures the cost of clustered street lighting BEFORE committing the 8 days behind it.
+// Kill criterion K-N: >3.0 ms for 32 lights means this approach is wrong and P2 stops here.
+const _LIGHTGRID = (() => { try { return new URLSearchParams(location.search).has('lightgrid'); } catch { return false; } })();
+let _lgArmed = false, _lgCellX = NaN, _lgCellZ = NaN;
 let _benchRoute = null;
 let _programsAtLoaderHide = null;
 let _timeToDriveMs = null;
@@ -1147,6 +1153,26 @@ function animate(time = 0) {
     _timeToDriveMs = Math.round(performance.now());
     _programsAtLoaderHide = renderer.info.programs?.length ?? null;
     console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
+  }
+
+  // v3 P2 spike: arm on first frame with a car, then rebuild the grid ONLY when the camera crosses
+  // an 8 m cell — the rebuild is O(lights x cells) and has no business running every frame.
+  if (_LIGHTGRID && carDriver) {
+    if (!_lgArmed) {
+      _lgArmed = true;
+      initLightGrid();
+      // Spike lights are placed in the RENDERER's frame (camera.position), the same frame
+      // vLGWorldPos is computed in. Do not use physics coords here — X is mirrored.
+      setLights(stubSpikeLights(camera.position.x, camera.position.z));
+      let patched = 0;
+      for (const m of getRegisteredMaterials()) { try { patchLightGrid(m); patched++; } catch {} }
+      console.warn('[lightgrid] SPIKE armed — 32 lights, %d materials patched. Compare GPU ms against a ?bench run WITHOUT ?lightgrid.', patched);
+    }
+    const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
+    if (cxN !== _lgCellX || czN !== _lgCellZ) {
+      _lgCellX = cxN; _lgCellZ = czN;
+      updateLightGrid(camera.position.x, camera.position.z);
+    }
   }
 
   if (!_BENCH) adaptiveRes.tick(frameDt);   // v3 P0-04: pinned during a benchmark run
