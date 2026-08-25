@@ -77,18 +77,25 @@ export function isArmed() { return _armedAt != null; }
 export function noteVariant(index, cacheKey) {
   if (_variants.length >= MAX_VARIANTS) return;
   const now = performance.now();
-  const tokens = tokenise(cacheKey);
+  const raw = String(cacheKey || '');
+  const tokens = tokenise(raw);
   const novel = tokens.filter((t) => !_warmTokens.has(t));
   _variants.push({
     n: index,
     atS: _armedAt == null ? null : +((now - _armedAt) / 1000).toFixed(2),
+    // ⚠ Stored, not re-derived at report time. The grouping used to read `v.tokens`, which was
+    // never on the record — so the report threw the instant it was asked for, which is the one
+    // moment it must not. Same lesson as D-35: an instrument has to be tested for the path that
+    // produces its output, not just the path that collects data.
+    type: tokens[0] || '?',
+    tag: raw.includes('|') ? raw.slice(raw.lastIndexOf('|') + 1) : '',
     novel,
     // Only kept when there is no novel token to explain it — otherwise the diff IS the answer and
     // the full key is 300 bytes of noise. When novel is empty the key is the only lead, so keep it.
     // Kept only when the diff found nothing to say — then the key is the sole remaining lead. When
     // novel tokens exist they ARE the answer and the key is 300 bytes of noise.
-    key: novel.length ? undefined : String(cacheKey || ''),
-    keyLen: String(cacheKey || '').length,
+    key: novel.length ? undefined : raw,
+    keyLen: raw.length,
     // Did this compile land in a frame we already flagged as long? 120 ms back-window: the compile
     // is reported on the frame AFTER the one that paid for it, so an exact match would miss it.
     inLongFrame: now - _lastLongAt < 120,
@@ -124,9 +131,7 @@ function groupVariants() {
     // programs the vocabulary is thin, every late key looks familiar, and everything lands in one
     // useless bucket. So fall back to the two fields that are always meaningful — the material TYPE
     // (first token) and our patch tag (after the last `|`) — and carry a sample key besides.
-    const type = v.tokens[0] || '?';
-    const tag = (v.key || '').includes('|') ? (v.key || '').split('|').pop() : (v.tokens.find((t) => t.includes('|')) || '').split('|').pop();
-    const sig = v.novel.length ? v.novel.join(',') : `${type}${tag ? ' | ' + tag : ''} (no novel token)`;
+    const sig = v.novel.length ? v.novel.join(',') : `${v.type}${v.tag ? ' | ' + v.tag : ''} (no novel token)`;
     let g = groups.get(sig);
     if (!g) groups.set(sig, (g = { cause: sig, count: 0, firstAtS: v.atS, lastAtS: v.atS, inLongFrames: 0, sampleKey: v.key }));
     if (!g.sampleKey && v.key) g.sampleKey = v.key;
@@ -152,8 +157,8 @@ export function buildReport(extra = {}) {
     meta: {
       savedAt: new Date().toISOString(),
       driveSeconds: _armedAt == null ? null : +((performance.now() - _armedAt) / 1000).toFixed(1),
-      url: location.href,
-      userAgent: navigator.userAgent,
+      url: typeof location !== 'undefined' ? location.href : null,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
       ..._meta,
       ...extra,
     },
