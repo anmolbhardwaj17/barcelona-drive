@@ -91,7 +91,14 @@ export const GROUND_LIFT = {
  * baked surface is base+0.07 plus a per-vertex bump of up to 0.009, while roadDeckY() is
  * base+0.05. Paint must clear THIS, not roadDeckY(), which is the trap the whole task is about.
  */
-export const BAKED_SURFACE_ABOVE_ROAD_Y = 0.079;
+// ⚠ DECK-RELATIVE, and it was BASE-relative until 2026-08-25. The value was 0.079 — which is the
+// surface's height above the road BASE (0.07 + a bump up to 0.009) — while the name and the comment
+// above both promised "above roadDeckY()". The deck is itself base+0.05, so the constant overstated
+// the asphalt by exactly ROAD_VISUAL_ABOVE_TERRAIN. Nothing shipped was misplaced (it had no
+// production call sites), but the one test using it cancelled the error back out inline, which is
+// what kept the mismatch invisible. That is the same two-references-for-one-height failure this
+// whole module exists to end — in the constant meant to prevent it.
+export const BAKED_SURFACE_ABOVE_ROAD_Y = 0.029;
 
 /** Minimum clearance of paint above the drawn asphalt. Below ~1.5 cm it disappears under bumps. */
 export const MIN_PAINT_CLEARANCE = 0.015;

@@ -24,7 +24,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 }
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
-import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, CURB_HEIGHT } from './groundLayers.js';
+import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CURB_HEIGHT } from './groundLayers.js';
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -1286,7 +1286,11 @@ async function buildCrosswalks(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_CROSSWALKS) return null;
 
   const CROSSWALK_SETBACK = 1.5; // metres past the clipping zone edge before first stripe
-  const CROSSWALK_Y_ABOVE = 0.025; // +0.05+0.02(ribbon) = base+0.095 → 1.6-2.4cm above the baked surface (see paint-stack note at MARKING_Y_ABOVE_ROAD)
+  // v3 P2-08: derived from groundLayers, not hand-written. buildFlatRibbonGeometry adds
+  // ROAD_ZFIGHT_OFFSET internally, so subtract it here — the ribbon must END UP at
+  // groundLift('crossing') above the deck, and the only way to keep that true when either number
+  // changes is to compute it. Same total as the audited 0.025, so nothing shipped moves.
+  const CROSSWALK_Y_ABOVE = groundLift('crossing') - ROAD_ZFIGHT_OFFSET;
 
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
   if (junctionPoints.length === 0) return null;
@@ -1374,7 +1378,7 @@ async function buildCrosswalks(roads, options, yieldFn) {
         const hh = interpolateHeightsFromSource(pts, heights, [leftPt, rightPt]);
         const stripeH = hh
           ? hh.map((v) => v + CROSSWALK_Y_ABOVE)
-          : (ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN + CROSSWALK_Y_ABOVE);
+          : (roadDeckY(ROAD_OFFSET) + CROSSWALK_Y_ABOVE);   // v3 P2-08: deck, via the one helper
 
         const g = buildFlatRibbonGeometry([leftPt, rightPt], BCN_DIMS.CROSSWALK_STRIPE_WIDTH, stripeH);
         if (g) geoms.push(g);
@@ -1972,7 +1976,8 @@ function buildBikePictograms(roads, options) {
   const VALID_CYCLEWAY = new Set(['lane', 'opposite_lane', 'track', 'opposite_track']);
   const SPACING = BCN_DIMS.BIKE_PICTOGRAM_SPACING; // 30m
   const BIKE_W  = BCN_DIMS.BIKE_LANE_WIDTH_ONEWAY;
-  const PICTO_Y = 0.045; // custom quads (no ribbon +0.02): base+0.095, just above the baked surface
+  // v3 P2-08: custom quads, so no ROAD_ZFIGHT_OFFSET to subtract — the full stencil lift applies.
+  const PICTO_Y = groundLift('stencil');
 
   // Collect all instance matrices
   const matrices = [];
@@ -2021,8 +2026,8 @@ function buildBikePictograms(roads, options) {
           const perpX = -dzn, perpZ = dxn;
           const wx = px + perpX * laneOffset;
           const wz = pz + perpZ * laneOffset;
-          const hA = heights ? heights[i-1] : (ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN);
-          const hB = heights ? heights[i]   : (ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN);
+          const hA = heights ? heights[i-1] : roadDeckY(ROAD_OFFSET);   // v3 P2-08
+          const hB = heights ? heights[i]   : roadDeckY(ROAD_OFFSET);
           const wy = (hA + t * (hB - hA)) + PICTO_Y;
 
           _pos.set(wx, wy, wz);
@@ -2093,7 +2098,8 @@ function getZona30Geometry() {
 
 const ZONA30_ELIGIBLE = new Set(['residential', 'unclassified', 'tertiary', 'living_street']);
 const ZONA30_SPACING  = 100; // metres between stencils
-const ZONA30_Y_ABOVE  = 0.045; // custom quads (no ribbon +0.02): base+0.095, just above the baked surface
+// v3 P2-08: custom quads, so the full stencil lift applies with no ribbon bump to subtract.
+const ZONA30_Y_ABOVE  = groundLift('stencil');
 
 /**
  * "30" speed limit stencils painted on road surface for ZONA 30 roads.
@@ -2131,7 +2137,7 @@ function buildZona30Stencils(roads, options) {
         const t = (nextPlace - cumDist) / segLen;
         const px = a.x + dirX * t * segLen;
         const pz = a.y + dirZ * t * segLen;
-        let py = ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN + ZONA30_Y_ABOVE;
+        let py = roadDeckY(ROAD_OFFSET) + ZONA30_Y_ABOVE;   // v3 P2-08
         if (heights) {
           const hA = heights[i] ?? py, hB = heights[i + 1] ?? py;
           py = hA + t * (hB - hA) + ZONA30_Y_ABOVE;
