@@ -642,7 +642,7 @@ spawnTileReady.finally(() => {
         _CTrimesh.prototype.updateNormals = function () {};
         _CBox.prototype.updateConvexPolyhedronRepresentation = function () { this.convexPolyhedronRepresentation = null; };
         window._ddRapierActive = true;   // tileManager builds lean Box colliders when set
-        console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
+        if (CONFIG.DEBUG_INIT) console.warn(`[physics] Rapier enabled — streaming mirror over ${world.bodies.length} registered bodies (cannon BVH stubbed).`);
         carDriver = await createCarDriver(scene, _physicsWorld, groundMesh, camera, spawnLocalPos, renderer.domElement, groundBody, spawnResult.heading, {
           rapier: _rapier, cpuTimer,
           // World boundary: never record a recovery breadcrumb outside the baked region — the
@@ -1036,7 +1036,7 @@ if (typeof window !== 'undefined') {
       if (o.coneFloor != null) lightGridUniforms.uLGConeFloor.value = o.coneFloor;
       if (o.conePower != null) lightGridUniforms.uLGConePower.value = o.conePower;
       rebuildLightGrid();
-      console.warn('[lightgrid] intensity %s · radius %s · wrap %s · %d lamps',
+      if (CONFIG.DEBUG_INIT) console.warn('[lightgrid] intensity %s · radius %s · wrap %s · %d lamps',
         _lgTune.intensity ?? REGION.night?.lampIntensity, _lgTune.radius ?? REGION.night?.lampRadiusM,
         lightGridUniforms.uLGWrap.value.toFixed(2), _lgLampCount);
     },
@@ -1099,7 +1099,7 @@ function armLightGrid() {
     radius: _lgTune.radius ?? REGION.night?.lampRadiusM, intensity: _lgTune.intensity ?? REGION.night?.lampIntensity,
     wrap: lightGridUniforms.uLGWrap.value, coneFloor: lightGridUniforms.uLGConeFloor.value,
     conePower: lightGridUniforms.uLGConePower.value });
-  console.warn('[lightgrid] armed — %d materials patched, %d lamps in range. Road under a lamp %s, at 15 m %s.',
+  if (CONFIG.DEBUG_INIT) console.warn('[lightgrid] armed — %d materials patched, %d lamps in range. Road under a lamp %s, at 15 m %s.',
     patched, _lgLampCount, vis.under.toFixed(3), vis.mid.toFixed(3));
 }
 

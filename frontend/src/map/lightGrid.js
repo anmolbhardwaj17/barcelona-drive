@@ -30,6 +30,7 @@
 import * as THREE from 'three';
 import { patchMaterial } from './materialRegistry.js';
 import { REGION } from '../regions/index.js';
+import { CONFIG } from '../config.js';   // DEBUG_INIT gating
 
 export const GRID_DIM = 64;        // texels per axis
 export const CELL_M = 8;           // world metres per cell → 512 m window
@@ -331,7 +332,7 @@ export function patchLightGrid(mat) {
       const kind = mat.userData?._kind || mat.type;
       if (!_warnedKinds.has(kind)) {
         _warnedKinds.add(kind);
-        console.warn('[lightgrid] "%s" has no <lights_fragment_end> — it will NOT be lit by street ' +
+        if (CONFIG.DEBUG_INIT) console.warn('[lightgrid] "%s" has no <lights_fragment_end> — it will NOT be lit by street ' +
           'lamps. Unlit material type, or one with a hand-built fragment shader.', kind);
       }
       shader.fragmentShader = before;   // do not leave the unused pars/varying behind

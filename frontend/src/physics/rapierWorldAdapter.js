@@ -20,6 +20,7 @@
  */
 
 import * as CANNON from 'cannon-es';
+import { CONFIG } from '../config.js';   // DEBUG_INIT gating
 
 const SIN45 = Math.SQRT1_2, COS45 = Math.SQRT1_2; // Rx(+90°) quaternion components
 
@@ -67,7 +68,7 @@ function probeHeightfieldConvention(world, RAPIER) {
       console.warn(`[rapier] heightfield probe inconclusive (hx=${hx}, hz=${hz}) — falling back to trimesh terrain`);
       return null;
     }
-    console.warn(`[rapier] heightfield convention probed: colsRunPlusX=${colsRunPlusX}, rowsRunPlusZ=${rowsRunPlusZ}`);
+    if (CONFIG.DEBUG_INIT) console.warn(`[rapier] heightfield convention probed: colsRunPlusX=${colsRunPlusX}, rowsRunPlusZ=${rowsRunPlusZ}`);
     return { colsRunPlusX, rowsRunPlusZ };
   } catch (e) {
     console.warn('[rapier] heightfield probe failed — falling back to trimesh terrain:', e);

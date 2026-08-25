@@ -1,4 +1,5 @@
 import { QUALITY } from '../quality.js';   // v3 P1-08
+import { CONFIG } from '../config.js';   // DEBUG_INIT gating
 /**
  * adaptiveResolution — trades render resolution for a stable framerate.
  *
@@ -92,7 +93,8 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
     _applyTotal += ms;
     _applyCount += 1;
     if (ms >= 8) {
-      console.warn('[adaptRes] resize to %s cost %sms — reallocated the composer chain (worst %sms, %d resizes = %dms total)',
+      // Routine bookkeeping — the VERDICT lines below stay ungated, because those are findings.
+      if (CONFIG.DEBUG_INIT) console.warn('[adaptRes] resize to %s cost %sms — reallocated the composer chain (worst %sms, %d resizes = %dms total)',
         scale.toFixed(2), ms.toFixed(1), _applyWorst.toFixed(1), _applyCount, Math.round(_applyTotal));
     }
   }

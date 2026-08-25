@@ -43,6 +43,22 @@ export const CONFIG = {
     try { return new URLSearchParams(location.search).get('debug') === 'winding'; } catch { return false; }
   })(),
 
+  /**
+   * `?debug=init` — boot chatter: what the asset registry, light grid, physics and adaptive
+   * resolution did on the way up.
+   *
+   * ⚠ This flag was DOCUMENTED and REFERENCED but never defined. `CONFIG.DEBUG_INIT` read as
+   * undefined in loaders.js and tileManager.js, so `?debug=init` silently did nothing and the
+   * lines it was meant to gate printed on every boot instead. Two failures in one: the opt-in
+   * output was unreachable and the opt-out output was mandatory.
+   *
+   * NOT gated, deliberately: `[quality] tier` and `[perf] time-to-drive` are gate metrics that
+   * must show up unasked, and anything reporting a FAILURE is never chatter.
+   */
+  DEBUG_INIT: (() => {
+    try { return new URLSearchParams(location.search).get('debug') === 'init'; } catch { return false; }
+  })(),
+
   FACADE_ARRAY: (() => {
     try { return new URLSearchParams(location.search).get('facadearray') === '1'; } catch { return false; }
   })(),
