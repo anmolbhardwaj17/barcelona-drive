@@ -878,6 +878,8 @@ if (typeof window !== 'undefined') {
       if (o.intensity != null) _lgTune.intensity = o.intensity;
       if (o.radius != null) _lgTune.radius = o.radius;
       if (o.wrap != null) lightGridUniforms.uLGWrap.value = o.wrap;
+      if (o.coneFloor != null) lightGridUniforms.uLGConeFloor.value = o.coneFloor;
+      if (o.conePower != null) lightGridUniforms.uLGConePower.value = o.conePower;
       rebuildLightGrid();
       console.warn('[lightgrid] intensity %s · radius %s · wrap %s · %d lamps',
         _lgTune.intensity ?? REGION.night?.lampIntensity, _lgTune.radius ?? REGION.night?.lampRadiusM,

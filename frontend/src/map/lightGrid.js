@@ -50,6 +50,9 @@ export const lightGridUniforms = {
   uLGEnabled: { value: 0 },
   // Half-lambert bias, per city. See regions/<city>.js night.lampWrap.
   uLGWrap:    { value: REGION.night?.lampWrap ?? 0.5 },
+  // Downward-cone shape, per city — see regions/<city>.js night.lampConeFloor / lampConePower.
+  uLGConeFloor: { value: REGION.night?.lampConeFloor ?? 0.12 },
+  uLGConePower: { value: REGION.night?.lampConePower ?? 0.75 },
 };
 
 /** Per-cell distance² of each occupied slot, so a nearer light can evict a farther one. */
@@ -203,6 +206,8 @@ uniform sampler2D uLGData;
 uniform vec2 uLGOrigin;
 uniform float uLGEnabled;
 uniform float uLGWrap;
+uniform float uLGConeFloor;
+uniform float uLGConePower;
 varying vec3 vLGWorldPos;
 
 vec3 lightGridContribution(vec3 wpos, vec3 normal) {
@@ -220,6 +225,18 @@ vec3 lightGridContribution(vec3 wpos, vec3 normal) {
     vec3 d = P.xyz - wpos;
     float dist = length(d);
     if (dist > P.w) continue;
+
+    // DOWNWARD CONE. A street lamp is a downward-biased luminaire behind a shade, not a bare bulb
+    // radiating in a sphere. Without this, a lamp head at 8 m with a 48 m radius lights a
+    // six-storey facade uniformly to the roofline — every building washed warm to the top, which
+    // is what "building lighting from road reflection" was. The ground and the lower facade should
+    // take nearly all of it.
+    //
+    // -normalize(d).y is +1 for a surface directly below the lamp, 0 level with it, negative above.
+    // The floor keeps a little sideways spill: a real lamp does throw some light onto the facade
+    // beside it, and clamping hard to zero reads as a stencilled edge partway up the wall.
+    float down = clamp(-normalize(d).y, 0.0, 1.0);
+    float cone = mix(uLGConeFloor, 1.0, pow(down, uLGConePower));
     // Inverse-square with a smooth cutoff at the radius, so a lamp entering the grid fades in
     // instead of popping. NdotL is half-lambert-biased: a real street is full of surfaces facing
     // away from the lamp that are still visibly lit by bounce, and there is no GI here to supply it.
@@ -234,7 +251,7 @@ vec3 lightGridContribution(vec3 wpos, vec3 normal) {
     // mix(dot, 1, wrap): wrap=0 is true lambert, wrap=0.5 reproduces the classic dot*0.5+0.5
     // half-lambert the spike was measured with, wrap=1 is fully omnidirectional.
     float ndl = clamp(mix(dot(normalize(normal), normalize(d)), 1.0, uLGWrap), 0.0, 1.0);
-    acc += C.rgb * C.w * atten * ndl;
+    acc += C.rgb * C.w * atten * ndl * cone;
   }
   return acc;
 }`;

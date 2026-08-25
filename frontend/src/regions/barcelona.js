@@ -89,11 +89,20 @@ export default {
      * Lowered again with the smoothstep falloff: that holds near 1 through the near field where
      * quadratic had collapsed, so the same number now reads far brighter than it did.
      */
-    lampIntensity: 0.6,
+    lampIntensity: 0.2,   // chosen on a night drive; 0.6 read hot once the falloff went smoothstep
     /** Half-lambert bias. Real streets are full of surfaces facing away from a lamp that are still
      *  visibly lit by bounce, and there is no GI here to supply it. 0 = true lambert, 1 = fully
      *  wrapped. Warmer, hazier cities want more. */
     lampWrap: 0.5,
+    /**
+     * Downward-cone shape. A street lamp is a shaded, downward-biased luminaire, not a bare bulb:
+     * without this a lamp head 8 m up with a 48 m radius washes a six-storey facade warm to the
+     * roofline. `lampConeFloor` is the sideways/upward spill kept at the horizon — a real lamp does
+     * light the facade beside it, and clamping to zero reads as a stencilled edge partway up the
+     * wall. `lampConePower` shapes the falloff from straight-down to level.
+     */
+    lampConeFloor: 0.12,
+    lampConePower: 0.75,
   },
 
   /** Architecture. Cerdà grid, chamfered corners, and flat *terrats* rather than pitched roofs. */

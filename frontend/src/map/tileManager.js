@@ -54,6 +54,9 @@ const _DEBUG_PAINT = (() => {
   try { return new URLSearchParams(location.search).get('debug') === 'paint'; } catch { return false; }
 })();
 let _paintDbgT = 0;
+const _paintFrustum = new THREE.Frustum();
+const _paintSphere = new THREE.Sphere();
+const _paintMat = new THREE.Matrix4();
 const GRID_RADIUS = 1; // 3x3 tiles around viewer (9 tiles)
 const LOOKAHEAD_RADIUS = 2; // extend 1 extra tile in driving direction for seamless look-ahead
 const UNLOAD_DISTANCE = 2; // keep fewer tiles resident (was 3 → up to 49 tiles → 1GB heap, 38fps)
@@ -2974,12 +2977,35 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // three frustum-culled it anyway. On screen those three have identical symptoms.
       if (_DEBUG_PAINT && nearEdgeDist === 0 && performance.now() - _paintDbgT > 1000) {
         _paintDbgT = performance.now();
-        const st = (m, name) => !m ? `${name}:ABSENT` : `${name}:${m.visible ? 'vis' : 'HIDDEN'}${m.frustumCulled ? '/fc' : ''}`;
+        // ABSENT is ambiguous on its own — "the feature is switched off" and "this street had no
+        // such paint in OSM" look identical. Name the CONFIG flag when one is off, so the log
+        // answers it rather than prompting a code search.
+        const off = (flag) => flag === false ? 'ABSENT(config off)' : 'ABSENT(no data)';
+        const st = (m, name, flag) => {
+          if (!m) return `${name}:${off(flag)}`;
+          if (!m.visible) return `${name}:HIDDEN(lod)`;
+          // `frustumCulled: true` only says three MAY cull it; whether it did is what matters, and
+          // a culled mesh looks exactly like one the LOD hid. So run the same test three runs.
+          let culled = false;
+          if (m.frustumCulled && m.geometry) {
+            if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+            const sph = m.geometry.boundingSphere;
+            if (sph) {
+              _paintSphere.copy(sph).applyMatrix4(m.matrixWorld);
+              culled = !_paintFrustum.intersectsSphere(_paintSphere);
+            }
+          }
+          return `${name}:${culled ? 'CULLED(frustum)' : 'DRAWN'}`;
+        };
+        _paintFrustum.setFromProjectionMatrix(
+          _paintMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
         console.warn('[paint] tile %s alt=%s — %s · %s · %s · %s · %s',
           key, altMult.toFixed(2),
-          st(entry.markingsMesh, 'markings'), st(entry.onewayArrowMesh, 'arrows'),
-          st(entry.crosswalkMesh, 'zebra'), st(entry.zona30Mesh, 'zona30'),
-          st(entry.bcnBikePictoMesh, 'bikePicto'));
+          st(entry.markingsMesh, 'markings', undefined),
+          st(entry.onewayArrowMesh, 'arrows', CONFIG.ENABLE_ONEWAY_ARROWS),
+          st(entry.crosswalkMesh, 'zebra', CONFIG.ENABLE_CROSSWALKS),
+          st(entry.zona30Mesh, 'zona30', undefined),
+          st(entry.bcnBikePictoMesh, 'bikePicto', CONFIG.ENABLE_BIKE_LANES));
       }
       if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = showDetail;
       if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = showDetail;
