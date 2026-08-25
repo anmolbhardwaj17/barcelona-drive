@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
-| **Next task** | **P3-01 · per-building proportional triangle budgets · 1.5 d.** P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **57 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Next task** | **P3-02 · modular storey bands · 4.0 d** (P3-01 ✅). P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
+| **Tasks done** | **58 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
@@ -692,8 +692,26 @@ small value once this lands.**
 </details>
 
 
-### `[ ]` P3-01 · 1.5d · risk medium
+### `[x]` P3-01 · 1.5d · risk medium
 **Per-building proportional TRIANGLE budgets** — replace first-come `BALCONY_VERT_CAP`/`COMMERCIAL_VERT_CAP`/`BOUNDARY_VERT_CAP` racing in tile order. Measured: median tile delivers detail to **26.6%** of eligible buildings, p10 14.6%, worst tiles 8.5–12.4%, **127 of 158 dense tiles below 50%**. Compute a per-tile allowance, divide by eligible count, redistribute unspent slices.
+
+- **Done when:** ✅ **`createFairBudget` (water-filling) replaces the tile-wide first-come counters.**
+  Each building's slice is `remaining / eligibleLeft` computed AT ITS TURN, so anything an earlier
+  building leaves unspent is already inside the next one's share — no starvation by tile order, cap
+  still never exceeded. A pre-pass counts eligible buildings and **caches `getBuildingCategory`**
+  (it consults the road set; computing it twice would both cost double and risk the two call sites
+  disagreeing, silently corrupting the denominator). **7 invariant tests** (52 total).
+  Simulated on a dense tile — 120 eligible buildings, 600 verts wanted each, same 40,000 cap:
+  **first-come 67/120 served (55.8%) → fair-share 120/120 (100%)**, identical vertex spend.
+- ⚠ **SPEC CORRECTION: `BOUNDARY_VERT_CAP` is DEAD in Barcelona**, as are `MALL_VERT_CAP` and
+  `RELIGIOUS_VERT_CAP` — all three sit behind `ENABLE_DELHI_DETAILS = false` (`buildingWorker.js:96`).
+  Only balcony and commercial are live, so only those two were converted. The task named three caps;
+  converting the dead one would have been untestable work on an unreachable path.
+- ⚠ **Suppressed buildings must still `claim(false)`.** `_detailSuppressed` comes from the RUNNING
+  vertex total, so the pre-pass cannot predict it. Short-circuiting before `claim()` leaves the slot
+  uncounted and shrinks every later share — caught during implementation, and now a test.
+- **Measured coverage on a real tile is NOT yet captured** — the 26.6% median figure came from
+  instrumentation that must be re-run to confirm the real-world number matches the simulation.
 
 - **Files:** `buildingWorker.js:43-47,873,1098,1148,1207-1310`
 - **Depends:** P1 vertex-budget degradation

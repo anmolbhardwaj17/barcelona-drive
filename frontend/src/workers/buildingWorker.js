@@ -41,6 +41,52 @@ const MAX_FOOTPRINT_VERTICES = 16;
 
 const BALCONY_VERT_CAP = 40000;
 const COMMERCIAL_VERT_CAP = 40000;
+
+/**
+ * v3 P3-01 — FAIR-SHARE detail budget. Replaces the first-come race on the caps above.
+ *
+ * THE BUG. Each cap was a single tile-wide counter tested as `verts < CAP` inside the building
+ * loop, so buildings claimed detail in TILE ORDER until the pot ran dry. Whoever the worker reached
+ * first got balconies; everyone after got an extruded box. Measured: the median tile delivered
+ * detail to **26.6%** of eligible buildings, p10 14.6%, worst tiles 8.5-12.4%, and 127 of 158 dense
+ * tiles sat below 50%. That is not a budget, it is a queue — and it reads on screen as a block of
+ * detailed buildings next to a block of bare ones, which is worse than uniform.
+ *
+ * THE FIX is water-filling. Each building's slice is `remaining / eligibleLeft` computed AT ITS
+ * TURN, so anything an earlier building left unspent is already inside the next one's share. Nobody
+ * is starved by tile order, and the cap is still never exceeded. A building that wants less than its
+ * slice silently funds the rest; a building that wants more is trimmed to its slice instead of
+ * eating everyone else's.
+ *
+ * ⚠ `claim()` MUST be called exactly once per ELIGIBLE building, and must be the LAST term in the
+ * eligibility `&&` chain — it consumes a slot as a side effect. Miss a call and every later slice is
+ * too small; call it for an ineligible building and they are all too large.
+ */
+function createFairBudget(cap) {
+  let remaining = cap, eligibleLeft = 0, share = 0, spent = 0;
+  return {
+    /** Total buildings in this tile that COULD want this detail. From the pre-pass. */
+    setEligible(n) { eligibleLeft = Math.max(0, n | 0); },
+    /**
+     * Take this building's turn. `want` is false when the building is eligible but has already been
+     * detail-suppressed by the global vertex budget — it still consumes its slot so the slice it did
+     * not use flows to the others.
+     * @returns {boolean} true if there is room to emit detail.
+     */
+    claim(want = true) {
+      share = eligibleLeft > 0 ? Math.floor(remaining / eligibleLeft) : 0;
+      if (eligibleLeft > 0) eligibleLeft--;
+      spent = 0;
+      return want && share > 0;
+    },
+    /** Room for `n` more vertices within THIS building's slice? */
+    has(n = 0) { return spent + n <= share; },
+    add(n) { spent += n; },
+    /** Bank the slice. Anything unspent is returned to the pot for the buildings still to come. */
+    close() { remaining -= spent; },
+    stats() { return { remaining, eligibleLeft, share }; },
+  };
+}
 const MALL_VERT_CAP = 10000;
 const RELIGIOUS_VERT_CAP = 20000;
 const BOUNDARY_VERT_CAP = 30000;
@@ -832,14 +878,13 @@ export function processBuildingsInWorker(data, config) {
   // Detail geometry collections
   const balconySlabGeoms = [];
   const balconyRailGeoms = [];
-  let balconySlabVerts = 0;
-  let balconyRailVerts = 0;
+  // v3 P3-01: balconySlabVerts / balconyRailVerts / commercialVerts retired — the tile-wide
+  // first-come counters are replaced by balconyBudget / commercialBudget (fair-share slices).
 
   const acUnitGeoms = [];
   const acFanGeoms = [];
   const parapetGeoms = [];
   const barExtrudeGeoms = [];
-  let commercialVerts = 0;
 
   const mallSignGeoms = [];
   const mallBillboardGeoms = [];
@@ -875,6 +920,37 @@ export function processBuildingsInWorker(data, config) {
   let _budgetDowngrades = 0;   // reported per tile so the gate can SEE this happening
 
   // ── Main building loop ──
+
+  // ── v3 P3-01 pre-pass: how many buildings in THIS tile could want each detail? ──────────────
+  // The fair share is remaining/eligibleLeft, so it needs a denominator before the first building
+  // is processed. Category is CACHED here rather than recomputed in the loop: getBuildingCategory()
+  // consults the road set, and calling it twice per building would both cost double and risk the
+  // two call sites disagreeing — which would silently corrupt the denominator.
+  //
+  // ⚠ These predicates MIRROR the real eligibility gates further down, minus the cap test and minus
+  // `_detailSuppressed` (which is set from the RUNNING vertex total and is unknowable up front).
+  // Suppressed buildings still claim their slot via `claim(false)` so their slice is redistributed
+  // rather than stranded. If you change a gate below, change it here.
+  const balconyBudget = createFairBudget(BALCONY_VERT_CAP);
+  const commercialBudget = createFairBudget(COMMERCIAL_VERT_CAP);
+  {
+    let balconyElig = 0, commercialElig = 0;
+    for (const b of buildings) {
+      const cat = getBuildingCategory(b, roads, cx, cy);
+      b._cat = cat;   // consumed by the main loop — one computation, one source of truth
+      const fpOk = b.footprint?.length >= 3;
+      const notCyl = b.shapeType !== 'cylinder';
+      b._balconyElig = !!(BALCONY_CATEGORIES.has(cat) && notCyl && b.height >= 6 && fpOk);
+      if (b._balconyElig) balconyElig++;
+      const isComm = (cat === 'commercial' || cat === 'commercial_glass');
+      const bullet = cat === 'commercial_glass' && b.height >= 60 && fpOk
+        && (b.shapeType === 'cylinder' || deterministicIndex(b.id) % 3 === 0);
+      b._commElig = !!(isComm && notCyl && !bullet && fpOk && b.height >= 5);
+      if (b._commElig) commercialElig++;
+    }
+    balconyBudget.setEligible(balconyElig);
+    commercialBudget.setEligible(commercialElig);
+  }
 
   for (const b of buildings) {
     // Skip underground structures
@@ -934,7 +1010,7 @@ export function processBuildingsInWorker(data, config) {
     }
     let baseY = groundElev * vertExag + BUILDING_Z_OFFSET;
 
-    let category = getBuildingCategory(b, roads, cx, cy);
+    let category = b._cat !== undefined ? b._cat : getBuildingCategory(b, roads, cx, cy);   // v3 P3-01: cached by the pre-pass
     // (Height-based glass RETURNED 2026-07-11 by user call — ≥55m towers are commercial_glass with
     // the full-glass mosaic texture; the old "dark tower" failure was the saturated palette, since
     // replaced by near-white tints. See getBuildingCategory.)
@@ -1214,9 +1290,11 @@ export function processBuildingsInWorker(data, config) {
     }
 
     // ── Masonry 3D balconies (Barcelona Eixample — residential/commercial/office) ──
-    if (!b._detailSuppressed && BALCONY_CATEGORIES.has(category) && b.shapeType !== 'cylinder'   // v3 P1-12: budget downgrade keeps the box, drops the trimmings
-        && b.height >= 6 && b.footprint?.length >= 3
-        && balconySlabVerts < BALCONY_VERT_CAP) {
+    // v3 P3-01: claim() is LAST and consumes this building's slot. Suppressed-but-eligible buildings
+    // still claim (with want=false) so their unused slice funds the rest of the tile.
+    // claim() takes the slot even when suppressed (want=false) — short-circuiting before it would
+    // leave the slot uncounted and shrink every later building's share. Matches the commercial gate.
+    if (b._balconyElig && balconyBudget.claim(!b._detailSuppressed)) {
       const fp = setbackFootprint || b.footprint;
       const floorH = 3.0;
       const numFloors = Math.floor(b.height / floorH);
@@ -1244,10 +1322,10 @@ export function processBuildingsInWorker(data, config) {
         if ((mx - fcx) * nx + (mz - fcz) * nz < 0) { nx = -nx; nz = -nz; }
 
         // ── Cornice: projecting roofline lip (the uniform Eixample skyline) ──
-        if (balconySlabVerts < BALCONY_VERT_CAP) {
+        if (balconyBudget.has(8)) {
           const CORNICE_D = 0.4, CORNICE_H = 0.5;
           balconySlabGeoms.push(makeBoxGeom(p0.x, p0.y, p1.x, p1.y, nx, nz, CORNICE_D, baseY + b.height - CORNICE_H, CORNICE_H));
-          balconySlabVerts += 8;
+          balconyBudget.add(8);
         }
 
         const edgeHash = deterministicIndex(b.id * 31 + ei * 7);
@@ -1264,16 +1342,16 @@ export function processBuildingsInWorker(data, config) {
 
         for (let fi = 1; fi < numFloors; fi++) {
           const floorY = baseY + fi * floorH;
-          if (balconySlabVerts >= BALCONY_VERT_CAP) break;
+          if (!balconyBudget.has(8)) break;
 
           // Floor band
           balconySlabGeoms.push(makeBoxGeom(p0.x, p0.y, p1.x, p1.y, nx, nz, FLOOR_BAND_DEPTH, floorY - FLOOR_BAND_H, FLOOR_BAND_H));
-          balconySlabVerts += 8;
+          balconyBudget.add(8);
 
           if (!edgeHasBalconies) continue;
 
           for (let si2 = 0; si2 < numSlots; si2++) {
-            if (balconySlabVerts >= BALCONY_VERT_CAP) break;
+            if (!balconyBudget.has(8)) break;
             const slotHash = deterministicIndex(b.id * 17 + ei * 113 + fi * 53 + si2 * 7);
             if ((slotHash % 100) >= 55) continue;
 
@@ -1286,7 +1364,7 @@ export function processBuildingsInWorker(data, config) {
             const ix0 = sx0 - nx * SLAB_INSET, iz0 = sz0 - nz * SLAB_INSET;
             const ix1 = sx1 - nx * SLAB_INSET, iz1 = sz1 - nz * SLAB_INSET;
             balconySlabGeoms.push(makeBoxGeom(ix0, iz0, ix1, iz1, nx, nz, SLAB_DEPTH + SLAB_INSET, floorY, SLAB_THICK));
-            balconySlabVerts += 8;
+            balconyBudget.add(8);
 
             // Railing
             const railBaseY = floorY + SLAB_THICK;
@@ -1294,19 +1372,19 @@ export function processBuildingsInWorker(data, config) {
             const hw = RAIL_BAR_W * 1.5;
             // Front railing panel
             balconyRailGeoms.push(makeBoxGeom(sx0 + nx * d, sz0 + nz * d, sx1 + nx * d, sz1 + nz * d, nx, nz, hw, railBaseY, RAIL_H));
-            balconyRailVerts += 8;
+            balconyBudget.add(8);
             // Left side return
             balconyRailGeoms.push(makeBoxGeom(sx0, sz0, sx0 + nx * d, sz0 + nz * d, -ex, -ez, hw, railBaseY, RAIL_H));
-            balconyRailVerts += 8;
+            balconyBudget.add(8);
             // Right side return
             balconyRailGeoms.push(makeBoxGeom(sx1 + nx * d, sz1 + nz * d, sx1, sz1, ex, ez, hw, railBaseY, RAIL_H));
-            balconyRailVerts += 8;
+            balconyBudget.add(8);
 
             // Vertical bars
             const slotLen = Math.hypot(sx1 - sx0, sz1 - sz0);
             const numBars = Math.max(2, Math.floor(slotLen / RAIL_BAR_SPACING));
             for (let bi = 0; bi <= numBars; bi++) {
-              if (balconyRailVerts >= BALCONY_VERT_CAP) break;
+              if (!balconyBudget.has(4)) break;
               const bt = bi / numBars;
               const bpx = sx0 + (sx1 - sx0) * bt + nx * d;
               const bpz = sz0 + (sz1 - sz0) * bt + nz * d;
@@ -1314,19 +1392,18 @@ export function processBuildingsInWorker(data, config) {
               // Flat quad per baluster (2 tris) instead of a solid box (12 tris) — 6x fewer triangles on a
               // major building sink; thin bars read identically face-on and details render DoubleSide.
               balconyRailGeoms.push(makeQuadGeom(bpx - ex * bhw, bpz - ez * bhw, bpx + ex * bhw, bpz + ez * bhw, nx, nz, railBaseY, RAIL_H));
-              balconyRailVerts += 4;
+              balconyBudget.add(4);
             }
           }
         }
       }
+      balconyBudget.close();   // v3 P3-01: bank the slice — the unspent part funds later buildings
     }
 
     // ── Commercial 3D details ──
     // !isBulletTower: parapets/bars trace the RECTANGULAR footprint at full height — on a bullet
     // tower the crown has converged inward there, leaving the frames floating in the air.
-    if (isCommercial && b.shapeType !== 'cylinder' && !isBulletTower
-        && b.footprint?.length >= 3 && b.height >= 5
-        && commercialVerts < COMMERCIAL_VERT_CAP) {
+    if (b._commElig && commercialBudget.claim(!b._detailSuppressed)) {   // v3 P3-01
       const fp = b.footprint;
       const floorH = 3.0;
       const numFloors = Math.floor(b.height / floorH);
@@ -1336,7 +1413,7 @@ export function processBuildingsInWorker(data, config) {
       ccx /= fp.length; ccz /= fp.length;
 
       for (let ei = 0; ei < fp.length; ei++) {
-        if (commercialVerts >= COMMERCIAL_VERT_CAP) break;
+        if (!commercialBudget.has(8)) break;
         const p0 = fp[ei], p1 = fp[(ei + 1) % fp.length];
         const edx = p1.x - p0.x, edz = p1.y - p0.y;
         const edgeLen = Math.hypot(edx, edz);
@@ -1361,14 +1438,14 @@ export function processBuildingsInWorker(data, config) {
           const AC_SPACING = 2.2;
           const maxACs = Math.floor((edgeLen - 1.0) / AC_SPACING);
           for (let fi = 1; fi < numFloors; fi++) {
-            if (commercialVerts >= COMMERCIAL_VERT_CAP) break;
+            if (!commercialBudget.has(8)) break;
             const floorHash = deterministicIndex(b.id * 7 + ei * 53 + fi * 11);
             if ((floorHash % 100) >= 60) continue;
             const numAC = Math.max(1, Math.min(maxACs, 1 + (floorHash % Math.max(1, maxACs))));
             const startT = 0.1;
             const endT = 0.9;
             for (let ai = 0; ai < numAC; ai++) {
-              if (commercialVerts >= COMMERCIAL_VERT_CAP) break;
+              if (!commercialBudget.has(8)) break;
               const acSlotHash = deterministicIndex(b.id * 13 + ei * 37 + fi * 19 + ai * 7);
               if ((acSlotHash % 100) >= 70) continue;
               const t = numAC === 1
@@ -1384,7 +1461,7 @@ export function processBuildingsInWorker(data, config) {
                 ox + ex * AC_W / 2, oz + ez * AC_W / 2,
                 nx, nz, AC_D, acY, AC_H
               ));
-              commercialVerts += 8;
+              commercialBudget.add(8);
 
               // AC fan disc on front face
               const fanR = Math.min(AC_W, AC_H) * 0.35;
@@ -1392,7 +1469,7 @@ export function processBuildingsInWorker(data, config) {
               const fanCz = oz + nz * (AC_D + 0.01);
               const fanCy = acY + AC_H * 0.5;
               acFanGeoms.push(createOrientedDisc(fanR, 10, fanCx, fanCy, fanCz, nx, nz));
-              commercialVerts += 12;
+              commercialBudget.add(12);
             }
           }
         }
@@ -1405,7 +1482,7 @@ export function processBuildingsInWorker(data, config) {
             p0.x, p0.y, p1.x, p1.y,
             nx, nz, PARAPET_D, baseY + b.height, PARAPET_H
           ));
-          commercialVerts += 8;
+          commercialBudget.add(8);
         }
 
         // Decorative bar extrusions
@@ -1415,7 +1492,7 @@ export function processBuildingsInWorker(data, config) {
           const BAR_OFFSET = 0.02;
           const numBarsDeco = 1 + (edgeHash % 3);
           for (let bi = 0; bi < numBarsDeco; bi++) {
-            if (commercialVerts >= COMMERCIAL_VERT_CAP) break;
+            if (!commercialBudget.has(8)) break;
             const barHash = deterministicIndex(b.id * 23 + ei * 41 + bi * 67);
             const barFloor = 1 + (barHash % Math.max(1, numFloors - 1));
             const barY = baseY + barFloor * floorH - 0.1;
@@ -1428,10 +1505,11 @@ export function processBuildingsInWorker(data, config) {
               p0.y + edz * barEndT + nz * BAR_OFFSET,
               nx, nz, BAR_D, barY, BAR_H
             ));
-            commercialVerts += 8;
+            commercialBudget.add(8);
           }
         }
       }
+      commercialBudget.close();   // v3 P3-01: bank the slice
     }
 
     // ── Mall billboard + sign ── Barcelona: removed (Delhi ad panels).
@@ -2075,3 +2153,6 @@ export function processBuildingsInWorker(data, config) {
     beaconPoints: beaconPoints.length ? new Float32Array(beaconPoints) : null,
   };
 }
+
+// v3 P3-01 — exported for test/fairBudget.test.js. The worker itself never imports this.
+export { createFairBudget };
