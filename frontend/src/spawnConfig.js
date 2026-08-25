@@ -23,6 +23,22 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
+  // 2026-08-25 — ROADFIT HOTSPOT A. world (4578.4, 3262.1), tile 16_33162_24479, way 902208621.
+  // The worst point the ?debug=roadfit probe found: a SURFACE road drawn 9.615 m BELOW the terrain.
+  // Placed here to answer one question by eye — is there a tunnel mouth or underpass at this spot?
+  // If yes, the way is an UNTAGGED TUNNEL and this belongs to the OSM repair layer (class V1), not
+  // to any terrain carve or render-side clamp. See terrain-tunnel-rework-plan.md.
+  //
+  // ⚠ findRoadSpawn() snaps to the nearest drivable NON-TUNNEL road, so the car may land on a
+  // neighbouring surface street rather than on the offending way itself — look AROUND, not just down.
+  // Hotspot B, if this one is inconclusive: lat 41.38509, lon 2.17475 (way 20353556, 9.598 m).
+  lat: 41.37930,
+  lon: 2.16979,
+  heading: null,
+};
+
+/** Previous default, restore by swapping the block above for this one. */
+export const GRAN_VIA_SPAWN = {
   // v3 (2026-08-24): GRAN VIA at Plaça Universitat — on the arterial itself, in the Cerdà grid.
   // Deliberately the START of the benchmark route (bench/benchRoute.js) so the car begins on the
   // street the benchmark drives. Dense chamfered blocks, continuous street
