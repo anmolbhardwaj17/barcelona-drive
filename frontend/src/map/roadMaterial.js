@@ -39,28 +39,11 @@ export const LANE_W_M = 3.5;
 
 /** GLSL injected into the road fragment shader. Kept here so the road material file stays readable. */
 export const ROAD_V2_PARS = `
-uniform float uRoadWear;
+uniform sampler2D uAsphalt;
+uniform float uAsphaltRepeatM;
 uniform float uRoadRut;
 varying float vHalfW;
 varying vec2 vRoadUv;
-
-// Cheap value noise — deterministic, no texture. Used ONLY at a ~40 m period, where its low quality
-// is invisible; do NOT reuse it for fine grain, which is what a real detail normal is for.
-// SIN-FREE hash. The textbook fract(sin(dot(...))) costs a transcendental, and roadNoise2 calls this
-// FOUR times per fragment — on the surface with the largest screen coverage in the game, on a
-// MeshStandardMaterial that is already the expensive path. Measured as a felt frame cost 2026-08-26.
-// This variant is multiply/fract only and is more than good enough at the ~40 m period it is used at.
-float roadHash(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-float roadNoise2(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(roadHash(i), roadHash(i + vec2(1, 0)), f.x),
-             mix(roadHash(i + vec2(0, 1)), roadHash(i + vec2(1, 1)), f.x), f.y);
-}
 `;
 
 /**
@@ -89,9 +72,14 @@ export const ROAD_V2_APPLY = `
   float across = (vRoadUv.y - 0.5) * 2.0 * vHalfW;   // signed metres from centreline
   float along  = vRoadUv.x * 4.0;                    // metres along the ribbon
 
-  // (d) MACRO WEAR — per-fragment at ~40 m, replacing the per-vertex wobble.
-  float wear = roadNoise2(vec2(along, across) * 0.025);
-  wear = (wear - 0.5) * uRoadWear;
+  // ASPHALT GRAIN — one texture fetch, replacing ~40 ALU ops of per-fragment noise.
+  //
+  // This is the whole reason the world-metric UV exists: the texture tiles at a REAL size, so a 4 m
+  // repeat is 4 m on a service street and on a trunk road. And unlike procedural noise it has a MIP
+  // CHAIN, so it resolves instead of shimmering at the grazing angles road is mostly viewed at —
+  // which is the failure procedural noise cannot fix at any cost.
+  vec3 grain = texture2D(uAsphalt, vec2(along, across) / uAsphaltRepeatM).rgb;
+
 
   // (e) WHEEL RUTS — two polished bands per lane. 'laneLocal' is the distance from the nearest lane
   // centre; ruts sit ~0.9 m either side of it, i.e. a car's track width.
@@ -106,14 +94,86 @@ export const ROAD_V2_APPLY = `
   float rutAmt = rut * uRoadRut * laneValid;
 
   // Tone only — see the note above the export for why there is no roughness term.
-  diffuseColor.rgb *= (1.0 + wear + rutAmt * 0.5);
+  diffuseColor.rgb *= grain * (1.0 + rutAmt * 0.5);
 }
 `;
 
 /** Uniform defaults. Exported so a tuning UI or a test can reach them. */
 export const ROAD_V2_UNIFORMS = {
-  /** Macro-wear amplitude. ±3% of albedo — patching, not blotches. */
-  uRoadWear: 0.06,
+  /** Metres per asphalt texture repeat. Real-world size, via the world-metric UV. */
+  uAsphaltRepeatM: 4.0,
   /** Rut strength. Small on purpose: past ~0.15 they read as painted stripes. */
   uRoadRut: 0.10,
 };
+
+/**
+ * Bake the asphalt grain ONCE at boot, instead of evaluating noise per fragment forever.
+ *
+ * ⚠ THIS IS THE POINT OF THE WHOLE CHANGE. The procedural version cost ~40 ALU ops on every road
+ * fragment — on the surface with the largest screen coverage in the game, on a MeshStandardMaterial
+ * that is already the expensive path — and measurably slowed the frame (`?roadv2=0` was faster).
+ * Baking converts that into ONE texture fetch, which runs on the TMU in parallel with ALU.
+ *
+ * The second win matters as much: a texture has a MIP CHAIN. Procedural noise has none, so it
+ * aliases and crawls at grazing angles — exactly how road is seen when driving. No amount of ALU
+ * fixes that; only prefiltering does.
+ *
+ * ⚠ NEAR-NEUTRAL, centred on 1.0 — see D-31. Road colour lives in the VERTEX COLOUR (the dark
+ * blue-grey asphalt tone plus its broad patches). This texture MODULATES that; a tinted or dark
+ * texture would multiply against a tone that is already there and drive the whole city's roads dark.
+ *
+ * Procedural today, an authored KTX2 later (P3-07b) — the sampling path is identical, so that is a
+ * file swap and not a rewrite.
+ */
+export function createAsphaltTexture(THREE, px = 512) {
+  const canvas = typeof OffscreenCanvas !== 'undefined'
+    ? new OffscreenCanvas(px, px)
+    : Object.assign(document.createElement('canvas'), { width: px, height: px });
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  // Deterministic LCG — NOT Math.random. The texture must be identical on every load, or the road
+  // grain changes between sessions and between the main thread and any regeneration.
+  let seed = 987654321;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+  // Aggregate: fine speckle at two scales, centred on 1.0 so the mean leaves the vertex tone alone.
+  const coarse = new Float32Array(px * px);
+  const CO = 64;                                     // coarse cell size in texels
+  const cw = Math.ceil(px / CO) + 1;
+  const cells = new Float32Array(cw * cw);
+  for (let i = 0; i < cells.length; i++) cells[i] = rnd();
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      // Bilinear over the coarse cells — WRAPPING, so the texture tiles with no visible seam.
+      const fx = x / CO, fy = y / CO;
+      const x0 = Math.floor(fx) % (cw - 1), y0 = Math.floor(fy) % (cw - 1);
+      const tx = fx - Math.floor(fx), ty = fy - Math.floor(fy);
+      const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+      const c00 = cells[y0 * cw + x0], c10 = cells[y0 * cw + x0 + 1];
+      const c01 = cells[(y0 + 1) * cw + x0], c11 = cells[(y0 + 1) * cw + x0 + 1];
+      coarse[y * px + x] = (c00 * (1 - sx) + c10 * sx) * (1 - sy) + (c01 * (1 - sx) + c11 * sx) * sy;
+    }
+  }
+  for (let i = 0; i < px * px; i++) {
+    const speck = rnd();                             // per-texel chip
+    // ±5% around 1.0. Bigger reads as gravel rather than asphalt, and any bias shifts every road.
+    const v = 1.0 + (speck - 0.5) * 0.07 + (coarse[i] - 0.5) * 0.05;
+    const c = Math.max(0, Math.min(255, Math.round(v * 255)));
+    d[i * 4] = c; d[i * 4 + 1] = c; d[i * 4 + 2] = c; d[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  // Mips ARE generated here — unlike the array textures, a plain 2D texture's chain is built by
+  // three, and the whole reason for baking is to get prefiltering.
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.colorSpace = THREE.NoColorSpace;               // a multiplier, not colour — no sRGB decode
+  tex.needsUpdate = true;
+  return tex;
+}

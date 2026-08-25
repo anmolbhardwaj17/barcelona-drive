@@ -920,6 +920,22 @@ small value once this lands.**
 - ⚠ **(b) tiling albedo and (c) the 8× detail normal are NOT done — they need authored art** and were
   deliberately not faked with hash noise, which shimmers under motion and aliases at grazing angles,
   which is exactly where road fills the screen. Grain is still missing; wear and ruts are not grain.
+- **2026-08-26 — (b) LANDED as a BAKED texture; (d) DELETED.** The procedural wear measurably lost to
+  `?roadv2=0`, so it is gone rather than tuned. `createAsphaltTexture` bakes the grain ONCE at boot
+  (512², deterministic LCG, wrapping bilinear so it tiles seamlessly) and the shader takes **one
+  texture fetch** through the world-metric UV.
+  - **cost:** ~40 ALU + no filtering → **1 TMU fetch (parallel to ALU) + ~8 ALU for ruts + a mip
+    chain**. 1.0 MiB against a 200 MiB budget.
+  - **The mip chain is the half that ALU could never buy** — procedural noise has no prefiltering, so
+    it crawls at the grazing angles road is actually viewed at.
+  - Texture is **neutral, centred on 1.0** per D-31 (road colour is the vertex colour), asserted by a
+    test that measures the generated texture's mean.
+  - **The per-vertex `roadNoise` fine-grain term is also deleted** — that was the double application.
+    Its LOW-frequency terms stay: broad patches and splotches are variation a 4 m tile cannot carry.
+  - Authored KTX2 (P3-07b) is now a **file swap, not a rewrite** — the sampling path is identical.
+- ⚠ **(c) the 8× detail normal is still NOT done.** Normal mapping needs tangents and a different
+  injection point, and `patchRoadAO` is shared with Lambert materials — exactly the D-32 trap. It
+  wants its own careful pass rather than being bolted on here.
 - ⚠ **PER-FRAGMENT COST IS NOT FREE, and this was felt.** The first version used the textbook
   `fract(sin(dot(...)))` hash, which `roadNoise2` calls **four times per fragment** — four
   transcendentals plus a `pow`, on the surface with the largest screen coverage in the game, on a

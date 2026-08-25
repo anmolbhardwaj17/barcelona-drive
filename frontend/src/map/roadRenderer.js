@@ -25,7 +25,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CURB_HEIGHT } from './groundLayers.js';
-import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS } from './roadMaterial.js';   // v3 P3-07
+import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, createAsphaltTexture } from './roadMaterial.js';   // v3 P3-07
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -39,6 +39,8 @@ const ROAD_OFFSET = 0.05;
 // v3 P2-08: ROAD_VISUAL_ABOVE_TERRAIN now lives in groundLayers.js so roadInfraRenderer can apply
 // it too — it could not before, being module-local here, and silently didn't, which is what left
 // lane arrows 1 cm above the road instead of 6 cm. The tuning history is preserved there.
+let _asphaltTex = null;   // v3 P3-07 — baked asphalt grain, generated once per session
+
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
 
@@ -289,7 +291,10 @@ function patchRoadAO(mat) {
     // Declares its OWN uv varying rather than three's `vMapUv` (D-30: that one exists only under
     // #ifdef USE_MAP, and the road material binds no map).
     if (!CONFIG.ROAD_V2) return;   // ?roadv2=0 — attribution switch, see CONFIG.ROAD_V2
-    shader.uniforms.uRoadWear = { value: ROAD_V2_UNIFORMS.uRoadWear };
+    // Baked once, shared by every road material. Lazy so a headless/test import never touches a canvas.
+    if (!_asphaltTex) _asphaltTex = createAsphaltTexture(THREE);
+    shader.uniforms.uAsphalt = { value: _asphaltTex };
+    shader.uniforms.uAsphaltRepeatM = { value: ROAD_V2_UNIFORMS.uAsphaltRepeatM };
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
@@ -341,14 +346,15 @@ function applyRoadVertexColors(geometry) {
   for (let i = 0; i < count; i++) {
     const x = posAttr.getX(i);
     const z = posAttr.getZ(i);
-    // Broad patches (oil stains, wear)
-    const n1 = roadNoise(x, z, 3.0) * 0.035;
-    // Fine grain (texture detail)
-    const n2 = roadNoise(x * 5, z * 5, 7.0) * 0.018;
-    // Occasional dark splotches
-    const n3 = roadNoise(x * 0.3, z * 0.3, 11.0);
+    // v3 P3-07: the fine-grain term is GONE — grain is the asphalt texture's job now, and it is
+    // mip-filtered, which per-vertex noise can never be. Per-vertex noise is interpolated across a
+    // whole ribbon segment, so it reads as smooth gradients that swim with the camera rather than as
+    // surface detail. What remains is the LOW-frequency variation a 4 m tiling texture cannot carry:
+    // broad patches and the occasional dark splotch, at real-world scale.
+    const n1 = roadNoise(x, z, 3.0) * 0.035;                    // broad patches (oil, repair)
+    const n3 = roadNoise(x * 0.3, z * 0.3, 11.0);               // occasional dark splotches
     const splotch = n3 > 0.15 ? -0.015 : 0;
-    const variation = n1 + n2 + splotch;
+    const variation = n1 + splotch;
     colors[i * 3]     = Math.max(0, Math.min(1, br + variation * 0.7));
     colors[i * 3 + 1] = Math.max(0, Math.min(1, bg + variation * 0.85));
     colors[i * 3 + 2] = Math.max(0, Math.min(1, bb + variation));

@@ -7,7 +7,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LANE_W_M, ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS } from '../src/map/roadMaterial.js';
+import { LANE_W_M, ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, createAsphaltTexture } from '../src/map/roadMaterial.js';
 
 // Faithful JS port of the GLSL rut placement.
 const rutAt = (across, halfW = 6) => {
@@ -41,11 +41,15 @@ test('ruts FADE OUT on wide surfaces where the lane model stops being true', () 
   assert.equal(rutAt(0.9, 14), 0, 'and gone by 14 m');
 });
 
-test('strengths stay in the SUBTLE band — past this they read as painted stripes', () => {
+test('rut strength stays in the SUBTLE band — past this they read as painted stripes', () => {
   assert.ok(ROAD_V2_UNIFORMS.uRoadRut > 0 && ROAD_V2_UNIFORMS.uRoadRut <= 0.15,
     `rut strength ${ROAD_V2_UNIFORMS.uRoadRut} is outside the subtle band`);
-  assert.ok(ROAD_V2_UNIFORMS.uRoadWear > 0 && ROAD_V2_UNIFORMS.uRoadWear <= 0.12,
-    `wear amplitude ${ROAD_V2_UNIFORMS.uRoadWear} would read as blotches, not patching`);
+});
+
+test('the asphalt repeat is a REAL-WORLD size', () => {
+  // The point of the world-metric UV: 4 m must be 4 m on a service street and a trunk road.
+  assert.ok(ROAD_V2_UNIFORMS.uAsphaltRepeatM >= 2 && ROAD_V2_UNIFORMS.uAsphaltRepeatM <= 8,
+    'a repeat outside 2-8 m reads as either tiling wallpaper or featureless grey');
 });
 
 test('uv converts to METRES via halfWidth — not a width-dependent UV space', () => {
@@ -73,10 +77,42 @@ test('it MODULATES colour rather than replacing it — road colour is the vertex
   assert.ok(!/diffuseColor\.rgb\s*=\s*[^*]/.test(ROAD_V2_APPLY), 'an assignment would drop the palette');
 });
 
-test('macro wear is centred on zero, so it darkens AND lightens', () => {
-  // `(n - 0.5) * amp` — a one-sided term would darken every road on average, shifting the whole
-  // city's asphalt tone rather than adding variation.
-  assert.match(ROAD_V2_APPLY, /wear\s*=\s*\(wear\s*-\s*0\.5\)/);
+test('grain is a TEXTURE FETCH now, not per-fragment noise', () => {
+  // The measured reason: ~40 ALU ops per fragment on the largest surface in the frame, and no mip
+  // chain so it shimmered at grazing angles. `?roadv2=0` was faster than `?roadv2=1`.
+  assert.match(ROAD_V2_APPLY, /texture2D\(uAsphalt/, 'grain must come from a sampler');
+  const strip = (g) => g.replace(/\/\/[^\n]*/g, '');
+  assert.ok(!/roadNoise2|roadHash/.test(strip(ROAD_V2_PARS) + strip(ROAD_V2_APPLY)),
+    'the per-fragment noise functions are back — that is the regression this replaced');
+});
+
+test('the baked asphalt texture is NEUTRAL, centred on 1.0 (D-31)', () => {
+  // Road colour lives in the VERTEX COLOUR. A texture whose mean is not ~1.0 multiplies against a
+  // tone that is already there and shifts every road in the city — the exact failure that turned
+  // buildings black when the facade placeholders carried their own tints.
+  const px = 64;
+  const fakeTHREE = {
+    CanvasTexture: class { constructor(c) { this.image = c; } },
+    RepeatWrapping: 1000, LinearMipmapLinearFilter: 1008, LinearFilter: 1006, NoColorSpace: '',
+  };
+  // Minimal 2D-context stand-in: record what the generator writes.
+  let written = null;
+  global.OffscreenCanvas = class {
+    constructor(w, h) { this.width = w; this.height = h; }
+    getContext() {
+      return {
+        createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+        putImageData: (img) => { written = img; },
+      };
+    }
+  };
+  createAsphaltTexture(fakeTHREE, px);
+  assert.ok(written, 'generator never wrote pixels');
+  let sum = 0;
+  for (let i = 0; i < px * px; i++) sum += written.data[i * 4];
+  const mean = sum / (px * px) / 255;
+  assert.ok(Math.abs(mean - 1.0) < 0.02, `texture mean is ${mean.toFixed(3)}, not ~1.0 — every road shifts`);
+  delete global.OffscreenCanvas;
 });
 
 test('the injection touches NOTHING that is out of scope at <color_fragment>', () => {
