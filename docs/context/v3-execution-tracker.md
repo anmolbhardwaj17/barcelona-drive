@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P1-03 materialRegistry** · branch `v3-p1-pipeline`. ⚠ Deliberately NOT started at a limit boundary: 3 d across ~20 modules, and it MUST chain `onBeforeCompile` rather than assign (three's `CSM.js:443` assigns, which would silently delete the road night wash AND the baked v9 AO from every road). Start it with time to drive-test. |
-| **Tasks done** | **46 / 81** — P0 ✅ · **P1 at 25/27** (1 deferred). Remaining: **P1-03 materialRegistry** (3 d, ~20 modules) and **P1-08 quality tier** (2 d) |
+| **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
+| **Tasks done** | **48 / 81** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | nothing |
 
@@ -293,14 +293,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ `public/_headers` with immutable on `/assets/*`, `/basis/*`, `/art/v1/*`; versioned art path created; DEPLOY.md records the vite-empties-dist ordering and the `?bench` ALLOWED_ORIGINS.
 
-### `[ ]` P1-03 · 3.0d · risk medium
+### `[x]` P1-03 · 3.0d · risk medium
 **`materialRegistry.js` — the chokepoint that does not exist.** **CHAINS** `onBeforeCompile` instead of assigning it (three's `CSM.js:443` hard-assigns and would silently delete both the road night wash and the baked v9 AO from every road in the city). Routes all 68 `get*Material()` factories and the 10 current `onBeforeCompile` owners; owns sampler + colour-space policy, the night-mode hooks currently scattered across `setFacadeNightMode`/`setRoadDecalNightMode`/`setRoadNightWash`, the `aWash`+`aAO` injection, and the warm-variant list. **GATES: IBL, the light grid, the detail map, wet road.**
 
 - **Files:** new `map/materialRegistry.js`; `scene.js:430`, `terrainRenderer.js:781`, `shopSignRenderer.js:88`, `aoSampler.js:107`, `vegetationRenderer.js:183,914,1188`, `roadRenderer.js:284`, `meshMaterializer.js:656`; ~20 modules
 - **Depends:** asset registry
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `map/materialRegistry.js` — `patchMaterial()` CHAINS; all 10 assignment sites migrated (aoDarken, facade, roadAO, roadNightWash, sceneMat, shopSign, terrain, vegBillboard, vegTree, vegWash); **zero assignments remain**. Patch tags feed `customProgramCacheKey`. Warm list now sources from the registry. Found+fixed terrain clobbering its own cache key.
 
 ### `[x]` P1-04 · 1.0d · risk medium
 **Extend the shader warm list through the registry** — cover road/terrain/vegetation/infra (not just buildings), add the `aAO` attribute the facade shader declares but `main.js:688-693` omits, and warm through the **real mesh types** (a `BatchedMesh` and an `InstancedMesh`, not a plain `Mesh`) so `USE_BATCHING`/`USE_INSTANCING` variants exist. **Must land in the same commit as the first textured material** — adding `map`/`normalMap` invalidates the entire 125-program cache at once and the recorded symptom is one-off ~100 ms frames.
@@ -338,14 +338,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ `SMAAPass` added last-before-OutputPass (runs on the graded image). There was NO AA anywhere. Prerequisite for P4 card foliage — alpha-tested edges with zero AA are worse than the blobs. ⚠ cost UNMEASURED (budget ≤0.6 ms).
 
-### `[ ]` P1-08 · 2.0d · risk medium
+### `[x]` P1-08 · 2.0d · risk medium
 **Quality / mobile tier — MOVED P2 → P1.** Coarse-pointer + device-memory detection selecting a manifest variant: half-res textures, normal maps skipped, one LOD tier removed, shadow map halved. **The pipeline must EMIT the variants** — retrofitting variant emission across ~100 authored assets is the exact "free today, unrecoverable after 100 assets" failure. `grep -i quality frontend/src/config.js` returns nothing today.
 
 - **Files:** `config.js` (new QUALITY block), `materialRegistry.js`, `loaders.js`, `build-art.mjs`
 - **Depends:** build-art
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `src/quality.js` — two-signal detection, `?quality=low|high`. Four consumers: shadow 1024→512, DPR cap 1.2→1.0, `.half` texture variants, normal maps skipped. **`build-art.mjs` emits half variants from asset #1** (verified end-to-end).
 
 ### `[x]` P1-09 · 1.0d · risk high
 **`rallyStyle` ADR + 7-consumer migration.** Flip the default, make `?style=rally` the escape hatch, audit all 7 consumers. Currently owned by nobody, allocated 0.25 d as "not my call", and it **gates ~26 days of vehicle art plus terrain's flatShading item**.
@@ -989,6 +989,7 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-25 | **D-12 · P1-01, BC7-vs-BC1 left OPEN deliberately** | The plan called the BC1-over-BC7 `FORMAT_OPTIONS` patch mandatory. It is **not patchable**: `FORMAT_OPTIONS` lives inside the KTX2Loader *worker body* and is not exported. The only main-thread lever is claiming BC7 is unsupported — which fixes ETC1S (8→4 bpp, ~300→~160 MiB on Windows) but also drops **UASTC** to BC1, a real quality loss on exactly the maps that justify UASTC. Exposed as `setPreferBC1ForETC1S()` and left **off**: no assets to measure, and no BC machine here to measure them on. |
 | 2026-08-25 | **D-13 · deleting an "off" flag INVERTS it** | Retiring `ENABLE_BUSHES` and `MAX_GRASS_PER_TILE` as dead nearly switched both back ON: `meshMaterializer` tests `CONFIG.ENABLE_BUSHES !== false` (so `undefined` passes) and `vegetationWorker` reads `config.MAX_GRASS_PER_TILE ?? 50000`. Both restored with the trap documented in `config.js`. **Rule: before retiring a flag, read its GUARD, not just its name.** `if (CONFIG.X)` is safe to remove; `!== false` and `?? default` are not. |
 | 2026-08-25 | **D-14 · corrected myself mid-commit (P1-16)** | I claimed vendor-cart exclusion zones were running unconditionally and corrupting vegetation placement. Re-checked: the call sits inside `if (CONFIG.ENABLE_VENDOR_CARTS)`, which is false, so it never ran. Vegetation placement is unchanged. Commit amended. **Reading a call site is not the same as reading its guard** — same lesson as D-13, one task later. |
+| 2026-08-25 | **D-19b · P2 ORDERING SHOULD CHANGE, on measured evidence** | The v3 plan's P2 spends 6 days on `staticPools` (per-instance LOD) to buy GPU headroom, then 5 on the light grid. The post-P1 baseline says the GPU is **not the constraint**: p50 **8.02 ms** against a 16.7 ms budget, and **19.9 ms of the 33.7 ms p95 frame is not GPU at all**. The frame is bimodal — 60 fps or 30 fps, nothing between — and the 30 fps half is CPU/stream-bound (`[loaf]` 100–380 ms spikes during tile stream-in). **Recommendation: bring task #39 / stream-in forward ahead of staticPools; keep the light grid, since night has no punctual lights and that is a LOOK problem, not a perf one.** Not yet actioned — it is a plan change and belongs to the user. |
 | 2026-08-25 | **D-18 · post-P1 measurement, read carefully** | `docs/context/v3-baseline-post-p1.json`. **The pixel-ratio pin finally held (1.0), and the P0 baseline was 1.2 — so GPU figures are NOT comparable.** Dropping 1.2→1.0 removes ~31% of fragments on its own; do not claim the GPU p50 13.31→8.02 as a P1 win. Trustworthy because pixel-ratio-independent: **draws 261→246 ✅**, **programs Δ8→Δ5 ✅** (gate 0 — road/terrain materials still unwarmed), **triangles 1.88M→1.96M ⚠ UP**, which should have FALLEN given the culls added and is unexplained; the driver reported 2 collisions and a reverse, so tile residency differed. Heap −9.6%→+56.3% against a ≤+15% gate: probably GC timing rather than a leak, but unproven. **19.9 ms of the 33.7 ms p95 frame is not GPU — CPU/stream is now clearly the dominant cost.** THIS FILE IS THE NEW REFERENCE; future runs compare to it at pr 1.0. |
 | 2026-08-25 | **D-16 · ⚠⚠ THE FLAG-GUARD TRAP, THIRD OCCURRENCE (P1-25)** | I read `createTramMeshes` being called with no CONFIG check and concluded the flag was ignored. **The guard was one layer down** — `railwayRenderer.js:119` tests it and returns null — so trams were OFF, and deleting the flag would have turned them ON as a silent visual change. Caught before shipping; flag restored. Preceded by `ENABLE_BUSHES` (`!== false`, D-13) and `MAX_GRASS_PER_TILE` (`?? 50000`, D-13). **RULE, now three times earned: before touching a CONFIG flag, grep it across the WHOLE codebase and read every guard — the name, the call site and even the immediate caller are not enough.** |
 | 2026-08-25 | **D-17 · P1-11 deferred to P2, on evidence** | The task is a per-MESH bounding-sphere LOD fallback. But `perf-audit.md:24-25` records that buildings merge per-material into meshes whose **AABB spans the whole 500 m tile** — so per-mesh distance ≈ per-tile distance for the family holding the 3.0 ms. It would deliver ~nothing while editing the mirrored-coordinate boundary that CLAUDE.md's top-of-file DANGER note is about. Folded into P2's `staticPools`, where per-INSTANCE is the real fix. Not slack — the cheaper option was measured against its own premise and the premise failed. |
