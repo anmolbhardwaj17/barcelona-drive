@@ -15,9 +15,10 @@ const PORT = process.env.PORT || 4041;
 const IS_PROD = process.env.NODE_ENV === 'production';
 const DEFAULT_REGION = process.env.REGION || 'barcelona';
 
-// CORS: allowlist from ALLOWED_ORIGINS (comma-separated), or "*" for a fully public API. Defaults to the
-// dev frontend so local dev keeps working. Set ALLOWED_ORIGINS to your deployed origin(s) in production.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:4040').split(',').map((s) => s.trim()).filter(Boolean);
+// CORS: allowlist from ALLOWED_ORIGINS (comma-separated), or "*" for a fully public API. Defaults to both
+// local frontends so local dev keeps working: 4040 is `npm run dev`, 4044 is `npm run preview` (the
+// production build used for perf drives). Set ALLOWED_ORIGINS to your deployed origin(s) in production.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:4040,http://localhost:4044').split(',').map((s) => s.trim()).filter(Boolean);
 const ALLOW_ANY = ALLOWED_ORIGINS.includes('*');
 
 // Tiles/citymap are immutable per bake → cache hard in production (returning players re-download nothing);

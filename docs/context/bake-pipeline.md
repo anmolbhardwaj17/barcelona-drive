@@ -307,6 +307,6 @@ The tiles along the seafront (Barceloneta through Forum, tile row y≈24478–24
 - Single endpoint: `GET /api/tiles/:tileId`
 - tileId format: `z_x_y` (e.g. `16_46754_27357`)
 - Reads binary file first; falls back to JSON if no `.bin` found
-- CORS restricted to `http://localhost:4040` (frontend Vite dev server port)
+- CORS restricted to the `ALLOWED_ORIGINS` allowlist (default: `http://localhost:4040` dev + `http://localhost:4044` preview)
 - Port: `process.env.PORT || 4041`
 - No rate limiting, no authentication, no caching headers (served with `no-cache`)

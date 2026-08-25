@@ -15,33 +15,51 @@
 | **Next task** | **The verification drive below.** P2 is 7/8; only `staticPools` remains and D-19b says do not start it — it buys GPU headroom we already have (GPU p50 **8.02 ms** of 16.7), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Keep attacking CPU/stream-in instead. |
 | **Tasks done** | **56 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **ONE verification drive — see the box directly below.** Nothing else needs the user. |
+| **Blocked on** | **Nothing.** P2-04 is signed off, console + visual. Two follow-ups (lamp flicker at load; marking brightness) are scoped in the box below and need a go-ahead, not a drive. |
 
-### ▶ DO THIS FIRST — one verification drive
+### ▶ DO THIS FIRST — P2-04's visual check PASSED. Two follow-ups are open.
 
-After a laptop restart the servers are down. Two commands, two terminals:
+**The 2026-08-25 night drive is complete, console + visual.** P2-04 is visually signed off.
 
-```bash
-cd /Users/apple/Desktop/delhi-drive/backend && npm start          # tiles, port 4041
-cd /Users/apple/Desktop/delhi-drive/frontend && npm run build && npm run preview   # port 4044
-```
-
-Then open **`http://localhost:4044/game?lightgrid`**, switch to NIGHT, and drive for about a minute
-on a street with traffic and street lamps. Paste the console output back.
-
-That single drive verifies everything landed since the last one:
-
-| what to look at | what should be true |
+| check | result |
 |---|---|
-| street lamps | pools reach into the distance, not switching on as you arrive |
-| buildings | dark above the lamp line — no warm wash to the roofline |
-| road paint | flat on the asphalt at every angle, near and far; dark unless lit |
-| headlights | flat-topped beam with a defined cut-off, not an even circular pool |
-| `[frame]` lines | should name a subsystem (`roadq`, `hud`, `sky`) instead of `ui` |
-| `[adaptRes]` lines | should be rare now, and resolution should hold near 1.0 |
+| street lamps | ✅ pools reach into the distance |
+| buildings | ✅ dark above the lamp line, no roofline wash |
+| road paint | ✅ flat on the asphalt at every angle |
+| headlights | ✅ defined beam with a cut-off |
+| `[frame]` names a subsystem | ✅ `rend`/`adaptRes`/`traffic`/`lgrid`; `ui 0.0`, `other` ≤1.6 ms |
+| `[adaptRes]` rare, res near 1.0 | ✅ 3 resizes, monotone 1.20 → 0.96, settled |
+| light-grid cost, REAL lamps | ✅ **+0.45 ms mean / +1.51 ms p95**, gate ≤3.0 |
 
-**Nothing else is blocked on you.** Everything below is code-complete and tested; this drive is
-the only thing that can confirm it on screen.
+### ⚠ OPEN-1 · lamps flicker on/off every ~3–4 s during load, then settle
+
+**Reported on the same drive. Root cause identified, NOT yet fixed.** An init-ordering bug:
+
+1. The boot warm-up compiles the program set at spawn (`main.js:799`).
+2. The light grid arms **later**, in the animate loop (`main.js:1256`), and patches every registered
+   material — **invalidating every program the warm-up just built**. That is the measured **864 ms**
+   `rend` arm frame; `main.js:1274` predicted 340 ms.
+3. Each tile burst then registers new materials → patch → `_lgDirtyPrograms` → `compileAsync`
+   debounced at 500 ms → another recompile. Lamps pop out and back on each cycle until streaming stops.
+
+**It is NOT adaptRes.** Its resize does flash black (`adaptiveResolution.js:26`), but the three
+`[adaptRes]` lines land at the END of the log while the flicker and the `rend` hitches are at load.
+
+**Fix direction:** arm the grid BEFORE the boot warm-up so the warm set compiles the grid-patched
+variants once. This is also the ledger's open **"shader programs Δ, gate 0 — road/terrain unwarmed"** row.
+
+### ⚠ OPEN-2 · road markings should pick up light harder (user request)
+
+Markings are **already lit** — `MeshLambertMaterial`, P2-05 landed (`roadRenderer.js:962`), and the
+grid demonstrably reaches them (a crosswalk under a lamp reads yellow). Effective albedo is
+`MARK_ALBEDO 0xC4C4C4` × vertex `PAINT_WHITE 0xf5f5f5` ≈ **0.74**. The ask is more punch — real paint
+is retroreflective. Two levers, see the decision log. Perf cost of either is ~zero.
+
+⚠ **The `MeshBasicMaterial` light-grid warning is NOT the markings.** It is guard rails, railings and
+slabs (`roadRenderer.js:2600-2608`) plus bus-stop markings (`busStopRenderer.js:461`) — genuinely
+unlit, so they stay flat under lamps by design.
+
+⚠ **The light grid is still `?lightgrid`-only** (`main.js:220`) — measured, not shipped-on.
 
 ### If you are a fresh session, do exactly this
 1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.
@@ -610,7 +628,7 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Depends:** spike PASS ✅; registry
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P2
-- **Done when:** ⏳ **code complete, 19/19 tests pass — needs ONE visual check at night.** Real lamps from `getStreetlightPositions()`, nearest-first slots, circle (not square) cell test, range-cutoff truncation, region-driven radius/intensity/wrap, late-material auto-patching, tile-epoch rebuild.
+- **Done when:** ⏳ **perf CONFIRMED on real lamps; the VISUAL check is still the one open item.** Real lamps from `getStreetlightPositions()`, nearest-first slots, circle (not square) cell test, range-cutoff truncation, region-driven radius/intensity/wrap, late-material auto-patching, tile-epoch rebuild. **In-drive A/B, 2026-08-25, 172 real lamps (880 on / 969 off) — GPU mean OFF 6.17 → ON 6.62 (+0.45 ms), p95 OFF 7.01 → ON 8.53 (+1.51 ms), gate ≤3.0 → PASS.** Proof-of-work **2411/4096 cells lit, 2.99 lamps per lit cell** — 5.7× the spike's lit-cell count at the same per-cell occupancy, so this is the real load, not the spike's. The D-23 VOID guard stayed green throughout and all four deltas were positive.
 
 ### `[x]` P2-05 · 2.0d · risk high
 **Material opt-in + warm-list extension, SAME COMMIT.** Road, sidewalk, terrain, facade, vegetation, props, traffic/parked cars, pedestrians. Adding a define invalidates all 125 compiled programs at once.

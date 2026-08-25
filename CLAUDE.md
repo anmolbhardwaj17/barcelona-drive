@@ -34,7 +34,7 @@ Follow these in every session, every task.
 # Backend tile server (port 4041) — already running in background
 cd backend && npm start
 
-# Frontend dev server (port 4040 — CORS hardcoded to this port in server.js)
+# Frontend dev server (port 4040 — in the backend CORS allowlist)
 cd frontend && npm run dev
 
 # Re-bake the full Barcelona region (slow, ~10-30 min)
@@ -63,9 +63,11 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - Combine freely, e.g. `http://localhost:4040/?mode=car&debug=tunnel`.
 - **Re-bake cache note**: after any re-bake, run `window._clearTileCache()` in the console + hard-reload, or the browser serves stale (pre-rebake) tiles.
 
-> **Port note:** The backend hardcodes `Access-Control-Allow-Origin: http://localhost:4040`.
-> The frontend Vite config must serve on 4040 or CORS will block all tile fetches.
-> If you need to change the port, update both `backend/server.js` and the Vite config.
+> **Port note:** The backend answers CORS from an allowlist — `ALLOWED_ORIGINS` in `backend/server.js`,
+> defaulting to `http://localhost:4040` (`npm run dev`) **and** `http://localhost:4044` (`npm run preview`,
+> the production build used for perf drives). Serve the frontend on any other port and every tile fetch is
+> blocked by CORS — which surfaces as `Failed to fetch` / `net::ERR_FAILED`, not as an obvious CORS error.
+> To add a port, extend the default list or set `ALLOWED_ORIGINS=` (comma-separated) when starting the backend.
 
 ---
 

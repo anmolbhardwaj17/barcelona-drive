@@ -4,6 +4,34 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-25 — Light grid: arm BEFORE the shader warm-up (kills the load-time lamp flicker) + brighter road paint
+- **Lamp flicker at load, fixed at the cause.** The grid armed from the animate loop (`main.js`), i.e.
+  AFTER the boot shader warm-up. Arming patches every registered material, which invalidates its
+  compiled program — so the warm-up's entire output was discarded and recompiled (**measured 864 ms
+  `rend` arm frame**, against the 340 ms the code predicted), and every subsequent tile burst
+  registered more materials and re-triggered the debounced `compileAsync`. Visible symptom was not a
+  stall but **lamps popping off and on every 3-4 s for the whole load**, settling when tile streaming
+  stopped. Extracted the arm into an idempotent `armLightGrid()` and call it before the warm-up; the
+  animate-loop call is now a fallback for other entry paths. **The `?lightgrid` flag guard moved
+  INSIDE the function** — the boot call site runs before the loop's gate, so without it the grid
+  would have armed for every player. Should also close the ledger's "shader programs Δ, gate 0" row.
+- **Road markings brighter.** `MARK_ALBEDO` 0xC4C4C4 → 0xE6E6E6 (`roadRenderer.js`). With the
+  PAINT_WHITE vertex colour the effective albedo was 0.74, so away from a lamp paint read as dim
+  blue-grey instead of retroreflective marking; now 0.90. Still pure albedo — unlit paint continues
+  to fall back with the asphalt, no emissive, no self-lit glow (the thing the P2-05 note guards).
+- Markings were already LIT (Lambert, P2-05) — the `[lightgrid] "MeshBasicMaterial"` warning is guard
+  rails / railings / slabs / bus-stop markings, which are unlit by design.
+- 41/41 tests pass.
+
+## 2026-08-25 — Backend CORS allowlist now includes the preview port 4044
+The v3 verification drives run against the **production build** (`npm run preview`, port 4044), but
+`ALLOWED_ORIGINS` in `backend/server.js` defaulted to `http://localhost:4040` only — so every tile,
+manifest and citymap fetch from the preview build was blocked, and the world loaded empty. It does not
+read as a CORS fault in the console: it shows up as `[TileLoader] Fetch failed: Failed to fetch` and
+`net::ERR_FAILED 200 (OK)`. Default list is now `http://localhost:4040,http://localhost:4044` (dev +
+preview); `ALLOWED_ORIGINS` still overrides for deploys. Updated CLAUDE.md port note, gotcha **G-08**
+(which still described a hardcoded header that no longer existed), and bake-pipeline.md.
+
 ## 2026-07-02 — Pedestrians (real low-poly, walk-cycle flipbook, knockdown) + car width
 - **Pedestrians = real low-poly people** (Poly Pizza rigged GLBs: man/woman-casual/woman-dress/punk/adventurer, in `public/models/people/`). Rigged models can't be instanced, so `carModels.loadWalkFramesTemplate` BAKES each character into N=8 static walk-frames + 1 idle pose (evaluate an animation frame via AnimationMixer.setTime + SkinnedMesh.applyBoneTransform, bake material colours → vertex colours, merge). `pedestrians.js` runs a **flipbook**: one InstancedMesh per (character × frame) + idle; each ped cycles frames by a speed-scaled phase → legs move while staying instanced/light. Crowd ~110, sidewalk-assigned, ground sampled on centerline.
 - **Pedestrian knockdown** (GTA-style, no physics bodies): distance check vs the car centre (HIT_RADIUS 2.6 m, > 6 km/h) flips a ped to a `thrown` projectile — launched away+up (∝ speed), tumbling under gravity, lands, lies LIE_TIME then clears. ~30 lines in pedestrians.js; main.js passes `speedKmh` to `pedestrians.update`.

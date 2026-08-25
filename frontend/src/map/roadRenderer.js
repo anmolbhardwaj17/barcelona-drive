@@ -957,7 +957,13 @@ let _markingNight = false;                 // persisted so materials built AFTER
 //
 // Lambert instead: one albedo, and the scene decides. Under a lamp or in headlights the paint
 // lifts the way real retroreflective marking does; away from light it falls back with the asphalt.
-const MARK_ALBEDO = 0xC4C4C4;   // worn white paint. The look now comes from lighting, not this.
+// Raised 0xC4C4C4 -> 0xE6E6E6 on 2026-08-25. With the vertex colour (PAINT_WHITE 0xf5f5f5) the
+// effective albedo was 0.74, and away from a lamp the only source is blue moonlight — so paint read
+// as dim blue-grey rather than as the retroreflective marking a driver actually sees. 0.90 effective
+// gives it punch under EVERY source (lamp grid, headlights, moon) without making it self-lit: it is
+// still albedo, so unlit paint still falls back with the asphalt. Do not push this to 0xffffff —
+// that is the "glowing paint" the P2-05 note above exists to prevent.
+const MARK_ALBEDO = 0xE6E6E6;   // fresh white paint. The look comes from lighting; this sets how much it has to give.
 /** Shared LIT material for all lane lines + zebra crosswalks (created once). */
 function getMarkingMaterial() {
   if (!_mergedMarkingMaterial) {

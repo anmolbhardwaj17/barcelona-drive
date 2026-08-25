@@ -725,6 +725,12 @@ spawnTileReady.finally(() => {
         } catch {}
         // Spawn-area material singletons now exist — re-apply night state so a night reload isn't half-day.
         try { envToggle?.reapply?.(); } catch {}
+        // ⚠ MUST PRECEDE THE WARM-UP BELOW. Arming patches every registered material, which
+        // invalidates its compiled program. Arm first and the warm-up compiles the grid-patched
+        // variants; arm after (the pre-2026-08-25 order, from the animate loop) and the warm-up's
+        // entire output is discarded — 864 ms arm frame, then lamps flickering off and on every
+        // 3-4 s for the whole load as each tile burst triggered another recompile.
+        try { armLightGrid(); } catch {}
         // Warm the GPU shader programs once now (materials are shared singletons, so this compiles almost
         // every program the session will ever use). Kills the first-render compile stall as new tiles
         // stream in at speed. compileAsync runs off the render path (KHR_parallel_shader_compile).
@@ -911,6 +917,41 @@ function rebuildLightGrid() {
   _lgLampCount = lights.length;
   setLights(lights, { x: camera.position.x, z: camera.position.z });
   updateLightGrid(camera.position.x, camera.position.z);
+}
+
+/**
+ * Arm the light grid: patch every material the registry knows (and every one it learns about
+ * later) so the clustered street lighting reaches them. Idempotent — safe to call from both the
+ * boot path and the animate-loop fallback.
+ *
+ * ⚠ CALL THIS BEFORE THE BOOT SHADER WARM-UP. Patching a material invalidates its compiled
+ * program. When this ran AFTER the warm-up (it did until 2026-08-25, from the animate loop) every
+ * program the warm-up had just built was thrown away and recompiled on the next draw — a measured
+ * 864 ms `rend` arm frame — and each subsequent tile burst registered more materials, so the
+ * debounced compileAsync below fired again and again. The visible symptom was NOT a stall: the
+ * lamps popped OFF and back ON every 3-4 seconds through the whole load, settling only when tile
+ * streaming stopped. Arming first means the warm-up compiles the patched variants once.
+ */
+function armLightGrid() {
+  // The flag guard lives HERE, not at the call sites: the boot call site runs before the animate
+  // loop's `if (_LIGHTGRID && ...)` gate would ever be reached, and without this the grid would arm
+  // for every player rather than only under ?lightgrid.
+  if (!_LIGHTGRID || _lgArmed || !tileManager) return;
+  _lgArmed = true;
+  initLightGrid();
+  // Subscribe rather than sweep once: tile materials are created lazily, so a one-time sweep
+  // lights the spawn tiles and nothing you drive into afterwards — the lighting would appear
+  // to stop working partway down the street, with no error to explain it. replayExisting
+  // handles the already-built spawn tiles in the same call.
+  let patched = 0;
+  onMaterialRegistered((m) => { try { patchLightGrid(m); patched++; _lgDirtyPrograms = true; } catch { /* non-lit material */ } });
+  rebuildLightGrid();
+  const vis = assertLightingVisible({
+    radius: _lgTune.radius ?? REGION.night?.lampRadiusM, intensity: _lgTune.intensity ?? REGION.night?.lampIntensity,
+    wrap: lightGridUniforms.uLGWrap.value, coneFloor: lightGridUniforms.uLGConeFloor.value,
+    conePower: lightGridUniforms.uLGConePower.value });
+  console.warn('[lightgrid] armed — %d materials patched, %d lamps in range. Road under a lamp %s, at 15 m %s.',
+    patched, _lgLampCount, vis.under.toFixed(3), vis.mid.toFixed(3));
 }
 
 function animate(time = 0) {
@@ -1254,23 +1295,9 @@ function animate(time = 0) {
   // simply never armed there and the roads stayed dark, which looked like the grid was broken
   // rather than absent. rebuildLightGrid() works off camera.position, which both modes have.
   if (_LIGHTGRID && tileManager) {
-    if (!_lgArmed) {
-      _lgArmed = true;
-      initLightGrid();
-      // Subscribe rather than sweep once: tile materials are created lazily, so a one-time sweep
-      // lights the spawn tiles and nothing you drive into afterwards — the lighting would appear
-      // to stop working partway down the street, with no error to explain it. replayExisting
-      // handles the already-built spawn tiles in the same call.
-      let patched = 0;
-      onMaterialRegistered((m) => { try { patchLightGrid(m); patched++; _lgDirtyPrograms = true; } catch { /* non-lit material */ } });
-      rebuildLightGrid();
-      const vis = assertLightingVisible({
-        radius: _lgTune.radius ?? REGION.night?.lampRadiusM, intensity: _lgTune.intensity ?? REGION.night?.lampIntensity,
-        wrap: lightGridUniforms.uLGWrap.value, coneFloor: lightGridUniforms.uLGConeFloor.value,
-        conePower: lightGridUniforms.uLGConePower.value });
-      console.warn('[lightgrid] armed — %d materials patched, %d lamps in range. Road under a lamp %s, at 15 m %s.',
-        patched, _lgLampCount, vis.under.toFixed(3), vis.mid.toFixed(3));
-    }
+    // Fallback only. The boot path arms this BEFORE the shader warm-up (see armLightGrid); this
+    // catches entry paths that never reach that call site. Idempotent, so it is a no-op normally.
+    armLightGrid();
     // Patching a material invalidates its compiled program, so the NEXT draw pays for the
     // recompile — measured at `rend 340ms` on the arm frame, and again in smaller stalls as tiles
     // bring new materials in. compileAsync uses KHR_parallel_shader_compile to build them off the

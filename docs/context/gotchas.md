@@ -156,21 +156,28 @@ The geometry worker pool (2–4 workers) handles the CPU-heavy phase after parsi
 
 ---
 
-## G-08: Backend CORS Is Hardcoded to Port 4040
+## G-08: Backend CORS Is An Allowlist — An Unlisted Frontend Port Gets Nothing
 
 **What it is:**
-`backend/server.js` line 12:
+`backend/server.js` answers CORS from `ALLOWED_ORIGINS`, not a wildcard:
 ```js
-res.setHeader('Access-Control-Allow-Origin', 'http://localhost:4040');
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:4040,http://localhost:4044')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 ```
+An origin that is not on the list gets **no** `Access-Control-Allow-Origin` header at all.
 
 **What breaks if ignored:**
-- Start Vite on any port other than 4040 → all tile fetches blocked by CORS
-- Deploy to a non-localhost URL → all tile fetches blocked
-- The browser will not show the tile data in the network response; it looks like a connection error
+- Serve the frontend on an unlisted port → every tile fetch blocked; the game loads but the world stays empty
+- Deploy to a non-localhost URL without setting `ALLOWED_ORIGINS` → same
+- **It does not look like a CORS problem.** The console shows `[TileLoader] Fetch failed: Failed to fetch`
+  and `net::ERR_FAILED 200 (OK)` — a 200 the browser then refuses to hand to JS
+
+**The two local ports both matter:** 4040 is `npm run dev`; **4044 is `npm run preview`**, the production
+build the v3 verification drives run against. Both are in the default list — keep it that way.
 
 **Fix:**
-Change the CORS header in `server.js`. For development, use `process.env.CORS_ORIGIN || 'http://localhost:4040'`. For production, set it to the deployed frontend origin.
+Add the origin to the default list in `server.js`, or start the backend with
+`ALLOWED_ORIGINS=https://your.app npm start` (comma-separated for several).
 
 ---
 
