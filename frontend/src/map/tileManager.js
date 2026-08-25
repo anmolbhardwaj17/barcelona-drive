@@ -580,6 +580,7 @@ function countVertices(meshes) {
 
 /** @type {Map<string, { roads: object[], buildings: object[], roadMeshes?: THREE.Mesh[], buildingMeshes?: THREE.Mesh[], spatialIndex?: object }>} */
 const tileCache = new Map();
+let _tileEpoch = 0;   // bumped on every tileCache add/delete — see getTileEpoch()
 
 // Dev: window._findWhiteTiles() — hunts the "white terrain tile" (identify v2: 16384-vert Lambert
 // white). Scans every loaded terrain mesh's colour/aAO/aCoast attributes for NaN or near-white
@@ -1929,7 +1930,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
 
     // Store in cache NOW so roads are usable immediately
-    tileCache.set(key, entry);
+    tileCache.set(key, entry); _tileEpoch++;
     if (_onMapTileReady) { try { _onMapTileReady(key, tileData); } catch (e) { /* minimap must never break tiles */ } }
     // Invalidate LOD cache so new tile gets correct visibility on next frame
     _lastLodX = -Infinity;
@@ -2411,6 +2412,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   function startOneTileLoad(key, tx0, ty0) {
     if (tileCache.has(key)) return;
     if (!Number.isFinite(tx0) || !Number.isFinite(ty0)) {
+    _tileEpoch++;
       tileCache.set(key, {
         roads: [],
         buildings: [],
@@ -2461,6 +2463,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       .then((data) => processTileData(key, tx0, ty0, data))
       .catch((e) => {
         console.warn('Tile load failed', key, e);
+    _tileEpoch++;
         tileCache.set(key, {
           roads: [],
           buildings: [],
@@ -2694,7 +2697,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
         // Phase B: queue GPU disposal for deferred processing
         _pendingDisposals.push({ meshes: allMeshes, entry });
-        tileCache.delete(key);
+        tileCache.delete(key); _tileEpoch++;
         if (_onMapTileRemoved) { try { _onMapTileRemoved(key); } catch (e) { /* minimap must never break tiles */ } }
       }
     }
@@ -3361,6 +3364,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     return out;
   }
 
+  /**
+   * Monotonic counter bumped whenever the resident tile set changes. Consumers that derive state
+   * from ALL loaded tiles (the light grid's lamp list) poll this instead of rebuilding every frame
+   * or rebuilding only on camera movement — a tile loading in while the car sits still must still
+   * light its lamps.
+   */
+  function getTileEpoch() { return _tileEpoch; }
+
   function getTunnelBodyCount() {
     let n = 0;
     for (const entry of tileCache.values()) n += (entry.tunnelBodies || []).length;
@@ -3389,6 +3400,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     getHeightfieldBodyForTileKey,
     getBridgeBodyCount,
     getTunnelBodyCount,
+    getTileEpoch,
     getTerrainHeightAt,
     getRoadHeightAt,
     getSurfaceHeightAt,

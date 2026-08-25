@@ -63,7 +63,27 @@ export default {
    * Night colour temperature. Barcelona's street lighting is largely warm — this is what the P2
    * light grid keys off, and what makes the warm-vs-cool contrast that sells the night look.
    */
-  night: { lampColor: 0xFFB25E, lampKelvin: 2200 },
+  night: {
+    lampColor: 0xFFB25E,
+    lampKelvin: 2200,
+    /**
+     * Light-grid parameters. These are per-CITY on purpose: a Delhi bake wants a different answer
+     * (cooler/harsher LED retrofits on much taller poles, with far less regular spacing), and the
+     * whole point of the region profile is that swapping the city swaps the look without touching
+     * the renderer.
+     *
+     * radiusM is the cutoff, not a physical falloff distance — cost scales with radius^2 because a
+     * bigger radius puts each lamp in more cells and saturates the 4 slots sooner. 26 m is roughly
+     * one Eixample carriageway width plus both pavements, which is what a real lamp actually
+     * reaches; going wider mostly buys overlap, not visible light.
+     */
+    lampRadiusM: 26,
+    lampIntensity: 3.0,
+    /** Half-lambert bias. Real streets are full of surfaces facing away from a lamp that are still
+     *  visibly lit by bounce, and there is no GI here to supply it. 0 = true lambert, 1 = fully
+     *  wrapped. Warmer, hazier cities want more. */
+    lampWrap: 0.5,
+  },
 
   /** Architecture. Cerdà grid, chamfered corners, and flat *terrats* rather than pitched roofs. */
   architecture: {

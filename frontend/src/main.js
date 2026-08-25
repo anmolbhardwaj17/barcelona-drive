@@ -65,6 +65,7 @@ import { loadCityMap } from './ui/cityMapLoader.js';
 import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
 import { createGpuTimer } from './ui/gpuTimer.js';
+import { REGION } from './regions/index.js';
 import { createCpuTimer } from './ui/cpuTimer.js';
 import { chunksIn, formatChunks, recordLongFrame } from './ui/frameAttribution.js';
 import { createPerfLogger } from './ui/perfLogger.js';
@@ -82,7 +83,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor } from './map/materialRegistry.js';   // v3 P1-03
-import { initLightGrid, setLights, updateLightGrid, patchLightGrid, stubSpikeLights, lightGridABTick, CELL_M } from './map/lightGrid.js';   // v3 P2
+import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -842,6 +843,53 @@ let _lastCarShadowX = -Infinity, _lastCarShadowZ = -Infinity;
 const CAR_SHADOW_THRESHOLD_SQ = 0.5 * 0.5; // hero car is the only dynamic caster — refresh its shadow every 0.5m
 const SHADOW_UPDATE_THRESHOLD_SQ = 12 * 12; // update shadow camera every 12m (was 5) — fewer full shadow re-renders (less per-frame Three.js churn + GPU); imperceptible for a 200m-radius directional shadow
 
+
+// ── v3 P2-04: real street lamps into the light grid ───────────────────────────────────────────────
+//
+// ⚠ COORDINATE FRAME — the landmine this whole function exists to defuse. tileManager is created
+// with `worldGroup` as its scene, so every lamp position it returns is in worldGroup-LOCAL space.
+// worldGroup carries BOTH `scale.x = -1` and the floating-origin translation, while the shader's
+// `vLGWorldPos = modelMatrix * transformed` is in TRUE world space, and `camera` is a child of the
+// scene (not worldGroup) so `camera.position` is true world too.
+//
+// Local and world are therefore DIFFERENT frames, and getting it wrong puts every lamp's pool on
+// the wrong side of the street — symmetrically, so it reads as "the lighting is subtly off" rather
+// than as an obvious bug. We do NOT hand-derive the signs (see CLAUDE.md's warning about exactly
+// this): three's own matrices do it.
+//
+// The cull runs in LOCAL space on purpose: the mirror has |scale| = 1 and translation preserves
+// distance, so local distances equal world distances — which lets us reject most lamps with two
+// subtractions and convert only the survivors.
+const _lgTmp = new THREE.Vector3();
+const _lgCamLocal = new THREE.Vector3();
+const _lgColor = new THREE.Color(REGION.night?.lampColor ?? 0xFFB25E);
+let _lgLampCount = 0;
+let _lgTileEpoch = -1;
+
+function rebuildLightGrid() {
+  const positions = tileManager.getStreetlightPositions();
+  _lgCamLocal.copy(camera.position);
+  worldGroup.worldToLocal(_lgCamLocal);
+
+  const half = (GRID_DIM * CELL_M) / 2;      // 256 m — anything outside the window cannot contribute
+  const half2 = half * half;
+  const radius = REGION.night?.lampRadiusM ?? 26;
+  const intensity = REGION.night?.lampIntensity ?? 3.0;
+
+  const lights = [];
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i];
+    const dx = p.x - _lgCamLocal.x, dz = p.z - _lgCamLocal.z;
+    if (dx * dx + dz * dz > half2) continue;
+    _lgTmp.set(p.x, p.y, p.z);
+    worldGroup.localToWorld(_lgTmp);
+    lights.push({ x: _lgTmp.x, y: _lgTmp.y, z: _lgTmp.z, radius, color: _lgColor, intensity });
+  }
+  _lgLampCount = lights.length;
+  setLights(lights, { x: camera.position.x, z: camera.position.z });
+  updateLightGrid(camera.position.x, camera.position.z);
+}
+
 function animate(time = 0) {
   requestAnimationFrame(animate);
   // FPS cap: on a high-refresh display (120 Hz) the game ran ~80 fps, and the per-frame engine allocation
@@ -1177,23 +1225,20 @@ function animate(time = 0) {
     if (!_lgArmed) {
       _lgArmed = true;
       initLightGrid();
-      // Spike lights are placed in the RENDERER's frame (camera.position), the same frame
-      // vLGWorldPos is computed in. Do not use physics coords here — X is mirrored.
-      setLights(stubSpikeLights(camera.position.x, camera.position.z));
-      updateLightGrid(camera.position.x, camera.position.z);
       let patched = 0;
       for (const m of getRegisteredMaterials()) { try { patchLightGrid(m); patched++; } catch {} }
-      console.warn('[lightgrid] SPIKE armed — 32 lights, %d materials patched. Drive ~25 s; it A/Bs itself and prints SPIKE RESULT.', patched);
+      rebuildLightGrid();
+      console.warn('[lightgrid] armed — %d materials patched, %d lamps in range.', patched, _lgLampCount);
     }
-    lightGridABTick(gpuTimer.getMs());   // self-measuring A/B — see lightGrid.js (getMs is a cached EMA, no GPU sync)
+    lightGridABTick(gpuTimer.getMs());   // dev A/B — see lightGrid.js (getMs is a cached EMA, no GPU sync)
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
-    if (cxN !== _lgCellX || czN !== _lgCellZ) {
+    // Rebuild on cell crossing OR when the tile set changed — a tile loading in brings new lamps
+    // that would otherwise stay dark until the car happened to cross a cell boundary.
+    const epoch = tileManager.getTileEpoch();
+    if (cxN !== _lgCellX || czN !== _lgCellZ || epoch !== _lgTileEpoch) {
       _lgCellX = cxN; _lgCellZ = czN;
-      // SPIKE ONLY: re-place the stub lamps around the camera. The grid window follows the camera
-      // but the lights do not, so without this they are left behind at spawn and the shader ends up
-      // measuring an empty grid. The real build takes lamp positions from the tiles and this goes.
-      setLights(stubSpikeLights(camera.position.x, camera.position.z));
-      updateLightGrid(camera.position.x, camera.position.z);
+      _lgTileEpoch = epoch;
+      rebuildLightGrid();
     }
   }
 

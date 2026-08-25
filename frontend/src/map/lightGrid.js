@@ -29,6 +29,7 @@
  */
 import * as THREE from 'three';
 import { patchMaterial } from './materialRegistry.js';
+import { REGION } from '../regions/index.js';
 
 export const GRID_DIM = 64;        // texels per axis
 export const CELL_M = 8;           // world metres per cell → 512 m window
@@ -47,7 +48,12 @@ export const lightGridUniforms = {
   uLGData:    { value: null },
   uLGOrigin:  { value: new THREE.Vector2() },
   uLGEnabled: { value: 0 },
+  // Half-lambert bias, per city. See regions/<city>.js night.lampWrap.
+  uLGWrap:    { value: REGION.night?.lampWrap ?? 0.5 },
 };
+
+/** Per-cell distance² of each occupied slot, so a nearer light can evict a farther one. */
+let _slotDist = null;
 
 export function isLightGridEnabled() { return _enabled; }
 
@@ -58,6 +64,7 @@ export function initLightGrid() {
   _indexTex.magFilter = _indexTex.minFilter = THREE.NearestFilter;   // indices must NOT interpolate
   _indexTex.needsUpdate = true;
 
+  _slotDist = new Float32Array(GRID_DIM * GRID_DIM * SLOTS);
   _lightData = new Float32Array((MAX_LIGHTS + 1) * 2 * 4);
   _dataTex = new THREE.DataTexture(_lightData, 2, MAX_LIGHTS + 1, THREE.RGBAFormat, THREE.FloatType);
   _dataTex.magFilter = _dataTex.minFilter = THREE.NearestFilter;
@@ -71,11 +78,24 @@ export function initLightGrid() {
 
 /**
  * Replace the light set. `lights` = [{x, y, z, radius, color:THREE.Color, intensity}].
- * Called on tile load/unload, NOT per frame.
+ * Called on tile load/unload and on cell crossing, NOT per frame.
+ *
+ * `nearTo` (world XZ) picks WHICH lights survive when there are more than MAX_LIGHTS. A dense
+ * Eixample night easily exceeds 255 lamps inside the 512 m window, and `.slice(0, 255)` would keep
+ * whichever tiles happened to load first — so the lit area would wander with load order rather than
+ * follow the camera, and lamps near the car could silently go dark while lamps 400 m away stayed
+ * lit. Sorting by distance makes the truncation a range cutoff instead of an arbitrary one.
  */
-export function setLights(lights) {
+export function setLights(lights, nearTo = null) {
   if (!_indexTex) initLightGrid();
-  _lights = lights.slice(0, MAX_LIGHTS);
+  if (lights.length > MAX_LIGHTS && nearTo) {
+    const { x: cx, z: cz } = nearTo;
+    // Partial-select would be cheaper, but this runs on cell crossing (~2/s), not per frame, and
+    // a full sort of a few hundred entries is well under the cost of being wrong here.
+    lights = lights.slice().sort((a, b) =>
+      ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
+  }
+  _lights = lights.length > MAX_LIGHTS ? lights.slice(0, MAX_LIGHTS) : lights;
   for (let i = 0; i < _lights.length; i++) {
     const L = _lights[i], o = (i + 1) * 8;   // +1: slot 0 is the "empty" sentinel
     _lightData[o] = L.x; _lightData[o + 1] = L.y; _lightData[o + 2] = L.z; _lightData[o + 3] = L.radius;
@@ -98,21 +118,40 @@ export function updateLightGrid(camWorldX, camWorldZ) {
   lightGridUniforms.uLGOrigin.value.set(_originX, _originZ);
   _indexData.fill(0);
 
+  _slotDist.fill(0);
+
   for (let i = 0; i < _lights.length; i++) {
     const L = _lights[i];
+    const r2 = L.radius * L.radius;
     // Cell range this light can possibly reach.
     const c0x = Math.max(0, Math.floor((L.x - L.radius - _originX) / CELL_M));
     const c1x = Math.min(GRID_DIM - 1, Math.floor((L.x + L.radius - _originX) / CELL_M));
     const c0z = Math.max(0, Math.floor((L.z - L.radius - _originZ) / CELL_M));
     const c1z = Math.min(GRID_DIM - 1, Math.floor((L.z + L.radius - _originZ) / CELL_M));
     for (let cz = c0z; cz <= c1z; cz++) {
+      const cellCz = _originZ + (cz + 0.5) * CELL_M;
+      const dz = cellCz - L.z;
       for (let cx = c0x; cx <= c1x; cx++) {
-        const t = (cz * GRID_DIM + cx) * 4;
-        // First free slot. Overflow is DROPPED on purpose: the 4-slot cap is what bounds the
-        // per-fragment cost, and a 5th lamp reaching one 8 m cell is imperceptible.
-        for (let s = 0; s < SLOTS; s++) {
-          if (_indexData[t + s] === 0) { _indexData[t + s] = i + 1; break; }
+        const cellCx = _originX + (cx + 0.5) * CELL_M;
+        const dx = cellCx - L.x;
+        const d2 = dx * dx + dz * dz;
+        // Circle, not the bounding square: the corners of that square are outside the lamp's reach
+        // and would burn slots that a genuinely closer lamp needs.
+        if (d2 > r2) continue;
+
+        const t = (cz * GRID_DIM + cx) * SLOTS;
+        // NEAREST-FIRST. First-free assignment lets whichever light is iterated first squat a slot,
+        // so in a dense block the four lights kept for a cell were an accident of array order and
+        // the visibly nearest lamp could be the one dropped. Overflow still gets dropped — the
+        // 4-slot cap is what bounds per-fragment cost — but now the DROPPED ones are the farthest.
+        let placed = false, worstS = -1, worstD = -1;
+        for (let sl = 0; sl < SLOTS; sl++) {
+          if (_indexData[t + sl] === 0) {
+            _indexData[t + sl] = i + 1; _slotDist[t + sl] = d2; placed = true; break;
+          }
+          if (_slotDist[t + sl] > worstD) { worstD = _slotDist[t + sl]; worstS = sl; }
         }
+        if (!placed && d2 < worstD) { _indexData[t + worstS] = i + 1; _slotDist[t + worstS] = d2; }
       }
     }
   }
@@ -121,7 +160,7 @@ export function updateLightGrid(camWorldX, camWorldZ) {
   // evaluate; without this, an empty grid reports a confident PASS and nobody can tell.
   let occ = 0, slots = 0;
   for (let c = 0; c < GRID_DIM * GRID_DIM; c++) {
-    const t = c * 4;
+    const t = c * SLOTS;
     const n = (_indexData[t] ? 1 : 0) + (_indexData[t + 1] ? 1 : 0) + (_indexData[t + 2] ? 1 : 0) + (_indexData[t + 3] ? 1 : 0);
     if (n) { occ++; slots += n; }
   }
@@ -133,12 +172,28 @@ export function updateLightGrid(camWorldX, camWorldZ) {
   _indexTex.needsUpdate = true;
 }
 
+/**
+ * The four light indices affecting the cell containing a world XZ, nearest-first, 0 = empty.
+ * Mirrors exactly what the fragment shader reads, so it answers "why is this spot lit like that?"
+ * without a GPU debugger — and lets the slot-assignment rules be tested, since every failure mode
+ * here is silent (the scene renders fine, just lit by the wrong lamps).
+ */
+export function getCellSlots(worldX, worldZ) {
+  if (!_indexData) return [0, 0, 0, 0];
+  const cx = Math.floor((worldX - _originX) / CELL_M);
+  const cz = Math.floor((worldZ - _originZ) / CELL_M);
+  if (cx < 0 || cz < 0 || cx >= GRID_DIM || cz >= GRID_DIM) return [0, 0, 0, 0];
+  const t = (cz * GRID_DIM + cx) * SLOTS;
+  return [_indexData[t], _indexData[t + 1], _indexData[t + 2], _indexData[t + 3]];
+}
+
 /** GLSL injected into a material's fragment shader. Adds accumulated punctual light to the diffuse. */
 export const LIGHT_GRID_PARS = /* glsl */`
 uniform sampler2D uLGIndex;
 uniform sampler2D uLGData;
 uniform vec2 uLGOrigin;
 uniform float uLGEnabled;
+uniform float uLGWrap;
 varying vec3 vLGWorldPos;
 
 vec3 lightGridContribution(vec3 wpos, vec3 normal) {
@@ -160,7 +215,9 @@ vec3 lightGridContribution(vec3 wpos, vec3 normal) {
     // instead of popping. NdotL is half-lambert-biased: a real street is full of surfaces facing
     // away from the lamp that are still visibly lit by bounce, and there is no GI here to supply it.
     float atten = pow(clamp(1.0 - dist / P.w, 0.0, 1.0), 2.0);
-    float ndl = clamp(dot(normalize(normal), normalize(d)) * 0.5 + 0.5, 0.0, 1.0);
+    // mix(dot, 1, wrap): wrap=0 is true lambert, wrap=0.5 reproduces the classic dot*0.5+0.5
+    // half-lambert the spike was measured with, wrap=1 is fully omnidirectional.
+    float ndl = clamp(mix(dot(normalize(normal), normalize(d)), 1.0, uLGWrap), 0.0, 1.0);
     acc += C.rgb * C.w * atten * ndl;
   }
   return acc;
