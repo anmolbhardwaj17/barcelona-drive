@@ -1107,6 +1107,8 @@ function animate(time = 0) {
   updateMoon(camera.position.x, camera.position.z);
   updateStars(camera.position.x, camera.position.z);
 
+  cpuTimer.lap('sky');     // clouds / moon / stars
+
   const origin = getOriginOffset();
   const worldWx = viewerWx + origin.x;
   const worldWz = viewerWz + origin.z;
@@ -1119,6 +1121,7 @@ function animate(time = 0) {
     _lastRoadQueryX = worldWx;
     _lastRoadQueryZ = worldWz;
   }
+  cpuTimer.lap('roadq');   // nearest-road lookup — O(all roads in all tiles) when it fires
   const nearest = _cachedNearestRoad;
   streetDisplay?.setStreet(nearest ? nearest.name : null, nearest ? nearest.highwayType : null);
   if (carDriver) {
@@ -1132,6 +1135,7 @@ function animate(time = 0) {
   compassBar?.update(headingDeg);
   metricsPanel?.update({ x: viewerWx, z: viewerWz, lat, lon, roadType: nearest ? nearest.highwayType : null, headingDeg, speedKmh: Math.abs(speedKmh) });
   // Shadow camera follows the viewer — throttled to update only when moved >5m
+  cpuTimer.lap('hud');     // minimap / compass / metrics / speed lines — DOM + canvas work
   if (dirLight && dirLight.castShadow) {
     const shDx = camera.position.x - _lastShadowX, shDz = camera.position.z - _lastShadowZ;
     if (shDx * shDx + shDz * shDz > SHADOW_UPDATE_THRESHOLD_SQ) {
@@ -1188,7 +1192,9 @@ function animate(time = 0) {
 
   // Animate grass + tree wind (same time base for spatial coherence)
   updateTreeWind(time / 1000);
-  cpuTimer.lap('ui'); // hud/minimap/shadow-follow/wind/infra since the last lap
+  // v3: `ui` was one lap over ~15 subsystems and a drive caught it at 54 ms with no owner. Split
+  // into sky / roadq / hud / ui so the next long frame names the subsystem instead of the group.
+  cpuTimer.lap('ui'); // shadow-follow / infra / beacons / haze / wind — the remainder
 
   // Radial edge blur scales with speed — skip the full-screen pass entirely below ~30 km/h (a free frame).
   const blurSpd = Math.abs(speedKmh || 0);

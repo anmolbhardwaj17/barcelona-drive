@@ -3189,7 +3189,23 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
    * Get all road segments from currently loaded tiles for street name lookup.
    * @returns {{ name: string, points: {x,y}[] }[]}
    */
+  // v3: cached, invalidated by tile epoch.
+  //
+  // This allocated a FRESH OBJECT PER ROAD, for every road in every resident tile, on EVERY call —
+  // thousands of objects across 9-18 tiles. And it has four hot callers: the street-name lookup
+  // (every 10 m of movement), parked-car rebuild, pedestrian reassign, and traffic path extension,
+  // which runs per CAR whenever a car's path runs out. That is a large, repeated allocation churn
+  // feeding the GC pauses that show up as unattributed `other` time in the frame attributor.
+  //
+  // The contents only change when the resident tile set changes, which is exactly what _tileEpoch
+  // tracks, so nearly every call is now a pointer return.
+  //
+  // ⚠ THE RETURNED ARRAY IS SHARED AND MUST BE TREATED AS READ-ONLY. Every current caller only
+  // reads it (checked at the time of writing); a caller that sorts or splices it would corrupt the
+  // list for all the others until the next tile load.
+  let _segCache = null, _segCacheEpoch = -1;
   function getLoadedRoadSegments() {
+    if (_segCache !== null && _segCacheEpoch === _tileEpoch) return _segCache;
     const segments = [];
     for (const entry of tileCache.values()) {
       if (!entry.roads) continue;
@@ -3204,6 +3220,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         });
       }
     }
+    _segCache = segments;
+    _segCacheEpoch = _tileEpoch;
     return segments;
   }
 
