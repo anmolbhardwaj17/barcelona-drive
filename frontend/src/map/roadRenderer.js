@@ -24,7 +24,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 }
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
-import { applyGroundLayer } from './groundLayers.js';
+import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, CURB_HEIGHT } from './groundLayers.js';
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -35,7 +35,9 @@ import { createRoadTextures } from './generate-road-atlas.js';
  */
 const LAYER_HEIGHT_STEP = 6;
 const ROAD_OFFSET = 0.05;
-const ROAD_VISUAL_ABOVE_TERRAIN = 0.05; // lift roads above the terrain mesh (decal offset) — clears z-fight + the bilinear-road vs triangle-mesh conformance gap on curved 128-grid cells. Was 0.22 (pre-smoothing DEM), 0.06 (Phase 2); wheels ride the terrain heightfield (D-16) so the slab floats ABOVE the wheel contact by exactly this amount → the car looks sunk by it. Shaved 0.06→0.05 to reduce that. Raise if roads start dipping under terrain on curved/hill cells.
+// v3 P2-08: ROAD_VISUAL_ABOVE_TERRAIN now lives in groundLayers.js so roadInfraRenderer can apply
+// it too — it could not before, being module-local here, and silently didn't, which is what left
+// lane arrows 1 cm above the road instead of 6 cm. The tuning history is preserved there.
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
 
@@ -68,8 +70,9 @@ const ROAD_PRIORITY_Y_BUMP = {
 /** Height step per OSM layer; tunnel = -1 step. */
 const BRIDGE_TUNNEL_OFFSET = LAYER_HEIGHT_STEP;
 const LAYER_HEIGHT_PER_LEVEL = LAYER_HEIGHT_STEP;
-/** Sidewalk height above terrain: terrain + (layer * LAYER_HEIGHT_STEP) + SIDEWALK_OFFSET. */
-const SIDEWALK_Y_OFFSET = SIDEWALK_OFFSET;
+// v3 P2-08: SIDEWALK_Y_OFFSET (terrain + 0.08) removed — it had ZERO call sites and disagreed with
+// the live convention (road surface + kerb = terrain + 0.17) by 9 cm. Two conventions for one
+// height is how paint ends up floating; a dead one is a trap for whoever wires it up next.
 /** Sidewalk width (m) by road type, total per side. 0 = no sidewalk. Do not exceed these values. */
 const SIDEWALK_WIDTH_BY_TYPE = {
   motorway: 0,
@@ -1558,7 +1561,9 @@ function inferSidewalkSide(road) {
 async function buildSidewalks(roads, options, yieldFn) {
   if (!CONFIG.ENABLE_SIDEWALKS) return null;
 
-  const SIDEWALK_Y_ABOVE = BCN_DIMS.CURB_HEIGHT; // 0.12m — atop the curb
+  // v3 P2-08: kerb height comes from groundLayers so sidewalkSurfaceY() and anything placed ON a
+  // sidewalk (tactile paving) cannot drift from the sidewalk itself.
+  const SIDEWALK_Y_ABOVE = CURB_HEIGHT; // 0.12m — atop the curb
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
 
   // Building proximity gate: skip sidewalk on roads with no building centroid within 30m.
@@ -2180,7 +2185,7 @@ function getTactileMaterial() {
 }
 
 const TACTILE_DEPTH   = 0.6;  // depth of the strip (perpendicular to crosswalk)
-const TACTILE_Y_ABOVE = BCN_DIMS.CURB_HEIGHT + 0.005; // on top of panot sidewalk
+const TACTILE_Y_ABOVE = CURB_HEIGHT + groundLift('tactile'); // on top of panot sidewalk (P2-08 shared stack)
 const TACTILE_ELIGIBLE = new Set(['primary', 'secondary', 'tertiary', 'primary_link', 'secondary_link', 'tertiary_link', 'residential', 'unclassified', 'living_street']);
 
 /**

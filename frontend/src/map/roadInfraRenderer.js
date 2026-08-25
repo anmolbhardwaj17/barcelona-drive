@@ -17,7 +17,7 @@
  *   want local +X = (−tz, 0, tx) → same θ = atan2(−tx, −tz)
  */
 import * as THREE from 'three';
-import { applyGroundLayer } from './groundLayers.js';
+import { applyGroundLayer, roadSurfaceY, groundLift } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
@@ -25,22 +25,16 @@ import { getWorldElevationOffset } from '../elevationOffset.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const LAYER_HEIGHT_STEP = 6;
-// Height of road decals above the sampled surface.
+// v3 P2-08: decals are now placed from the DRAWN ROAD SURFACE, not the road base.
 //
-// ⚠ 0.06 WAS NOT ENOUGH, and the evidence was already in this repo: buildOnewayArrows notes that
-// 0.035 left arrows "3.5-4.5cm BURIED (arrows invisible)". The baked road surface sits up to ~4.5 cm
-// above the elevation these decals sample — lane arrows sample INTERSECTION points while the road
-// mesh is built from its own geometry, so the two do not agree — which left barely 1.5 cm of margin.
+// The old ROAD_Y_OFFSET was measured from the normalised road deck WITHOUT
+// ROAD_VISUAL_ABOVE_TERRAIN, so "0.06 above the road" was really 0.01 above it — not enough to
+// survive a triangulated ribbon with any crown or junction blend, which buried the arrows wherever
+// the surface bulged. Raising it to 0.11 last session only traded burial for floating.
 //
-// That is exactly the reported "arrows disappear when I get close": polygonOffset's slope term is
-// large at the grazing angles you see distant road at, so it pulled buried arrows forward and they
-// looked fine; up close you view them far more steeply, the slope term collapses, and the real
-// burial shows. Depth bias was masking a geometry problem, which is why raising the bias "fixed"
-// it once before and the symptom came back.
-//
-// 0.11 clears the known worst case with margin. At driving distances 11 cm reads flat on the road,
-// and the 'stencil' bias still prevents z-fighting where the surfaces do agree.
-const ROAD_Y_OFFSET = 0.11;
+// roadSurfaceY() applies the road's own visual lift; groundLift('stencil') is the same paint-stack
+// height roadRenderer uses for its own arrows and stencils. Both come from groundLayers.js, so the
+// two renderers can no longer drift apart.
 
 /**
  * Normalize a raw road-point elevation to render-Y, matching the road deck.
@@ -963,7 +957,8 @@ function generateLaneArrows(intersections) {
       instances.push({
         x: sample.x, z: sample.z,
         angle: facingAngle(dirTx, dirTz),
-        baseY: (sample.elevation != null ? sample.elevation : layer * LAYER_HEIGHT_STEP) + ROAD_Y_OFFSET,
+        baseY: roadSurfaceY(sample.elevation != null ? sample.elevation : layer * LAYER_HEIGHT_STEP)
+               + groundLift('stencil'),
       });
     }
   }
@@ -1241,7 +1236,6 @@ function generateDrains(roads, junctions, rng) {
     const roadW = getRoadWidth(road);
     const layer = (road.layer != null && Number.isFinite(road.layer)) ? road.layer : 0;
     if (layer !== 0) continue;
-    const baseY = ROAD_Y_OFFSET;
 
     const spacing = 15 + rng() * 10;
     const samples = walkPolyline(pts, spacing);
@@ -1254,7 +1248,11 @@ function generateDrains(roads, junctions, rng) {
       instances.push({
         x: s.x + nx * offset,
         z: s.z + nz * offset,
-        baseY,
+        // v3 P2-08: was a bare `ROAD_Y_OFFSET`, i.e. an ABSOLUTE 0.11 with no road elevation term
+        // at all. Near the spawn (sea level, normalised ~0) that happened to look right; on any of
+        // Barcelona's sloped streets the covers were metres off the asphalt they sit in.
+        // walkPolyline already returns a normalised elevation — it just was not being used.
+        baseY: roadSurfaceY(s.elevation ?? 0) + groundLift('drain'),
       });
     }
   }
