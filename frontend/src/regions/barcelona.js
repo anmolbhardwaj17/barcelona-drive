@@ -100,9 +100,13 @@ export default {
      * Lowered again with the smoothstep falloff: that holds near 1 through the near field where
      * quadratic had collapsed, so the same number now reads far brighter than it did.
      */
-    lampIntensity: 0.28,  // chosen on a night drive: 0.2 read right before the downward cone landed,
-                          // and the cone costs ~40% at mid-street, so this restores that reach
-                          // without touching how little the cone gives the facades above.
+    lampIntensity: 0.36,  // Third value chosen on a night drive (0.2 pre-cone -> 0.28 -> 0.36).
+                          // The cone costs ~40% at mid-street by design, and the 16-bit index now
+                          // lights the full 512 m window, so more of the frame is lit at once and
+                          // the eye reads any single pool as dimmer than it did. Under a lamp this
+                          // is 0.333, at 15 m 0.117 — still well under the 0.72 night bloom
+                          // threshold, which is the ceiling worth watching: past it, road paint and
+                          // asphalt start blooming and the night look collapses.
     /** Half-lambert bias. Real streets are full of surfaces facing away from a lamp that are still
      *  visibly lit by bounce, and there is no GI here to supply it. 0 = true lambert, 1 = fully
      *  wrapped. Warmer, hazier cities want more. */
