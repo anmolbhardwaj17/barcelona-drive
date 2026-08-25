@@ -13,7 +13,7 @@
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
 | **Next task** | **P3-04 · array facade material · 4.0 d** (P3-03 ✅ FrontSide shipped). It also carries P3's "mid-air shopfronts: 0" gate, which P3-02 handed to it. ⚠ P3-03's fragment saving is unmeasured — a bench run would bank it. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **62 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **63 / 84** — **P0 ✅ · P1 ✅ · P2 ✅ COMPLETE.** In **P3**: 01/02/03/04/06/07 done; 05, 07b, 07c, 08, 09, 10, 11 open. (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
@@ -897,7 +897,7 @@ small value once this lands.**
   VERTEX COLOUR against a white material, so a tinted layer would drive dark roofs to black.
   Rides the same `?facadearray=1` flag: shipping half a look is worse than shipping neither.
 
-### `[~]` P3-07 · 3.0d · risk medium
+### `[x]` P3-07 · 3.0d · risk medium
 **ASPHALT SHADER v2 — the core road rebuild.** Extend `patchRoadAO` into a proper road material: (a) world-metric UV from the already-baked `halfWidth` — `vAcross = (uv.y-0.5)*2.0*halfWidth`, `vAlong = uv.x*4.0`, **no re-bake**; (b) tiling albedo + normal at 4 m; (c) a second detail-normal sample at 8× frequency killing the close-range repeat; (d) macro wear from world-XZ noise **per-fragment** at ~40 m (replaces the per-vertex `roadNoise`, zero VRAM, strictly better); (e) **analytic wheel ruts** — two subtly polished bands per lane derived from `halfWidth`, ~10 ALU, zero VRAM, the single most recognisable "real…
 
 - **Files:** `roadRenderer.js:283-315,4593-4660`; new `map/roadMaterial.js`
@@ -948,10 +948,29 @@ small value once this lands.**
   the fragment path now holds **one** `exp` and no `sin`/`cos`/`pow`, guarded by a test that strips
   comments before checking. **`?roadv2=0` added as an attribution switch** so this is measured rather
   than argued next time.
-- ⚠ **The per-vertex `roadNoise` was NOT removed**, though the spec says (d) replaces it. Both are
-  live, so wear is currently applied twice at different frequencies. Removing it is a visible change
-  to the default road and wants one drive to judge against, not a blind deletion.
-- **Done when:** _(a drive judging ruts at street level + the `roadNoise` removal + (b)/(c) art)_
+- ~~⚠ The per-vertex `roadNoise` was NOT removed~~ — **STALE, resolved 2026-08-26 by reading the
+  code, not by trusting the newer note.** `roadRenderer.js:349-356` carries the comment "the
+  fine-grain term is GONE" and only the LOW-frequency terms survive (`n1` broad patches, `n3`
+  splotches). Wear is applied ONCE. Two notes in this entry contradicted each other for a day; the
+  source was the tie-breaker.
+- **CLOSED 2026-08-26.** (a) (b) (d) (e) all shipped and A/B-measured; the `roadNoise` double-apply
+  was stale, not outstanding. **(c) is carved out as P3-07c** rather than held open here — the entry
+  itself argued it needs tangents, a different injection point, and a material that is not shared
+  with Lambert, which is a different piece of work, not a loose end of this one. A task left `[~]`
+  for one deferral stops being a status.
+  ⚠ **One visual sign-off is still owed: judge the wheel ruts at street level.** They are analytic and
+  fade above 8 m half-width; if they read as sprayed stripes anywhere, reopen this.
+
+### `[ ]` P3-07c · 1.5d · risk medium · **ROAD DETAIL NORMAL — the 8× term (c), carved out of P3-07)**
+**The close-range repeat killer.** A second normal sample at 8× the base frequency, breaking up the
+4 m tile where the road fills the screen. Split out of P3-07 on 2026-08-26 because it is not a
+loose end of that task — it needs its own decisions:
+- **Normal mapping needs TANGENTS**, which the ribbon geometry does not currently carry.
+- **It needs a different injection point.** `patchRoadAO` is shared with Lambert materials, so
+  bolting a normal-map path into it is exactly the **D-32** trap.
+- **Depends:** P3-08 (the asset set supplies the detail normal) — so this cannot land before the art.
+- **Files:** `map/roadMaterial.js`; `roadRenderer.js` (tangent generation)
+- **Done when:** the 4 m repeat is not visible at street level from a stationary car.
 
 ### `[ ]` P3-07b · 2.0d · risk low · **AUTHORED ROAD TEXTURES — replaces the procedural wear**
 **Decided 2026-08-26 on measurement: textures are BOTH cheaper and better-looking than procedural
