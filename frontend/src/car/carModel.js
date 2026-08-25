@@ -5,6 +5,7 @@
  * Forward = +Z in physics world (Y-up).
  */
 import * as THREE from 'three';
+import { getHeadlightCookie } from './headlightCookie.js';   // v3 P2-07
 import { makeGLTFLoader } from '../loaders.js';
 import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
@@ -275,10 +276,23 @@ export async function createCarModel(scene) {
     const spotTarget = new THREE.Object3D();
     spotTarget.position.set(0, -1, 20);
     bodyGroup.add(spotTarget);
+    // v3 P2-07: a real dipped-beam pattern instead of a plain cone.
+    //
+    // The cone was 56 degrees with penumbra 0.55 — a smooth circular pool, bright in the middle and
+    // fading evenly in every direction. No headlight looks like that; the defining feature of a
+    // dipped beam is a HARD HORIZONTAL CUT-OFF with the hotspot pressed up under it, and its
+    // absence is what reads as "game light" at a glance.
+    //
+    // The cookie now supplies that shape, so the cone is pulled in to 45 degrees (less wasted cone,
+    // more of the texture across the useful spread) and the penumbra dropped to 0.35 — edge
+    // softness comes from the pattern now, and stacking both blurs the cut-off away again.
+    const cookie = getHeadlightCookie();
     for (const xPos of [-0.55, 0.55]) {
-      // BROAD warm cone (art-of-rally): wide angle (~56°) + long throw + soft edge → lights up the road
-      // AND the ground/foliage on both sides with lots of coverage.
-      const spot = new THREE.SpotLight(0xFFF0CC, HEADLIGHT_DAY, 520, Math.PI / 3.2, 0.55);
+      const spot = new THREE.SpotLight(0xFFF0CC, HEADLIGHT_DAY, 520, Math.PI / 4, 0.35);
+      // ⚠ Works with castShadow = false: WebGLLights calls shadow.updateMatrices() whenever
+      // light.map is set, independently of shadow casting (WebGLLights.js:324-334). No shadow
+      // cost is incurred by projecting a cookie.
+      spot.map = cookie;
       spot.position.set(xPos, 0.30, 1.75);
       spot.target = spotTarget;
       spot.castShadow = false;

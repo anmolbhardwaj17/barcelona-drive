@@ -13,7 +13,7 @@
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
 | **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
-| **Tasks done** | **55 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **56 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **ONE drive at `localhost:4044/?lightgrid`** (~30 s) — returns BOTH the K-N light-grid verdict and the first real attribution of the long frames. |
 
@@ -551,7 +551,7 @@ Promote it into a **region profile** — one module per city owning everything t
 ## P2 — LOD AND NIGHT · 17.5 days · 8 tasks
 **Goal.** Buy the GPU headroom the art wave spends, and answer the project's #1 unsolved problem. **The 1-day spike gates the 8 days behind it.**
 
-**Progress:** 6 / 8 — P2-02 ✅ · P2-03 ✅ · P2-04 ✅ · P2-05 ✅ · P2-06 ✅ · P2-08 `[~]`. Remaining: **P2-07 headlight cookie** (0.5 d) and **P2-01 staticPools** (6 d, deferred by D-19b)
+**Progress:** 7 / 8 — P2-02 ✅ · P2-03 ✅ · P2-04 ✅ · P2-05 ✅ · P2-06 ✅ · P2-07 ✅ · P2-08 `[~]`. Remaining: **P2-01 staticPools** (6 d, deferred by D-19b — the frame is CPU-bound, so measure before spending it)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -651,14 +651,14 @@ small value once this lands.**
 - **Full spec:** master plan §4 → P2
 - **Done when:** ✅ **All six deleted**, verified on a night drive via a temporary `?nofakes` switch BEFORE removal ("no fakes is the way to go for sure"), then the switch deleted with them. Ground-pool decals · hero-building spill decals (+ their worker production) · road/sidewalk wash · vegetation wash · facade lower-floor wash · decal colour lift. **KEPT:** lamp head emissive (the source being visible, not a fake) and v9 baked AO (measured occlusion). **Unplanned perf win:** the washes were the most expensive per-vertex work in the bake — `washAt` ran ~900 distance checks/vertex (55 ms chunks, the `p3 veg-wash` tag) plus a colour-texture `needsUpdate` per tree/bush.
 
-### `[ ]` P2-07 · 0.5d · risk low
+### `[x]` P2-07 · 0.5d · risk low
 **Headlight cookie** — a 512² single-channel Blender-authored beam pattern on the two existing SpotLights, with a flat low-beam cut-off, pulling the cone in from 56° to a real low-beam spread. **Cheapest ETS2-identifiable win in the whole domain.**
 
-- **Files:** `carModel.js:269-293`
+- **Files:** new `car/headlightCookie.js`, `carModel.js:271-296`, `test/headlightCookie.test.js`
 - **Depends:** nothing
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P2
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ ECE dipped-beam pattern: hard cut-off (0.985 below → 0.026 above), kerb-side kick-up (0.555 vs 0.012 oncoming at the same height), hotspot under the cut line, foreground kept lit. Cone 56° → 45°, penumbra 0.55 → 0.35. **PROCEDURAL, not the Blender-authored 512² the plan specified** — same shape generated in ~1 ms at startup, 256² (a beam is all soft gradients), no art-budget cost and no CanvasTexture allowance consumed. 7 tests assert the SHAPE, since a subtly wrong cookie still renders a plausible glow.
 
 ## P3 — THE FIRST ART WAVE · 29 days · 11 tasks
 **Goal.** Spend the headroom on the surfaces that cover the most pixels per day of work: ground, facades, roofs, sky, and Barcelona's real tree species.
