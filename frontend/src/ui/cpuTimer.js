@@ -45,7 +45,9 @@ export function createCpuTimer() {
         const b = { ...frame };
         const other = wall - total;
         if (other > 0.05) b.other = other;
-        try { longCb(wall, b, fmt(b)); } catch { /* never let reporting break the frame */ }
+        // The window is passed so the caller can ask what async work landed inside this frame —
+        // build chunks run between frames and no section here can see them.
+        try { longCb(wall, b, fmt(b), lastStart, lastStart + wall); } catch { /* never let reporting break the frame */ }
       }
       if (wall > worstTotal) {
         worstTotal = wall;

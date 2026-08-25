@@ -26,6 +26,7 @@ import { renderWater } from './waterRenderer.js';
 import { createRailwayMeshes, createTramMeshes } from './railwayRenderer.js';
 import { createGreensMeshes } from './greensRenderer.js';
 import { createAreaFeatureMeshes } from './areaFeaturesRenderer.js';
+import { recordChunk } from '../ui/frameAttribution.js';   // v3: name the work that lands between frames
 import { buildBarrierMeshes, buildBarrierColliders } from './barrierRenderer.js';
 import { buildBusStopMeshes } from './busStopRenderer.js';
 import { queueWarmup } from './gpuWarmup.js';
@@ -1287,7 +1288,20 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     return out;
   }
 
+  // Wall time at which the last yield handed control back. The span between one resume and the next
+  // yield is a chunk of uninterrupted main-thread work — the true stutter unit.
+  //
+  // CAVEAT, stated because it changes how the number should be read: concurrent tiles share this,
+  // so a span can cover work from more than one tile. That is deliberate. The question a stutter
+  // asks is "how long was the main thread held?", not "which tile held it?" — and the answer to
+  // the first is what the frame actually felt.
+  let _lastResume = performance.now();
+
   const yieldToMain = () => {
+    const _t = performance.now();
+    const _chunk = _t - _lastResume;
+    // Report BEFORE the early-return: a chunk that does not yield has not ended, so recording it
+    // here would double-count the same span on the next call.
     const elapsed = performance.now() - _frameBudgetStart;
     if (elapsed < _budgetMs) {
       // Budget not exhausted this frame — continue working without yielding
@@ -1296,10 +1310,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     if (elapsed > _budgetMs + 3 && !(_buildOverruns[_buildPhase] >= elapsed)) {
       _buildOverruns[_buildPhase] = +elapsed.toFixed(1);
     }
+    // This span is ending, so it can be attributed. Named by build phase, so a long frame reports
+    // `⟨async: build:buildings 41⟩` instead of an anonymous `other`.
+    if (_chunk >= 4) recordChunk('build:' + (_buildPhase || '?'), _chunk, _t);
     // Budget exceeded — yield to the browser for rendering. Do NOT reset _frameBudgetStart here;
     // update() owns the per-frame reset so concurrent tiles keep sharing one budget.
     return new Promise((resolve) => {
-      if (typeof requestAnimationFrame !== 'function') { setTimeout(() => resolve(), 0); return; }
+      if (typeof requestAnimationFrame !== 'function') { setTimeout(() => { _lastResume = performance.now(); resolve(); }, 0); return; }
       // STACKING GUARD (round 9): all waiting chunks resume on the same next rAF, and because
       // microtasks drain between successive rAF callbacks, each earlier chunk's whole span runs
       // before the next chunk's resume check. Without this check every waiter ran its span in
@@ -1313,6 +1330,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           requestAnimationFrame(tryResume);
           return;
         }
+        _lastResume = performance.now();
         resolve();
       };
       requestAnimationFrame(tryResume);
@@ -1457,6 +1475,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (chunkMs > _perfMaxChunk) _perfMaxChunk = chunkMs;
       _perfWorkTime += chunkMs;
       _perfChunks.push({ label, ms: chunkMs });
+      // NOT reported to frameAttribution: these marks SUBDIVIDE a span that yieldToMain already
+      // reports as one chunk, so recording both would attribute the same wall time twice under two
+      // labels and inflate the async list. yieldToMain is the single non-overlapping source.
       _perfChunkStart = now;
     };
     // Yield wrapper that tracks work time between yields (the true stutter metric)
