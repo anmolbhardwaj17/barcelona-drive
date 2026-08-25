@@ -10,8 +10,8 @@
 
 | | |
 |---|---|
-| **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
-| **Current phase** | **P2 — LOD and Night** · work branch `v3-p2-lighting` |
+| **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
+| **Current phase** | **P2 — LOD and Night** (7/8 done) |
 | **Next task** | **The verification drive below.** P2 is 7/8; only `staticPools` remains and D-19b says do not start it — it buys GPU headroom we already have (GPU p50 **8.02 ms** of 16.7), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Keep attacking CPU/stream-in instead. |
 | **Tasks done** | **56 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
