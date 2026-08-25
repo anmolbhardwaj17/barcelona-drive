@@ -13,12 +13,19 @@
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
 | **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
-| **Tasks done** | **50 / 81** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **51 / 81** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **ONE drive at `localhost:4044/?lightgrid`** (~30 s) — returns BOTH the K-N light-grid verdict and the first real attribution of the long frames. |
 
 ### The drive that unblocks everything
-`http://localhost:4044/?lightgrid` → PLAY → Free Roam → **drive ~30 s**. Two results:
+`http://localhost:4044/?lightgrid` **at NIGHT** → PLAY → Free Roam → **drive ~30 s**.
+
+**P2-04 visual check:** street lamps must now light the road and facades near them — the first real
+punctual light in the world. Watch for the X-mirror failure: pools on the WRONG SIDE of the street,
+symmetrically. That reads as "lighting looks a bit off", not as an obvious bug, so look for it
+deliberately. Lighting must NOT stop working as you drive into fresh tiles (late-material patching).
+
+Also still reported:
 1. `[lightgrid] SPIKE RESULT` — includes a **WORK** line proving the grid was not empty. `VOID` ⇒ re-run; `PASS` ⇒ build P2-04..07; `FAIL` ⇒ P2 stops (see D-23 for why the first two runs were void).
 2. `[frame] 153ms — other 96.0 ⟨async: build:buildings 41⟩` — the first time a long frame has had an owner. `⟨async:⟩` = tile-build chunks; a bare `other` now genuinely means GC/browser, not "we could not tell".
 
@@ -544,7 +551,7 @@ Promote it into a **region profile** — one module per city owning everything t
 ## P2 — LOD AND NIGHT · 15.5 days · 7 tasks
 **Goal.** Buy the GPU headroom the art wave spends, and answer the project's #1 unsolved problem. **The 1-day spike gates the 8 days behind it.**
 
-**Progress:** 2 / 7 (P2-02 ✅, P2-03 ✅ PASS) — **P2-04 unblocked**
+**Progress:** 3 / 7 (P2-02 ✅, P2-03 ✅ PASS, P2-04 ⏳ visual check) — next: **P2-05** (opt-in + delete the 6 fakes, SAME COMMIT)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -584,14 +591,14 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Full spec:** master plan §4 → P2
 - **Done when:** ✅ **PASS. GPU p95 OFF 8.30 → ON 8.67 = +0.37 ms** for 32 lights, gate ≤3.0 ms. Proof-of-work: **423/4096 cells lit, 3.17 lights per lit cell** (near the 4-slot ceiling — worst case for fill, not a favourable one). Measured by an in-drive A/B, not two separate runs. **First two runs were VOID — see D-23.**
 
-### `[ ]` P2-04 · 5.0d · risk high
+### `[x]` P2-04 · 5.0d · risk high
 **`lightGrid.js`** — world-space 2.5D clustered street lighting. 64×64 RGBA8 index texture over 8 m cells (512 m window, 4 nearest-first slots/cell) + an RGBA32F lamp-data texture, sourced from the **already-existing and unused** `tileManager.getStreetlightPositions()` (`:3482`, exported `:3523`, zero callers). Rebuilt only on cell crossing. One shared GLSL chunk: distance falloff + N·L + downward cone + one Blinn lobe with a per-material roughness uniform.
 
-- **Files:** new `lightGrid.js`, `tileManager.js:3482-3490,3523`, `streetlightRenderer.js:2348-2378`
-- **Depends:** spike PASS; registry
+- **Files:** `map/lightGrid.js`, `map/tileManager.js` (`getTileEpoch`), `map/materialRegistry.js` (`onMaterialRegistered`), `regions/barcelona.js` (night params), `main.js`, `test/lightGrid.test.js`
+- **Depends:** spike PASS ✅; registry
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P2
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ⏳ **code complete, 19/19 tests pass — needs ONE visual check at night.** Real lamps from `getStreetlightPositions()`, nearest-first slots, circle (not square) cell test, range-cutoff truncation, region-driven radius/intensity/wrap, late-material auto-patching, tile-epoch rebuild.
 
 ### `[ ]` P2-05 · 2.0d · risk high
 **Material opt-in + warm-list extension, SAME COMMIT.** Road, sidewalk, terrain, facade, vegetation, props, traffic/parked cars, pedestrians. Adding a define invalidates all 125 compiled programs at once.
