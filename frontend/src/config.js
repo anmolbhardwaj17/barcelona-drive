@@ -3,6 +3,7 @@
  * Change here to enable/disable features; no geometry is created when disabled.
  */
 // export const CONFIG = {
+
 //   ENABLE_BUILDINGS: true,
 //   ENABLE_SIDEWALKS: true,
 //   ENABLE_TREES: true,
@@ -14,6 +15,22 @@
 // };
 
 export const CONFIG = {
+  /**
+   * v3 P3-04 — facade array-texture path. OPT-IN via `?facadearray=1`.
+   *
+   * Lives on CONFIG rather than being read from `location` in each module because the BUILDING
+   * WORKER needs it too, and a Web Worker's `location` is its own script URL — reading the flag
+   * there returns nothing and the switch does half its job: the material samples the arrays while
+   * the geometry still carries legacy UVs, painting windows where the shopfront belongs. CONFIG is
+   * already sent to the worker with every tile, so it is the channel that exists.
+   *
+   * Default OFF: the placeholder layers are plainer than today's canvas facade by design. Flip when
+   * P3-05's authored layers land, not before.
+   */
+  FACADE_ARRAY: (() => {
+    try { return new URLSearchParams(location.search).get('facadearray') === '1'; } catch { return false; }
+  })(),
+
   /** Road-only debug: when true, render only roads (no buildings, trees, grass, greens). Set false when tiles include buildings and greens. */
   ROAD_ONLY_DEBUG: false,
 

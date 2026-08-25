@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, FACADE_GROUND_H_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
+import { createFacadeArrays, patchFacadeArrayMaterial } from '../map/facadeArray.js';   // v3 P3-04
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import {
@@ -627,6 +628,26 @@ export function setFacadeNightMode(isNight) {
   }
 }
 
+// v3 P3-04 — the array-texture facade path, OPT-IN.
+//
+// Default OFF on purpose. The placeholder layers are deliberately plain (flat plaster, window rows,
+// no weathering or normal detail) — they exist to prove the SHADER PATH before P3-05 commits six days
+// of art to a UV spec nobody has rendered. Switching them on by default would make the city look
+// WORSE than today's canvas facade while claiming progress.
+//
+//   ?facadearray=1   array path — mid-air shopfronts go to 0, facades look plainer
+//   (absent)         today's canvas facade
+//
+// Flip the default when P3-05's real layers land, NOT before.
+// Reads CONFIG so main thread and worker cannot disagree — see CONFIG.FACADE_ARRAY for why the
+// worker cannot read the URL itself.
+const FACADE_ARRAY_ON = !!CONFIG.FACADE_ARRAY;
+let _facadeArrays = null;
+function facadeArrays() {
+  if (!_facadeArrays) _facadeArrays = createFacadeArrays(THREE);
+  return _facadeArrays;
+}
+
 function getFacadeMaterial(hexColor, category) {
   const cacheKey = hexColor + '_' + category;
   if (_facadeMaterialCache.has(cacheKey)) return _facadeMaterialCache.get(cacheKey);
@@ -702,6 +723,14 @@ function getFacadeMaterial(hexColor, category) {
   }, 'facade');
 
   injectFogShader(mat);
+  // v3 P3-04: array-texture facade. Goes through the material registry like every other patch, so it
+  // composes with the AO chunk above rather than clobbering it (P1-03's whole point).
+  if (FACADE_ARRAY_ON) {
+    // The canvas facade map is what the array replaces — leaving it bound would upload a texture no
+    // shader samples, once per material key.
+    if (mat.map) { mat.map = null; }
+    patchFacadeArrayMaterial(mat, facadeArrays());
+  }
   _facadeMaterialCache.set(cacheKey, markShared(mat));
   return mat;
 }

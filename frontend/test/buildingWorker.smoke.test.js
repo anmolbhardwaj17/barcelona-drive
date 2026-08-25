@@ -12,6 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { processBuildingsInWorker } from '../src/workers/buildingWorker.js';
+import { decodeLayer } from '../src/map/facadeArray.js';
 
 const square = (s = 12) => [{ x: 0, y: 0 }, { x: s, y: 0 }, { x: s, y: s }, { x: 0, y: s }];
 const mk = (id, height, type = 'residential') =>
@@ -83,9 +84,14 @@ test('v3 P3-04: different buildings get different facade variants', () => {
   assert.ok(distinct.size >= 3, `only ${distinct.size} variant(s) across 60 buildings — hash is clustering`);
 });
 
-test('v3 P3-04: every layer index is inside the 8-layer array', () => {
+test('v3 P3-04: every layer index decodes to a real layer in its array', () => {
+  // NOTE: raw values are NOT 0..7 — ground bands are encoded as idx + GROUND_LAYER_BASE so one float
+  // can address two arrays. Asserting the raw range (as an earlier version of this test did) fails
+  // the moment the encoding lands, and asserting it loosely would miss a genuine out-of-range index.
   const g = run(Array.from({ length: 40 }, (_, i) => mk(i + 1, 21))).buildingGroups[0];
-  for (const l of g.layers) {
-    assert.ok(Number.isInteger(l) && l >= 0 && l < 8, `layer ${l} is outside the array — samples garbage`);
+  for (const raw of g.layers) {
+    const { array, index } = decodeLayer(raw);
+    assert.ok(Number.isInteger(index) && index >= 0 && index < 8,
+      `raw ${raw} decoded to ${array}[${index}] — outside the array, samples garbage`);
   }
 });

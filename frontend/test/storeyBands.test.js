@@ -144,3 +144,13 @@ test('the band constants leave a body on a normal Eixample building', () => {
     'ground+crown eat too much of a normal building — the body band would barely exist');
   assert.ok(STOREY_H > 2.5 && STOREY_H < 4.5, 'storey height must be a real storey');
 });
+
+test('the CROWN follows windowOnlyTile too — gFrac is meaningless on a window-only tile', () => {
+  // Caught by inspection, not by a failing test: the crown kept starting at gFrac in window-only
+  // mode, which crops it to the tile's upper 62% for no reason.
+  const legacy = build(30);
+  const arrayMode = build(30, { windowOnlyTile: true });
+  const crownV0 = (g) => g.uvs[2 * 8 + 1];              // third band on edge 0
+  assert.ok(Math.abs(crownV0(legacy) - OPTS.gFrac) < 1e-6, 'legacy crown starts at gFrac');
+  assert.equal(crownV0(arrayMode), 0, 'window-only crown must use the whole tile');
+});

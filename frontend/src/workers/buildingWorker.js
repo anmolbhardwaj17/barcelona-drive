@@ -28,7 +28,16 @@ import {
 
 import earcut from './earcut.js';
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA, STOREY_H, CROWN_H, groundFloorH } from '../buildingConstants.js';
-import { facadeLayerFor, groundLayerFor } from '../map/facadeArray.js';   // v3 P3-04   // v3 P1-13: single source (was mirrored here)
+import { facadeLayerFor, groundLayerFor, encodeGroundLayer } from '../map/facadeArray.js';   // v3 P3-04
+
+// v3 P3-04 — mirrors meshMaterializer's `?facadearray=1`.
+//
+// ⚠ THE WORKER CANNOT READ THE PAGE URL. A Web Worker HAS a `location`, but it is the WORKER
+// SCRIPT's URL — reading `location.search` here silently returns nothing and the flag appears to do
+// half its job: the material would sample the arrays while the geometry still carried legacy UVs,
+// putting windows where the shopfront belongs. It travels on the CONFIG SNAPSHOT the worker already
+// receives instead.
+function facadeArrayOn(config) { return !!(config && config.FACADE_ARRAY); }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -544,7 +553,7 @@ let _windingFixedOuter = 0, _windingFixedInner = 0, _windingSeen = 0;
 /**
  * Create wall geometry for a polygon building (replaces createPolygonBuilding).
  */
-function createPolygonWallBuffers(building, baseY, category) {
+function createPolygonWallBuffers(building, baseY, category, _facadeArrayOn) {
   let footprint = building.footprint || [];
   if (footprint.length < 3) return null;
   footprint = simplifyFootprint(footprint);
@@ -576,10 +585,15 @@ function createPolygonWallBuffers(building, baseY, category) {
     gFrac: groundH / FLOOR_HEIGHT,        // the fraction of the tile the painter fills with shopfront
     storeyH: STOREY_H,
     crownH: CROWN_H,
-    windowOnlyTile: false,
+    // ⚠ COUPLED TO THE ARRAY PATH. The body array's layers are window-only, so v may map 0→N with
+    // nothing to wrap onto; the legacy canvas tile has the shopfront baked into its bottom, so the
+    // same mapping would paint windows where the shopfront belongs. These two must flip together.
+    windowOnlyTile: _facadeArrayOn,
     // v3 P3-04: per-vertex array-texture layer. Ground-band vertices index the GROUND array, body
     // and crown index the BODY array — see map/facadeArray.js for why they are separate arrays.
-    groundLayer: groundLayerFor(category, building.id),
+    // Encoded (+GROUND_LAYER_BASE) so ONE float can address two arrays — see facadeArray.js. The
+    // shader branches on the same constant; they must move together.
+    groundLayer: encodeGroundLayer(groundLayerFor(category, building.id)),
     bodyLayer: facadeLayerFor(category, building.id),
   };
 
@@ -899,6 +913,7 @@ function eulerYToQuaternion(angle) {
  * @returns {object} Result with buildingGroups, roofGroups, detailGroups, tankInstances, pipeInstances
  */
 export function processBuildingsInWorker(data, config) {
+  const _faOn = facadeArrayOn(config);   // v3 P3-04 — from the config snapshot, never from location
   const { buildings, roads, elevation, elevationOffset, aoGrid } = data;
   if (!buildings || buildings.length === 0) {
     return { buildingGroups: [], roofGroups: [], detailGroups: [], tankInstances: null, pipeInstances: null };
@@ -1188,7 +1203,7 @@ export function processBuildingsInWorker(data, config) {
     } else if (b.shapeType === 'cylinder') {
       wallBuffers = createCylinderWallBuffers(b, baseY);
     } else {
-      wallBuffers = createPolygonWallBuffers(b, baseY, category);   // v3 P3-02: category picks the ground-floor height
+      wallBuffers = createPolygonWallBuffers(b, baseY, category, _faOn);   // v3 P3-02/04
     }
 
     if (!wallBuffers) {

@@ -3,10 +3,12 @@
  * six days of art painted to the wrong dimensions.
  */
 import test from 'node:test';
+import fsSync from 'node:fs';
 import assert from 'node:assert/strict';
 import {
   LAYER_W_M, BODY_LAYER_H_M, GROUND_LAYER_H_M, BODY_LAYERS, GROUND_LAYERS,
   facadeLayerFor, groundLayerFor, bandUV, texelDensity,
+  GROUND_LAYER_BASE, encodeGroundLayer, decodeLayer,
 } from '../src/map/facadeArray.js';
 
 test('the layer set is 8 wide, matching the 8-layer array', () => {
@@ -123,4 +125,39 @@ test('merging a layered set with an UNLAYERED one does not corrupt indices', () 
   const m = mergeBufferSets([a, b]);
   assert.equal(m.layers.length, m.positions.length / 3);
   for (let i = 0; i < a.layers.length; i++) assert.equal(m.layers[i], 5, 'layered half was corrupted');
+});
+
+// ── v3 P3-04: the one-float-two-arrays encoding ──────────────────────────────────────────────────
+// `aLayer` is a single float per vertex addressing TWO arrays. The shader branches on
+// GROUND_LAYER_BASE; if these two ever disagree, ground bands sample the body array and every
+// shopfront becomes a window wall.
+
+test('encode/decode round-trips for every layer index', () => {
+  for (let i = 0; i < BODY_LAYERS.length; i++) {
+    assert.deepEqual(decodeLayer(i), { array: 'body', index: i });
+    assert.deepEqual(decodeLayer(encodeGroundLayer(i)), { array: 'ground', index: i });
+  }
+});
+
+test('the base leaves room for the body array to grow', () => {
+  assert.ok(GROUND_LAYER_BASE >= BODY_LAYERS.length,
+    'a ground index would collide with a body index — shopfronts would sample the body array');
+  assert.ok(GROUND_LAYER_BASE >= 16, 'headroom to 16 body variants before the encoding must change');
+});
+
+test('encoded ground indices never collide with body indices', () => {
+  const body = new Set(BODY_LAYERS.map((_, i) => i));
+  for (let i = 0; i < GROUND_LAYERS.length; i++) {
+    assert.ok(!body.has(encodeGroundLayer(i)), `ground ${i} encodes onto a body index`);
+  }
+});
+
+test('the shader branch constant matches the JS constant', () => {
+  // The GLSL is built by string concatenation from GROUND_LAYER_BASE, so this asserts they cannot
+  // drift — a mismatch is invisible in JS and shows only as wrong facades on screen.
+  const src = fsSync.readFileSync(new URL('../src/map/facadeArray.js', import.meta.url), 'utf8');
+  const patch = src.slice(src.indexOf('patchFacadeArrayMaterial'));
+  const derived = (patch.match(/GROUND_LAYER_BASE \+/g) || []).length;
+  assert.ok(derived >= 2, `the shader must derive its threshold from the JS constant (${derived} uses)`);
+  assert.ok(!/lyr >= 16\.0/.test(patch), 'a hard-coded 16.0 in the GLSL would drift from the constant');
 });

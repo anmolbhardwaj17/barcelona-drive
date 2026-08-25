@@ -822,11 +822,28 @@ small value once this lands.**
   Now covered by an end-to-end test. **Any new per-vertex attribute must be added in FOUR places**
   (emit → merge detect/allocate/copy → group literal → `materializeGroup`); miss the third and it
   fails silently.
-- **Remaining:** the `DataArrayTexture`/`CompressedArrayTexture` construction, the `onBeforeCompile`
-  chunk swap (`sampler2D` → `sampler2DArray`), deleting `getWindowTexture`, and flipping
-  `windowOnlyTile` — which is what finally takes **mid-air shopfronts to 0**, the P3 gate metric
-  P3-02 handed forward. **Blocked in practice on P3-05's art** (or a decision to generate placeholder
-  layers from the existing canvas painter so the shader path can ship before the art does).
+- **SHADER PATH BUILT (2026-08-25), behind `?facadearray=1`.** `DataArrayTexture` body + ground
+  arrays with placeholder layers, the `onBeforeCompile` swap to `sampler2DArray`, and
+  `windowOnlyTile` coupled to the same flag. **103 tests.**
+- **`sampler2DArray` needs NO GLSL3 opt-in here** — three r183 always emits `#version 300 es`
+  (`WebGLProgram` versionString) with `#define texture2D texture` compatibility, so an array sampler
+  is in scope inside `onBeforeCompile` on a stock `MeshLambertMaterial`. ⚠ On an older three that
+  emitted GLSL1 this would fail to COMPILE; if the dependency is downgraded this breaks first.
+- **One float addresses two arrays:** body/crown carry `idx`, ground carries `idx + GROUND_LAYER_BASE`
+  (16, leaving headroom to 16 body variants). A test asserts the GLSL threshold is *derived from* the
+  JS constant rather than hard-coded, because a drift there is invisible in JS and shows only as
+  shopfronts sampling the body array.
+- ⚠ **THE WORKER CANNOT READ THE PAGE URL.** A Web Worker has a `location`, but it is the worker
+  SCRIPT's URL, so `location.search` there silently returns nothing — the material would sample the
+  arrays while the geometry still carried legacy UVs, painting windows where the shopfront belongs.
+  The flag therefore lives on **`CONFIG.FACADE_ARRAY`**, which is already sent to the worker per tile.
+  Verified both sides move together: body band v0 is 0.38 with the flag off and 0.00 with it on.
+- **Default is OFF and should stay off until P3-05.** The placeholder layers are deliberately plain
+  (flat plaster, window rows, no weathering or normals) — they exist to prove the shader path BEFORE
+  six days of art is committed to a UV spec nobody has rendered. Switching them on by default would
+  make the city look **worse** than today's canvas facade while claiming progress.
+- **Remaining:** delete `getWindowTexture` (only once the array path is the default), and the real
+  measurement of **mid-air shopfronts = 0** — which needs a drive on `?facadearray=1`.
 - **Done when:** _(mid-air shopfronts = 0, measured; texel density in the 85–150 band; VRAM banked once)_
 
 ### `[ ]` P3-05 · 6.0d · risk medium

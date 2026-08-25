@@ -172,7 +172,12 @@ export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
     const bodyV1 = opts.windowOnlyTile ? bodyRepeats : gFrac + bodyRepeats * bodyVPerTile;
     bands.push({ kind: 'body', y0: baseY + groundH, y1: baseY + groundH + bodyH, v0: bodyV0, v1: bodyV1 });
   }
-  if (crownH > 1e-4)  bands.push({ kind: 'crown', y0: baseY + height - crownH, y1: baseY + height, v0: gFrac, v1: 1 });
+  // The crown samples the TOP of the body tile. Under `windowOnlyTile` the whole tile is windows, so
+  // gFrac means nothing there and starting at it would crop the crown to the tile's upper 62%.
+  if (crownH > 1e-4) {
+    const crownV0 = opts.windowOnlyTile ? 0 : gFrac;
+    bands.push({ kind: 'crown', y0: baseY + height - crownH, y1: baseY + height, v0: crownV0, v1: 1 });
+  }
   if (!bands.length) return null;
 
   const quadCount = edgeCount * bands.length;
