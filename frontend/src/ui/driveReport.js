@@ -40,6 +40,7 @@ const _warmTokens = new Set();
 const _variants = [];
 const _long = [];
 let _lastLongAt = -1e9;       // when the most recent long frame was seen, for the "during a stutter" tag
+let _meta = {};               // whatever the call site knew at drive start (time-to-drive, mainly)
 
 /** Split a three.js program cache key into comparable features. Schema-agnostic on purpose. */
 function tokenise(key) {
@@ -51,8 +52,9 @@ function tokenise(key) {
  * instant D-38 measured "153 at time-to-drive", so the report's before/after split matches the
  * finding it exists to chase.
  */
-export function armReport(programs) {
+export function armReport(programs, meta = {}) {
   _armedAt = performance.now();
+  _meta = meta;
   _warmCount = programs?.length ?? 0;
   _warmTokens.clear();
   if (programs) for (const p of programs) for (const t of tokenise(p?.cacheKey)) _warmTokens.add(t);
@@ -132,6 +134,7 @@ export function buildReport(extra = {}) {
       driveSeconds: _armedAt == null ? null : +((performance.now() - _armedAt) / 1000).toFixed(1),
       url: location.href,
       userAgent: navigator.userAgent,
+      ..._meta,
       ...extra,
     },
     shaders: {
@@ -157,6 +160,7 @@ export function buildReport(extra = {}) {
 export function digest(r) {
   const L = [];
   L.push(`── drive report · ${r.meta.driveSeconds}s · ${r.meta.savedAt}`);
+  if (r.meta.timeToDriveMs != null) L.push(`LOAD     time-to-drive ${(r.meta.timeToDriveMs / 1000).toFixed(1)}s`);
   L.push(`SHADERS  warm ${r.shaders.warmAtDriveStart} → +${r.shaders.compiledWhileDriving} compiled while driving` +
          ` (${r.shaders.compiledDuringLongFrames} inside a long frame)`);
   for (const g of r.shaders.byCause.slice(0, 12)) {

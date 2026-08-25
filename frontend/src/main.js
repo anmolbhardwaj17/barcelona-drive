@@ -908,8 +908,41 @@ spawnTileReady.finally(() => {
           }
           _warmGrp.position.set(0, -5000, 0);
           scene.add(_warmGrp);
-          const _p = renderer.compileAsync?.(scene, camera);
-          if (_p?.then) _p.then(() => scene.remove(_warmGrp)); else scene.remove(_warmGrp);
+          // ⚠ COMPILE FOR THE TARGET WE ACTUALLY RENDER INTO. three bakes the OUTPUT COLOUR SPACE
+          // into every program's cache key, and it reads that from the currently-bound render
+          // target: null (the canvas) gives `srgb`, a plain WebGLRenderTarget gives `srgb-linear`.
+          //
+          // Every frame goes through `composer.render()`, i.e. into the composer's LINEAR target.
+          // compileAsync with no target bound therefore warmed the whole city as `srgb` — a
+          // parallel set of programs the session never draws — and the first real frame compiled
+          // all of them again as `srgb-linear`. The 2026-08-26 drive shows the pairs interleaved:
+          // vegTree/sceneMat/vegBillboard/terrain/roadAO each appear twice, identical but for that
+          // one token (D-39).
+          //
+          // compile() runs SYNCHRONOUSLY inside compileAsync — only the readiness poll is async —
+          // so the target is restored immediately and no frame ever renders with it bound.
+          const _prevRT = renderer.getRenderTarget();
+          let _p;
+          try {
+            renderer.setRenderTarget(composer.renderTarget1 ?? null);
+            _p = renderer.compileAsync?.(scene, camera);
+          } finally {
+            renderer.setRenderTarget(_prevRT);
+          }
+          // ⚠ The warm group MUST come back out, on every path. three's own readiness poll can die
+          // mid-flight — a 2026-08-26 drive caught `Cannot read properties of undefined (reading
+          // 'isReady')` thrown from inside compileAsync's setTimeout, which leaves the promise
+          // permanently unsettled. That is not a rejection we can catch, so it left several hundred
+          // hidden frustumCulled=false meshes in the scene, drawn every frame for the rest of the
+          // session. The timeout is the backstop; whichever fires first wins.
+          let _warmRemoved = false;
+          const _dropWarmGroup = () => {
+            if (_warmRemoved) return;
+            _warmRemoved = true;
+            scene.remove(_warmGrp);
+          };
+          if (_p?.then) _p.then(_dropWarmGroup, _dropWarmGroup); else _dropWarmGroup();
+          setTimeout(_dropWarmGroup, 20000);
         } catch {}
         // Auto-start the chosen mode — but ONLY on reload flows where the title never existed
         // (/game path or ?spawn). On the fresh title flow the mode-select loader in animate()
@@ -1409,7 +1442,7 @@ function animate(time = 0) {
     cpuTimer.armLongFrames();   // fresh budget now that the measured thing has actually started
     // Same instant, same reason: D-38 measured "153 programs at time-to-drive", so the report's
     // warm-vs-late split has to be taken here or it is measuring a different thing.
-    armReport(renderer.info.programs);
+    armReport(renderer.info.programs, { timeToDriveMs: _timeToDriveMs });
     _programsAtLoaderHide = renderer.info.programs?.length ?? null;
     console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
   }
