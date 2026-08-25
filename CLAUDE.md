@@ -105,6 +105,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 | [v3-execution-tracker.md](docs/context/v3-execution-tracker.md) | **★ THE STATE — open this FIRST in any v3 session.** 79 tasks across P0-P4 with status, files, deps and per-task done-when; RESUME HERE block; performance ledger; 9 standing hazards; phase gate matrix; session protocol; decision log; cut list. The plan is the SPEC, this is the STATE |
 | [v3-art-bible.md](docs/context/v3-art-bible.md) | Unabridged art-direction ruling — Barcelona palette, texel-density table, 6 bans, normalize procedure, acceptance checklist (reproduced in master plan §2) |
 | [v3-rebuild-budget-ruling.md](docs/context/v3-rebuild-budget-ruling.md) | Unabridged rebuild + budget judge output — binding verdicts, savings ledger, double-count strikes (summarised in master plan §1 and §3) |
+| [osm-repair-layer.md](docs/context/osm-repair-layer.md) | **DESIGN (not started)** — the OSM/DEM defect-repair layer: why the capability already half-exists and is DROP-biased and terrain-blind, the patch-file-as-data decision that keeps bakes reproducible, the defect taxonomy, and phases P-R1..P-R6. Read before touching OsmDataFixer / wayStitcher / RampResolver |
 | [v3-audits/](docs/context/v3-audits/) | The 12 raw subsystem audits, one file each, with the budget-ask index |
 
 ---
