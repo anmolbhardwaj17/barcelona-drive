@@ -13,7 +13,7 @@
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
 | **Next task** | **P3-01 · per-building proportional triangle budgets · 1.5 d.** P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **57 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **57 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
@@ -28,7 +28,7 @@ them is a decision, not a default:
 | what | where | state |
 |---|---|---|
 | Surface roads buried in terrain | `terrain-tunnel-rework-plan.md` | measured: 8.8% of points, but p50 is −0.079 m — a TAIL, not systematic. Needs the by-road-class table from one more `?debug=roadfit` run |
-| Buildings sliced by the trench carve | `terrain-tunnel-rework-plan.md` | cause found (`trenchCorridors` has no building consumer). Fix is a bake filter + **re-bake** |
+| Buildings sliced by the trench carve | **now P4-02b** | scheduled — rides the single v10 re-bake window (P4-03) rather than triggering its own |
 | Túnel Glòries has no roof | — | **NOT A BUG.** Option L, deferred to Phase 4 by design |
 | OSM defect-repair layer | `osm-repair-layer.md` | designed, P-R1..P-R6. Recommendation stands: census only, AFTER P3 |
 | P2-08 drive check | P2-08 below | one drive; does not block P3 |
@@ -802,7 +802,10 @@ small value once this lands.**
 - Vehicle triangle population 1.08 M → ≤ 300k.
 - Zero remaining palette-UV meshes in the shipped world (AD-1b).
 - The dynamic text page holds ≥128 cells and **never grows**; a 10-minute drive shows zero texture-cache growth.
-- The v10 re-bake happens **exactly once**.
+- The v10 re-bake happens **exactly once** — and it carries EVERY pending bake-side change with it.
+  Currently queued for that window: **P4-01** (terrain bake deletion), **P4-02b** (buildings vs trench
+  corridors), **P4-03** (sea sink, water clip, splat weights). Anything else discovered before P4 that
+  needs a re-bake gets a task number and joins this list rather than triggering its own bake.
 
 </details>
 
@@ -824,6 +827,31 @@ small value once this lands.**
 - **Subsystem:** terrain
 - **Full spec:** master plan §4 → P4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P4-02b · 1.0d · risk medium · ⚠ **RE-BAKE — RIDES THE v10 WINDOW (P4-03)**
+**Buildings must be tested against the trench corridors.** `trenchCorridors` (`buildRegion.js:1099`)
+has three consumers — `flagTrenchCrossings`, `flagFloatersOverCarve`, `carveTrenchesIntoGrid` — all
+roads or terrain. **No building path consults it.** So the bake carves the ground out from under a
+building while emitting that building at its original footprint and base height, and it is left
+sliced open and floating over the cut. Confirmed by drone inspection at Túnel Glòries, 2026-08-25.
+
+Test building footprints against the corridor polygons and drop — or set back — intersectors. The
+polygons already exist at that point in the pipeline, so this is a FILTER, not new geometry.
+
+⚠ **Scope it to the trench footprint.** `flagFloatersOverCarve`'s inverse clause found **14,037**
+floating samples of which only **32** were trench-caused — the rest sit over NATIVE terrain and water
+dips, a pre-existing class. A check written too broadly will delete buildings over natural ground.
+
+⚠ **Do NOT confuse this with the missing tunnel roof**, which is Option L working as designed and is
+already owned by Phase 4 of the terrain rework. Different problem, different fix.
+
+- **Files:** `buildRegion.js` (building emit path), `pbfBuildings.js` / `buildingNormalize.js`, trench corridor polygons
+- **Depends:** nothing — but MUST land inside the v10 window so it costs no extra re-bake
+- **Subsystem:** terrain (owner), buildings
+- **Full spec:** finding in `terrain-tunnel-rework-plan.md`
+- **Done when:** a drone pass over Túnel Glòries and Ronda Litoral shows no building overhanging or
+  sliced by a trench; the bake logs how many buildings were dropped; the count is **not** in the
+  thousands (that would mean the footprint scope leaked into natural dips).
 
 ### `[ ]` P4-03 · 6.5d · risk high · ⚠ **RE-BAKE**
 **BAKE (v10) — ONE window, all domains.** (a) **Sea sink**, owned by terrain, implementing **water's profile** (−1.0 m at the waterline ramping to −8.0 m over ~200 m offshore) **and water's commit-blocking validator** (no sea cell above −0.5 m, no road-bearing cell below 0). Fixes the measured 2.05–5.78 m bumpy blue plateau. (b) **Clip `water[]` to the tile** — 280 of 426 tiles carry a byte-identical 254-feature set, 13.08 MB wasted. (c) **Per-vertex splat weights** (Uint8 ×4 = 4 B/vertex) from OSM landuse + slope + elevation + distance-to-coast, replacing the Float32 colour (192 KB) + `aCoast` (64 KB) — **the…

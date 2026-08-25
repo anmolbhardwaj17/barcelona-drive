@@ -637,9 +637,14 @@ up hanging over the cut.
 **This is NOT the roadfit deep-burial tail** and not the untagged-tunnel hypothesis. Different
 subsystem, different symptom, found by looking rather than measuring.
 
-**Fix direction (not started):** test building footprints against the corridor polygons during the
-bake and drop — or set back — any that intersect. The polygons already exist at that point in the
-pipeline, so this is a filter, not new geometry. **Needs a re-bake** (Golden Rule 5: warn first).
+**SCHEDULED AS v3 TASK P4-02b** (`v3-execution-tracker.md`), 1.0 d. It needs a re-bake, and P4's exit
+gate says the v10 re-bake happens **exactly once** — so it rides that single window alongside P4-01
+and P4-03 rather than triggering a bake of its own. That is the whole reason it is not being fixed
+the moment it was found: the fix is cheap, the bake is not.
+
+Fix: test building footprints against the corridor polygons during the bake and drop — or set back —
+any that intersect. The polygons already exist at that point in the pipeline, so this is a filter,
+not new geometry.
 
 ⚠ **Scope it to the trench footprint.** `flagFloatersOverCarve`'s inverse clause already found
 14,037 floating samples of which only 32 were deckless, *"all on 2 roads over NATIVE terrain/water
