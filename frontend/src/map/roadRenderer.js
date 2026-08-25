@@ -25,6 +25,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CURB_HEIGHT } from './groundLayers.js';
+import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS } from './roadMaterial.js';   // v3 P3-07
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -283,12 +284,24 @@ function patchRoadAO(mat) {
   // hash to the same compiled program and one silently renders with the other's shader.
   return patchMaterial(mat, (shader, renderer) => {
     bindAoScaleUniform(shader);
+    // v3 P3-07 asphalt v2 — analytic macro wear + wheel ruts. Zero VRAM, no re-bake: it rides the
+    // `halfWidth` attribute the ribbon already carries, which is what makes uv convert to METRES.
+    // Declares its OWN uv varying rather than three's `vMapUv` (D-30: that one exists only under
+    // #ifdef USE_MAP, and the road material binds no map).
+    shader.uniforms.uRoadWear = { value: ROAD_V2_UNIFORMS.uRoadWear };
+    shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoDark = aAO;');
+      .replace('#include <common>',
+        '#include <common>\nattribute float aAO;\nvarying float vAoDark;'
+        + '\nattribute float halfWidth;\nvarying float vHalfW;\nvarying vec2 vRoadUv;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvAoDark = aAO;\nvHalfW = halfWidth;\nvRoadUv = uv;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;')
-      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`);
+      .replace('#include <common>',
+        '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;' + ROAD_V2_PARS)
+      // AFTER color_fragment so it MODULATES the vertex-colour asphalt instead of replacing it —
+      // road colour lives in the vertex colour, same as buildings (D-31).
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}\n${ROAD_V2_APPLY}`);
   }, 'roadAO');
 }
 

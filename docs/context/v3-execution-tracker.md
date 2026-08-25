@@ -897,14 +897,33 @@ small value once this lands.**
   VERTEX COLOUR against a white material, so a tinted layer would drive dark roofs to black.
   Rides the same `?facadearray=1` flag: shipping half a look is worse than shipping neither.
 
-### `[ ]` P3-07 · 3.0d · risk medium
+### `[~]` P3-07 · 3.0d · risk medium
 **ASPHALT SHADER v2 — the core road rebuild.** Extend `patchRoadAO` into a proper road material: (a) world-metric UV from the already-baked `halfWidth` — `vAcross = (uv.y-0.5)*2.0*halfWidth`, `vAlong = uv.x*4.0`, **no re-bake**; (b) tiling albedo + normal at 4 m; (c) a second detail-normal sample at 8× frequency killing the close-range repeat; (d) macro wear from world-XZ noise **per-fragment** at ~40 m (replaces the per-vertex `roadNoise`, zero VRAM, strictly better); (e) **analytic wheel ruts** — two subtly polished bands per lane derived from `halfWidth`, ~10 ALU, zero VRAM, the single most recognisable "real…
 
 - **Files:** `roadRenderer.js:283-315,4593-4660`; new `map/roadMaterial.js`
 - **Depends:** P1 pipeline; **SMAA**
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P3
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Progress (2026-08-25) — (a), (d), (e) SHIPPED, all analytic: zero VRAM, no re-bake, no art.**
+  `map/roadMaterial.js` + **8 tests (124 total)**.
+  - **(a) world-metric UV** rides the per-vertex `halfWidth` the ribbon ALREADY carries
+    (`buildFlatRibbonGeometry`, used until now only for the edge fade). `across = (uv.y-0.5)*2*halfWidth`,
+    `along = uv.x*4`. A 3.5 m lane is now 3.5 m on a service street and on a trunk road — under the old
+    width-relative UV those disagreed.
+  - **(d) macro wear** per-fragment at ~40 m, centred on zero so it darkens AND lightens (a one-sided
+    term would shift the whole city's asphalt tone rather than add variation).
+  - **(e) wheel ruts** — two polished bands ~0.9 m either side of each lane centre, i.e. a real car
+    track width, repeating per lane and **fading out above 8 m half-width** where the lane model stops
+    being true (junction fans, plazas — ruts there read as sprayed stripes).
+  - Modulates the vertex-colour asphalt rather than replacing it, per **D-31**; declares its own
+    varyings rather than `vMapUv`, per **D-30**.
+- ⚠ **(b) tiling albedo and (c) the 8× detail normal are NOT done — they need authored art** and were
+  deliberately not faked with hash noise, which shimmers under motion and aliases at grazing angles,
+  which is exactly where road fills the screen. Grain is still missing; wear and ruts are not grain.
+- ⚠ **The per-vertex `roadNoise` was NOT removed**, though the spec says (d) replaces it. Both are
+  live, so wear is currently applied twice at different frequencies. Removing it is a visible change
+  to the default road and wants one drive to judge against, not a blind deletion.
+- **Done when:** _(a drive judging ruts at street level + the `roadNoise` removal + (b)/(c) art)_
 
 ### `[ ]` P3-08 · 2.5d · risk medium
 **Road asset set** — `asphalt_worn_1k` (ambientCG CC0, normalized), `asphalt_detail_512` (normal only, AI tiling or high-pass), `panot_1k` (baked offline from the existing `makePanotCanvas` generator upgraded 256→1024 under node-canvas, Sobel normal, **AD-12 20×20 grid over 4.0 m**, and the AD-4 v-flip fix at `roadRenderer.js:1690-1694` lands with it), `concrete_kerb_512`. Ship `.ktx2`, keep the generator as the authoring tool.
