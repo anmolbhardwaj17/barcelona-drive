@@ -13,7 +13,7 @@
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
 | **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
-| **Tasks done** | **51 / 81** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **51 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **ONE drive at `localhost:4044/?lightgrid`** (~30 s) — returns BOTH the K-N light-grid verdict and the first real attribution of the long frames. |
 
@@ -548,7 +548,7 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Full spec:** this entry
 - **Done when:** ✅ `art-src/delhi/` created with a README recording what was archived, why, and that it must not be re-imported into the Barcelona path.
 
-## P2 — LOD AND NIGHT · 15.5 days · 7 tasks
+## P2 — LOD AND NIGHT · 17.5 days · 8 tasks
 **Goal.** Buy the GPU headroom the art wave spends, and answer the project's #1 unsolved problem. **The 1-day spike gates the 8 days behind it.**
 
 **Progress:** 3 / 7 (P2-02 ✅, P2-03 ✅ PASS, P2-04 ⏳ visual check) — next: **P2-05** (opt-in + delete the 6 fakes, SAME COMMIT)
@@ -608,6 +608,38 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P2
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+
+### `[ ]` P2-08 · 2.0d · risk medium
+**ONE surface-height source for every road decal.** Road paint (zebra, edge lines, lane arrows,
+stencils, bike pictos) floats above the asphalt in some places and is buried in others. Root cause is
+NOT tuning — there are **two independent Y derivations for surfaces that must be coplanar**:
+
+| | formula |
+|---|---|
+| road mesh | `toNormalizedRoadY(p.elevation, offset, scale) + ROAD_VISUAL_ABOVE_TERRAIN (0.05)` |
+| decals | `sample.elevation + ROAD_Y_OFFSET` |
+
+The decal path skips **both** the normalisation and the road's own lift, and samples a different
+source (`generateLaneArrows` uses INTERSECTION points; the road mesh uses its own polyline). They
+agree only where the offset is 0 and the ground is flat — hence "fine in some places".
+
+**The fix is a single `roadSurfaceY(x, z)` that returns the height of the drawn road surface**, used
+by every decal as `roadSurfaceY(x,z) + DECAL_LIFT`. No decal derives its own elevation. Same shape as
+the drivable-surface-implies-floor rule in the vertical-model spec: one source of truth for a height,
+never two that must be kept in agreement by hand.
+
+⚠ **Depth bias has been masking this twice already, and must not be used as the fix again.**
+polygonOffset's slope term is large at grazing angles, so buried paint gets pulled forward and looks
+correct at distance; up close the angle steepens, the term collapses, and the burial shows. That is
+the "arrows only sometimes visible" report (P0-14, patched by raising the bias) AND the "they hide
+when I'm close" report (this session, mitigated by ROAD_Y_OFFSET 0.06 → 0.11). **The 0.11 is a
+stopgap that trades burial for floating — it makes the float case WORSE and must be reverted to a
+small value once this lands.**
+
+- **Files:** new `roadSurfaceY` helper (beside `roadElevation.js`), `roadInfraRenderer.js:~941` (lane arrows), `roadRenderer.js` (zebra, edge strips, stencils), `tileManager.js` (sampler wiring)
+- **Depends:** nothing
+- **Subsystem:** roads
+- **Done when:** a drive over crowned/sloped/multi-layer road shows no floating and no buried paint at ANY viewing angle, `ROAD_Y_OFFSET` is back under 0.06, and a test asserts decal Y == road-mesh Y + lift for a sloped sample.
 
 ### `[ ]` P2-06 · 1.0d · risk high
 **DELETE the fake-night stack, SAME COMMIT as the opt-in** — ground-pool decals (`streetlightRenderer.js:24,113-121,214,526-531,596-599`), hero-building spill decals (`meshMaterializer.js:917-946,1023`), road night wash (`roadRenderer.js:273` — **the AO half was already split out in P0**), vegetation night wash (`vegetationRenderer.js:235`). KEEP the lamp emissive (it becomes the corona source). Half-landed, night double-lights and looks **worse than today**. Capture 3 committed night poses **before** any of it starts.
@@ -1008,6 +1040,7 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 | 2026-08-25 | **D-23 · the light-grid spike's first PASS was a false pass** | Two runs both reported PASS with **three of four deltas NEGATIVE** — the grid measuring *faster* switched on, which is impossible for added shader work. Cause: `setLights(stubSpikeLights(...))` ran once at arm time; the grid **window** follows the camera but the **lights do not**, so after ~200 m of driving every visible cell was empty, all 4 slots failed `id < 0.5`, and the loop cost one texture fetch. Most of a 25 s drive measured an empty shader. Fixed by re-placing the stub lamps on every cell crossing, **and** by adding a proof-of-work stat (`cells lit`, `lights per lit cell`) that makes the A/B report **VOID** instead of PASS when the grid was empty. **Generalise this: a cost measurement is only meaningful if there was work to cost, and the output must show that it was — otherwise a no-op reports green and nobody can tell.** |
 | 2026-08-25 | **D-24 · the BatchedMesh trap is real, but both of the audits' claims about it were wrong** | Verified in three 0.183.1: `setGeometryIdAt` (`:1185`) is indeed the only instance mutator that skips `_visibilityChanged`, and `onBeforeRender:1507` early-returns without it in exactly our pool config. But **(1) vegPools is not currently broken** — `remove()` hides a slot before freeing it, so `allocSlot`'s `setVisibleAt(id, true)` is a real transition and does publish the swap. Safe by a coincidence between two functions, documented at both sites now. **(2) The audits' fix does not work.** `setVisibleAt` early-returns when the value is unchanged (`:1151`), and an LOD band swap keeps the instance VISIBLE — so "call setVisibleAt afterwards" is silent too, and the band never fires. **The failure the audits wanted to prevent was reachable through the fix they proposed.** Use `setGeometryIdSafe()` (`batchedMeshSafe.js`), which sets the flag explicitly and skips it on a no-op swap (publishing a non-swap forces a walk of every instance — 15k+ per pool). Found by writing the test, not by reading the code: the first version of the test FAILED, and the failure was the finding. |
 | 2026-08-25 | **D-25 · the benchmark is structurally blind to the biggest hitch we have seen** | The new frame attributor caught `[frame] 51ms — post 46.5` on a real drive (normal frame: `traffic 2.3 · other 1.9 · rend 1.7`). `adaptiveResolution.apply()` reallocates every render target in the composer chain, bloom's mip pyramid included; its own comment at `:26` already said so and it had never been timed. **`main.js` runs `if (!_BENCH) adaptiveRes.tick()`, so `?bench` never triggers a resolution change — every v3 baseline is blind to this stall while a player meets one every ~4 s (COOLDOWN=240).** Pinning remains correct for comparability (an unpinned run measures "did the controller give up"), so the fix is NOT to unpin the bench but to measure this separately. **A clean bench run is not evidence that this does not happen.** Suspected feedback loop to check: the frame is bimodal (60/30), so a few missed vsyncs drag the 45-frame average past `SLOW_MS`, triggering a drop that itself costs ~46 ms and causes more misses. `apply()` now times itself and warns over 8 ms. |
+| 2026-08-25 | **D-26 · road paint contrast is an ASPHALT problem, not a paint problem** | Measured: our paint (material `0xC4C4C4` x vertex `0xf5f5f5`) has luminance **0.738** — which is correct, real fresh road paint is ~0.75. Our asphalt `0x4A4A4A` is **0.290**, while real asphalt is **0.07–0.12**. So paint-to-asphalt contrast is **2.5x against a real 8.3x**, and markings read dull not because the paint is wrong but because there is nothing dark for them to stand against. **Do not "fix" this by brightening paint** — it is already at physical reflectance, and pushing it higher puts it back over the 0.72 night bloom threshold, which is the bug just removed from the lane arrows. The lever is `REGION.palette.asphalt`, and it is an art-direction change affecting DAY as much as night, so it needs sign-off rather than a unilateral edit. ETS2's asphalt is also much darker than ours. |
 | 2026-08-25 | **D-19b · P2 ORDERING SHOULD CHANGE, on measured evidence** | The v3 plan's P2 spends 6 days on `staticPools` (per-instance LOD) to buy GPU headroom, then 5 on the light grid. The post-P1 baseline says the GPU is **not the constraint**: p50 **8.02 ms** against a 16.7 ms budget, and **19.9 ms of the 33.7 ms p95 frame is not GPU at all**. The frame is bimodal — 60 fps or 30 fps, nothing between — and the 30 fps half is CPU/stream-bound (`[loaf]` 100–380 ms spikes during tile stream-in). **Recommendation: bring task #39 / stream-in forward ahead of staticPools; keep the light grid, since night has no punctual lights and that is a LOOK problem, not a perf one.** Not yet actioned — it is a plan change and belongs to the user. |
 | 2026-08-25 | **D-18 · post-P1 measurement, read carefully** | `docs/context/v3-baseline-post-p1.json`. **The pixel-ratio pin finally held (1.0), and the P0 baseline was 1.2 — so GPU figures are NOT comparable.** Dropping 1.2→1.0 removes ~31% of fragments on its own; do not claim the GPU p50 13.31→8.02 as a P1 win. Trustworthy because pixel-ratio-independent: **draws 261→246 ✅**, **programs Δ8→Δ5 ✅** (gate 0 — road/terrain materials still unwarmed), **triangles 1.88M→1.96M ⚠ UP**, which should have FALLEN given the culls added and is unexplained; the driver reported 2 collisions and a reverse, so tile residency differed. Heap −9.6%→+56.3% against a ≤+15% gate: probably GC timing rather than a leak, but unproven. **19.9 ms of the 33.7 ms p95 frame is not GPU — CPU/stream is now clearly the dominant cost.** THIS FILE IS THE NEW REFERENCE; future runs compare to it at pr 1.0. |
 | 2026-08-25 | **D-16 · ⚠⚠ THE FLAG-GUARD TRAP, THIRD OCCURRENCE (P1-25)** | I read `createTramMeshes` being called with no CONFIG check and concluded the flag was ignored. **The guard was one layer down** — `railwayRenderer.js:119` tests it and returns null — so trams were OFF, and deleting the flag would have turned them ON as a silent visual change. Caught before shipping; flag restored. Preceded by `ENABLE_BUSHES` (`!== false`, D-13) and `MAX_GRASS_PER_TILE` (`?? 50000`, D-13). **RULE, now three times earned: before touching a CONFIG flag, grep it across the WHOLE codebase and read every guard — the name, the call site and even the immediate caller are not enough.** |
