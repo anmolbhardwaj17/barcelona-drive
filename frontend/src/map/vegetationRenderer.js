@@ -6,7 +6,6 @@
  * Building perimeter trees for coverage near structures.
  */
 import * as THREE from 'three';
-import { fakeNight } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B, delete with the fakes
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -232,41 +231,11 @@ export function getProceduralMaterial() {
       transformed.z += windSway * windInfluence * uWindStrength * 0.6;`
     );
 
-    patchVegWash(shader);   // urban-glow wash (see below) — shares the same compile pass
   }, 'vegTree');
 
   return proceduralMaterial;
 }
 
-// ── Vegetation "urban glow" wash (night) ─────────────────────────────────────
-// Street trees/bushes near buildings pick up the same warm ground-glow as the facades and roads;
-// park/empty-area vegetation stays dark. The per-instance factor lives in the ALPHA channel of the
-// BatchedMesh colours texture (written by the veg pools from building proximity at tile build) and
-// is read here via getBatchingColor(). One shared uniform gates it to night.
-const _vegWashUniform = { value: 0 };
-// FOLIAGE_COLORS were deepened ~×0.64 total for DAYLIGHT (grade re-saturation); the night look was
-// already user-approved BEFORE that change, so undo the deepening on the shared material after dark.
-const TREE_NIGHT_RESTORE = 1.55;
-export function setVegNightWash(isNight) {
-  _vegWashUniform.value = isNight ? fakeNight(0.04) : 0;
-  if (proceduralMaterial) proceduralMaterial.color.setScalar(isNight ? TREE_NIGHT_RESTORE : 1);
-}
-function patchVegWash(shader) {
-  shader.uniforms.uVegWash = _vegWashUniform;
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying float vVegWash;')
-    .replace('#include <batching_vertex>', [
-      '#include <batching_vertex>',
-      'vVegWash = 0.0;',
-      '#ifdef USE_BATCHING_COLOR',
-      'vVegWash = getBatchingColor( getIndirectIndex( gl_DrawID ) ).a;',
-      '#endif',
-    ].join('\n'));
-  shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uVegWash;\nvarying float vVegWash;')
-    .replace('#include <emissivemap_fragment>',
-      '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vVegWash * uVegWash);');
-}
 
 /**
  * Update tree wind animation time. Call once per frame from main render loop.
@@ -1199,7 +1168,6 @@ export function getBushGeometry() {
 export function getBushMaterial() {
   if (_bushMat) return _bushMat;
   _bushMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-  patchMaterial(_bushMat, (shader) => { patchVegWash(shader); }, 'vegWash');   // urban-glow wash at night
   return _bushMat;
 }
 

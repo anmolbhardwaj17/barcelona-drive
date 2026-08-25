@@ -6,7 +6,6 @@
  * All geometry data arrives pre-merged from workers — no mergeGeometries calls.
  */
 import * as THREE from 'three';
-import { fakeNight } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B, delete with the fakes
 import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
@@ -571,7 +570,6 @@ const BUILDING_SIDE = THREE.DoubleSide;
 // buildings through materializeBuildingMeshes, NOT through buildingRenderer's legacy cache, so the
 // window night-glow must be baked in HERE or windows never light up after dark).
 let _facadeNight = false;
-const FACADE_WASH_NIGHT = 0.05;   // strength of the warm ground-glow wash on lower floors at night (0.22→0.09→0.05; keep subtle)
 // Near-black detail materials crush to VOID-black under the blue night rig (balcony rails/gates
 // read as floating black boxes). Lift them to moonlit blue-grey at night; day colours untouched.
 const DETAIL_NIGHT_LIFT = { balconyRail: 0x4b5468, gate: 0x424a5c, acFan: 0x3d4a5e, signboard: 0x3f5a74 };
@@ -589,7 +587,6 @@ export function setFacadeNightMode(isNight) {
     else mat.color.setHex(mat.userData._dayHex ?? 0xffffff);
   }
   for (const [cacheKey, mat] of _facadeMaterialCache.entries()) {
-    if (mat.userData._uNightWash) mat.userData._uNightWash.value = isNight ? fakeNight(FACADE_WASH_NIGHT) : 0;
     if (!mat.emissiveMap) continue;
     mat.emissiveIntensity = isNight
       ? (cacheKey.includes('#hero') ? HERO_EMISSIVE_INTENSITY : NIGHT_EMISSIVE_INTENSITY)
@@ -651,24 +648,24 @@ function getFacadeMaterial(hexColor, category) {
     });
   }
 
-  // Warm ground-glow wash on the LOWER FLOORS at night — reads as street light reflecting up the
-  // facade (per-vertex aWash factor baked by the building worker: 1 at base → 0 by ~7 m). Geometry
-  // without the attribute reads 0 (WebGL default) → no wash, so shared use elsewhere is safe.
-  mat.userData._uNightWash = { value: _facadeNight ? fakeNight(FACADE_WASH_NIGHT) : 0 };
+  // v3 P2-05: the warm lower-floor "ground glow" wash is GONE. It painted vec3(1.0,0.62,0.34)
+  // emissive onto the bottom ~7 m of every facade to imply street light reflecting up — light that
+  // now genuinely exists, so keeping it meant the same wall was lit twice and the base of every
+  // building glowed whether or not a lamp was near it. The aWash attribute it read is no longer
+  // consumed by any shader.
+  //
+  // The v9 baked sky-AO in this same block STAYS: it is measured occlusion, not faked light.
   patchMaterial(mat, (shader) => {
-    shader.uniforms.uNightWash = mat.userData._uNightWash;
     bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWash;\nattribute float aAO;\nvarying float vWash;\nvarying float vAoDark;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;\nvAoDark = aAO;');
+      .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoDark = aAO;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nuniform float uAoScale;\nvarying float vWash;\nvarying float vAoDark;')
+      .replace('#include <common>', '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;')
       // Baked sky-AO darkening (v9): street-canyon facades shade at the base. Attribute stores the
       // DARKENING amount, so geometry without it (default 0) is untouched — never black.
       // uAoScale softens AO under the night rig (aoSampler.setAoNightScale).
-      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`)
-      .replace('#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`);
   }, 'facade');
 
   injectFogShader(mat);
@@ -817,7 +814,9 @@ function materializeGroup(group, material, shadowsOn) {
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(group.normals, 3));
   if (group.uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(group.uvs, 2));
   if (group.colors) geo.setAttribute('color', new THREE.Float32BufferAttribute(group.colors, 3));
-  if (group.wash) geo.setAttribute('aWash', new THREE.Float32BufferAttribute(group.wash, 1));
+  // v3 P2-05: aWash is NOT uploaded any more — the facade wash that read it is deleted. The worker
+  // still computes group.wash; leaving the upload in would cost VRAM and bandwidth per building for
+  // an attribute no shader reads. (Removing its PRODUCTION is a worker change, tracked separately.)
   if (group.ao) geo.setAttribute('aAO', new THREE.Float32BufferAttribute(group.ao, 1));
   if (group.indices) geo.setIndex(new THREE.Uint32BufferAttribute(group.indices, 1));
 

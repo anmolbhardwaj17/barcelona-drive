@@ -172,18 +172,6 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     handle.visCount = 0;
   }
 
-  /**
-   * Per-instance "urban glow" wash factor, stored in the UNUSED ALPHA channel of BatchedMesh's
-   * colours texture (setColorAt only writes rgb; the batching-colour fetch in the shader returns
-   * vec4, so .a rides along for free). The pool material's night shader reads it as the
-   * building-proximity factor. Uses the private _colorsTexture — three is pinned at 0.183.
-   */
-  function setWashAt(instanceId, w) {
-    const tex = bm._colorsTexture;
-    if (!tex) return;
-    tex.image.data[instanceId * 4 + 3] = w;
-    tex.needsUpdate = true;
-  }
 
   /** Per-tile LOD: show exactly the `target` nearest instances of this handle. Incremental. */
   function setVisibleCount(handle, target) {
@@ -202,7 +190,7 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     bm.setColorAt(instanceId, color);
   }
 
-  const api = { name, mesh: bm, add, remove, setVisibleCount, setWashAt, setColorAt, freeSlots };
+  const api = { name, mesh: bm, add, remove, setVisibleCount, setColorAt, freeSlots };
   return api;
 }
 

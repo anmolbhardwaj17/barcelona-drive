@@ -3,9 +3,8 @@
  * Mutates only lights, fog, sky visibility and material params — no geometry rebuild.
  */
 import * as THREE from 'three';
-import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, setRoadNightWash, setRoadDecalNightMode } from '../map/roadRenderer.js';
+import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, setRoadDecalNightMode } from '../map/roadRenderer.js';
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
-import { setVegNightWash } from '../map/vegetationRenderer.js';
 import { setAoNightScale } from '../map/aoSampler.js';
 import { setBuildingNightMode } from '../map/buildingRenderer.js';
 import { setFacadeNightMode, setHeroSpillNight } from '../workers/meshMaterializer.js';
@@ -37,7 +36,6 @@ const DAY = {
   bgColor:          null,
   toneMappingExposure: 1.6,   // pulled from 1.9 — the scene was overexposed, washing every surface colour pale
   lampEmissive:     0.25,   // subtle glow in daylight
-  poolOpacity:      0.04,   // barely visible in daylight
   bloomStrength:    0.5,    // subtle bloom by day (only the sun/bright highlights)
   bloomThreshold:   1.1,    // high threshold → daytime scene doesn't bloom
   lightsOn:         false,
@@ -61,7 +59,6 @@ const NIGHT = {
   bgColor:          0x0a1224,  // deep navy sky
   toneMappingExposure: 1.5,    // 1.75 read as day; darkness now comes from the blue rig + grade, not exposure
   lampEmissive:     9.0,       // hotter streetlamp glow → warm pops punch through the deep blue
-  poolOpacity:      1.0,
   bloomStrength:    0.55,      // soft halo only — 1.0 turned every window into a fuzzy ball
   bloomThreshold:   0.72,      // just the truly bright emissives bloom (lamps, window cores)
   lightsOn:         true,
@@ -76,7 +73,6 @@ const NIGHT = {
  *   dirLight: THREE.DirectionalLight,
  *   sky: object,
  *   setLampEmissiveIntensity: (v: number) => void,
- *   setPoolOpacity: (v: number) => void,
  * }} refs
  * @returns {{ element: HTMLButtonElement, isNight: () => boolean }}
  */
@@ -95,7 +91,7 @@ export function getPresetFogDensity() { return _presetFogDensity; }
 
 export function createEnvToggle(refs) {
   const { scene, renderer, ambientLight, hemiLight, dirLight, sky,
-          setLampEmissiveIntensity, setPoolOpacity, setBloom } = refs;
+          setLampEmissiveIntensity, setBloom } = refs;
 
   let mode = 'day';
 
@@ -148,7 +144,6 @@ export function createEnvToggle(refs) {
 
     renderer.toneMappingExposure = lerpNum(from.toneMappingExposure, to.toneMappingExposure, t);
     setLampEmissiveIntensity?.(lerpNum(from.lampEmissive, to.lampEmissive, t));
-    setPoolOpacity?.(lerpNum(from.poolOpacity, to.poolOpacity, t));
     setBloom?.(lerpNum(from.bloomStrength, to.bloomStrength, t), lerpNum(from.bloomThreshold, to.bloomThreshold, t));
 
     // Sky visibility toggles at midpoint
@@ -169,8 +164,6 @@ export function createEnvToggle(refs) {
     setBuildingNightMode(isNight);
     setFacadeNightMode(isNight);   // the LIVE facade materials (worker/materializer path) — window glow
     setHeroSpillNight(isNight);    // hero-building warm ground-glow decals
-    setRoadNightWash(isNight);     // building-proximity warm wash on road surfaces
-    setVegNightWash(isNight);      // same wash on street trees/bushes (parks stay dark)
     setAoNightScale(isNight);      // soften baked sky-AO — the night rig is dark already
     setRoadDecalNightMode(isNight); // bike-lane green + blue-zone stripes crush to black otherwise
     setBusStopNightMode(isNight);

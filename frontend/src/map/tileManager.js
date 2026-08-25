@@ -15,7 +15,7 @@ import { CONFIG } from '../config.js';
 import { COLLISION_GROUP_GROUND, COLLISION_GROUP_VEHICLE, COLLISION_GROUP_WORLD, COLLISION_GROUP_TERRAIN, assertTerrainVehicleHandshake } from '../collisionGroups.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
 import { getCarContactMaterials } from '../car/carPhysics.js';
-import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadWash, buildWashGrid, washAt } from './roadRenderer.js';
+import { getJunctionPoints, buildBridgeGuardRailColliders, buildGoreMeshes, buildChamferFills, buildChamferSidewalks, buildChamferCurbs, bakeRoadAO } from './roadRenderer.js';
 import { createAoSampler, AO_DISABLED, AO_GREEN_STRENGTH } from './aoSampler.js';
 import { mergeGeometriesChunked } from './chunkedMerge.js';
 import { ingestCoastline } from './coastline.js';
@@ -1787,7 +1787,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const _tileSvfAt = createAoSampler(data.aoGrid, elevation);
     if ((tileData.buildings?.length || _tileSvfAt) && roadMeshes.length) {
       buildPhase('p1 road-wash');
-      await bakeRoadWash(roadMeshes, tileData.buildings, _perfYield, _tileSvfAt);
+      await bakeRoadAO(roadMeshes, _perfYield, _tileSvfAt);
     }
 
     roadMeshes.forEach((m) => { m.visible = true; safeSceneAdd(scene, m); });
@@ -1887,7 +1887,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Greens render ON TOP of the AO-darkened terrain — fill their aAO from the same grid or the
     // Eixample verges/parks glow bright over shaded ground (round-1 AO screenshot finding).
     if (_tileSvfAt && greenMeshesP1.length) {
-      await bakeRoadWash(greenMeshesP1, null, _perfYield, _tileSvfAt, AO_GREEN_STRENGTH);
+      await bakeRoadAO(greenMeshesP1, _perfYield, _tileSvfAt, AO_GREEN_STRENGTH);
     }
     greenMeshesP1.forEach((m) => safeSceneAdd(scene, m));
     _perfMark('greens');
@@ -2111,21 +2111,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             (zoneResult.poolHandles || []).forEach((h) => entry.vegPoolHandles.push(h));
           }
 
-          // Area-aware night wash for vegetation: trees/bushes near buildings pick up the warm
-          // urban glow; park/empty-area vegetation stays dark (same building-proximity rule as the
-          // roads). ALWAYS written — the pool colour texture's default alpha is 1 (= full glow).
-          {
-            buildPhase('p3 veg-wash');
-            const washGrid = tileData.buildings?.length ? buildWashGrid(tileData.buildings) : null;
-            for (const h of entry.vegPoolHandles) {
-              if (h.kind !== 'tree' && h.kind !== 'bush') continue;
-              for (let wi = 0; wi < h.count; wi++) {
-                h.pool.setWashAt(h.ids[wi], washGrid ? washAt(washGrid, h.xs[wi], h.zs[wi]) : 0);
-                if ((wi & 255) === 255) await yieldToMain();   // frame-budgeted — washAt is ~900 checks/instance (p3 veg-wash tag)
-              }
-            }
-            await yieldToMain();
-          }
+          // v3 P2-05: the per-instance vegetation "urban glow" wash is DELETED along with the rest
+          // of the fake-night stack. It cost a washAt (~900 distance checks) AND a colour-texture
+          // needsUpdate PER INSTANCE, across every tree and bush in a tile — the 'p3 veg-wash'
+          // build tag. Street trees now catch real lamp light from the light grid instead.
 
           // If the tile got cancelled while we were adding instances, release them immediately —
           // the unload sweep may already have run for this entry.
@@ -2223,7 +2212,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         // the old mirror-mesh leak (mirrors were scene-added but never tracked for unload).
         entry.vegPoolHandles = entry.vegPoolHandles || [];
         const poleHandle = await poolLightIM('pole', sl.poleMesh);
-        for (const [part, im] of [['arm', sl.armMesh], ['lamp', sl.lampMesh], ['poolDecal', sl.poolMesh],
+        for (const [part, im] of [['arm', sl.armMesh], ['lamp', sl.lampMesh],
                                   ['poleShadow', sl.poleShadowMesh], ['mirrorDisc', sl.mirrorDiscMesh],
                                   ['mirrorRim', sl.mirrorRimMesh], ['mirrorBack', sl.mirrorBackMesh]]) {
           const h = await poolLightIM(part, im);

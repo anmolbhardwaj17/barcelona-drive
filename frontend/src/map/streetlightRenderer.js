@@ -1,13 +1,11 @@
 /**
- * Procedural streetlights along road edges: instanced poles + lamp heads + road pool decals.
+ * Procedural streetlights along road edges: instanced poles + lamp heads.
  *
- * Per tile ONE InstancedMesh is created for poles, one for lamp heads, one for ground pools.
- * Returns { poleMesh, lampMesh, poolMesh, positions } where positions are lamp-head world
+ * Per tile ONE InstancedMesh is created for poles, one for lamp heads.
+ * Returns { poleMesh, lampMesh, positions } where positions are lamp-head world
  * coords (used by the dynamic PointLight pool in main.js).
  */
 import * as THREE from 'three';
-import { fakesDisabled } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B
-import { getLightPoolGeometry, makeLightPoolMaterial, POOL_SIZE } from './lightPoolDecal.js';   // v3 P1-24
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
@@ -23,7 +21,6 @@ const EDGE_OFFSET    = 0.6;   // pole close to curb
 const JUNCTION_SKIP  = 10;
 const LAYER_HEIGHT_STEP = 6;
 
-const POOL_Y_OFFSET  = 0.22;  // above the sidewalk top (base+0.19: curb 0.12 + zfight 0.02 + lift 0.05)
                               // but no longer tyre-height: 0.38 predated the road double-lift fix
                               // (2026-07-16) and visibly hovered ~26cm over the road at night. The pool
                               // plane is flat, so slopes still clip ONE edge slightly; smaller pool helps
@@ -81,14 +78,11 @@ let sharedMirrorMat  = null;
 let sharedMirrorRimGeom = null;
 let sharedMirrorRimMat  = null;
 let sharedMirrorBackMat = null;
-let sharedPoolGeom = null;
-let sharedPoolMat  = null;
 let sharedPoleShadowGeom = null;
 let sharedPoleShadowMat  = null;
 
 // Stored defaults so setters work even before first tile builds the material.
 let _lampEmissiveIntensity = 0.25; // day default — night toggle boosts (setStreetlightNightMode)
-let _poolOpacity = 0.0;             // day default — no ground light pools in daylight
 let _bridgeNightMode = false;
 const _bridgeNightCallbacks = new Set();
 
@@ -110,16 +104,15 @@ export function setLampEmissiveIntensity(v) {
   if (sharedLampMat) sharedLampMat.emissiveIntensity = v;
 }
 
-/** Update ground-pool opacity on all current and future tiles (shared material). */
-export function setPoolOpacity(v) {
-  _poolOpacity = Math.max(0, Math.min(1, v));
-  if (sharedPoolMat) sharedPoolMat.opacity = _poolOpacity;
-}
-
-/** Day/night for street lamps: bright glowing heads + warm ground pools at night, near-off by day. */
+/**
+ * Day/night for street lamps: bright glowing heads at night, near-off by day.
+ *
+ * The lamp HEAD emissive stays. It is not a fake — it is the light source being visible, which is
+ * what you actually see first on a night street. What went in P2-05 is the ground POOL decal it
+ * used to be paired with, now that the light grid casts the real thing.
+ */
 export function setStreetlightNightMode(isNight) {
   setLampEmissiveIntensity(isNight ? 2.8 : 0.25);
-  setPoolOpacity(isNight ? 0.95 : 0.0);
 }
 
 /** Toggle Indian tricolor on bridge poles (saffron/white/green) for night mode. */
@@ -129,41 +122,6 @@ export function setBridgePoleNightMode(isNight) {
 }
 
 /** Radial gradient texture — warm yellow pool fading to transparent edges. */
-let _streetlightPoolTex = null;
-function createPoolTexture() {
-  if (_streetlightPoolTex) return _streetlightPoolTex;
-  const size = 256;   // 128 upscaled to a 14 m decal showed soft-banding; 256 stays smooth
-  const canvas = document.createElement('canvas');
-  canvas.width  = size;
-  canvas.height = size;
-  const ctx  = canvas.getContext('2d');
-  const cx = size / 2, cy = size / 2, r = size / 2;
-  // Warm sodium pool — computed per-pixel inverse-square-ish falloff instead of a stepped canvas
-  // gradient: bright tight core, long smooth tail, zero banding (the old 3-stop radial read as a
-  // flat "sticker"). Colour shifts from warm white-amber at the core to deep sodium orange at the
-  // fringe, like a real lamp's spectrum spreading.
-  const img = ctx.createImageData(size, size);
-  const d = img.data;
-  for (let yy = 0; yy < size; yy++) {
-    for (let xx = 0; xx < size; xx++) {
-      const dx = (xx - cx) / r, dy = (yy - cy) / r;
-      const rr = Math.min(1, Math.hypot(dx, dy));
-      // gentle core shaping × inverse-square tail, stretched so the glow breathes all the way to
-      // the rim; ±1-step alpha dither kills the banding rings 8-bit alpha produces in the tail
-      const I = Math.pow(1 - rr, 1.6) / (1 + 3.5 * rr * rr);
-      const a = 0.36 * I + (Math.random() - 0.5) / 255;
-      const i4 = (yy * size + xx) * 4;
-      d[i4]     = 255;
-      d[i4 + 1] = Math.round(210 - 55 * rr);   // 210 core → 155 fringe (amber → sodium orange)
-      d[i4 + 2] = Math.round(140 - 100 * rr);  // 140 core → 40 fringe
-      d[i4 + 3] = Math.max(0, Math.round(a * 255));
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  _streetlightPoolTex = new THREE.CanvasTexture(canvas);
-  _streetlightPoolTex.userData.sharedTexture = true;
-  return _streetlightPoolTex;
-}
 
 function getSharedResources() {
   // --- Pole shaft (vertical only — separate from arm for per-instance tricolor) ---
@@ -208,12 +166,6 @@ function getSharedResources() {
     });
     sharedLampMat.userData.sharedMaterial = true;
   }
-
-  // --- Ground pool decal ----------------------------------------------------
-  // v3 P1-24: geometry + material now come from lightPoolDecal.js. P2 deletes the streetlamp
-  // INSTANCES below, not this mechanism — headlight spill and hero-building glow still want it.
-  if (!sharedPoolGeom) sharedPoolGeom = getLightPoolGeometry();
-  if (!sharedPoolMat) sharedPoolMat = makeLightPoolMaterial(createPoolTexture(), _poolOpacity);
 
   // --- Pole shadow decal (fake ground shadow) --------------------------------
   if (!sharedPoleShadowGeom) {
@@ -274,7 +226,6 @@ function getSharedResources() {
     poleGeom: sharedPoleGeom, poleMat: sharedPoleMat,
     armGeom: sharedArmGeom, armMat: sharedArmMat,
     lampGeom: sharedLampGeom, lampMat: sharedLampMat,
-    poolGeom: sharedPoolGeom, poolMat: sharedPoolMat,
     poleShadowGeom: sharedPoleShadowGeom, poleShadowMat: sharedPoleShadowMat,
     mirrorGeom: sharedMirrorGeom, mirrorMat: sharedMirrorMat,
     mirrorRimGeom: sharedMirrorRimGeom, mirrorRimMat: sharedMirrorRimMat,
@@ -371,10 +322,10 @@ function buildBridgeSegments(roads) {
  *
  * @param {object[]} roads
  * @param {{ x: number, z: number }[]} junctionPoints
- * @returns {{ poleMesh, lampMesh, poolMesh, positions: {x,y,z}[] } | null}
+ * @returns {{ poleMesh, lampMesh, positions: {x,y,z}[] } | null}
  */
 export function buildStreetlights(roads, junctionPoints, options) {
-  const { poleGeom, poleMat, armGeom, armMat, lampGeom, lampMat, poolGeom, poolMat,
+  const { poleGeom, poleMat, armGeom, armMat, lampGeom, lampMat,
           poleShadowGeom, poleShadowMat,
           mirrorGeom, mirrorMat, mirrorRimGeom, mirrorRimMat,
           mirrorBackMat } = getSharedResources();
@@ -508,16 +459,10 @@ export function buildStreetlights(roads, junctionPoints, options) {
   lampMesh.castShadow  = false;
   lampMesh.receiveShadow = false;
 
-  // Pool decals: flat quad, no shadow, additive-style transparency
-  const poolMesh = new THREE.InstancedMesh(poolGeom, poolMat, instances.length);
-  // v3 P2-05: the additive ground pool is the fake that overlaps the REAL lamp light most directly
-  // — a 16 m glow disc under every lamp at 22 m spacing, i.e. >100% road coverage. `?nofakes` hides
-  // it so the light grid can be judged alone. Deleted outright in P2-05.
-  if (fakesDisabled()) poolMesh.visible = false;
-  poolMesh.userData.sharedGeometry = true;
-  poolMesh.userData.sharedMaterial = true;
-  poolMesh.castShadow   = false;
-  poolMesh.receiveShadow = false;
+  // v3 P2-05: the additive ground-pool decal is DELETED. It was a 16 m warm glow disc under every
+  // lamp at 22 m spacing — over 100% road coverage — standing in for light that the light grid now
+  // actually casts. Keeping it meant the road was lit twice, and the fake had the giveaway a real
+  // lamp does not: a hard elliptical edge that slid over the asphalt as the camera moved.
 
   // Fake pole shadow decals on ground
   const poleShadowMesh = new THREE.InstancedMesh(poleShadowGeom, poleShadowMat, instances.length);
@@ -532,7 +477,6 @@ export function buildStreetlights(roads, junctionPoints, options) {
   const _pos       = new THREE.Vector3();
   const _q         = new THREE.Quaternion();
   const _one       = new THREE.Vector3(1, 1, 1);
-  const _poolScale   = new THREE.Vector3(1.5, 1, 0.65); // wider oval along road
   const _shadowScale = new THREE.Vector3();
   const _axisY     = new THREE.Vector3(0, 1, 0);
   const _lampColor = new THREE.Color();
@@ -580,14 +524,6 @@ export function buildStreetlights(roads, junctionPoints, options) {
     lampMesh.setColorAt(i, _lampColor);
 
     // Ground pool — elliptical, oriented along road direction
-    // rotateY so local X (wide axis 1.5×) aligns with road tangent.
-    // For local +X → (tx, 0, tz): cos(θ)=tx, -sin(θ)=tz → θ = atan2(-tz, tx)
-    const poolAngle = Math.atan2(-roadTz, roadTx);
-    _pos.set(lampX, py + POOL_Y_OFFSET, lampZ);
-    _q.setFromAxisAngle(_axisY, poolAngle);
-    _m.compose(_pos, _q, _poolScale);
-    poolMesh.setMatrixAt(i, _m);
-
     // Pole shadow — thin dark plane on ground, aligned with sun direction
     const shadowLen = BASE_SHADOW_LEN * (0.85 + Math.random() * 0.3);  // ±15% variation
     _shadowScale.set(1, 1, shadowLen);
@@ -605,7 +541,6 @@ export function buildStreetlights(roads, junctionPoints, options) {
   armMesh.instanceMatrix.needsUpdate        = true;
   lampMesh.instanceMatrix.needsUpdate       = true;
   lampMesh.instanceColor.needsUpdate        = true;
-  poolMesh.instanceMatrix.needsUpdate       = true;
   poleShadowMesh.instanceMatrix.needsUpdate = true;
 
   // Night mode toggle for bridge poles — cycles saffron / white / green (2 each)
@@ -718,7 +653,7 @@ export function buildStreetlights(roads, junctionPoints, options) {
     mirrorBackMesh.instanceMatrix.needsUpdate = true;
   }
 
-  return { poleMesh, armMesh, lampMesh, poolMesh, poleShadowMesh, wireMesh,
+  return { poleMesh, armMesh, lampMesh, poleShadowMesh, wireMesh,
            mirrorDiscMesh, mirrorRimMesh: mirrorRimMeshOut, mirrorBackMesh,
            positions: lampHeadPositions, setBridgeNightMode, bridgeIndices };
 }

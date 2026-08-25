@@ -4,7 +4,6 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
-import { fakeNight } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B, delete with the fakes
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -198,10 +197,10 @@ function getPanotMaterial() {
   if (_panotMaterial) return _panotMaterial;
   const { panotTexture } = createRoadTextures();
   panotTexture.anisotropy = _maxAnisotropy;
-  _panotMaterial = patchRoadNightWash(patchRoadAO(new THREE.MeshLambertMaterial({
+  _panotMaterial = patchRoadAO(new THREE.MeshLambertMaterial({
     map: panotTexture,
     color: 0xffffff,
-  })));
+  }));
   applyGroundLayer(_panotMaterial, 'sidewalk');
   return markShared(_panotMaterial);
 }
@@ -254,14 +253,6 @@ let sharedRoadMaterial = null;
 let sidewalkMaterial = null;
 let edgeStripMaterial = null;
 
-// ── Night building-glow wash on road surfaces ────────────────────────────────
-// Roads near buildings pick up the same warm ground-glow the facades' lower floors have, so lit
-// blocks and their streets merge at night; away from buildings the wash factor (per-vertex aWash,
-// baked by tileManager from building proximity) falls to 0 and the road fades to plain dark.
-// ONE shared uniform drives every patched road material; geometry without aWash reads 0 (no wash).
-const _roadWashUniform = { value: 0 };
-export function setRoadNightWash(isNight) { _roadWashUniform.value = isNight ? fakeNight(0.045) : 0; }
-
 // Deep-albedo road decals crush to BLACK under the blue night rig (PAINT_BLUE's red channel is 0;
 // the bike-lane green is dark) — the "black patches" on night streets. Lift to moonlit variants.
 let _decalNight = false;
@@ -275,11 +266,13 @@ export function setRoadDecalNightMode(isNight) {
  * `aAO` stores a DARKENING amount, so meshes without the attribute (default 0) render unchanged.
  * `uAoScale` softens AO under the night rig.
  *
- * ⚠ v3 P0-07: split out of the old combined `patchRoadWash`. This half MUST SURVIVE the P2
- * night-stack deletion — removing it strips baked AO from every road in the city with no error.
+ * ⚠ v3 P0-07 split this out of the old combined `patchRoadWash`, precisely so the P2 night-stack
+ * deletion could remove the wash without stripping baked AO from every road in the city — which
+ * would have happened silently, with no error. That deletion has now happened (P2-05) and this
+ * half survived it, as designed.
  *
- * Chains `onBeforeCompile` instead of assigning it, so it composes with `patchRoadNightWash`
- * (and with anything that patches these materials later — see gotcha H9: three's CSM hard-assigns).
+ * Chains `onBeforeCompile` instead of assigning it, so it composes with anything that patches
+ * these materials later — the light grid does (see gotcha H9: three's CSM hard-assigns).
  */
 function patchRoadAO(mat) {
   // v3 P1-03: the hand-rolled chain from P0-07 now goes through the registry, which also feeds the
@@ -296,40 +289,18 @@ function patchRoadAO(mat) {
   }, 'roadAO');
 }
 
-/**
- * Night "urban glow" wash on road surfaces — **DELETABLE**.
- * One of the six fake-night systems the P2 light grid (`lightGrid.js`) replaces. When that lands,
- * delete this function and drop it from the call sites below; `patchRoadAO` stays untouched.
- *
- * Chains `onBeforeCompile` — see `patchRoadAO` above.
- */
-function patchRoadNightWash(mat) {
-  // v3 P1-03: the hand-rolled chain from P0-07 now goes through the registry, which also feeds the
-  // patch tag into customProgramCacheKey — without that, two materials differing only in patches
-  // hash to the same compiled program and one silently renders with the other's shader.
-  return patchMaterial(mat, (shader, renderer) => {
-    shader.uniforms.uNightWash = _roadWashUniform;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWash = aWash;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
-      .replace('#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
-  }, 'roadNightWash');
-}
 
 /** Asphalt road material with vertex color variation (stylized mode). */
 function getSharedRoadMaterial() {
   if (sharedRoadMaterial) return sharedRoadMaterial;
-  sharedRoadMaterial = patchRoadNightWash(patchRoadAO(new THREE.MeshStandardMaterial({
+  sharedRoadMaterial = patchRoadAO(new THREE.MeshStandardMaterial({
     color: 0xffffff,       // white base — actual color comes from vertex colors
     vertexColors: true,
     roughness: 0.9,
     metalness: 0,
     depthWrite: true,
     side: THREE.DoubleSide,  // visible from below bridges
-  })));
+  }));
   applyGroundLayer(sharedRoadMaterial, 'road');   // above terrain/greens, below all paint
   return markShared(sharedRoadMaterial);
 }
@@ -397,94 +368,43 @@ function applyRoadVertexColors(geometry) {
 /** Flat beige sidewalk material (stylized mode — no textures). */
 function getSidewalkMaterial() {
   if (sidewalkMaterial) return sidewalkMaterial;
-  sidewalkMaterial = patchRoadNightWash(patchRoadAO(new THREE.MeshLambertMaterial({
+  sidewalkMaterial = patchRoadAO(new THREE.MeshLambertMaterial({
     color: 0xb8bab5,
     depthWrite: true,
-  })));
+  }));
   return markShared(sidewalkMaterial);
 }
 
-/**
- * Bake the per-vertex building-proximity wash factor (aWash) into ground meshes. Sources are the
- * buildings' footprint OUTLINE points (not just centroids — big blocks would starve their kerb),
- * hashed into a coarse grid; each vertex takes 1 − d/RANGE to its nearest source. Streets flanked
- * by buildings glow with the facades at night; empty stretches read 0 → plain dark. ~1 grid lookup
- * per vertex; call it through the tile builder's yield budget.
- */
-const WASH_RANGE = 18, WASH_R2 = WASH_RANGE * WASH_RANGE, WASH_CELL = 24;  // CELL ≥ RANGE → ±1-cell query
-
-/** Hash grid of building footprint outline points — shared by road, sidewalk AND vegetation washes.
- *  Points are thinned to ≥5 m spacing: a dense Eixample tile put 100+ points per cell, turning each
- *  washAt into ~900 distance checks (measured: 55 ms wash chunks). The wash is a soft 18 m gradient —
- *  5 m source spacing is visually identical. */
-export function buildWashGrid(buildings) {
-  const grid = new Map();
-  const MIN_SPACING_SQ = 5 * 5;
-  for (const b of buildings) {
-    const fp = b.footprint;
-    if (!fp || fp.length < 3) continue;
-    let lx = Infinity, lz = Infinity;
-    for (let i = 0; i < fp.length; i++) {
-      const px = fp[i].x, pz = fp[i].y;
-      const dx = px - lx, dz = pz - lz;
-      if (dx * dx + dz * dz < MIN_SPACING_SQ) continue;   // too close to the previous kept point
-      lx = px; lz = pz;
-      const k = Math.floor(px / WASH_CELL) * 100003 + Math.floor(pz / WASH_CELL);
-      let a = grid.get(k);
-      if (!a) grid.set(k, a = []);
-      a.push(px, pz);
-    }
-  }
-  return grid.size ? grid : null;
-}
 
 /** 1 at a building wall → 0 beyond WASH_RANGE. */
-export function washAt(grid, x, z) {
-  const gx = Math.floor(x / WASH_CELL), gz = Math.floor(z / WASH_CELL);
-  let best = WASH_R2;
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dz = -1; dz <= 1; dz++) {
-      const a = grid.get((gx + dx) * 100003 + (gz + dz));
-      if (!a) continue;
-      for (let j = 0; j < a.length; j += 2) {
-        const ddx = a[j] - x, ddz = a[j + 1] - z;
-        const d2 = ddx * ddx + ddz * ddz;
-        if (d2 < best) best = d2;
-      }
-    }
-  }
-  return best < WASH_R2 ? 1 - Math.sqrt(best) / WASH_RANGE : 0;
-}
 
-export async function bakeRoadWash(meshes, buildings, yieldFn, svfAt, aoStrength = AO_ROAD_STRENGTH) {
-  const grid = buildings?.length ? buildWashGrid(buildings) : null;
-  if (!grid && !svfAt) return;
+/**
+ * Bake the v9 sky-visibility AO into ground meshes.
+ *
+ * v3 P2-05: this used to bake a building-proximity "wash" alongside the AO, feeding the warm night
+ * emissive on roads and sidewalks. That fake is deleted — the light grid casts the real thing — and
+ * with it goes the most expensive per-vertex work in the whole bake: washAt was ~900 distance
+ * checks per vertex in a dense Eixample tile, enough that even 2047-vertex slices tagged 29.9 ms
+ * and whole chunks hit 55 ms. What remains is one AO sample per vertex.
+ */
+export async function bakeRoadAO(meshes, yieldFn, svfAt, aoStrength = AO_ROAD_STRENGTH) {
+  if (!svfAt) return;
 
   for (const mesh of meshes) {
     const pos = mesh?.geometry?.getAttribute?.('position');
     if (!pos) continue;
     const n = pos.count;
-    const wash = grid ? new Float32Array(n) : null;
-    const ao = svfAt ? new Float32Array(n) : null;
-    let any = false, anyAo = false;
+    const ao = new Float32Array(n);
+    let anyAo = false;
     for (let i = 0; i < n; i++) {
-      const x = pos.getX(i), z = pos.getZ(i);
-      if (grid) {
-        const w = washAt(grid, x, z);
-        if (w > 0) { wash[i] = w; any = true; }
-      }
-      if (svfAt) {
-        // Baked sky-visibility AO (v9) — darkening amount, 0 = open sky (see aoSampler).
-        // Finite guard: NaN vertex positions (G-06 grid holes) must not reach the shader.
-        const d = aoDarkening(svfAt(x, z), aoStrength);
-        if (Number.isFinite(d) && d > 0.004) { ao[i] = d; anyAo = true; }
-      }
-      // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts. 1023 (was 8191→
-      // 4095→2047): dense-area washAt is ~900 distance checks per vertex, so even 2047-vert
-      // slices tagged 29.9ms. The yield is budget-gated (no-op under 3ms) — checking often is free.
+      // Baked sky-visibility AO (v9) — darkening amount, 0 = open sky (see aoSampler).
+      // Finite guard: NaN vertex positions (G-06 grid holes) must not reach the shader.
+      const d = aoDarkening(svfAt(pos.getX(i), pos.getZ(i)), aoStrength);
+      if (Number.isFinite(d) && d > 0.004) { ao[i] = d; anyAo = true; }
+      // yield INSIDE big meshes too — one merged road mesh can carry 40k+ verts. The yield is
+      // budget-gated (no-op under 3 ms), so checking often is free.
       if (yieldFn && (i & 1023) === 1023) await yieldFn();
     }
-    if (any) mesh.geometry.setAttribute('aWash', new THREE.BufferAttribute(wash, 1));
     if (anyAo) mesh.geometry.setAttribute('aAO', new THREE.BufferAttribute(ao, 1));
     if (yieldFn) await yieldFn();
   }

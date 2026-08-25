@@ -9,7 +9,7 @@
  *
  *   - scene-wide IBL              (P2/P3) — touches every lit material
  *   - lightGrid.js clustered light (P2)   — touches every lit material
- *   - the road detail/normal map   (P3)   — roads already carry patchRoadAO + patchRoadNightWash
+ *   - the road detail/normal map   (P3)   — roads already carry patchRoadAO + the light grid
  *   - wet roads                    (P4)   — same material again
  *   - three's CSM                         — `CSM.js:443` ASSIGNS onBeforeCompile. Dropping CSM onto
  *     road materials as-is would delete the road night wash AND the baked v9 sky AO from every road

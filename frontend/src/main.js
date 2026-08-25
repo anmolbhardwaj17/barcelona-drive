@@ -47,7 +47,7 @@ import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
 import { createTileManager, setMapTileCallbacks } from './map/tileManager.js';
 import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
-import { setLampEmissiveIntensity, setPoolOpacity } from './map/streetlightRenderer.js';
+import { setLampEmissiveIntensity } from './map/streetlightRenderer.js';
 import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
 import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
@@ -236,7 +236,7 @@ const adaptiveRes = createAdaptiveResolution(renderer, composer, bloomPass, {
 // Day / Night toggle — created immediately so the day preset is applied before tile loads.
 const envToggle = createEnvToggle({
   scene, renderer, ambientLight, hemiLight, dirLight, sky,
-  setLampEmissiveIntensity, setPoolOpacity,
+  setLampEmissiveIntensity,
   // Day/night-aware bloom: lower threshold + more strength at night so lamps/windows/signs actually glow.
   setBloom: (strength, threshold) => { bloomPass.strength = strength; bloomPass.threshold = threshold; },
 });
