@@ -223,7 +223,14 @@ vec3 lightGridContribution(vec3 wpos, vec3 normal) {
     // Inverse-square with a smooth cutoff at the radius, so a lamp entering the grid fades in
     // instead of popping. NdotL is half-lambert-biased: a real street is full of surfaces facing
     // away from the lamp that are still visibly lit by bounce, and there is no GI here to supply it.
-    float atten = pow(clamp(1.0 - dist / P.w, 0.0, 1.0), 2.0);
+    // Smoothstep, not quadratic. A lamp head sits POLE_HEIGHT (8 m) above the road, so the light
+    // has already spent that much of its radius before reaching any ground the driver sees:
+    // quadratic falloff gave 0.31 directly BENEATH the lamp and 0.03 twenty metres along the
+    // street, so pools died at ~15 m and lamps only lit up when you were nearly under them.
+    // Smoothstep holds near 1 through the near field and still reaches exactly 0 at the radius,
+    // so pools overlap into a continuously lit road with visible scalloping at 22 m spacing.
+    float t = clamp(1.0 - dist / P.w, 0.0, 1.0);
+    float atten = t * t * (3.0 - 2.0 * t);
     // mix(dot, 1, wrap): wrap=0 is true lambert, wrap=0.5 reproduces the classic dot*0.5+0.5
     // half-lambert the spike was measured with, wrap=1 is fully omnidirectional.
     float ndl = clamp(mix(dot(normalize(normal), normalize(d)), 1.0, uLGWrap), 0.0, 1.0);
@@ -337,21 +344,18 @@ export function lightGridABTick(gpuMs) {
       // A near-empty grid makes the shader early-out and the cost vanish. That is not a pass, it is
       // a failed experiment, and it must not be reported as a green light to spend a week.
       const valid = occ >= 40 && slots >= 1.5;
+      // Template literal, not printf: the previous version drifted out of sync when args were
+      // added (a stale header plus two new args shifted every value, printing "NaN off"), and its
+      // escaped newlines rendered as literal \n in the console. Interpolation cannot desynchronise.
+      const trunc = lightGridStats.truncated
+        ? ` (TRUNCATED from ${lightGridStats.lightsOffered}, cap ${MAX_LIGHTS} — lamps beyond the nearest ${MAX_LIGHTS} are DARK)`
+        : '';
       console.warn(
-        '[lightgrid] SPIKE RESULT — 32 lights, %d samples on / %d off\\n' +
-        '  GPU mean   OFF %s ms   ON %s ms   DELTA %s ms\\n' +
-        '  GPU p95    OFF %s ms   ON %s ms   DELTA %s ms\\n' +
-        '  WORK       %s cells lit of %d, %s lights per lit cell  ->  %s\\n' +
-        '  GATE K-N: delta must be <= 3.0 ms  ->  %s',
-        lightGridStats.lightCount,
-        lightGridStats.truncated ? ` (TRUNCATED from ${lightGridStats.lightsOffered} — cap ${MAX_LIGHTS})` : '',
-        AB.on.length, AB.off.length,
-        mOff.toFixed(2), mOn.toFixed(2), d.toFixed(2),
-        p95(AB.off).toFixed(2), p95(AB.on).toFixed(2), (p95(AB.on) - p95(AB.off)).toFixed(2),
-        occ.toFixed(0), GRID_DIM * GRID_DIM, slots.toFixed(2),
-        valid ? 'grid was doing real work' : 'GRID WAS EMPTY — measurement is void',
-        !valid ? 'VOID — re-run, this measured nothing'
-               : d <= 3.0 ? 'PASS — build it' : 'FAIL — stop, the approach is wrong');
+        `[lightgrid] RESULT — ${lightGridStats.lightCount} lamps${trunc}, ${AB.on.length} on / ${AB.off.length} off
+  GPU mean   OFF ${mOff.toFixed(2)} ms   ON ${mOn.toFixed(2)} ms   DELTA ${d.toFixed(2)} ms
+  GPU p95    OFF ${p95(AB.off).toFixed(2)} ms   ON ${p95(AB.on).toFixed(2)} ms   DELTA ${(p95(AB.on) - p95(AB.off)).toFixed(2)} ms
+  WORK       ${occ.toFixed(0)} cells lit of ${GRID_DIM * GRID_DIM}, ${slots.toFixed(2)} lamps per lit cell  ->  ${valid ? 'grid was doing real work' : 'GRID WAS EMPTY — measurement is void'}
+  GATE K-N: delta must be <= 3.0 ms  ->  ${!valid ? 'VOID — re-run, this measured nothing' : d <= 3.0 ? 'PASS' : 'FAIL — the approach is wrong'}`);
       window._ddLightGridAB = { meanOn: mOn, meanOff: mOff, delta: d,
                                 p95On: p95(AB.on), p95Off: p95(AB.off), samples: AB.on.length + AB.off.length };
       return;

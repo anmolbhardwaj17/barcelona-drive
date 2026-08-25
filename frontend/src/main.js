@@ -864,6 +864,8 @@ const _lgTmp = new THREE.Vector3();
 const _lgCamLocal = new THREE.Vector3();
 const _lgColor = new THREE.Color(REGION.night?.lampColor ?? 0xFFB25E);
 let _lgLampCount = 0;
+let _lgDirtyPrograms = false;   // a material was patched → its program needs rebuilding
+let _lgLastCompile = 0;
 let _lgTileEpoch = -1;
 
 // Live tuning. Night lighting is a look decision, and a look decision made through edit-rebuild-
@@ -1249,10 +1251,19 @@ function animate(time = 0) {
       // to stop working partway down the street, with no error to explain it. replayExisting
       // handles the already-built spawn tiles in the same call.
       let patched = 0;
-      onMaterialRegistered((m) => { try { patchLightGrid(m); patched++; } catch { /* non-lit material */ } });
+      onMaterialRegistered((m) => { try { patchLightGrid(m); patched++; _lgDirtyPrograms = true; } catch { /* non-lit material */ } });
       rebuildLightGrid();
       console.warn('[lightgrid] armed — %d materials patched (auto-patching new ones), %d lamps in range.',
         patched, _lgLampCount);
+    }
+    // Patching a material invalidates its compiled program, so the NEXT draw pays for the
+    // recompile — measured at `rend 340ms` on the arm frame, and again in smaller stalls as tiles
+    // bring new materials in. compileAsync uses KHR_parallel_shader_compile to build them off the
+    // critical path instead. Debounced: tiles register materials in bursts, and one compile per
+    // material would be worse than the stall it replaces.
+    if (_lgDirtyPrograms && time - _lgLastCompile > 500) {
+      _lgDirtyPrograms = false; _lgLastCompile = time;
+      renderer.compileAsync?.(scene, camera)?.catch(() => { /* falls back to sync compile on first draw */ });
     }
     lightGridABTick(gpuTimer.getMs());   // dev A/B — see lightGrid.js (getMs is a cached EMA, no GPU sync)
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
