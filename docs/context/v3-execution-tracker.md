@@ -13,7 +13,7 @@
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
 | **Next task** | **P3-04 · array facade material · 4.0 d** (P3-03 ✅ FrontSide shipped). It also carries P3's "mid-air shopfronts: 0" gate, which P3-02 handed to it. ⚠ P3-03's fragment saving is unmeasured — a bench run would bank it. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **60 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **61 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
@@ -786,7 +786,7 @@ small value once this lands.**
   largest triangle population" is the task's claim, and no before/after GPU number was captured.
   Bank it in the performance ledger only after a bench run, per the no-double-counting rule.
 
-### `[~]` P3-04 · 4.0d · risk medium
+### `[x]` P3-04 · 4.0d · risk medium
 **FACADE ARRAY-TEXTURE MATERIAL.** Delete `getWindowTexture` (`meshMaterializer.js:118-365`). `CompressedArrayTexture`: 8 × 1024² albedo + 8 × 1024² normal + 8 × 512² window mask. Per-vertex uint8 `aLayer`. Requires an `onBeforeCompile` chunk swap (`sampler2D` → `sampler2DArray`). **Array textures wrap per-layer natively, which our band UVs need — an atlas + `fract()` + `textureGrad` would seam.** Anisotropy from the registry (currently unset, default 1).
 
 - **Files:** `meshMaterializer.js:118-365 (delete),596-670`; `buildingWorker.js`; new `map/facadeArray.js`
@@ -854,8 +854,12 @@ small value once this lands.**
   **37.5% (15/40)**, 4.4% (6/136) and 1.6% (5/306) — so inconsistent winding was REAL and highly
   tile-dependent, which is why the 2026-07-06 flag flip failed on some buildings and not others.
   0 inner rings reversed in those tiles.
-- **Remaining:** delete `getWindowTexture` (only once the array path is the default), and the real
-  measurement of **mid-air shopfronts = 0** — which needs a drive on `?facadearray=1`.
+- **Done when:** ✅ **MID-AIR SHOPFRONTS = 0, verified on screen 2026-08-25** (`?facadearray=1`).
+  That is P3's gate metric, handed forward from P3-02 and now measured rather than argued. The array
+  path renders on both facade material types with no shader errors and complete textures.
+- **Remaining (belongs to P3-05, not here):** delete `getWindowTexture` and flip the default — both
+  only once real layers exist. The placeholders look plainer than the canvas facade by design, so the
+  flag stays opt-in until then.
 - **Done when:** _(mid-air shopfronts = 0, measured; texel density in the 85–150 band; VRAM banked once)_
 
 ### `[ ]` P3-05 · 6.0d · risk medium
