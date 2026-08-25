@@ -17,7 +17,7 @@
  *   want local +X = (−tz, 0, tx) → same θ = atan2(−tx, −tz)
  */
 import * as THREE from 'three';
-import { applyGroundLayer, roadSurfaceY, groundLift } from './groundLayers.js';
+import { applyGroundLayer, roadDeckY, groundLift } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
@@ -32,7 +32,7 @@ const LAYER_HEIGHT_STEP = 6;
 // survive a triangulated ribbon with any crown or junction blend, which buried the arrows wherever
 // the surface bulged. Raising it to 0.11 last session only traded burial for floating.
 //
-// roadSurfaceY() applies the road's own visual lift; groundLift('stencil') is the same paint-stack
+// roadDeckY() applies the road's own visual lift; groundLift('stencil') is the same paint-stack
 // height roadRenderer uses for its own arrows and stencils. Both come from groundLayers.js, so the
 // two renderers can no longer drift apart.
 
@@ -957,7 +957,7 @@ function generateLaneArrows(intersections) {
       instances.push({
         x: sample.x, z: sample.z,
         angle: facingAngle(dirTx, dirTz),
-        baseY: roadSurfaceY(sample.elevation != null ? sample.elevation : layer * LAYER_HEIGHT_STEP)
+        baseY: roadDeckY(sample.elevation != null ? sample.elevation : layer * LAYER_HEIGHT_STEP)
                + groundLift('stencil'),
       });
     }
@@ -1252,7 +1252,7 @@ function generateDrains(roads, junctions, rng) {
         // at all. Near the spawn (sea level, normalised ~0) that happened to look right; on any of
         // Barcelona's sloped streets the covers were metres off the asphalt they sit in.
         // walkPolyline already returns a normalised elevation — it just was not being used.
-        baseY: roadSurfaceY(s.elevation ?? 0) + groundLift('drain'),
+        baseY: roadDeckY(s.elevation ?? 0) + groundLift('drain'),
       });
     }
   }

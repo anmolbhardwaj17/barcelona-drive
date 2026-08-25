@@ -59,30 +59,54 @@ export const GROUND_LAYERS = {
 // so the arrows were buried wherever the surface bulged — and polygonOffset hid that at the grazing
 // angles distant road is viewed at, which is why it read as "they disappear when I get CLOSE".
 //
-// Every ground decal must now be placed as:  roadSurfaceY(x,z) + GROUND_LIFT[class]
+// Every ground decal must now be placed as:  roadDeckY(x,z) + GROUND_LIFT[class]
 // measured from the DRAWN surface, never from the road base and never from raw terrain.
 export const GROUND_LIFT = {
+  // ⚠ MEASURED FROM roadDeckY(), which is the road HEIGHTS value (base + 0.05) — NOT the top of
+  // the drawn asphalt. Per the 2026-07-16 paint-stack audit the baked road surface actually sits at
+  // base + 0.07 + a bump of 0.001-0.009, so a lift here must exceed ~0.020-0.029 before the paint
+  // is above the asphalt at all. A "0.03 lift" is really 1-10 mm of clearance, which is what left
+  // lane arrows buried wherever the surface bumped.
+  //
+  // These values reproduce the audited stack exactly, so nothing shipped moves:
+  //   lane lines base+0.100 · parking stripes base+0.105 · crosswalks base+0.095
+  //   arrows/pictos/zona30 base+0.095 · bike lanes base+0.090
+  //
+  // NOTE the parking stripes sit ABOVE lane lines geometrically while their depth bias (-12) puts
+  // them UNDER lane paint (-14). That mismatch is shipped and audited, so it is reproduced rather
+  // than silently "corrected" here — but it is exactly the kind of disagreement that makes which
+  // surface wins depend on viewing angle, and it is a candidate for the next paint pass.
   gore:         0.005,
-  drain:        0.010,
-  bikeLane:     0.015,
-  parkingZone:  0.020,
-  marking:      0.030,   // matches roadRenderer MARKING_Y_ABOVE_ROAD
-  crossing:     0.035,   // zebra — was 0.025, raised to clear the same ribbon bulge
-  stencil:      0.040,   // arrows / pictograms — topmost paint
-  tactile:      0.005,   // ⚠ sits on the SIDEWALK surface — use sidewalkSurfaceY(), not roadSurfaceY()
+  drain:        0.020,
+  bikeLane:     0.040,   // a SURFACE, not paint — sits under the lane paint
+  parkingZone:  0.055,   // blue-zone / no-parking stripes (roadRenderer STRIPE_Y_ABOVE) -> base+0.105
+  crossing:     0.045,   // zebra
+  stencil:      0.045,   // arrows / pictograms / zona30 — matches roadRenderer exactly
+  marking:      0.050,   // lane lines
+  tactile:      0.005,   // ⚠ sits on the SIDEWALK surface — use sidewalkSurfaceY(), not roadDeckY()
 };
+
+/**
+ * Height of the top of the DRAWN asphalt, above roadDeckY(). From the paint-stack audit: the
+ * baked surface is base+0.07 plus a per-vertex bump of up to 0.009, while roadDeckY() is
+ * base+0.05. Paint must clear THIS, not roadDeckY(), which is the trap the whole task is about.
+ */
+export const BAKED_SURFACE_ABOVE_ROAD_Y = 0.079;
+
+/** Minimum clearance of paint above the drawn asphalt. Below ~1.5 cm it disappears under bumps. */
+export const MIN_PAINT_CLEARANCE = 0.015;
 
 /**
  * Height of the sidewalk walking surface, from the same normalised road elevation.
  *
- * v3 P2-08: sidewalks are kerb-height above the DRAWN road surface, and anything placed on a
+ * v3 P2-08: sidewalks are kerb-height above the road deck, and anything placed on a
  * sidewalk (tactile paving, and later street furniture) must measure from HERE rather than adding
  * a kerb height of its own. roadRenderer had a second, unused convention — SIDEWALK_Y_OFFSET =
  * 0.08 above TERRAIN, which is 9 cm below this one — that was dead code and has been removed
  * rather than left as a trap for whoever wired it up next.
  */
 export function sidewalkSurfaceY(normalisedY) {
-  return roadSurfaceY(normalisedY) + CURB_HEIGHT;
+  return roadDeckY(normalisedY) + CURB_HEIGHT;
 }
 
 /**
@@ -101,13 +125,17 @@ export function groundLift(layerClass) {
 }
 
 /**
- * The height of the DRAWN road surface for a normalised road-deck elevation.
+ * The road DECK height for a normalised road elevation — i.e. what getRoadPointHeights() returns.
  *
- * `normalisedY` must already have been through toNormalizedRoadY / normRoadElev — this adds only
- * the visual lift the road mesh itself applies. Decals that skip this are measuring from the road
- * BASE and will be ~5 cm low, which is enough to bury them.
+ * ⚠ THIS IS NOT THE TOP OF THE ASPHALT, and the name that said it was (roadSurfaceY) misled the
+ * author of this very function inside one session. The drawn surface sits BAKED_SURFACE_ABOVE_ROAD_Y
+ * higher again. Paint must clear that, not this. GROUND_LIFT values are measured from here because
+ * that is what every existing call site stacks on.
+ *
+ * `normalisedY` must already have been through toNormalizedRoadY / normRoadElev. Decals that skip
+ * this are measuring from the road BASE and land ~5 cm low, which is enough to bury them.
  */
-export function roadSurfaceY(normalisedY) {
+export function roadDeckY(normalisedY) {
   return normalisedY + ROAD_VISUAL_ABOVE_TERRAIN;
 }
 

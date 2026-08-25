@@ -12,12 +12,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GROUND_LAYERS, GROUND_LIFT, groundLift, roadSurfaceY, sidewalkSurfaceY, CURB_HEIGHT,
-         ROAD_VISUAL_ABOVE_TERRAIN } from '../src/map/groundLayers.js';
+import { GROUND_LAYERS, GROUND_LIFT, groundLift, roadDeckY, sidewalkSurfaceY, CURB_HEIGHT,
+         ROAD_VISUAL_ABOVE_TERRAIN, BAKED_SURFACE_ABOVE_ROAD_Y, MIN_PAINT_CLEARANCE }
+  from '../src/map/groundLayers.js';
 
 test('the drawn road surface sits above the road base by exactly the visual lift', () => {
-  assert.equal(roadSurfaceY(0), ROAD_VISUAL_ABOVE_TERRAIN);
-  assert.equal(roadSurfaceY(12.5), 12.5 + ROAD_VISUAL_ABOVE_TERRAIN);
+  assert.equal(roadDeckY(0), ROAD_VISUAL_ABOVE_TERRAIN);
+  assert.equal(roadDeckY(12.5), 12.5 + ROAD_VISUAL_ABOVE_TERRAIN);
 });
 
 test('every paint class sits ABOVE the drawn road surface', () => {
@@ -26,17 +27,30 @@ test('every paint class sits ABOVE the drawn road surface', () => {
   }
 });
 
-test('paint order matches the depth order — a class drawn on top must also BE on top', () => {
-  // If the depth bias says stencil beats marking but the geometry puts stencil lower, the two
-  // disagree and which one wins becomes a function of viewing angle. That is the whole bug.
-  const paint = ['marking', 'crossing', 'stencil'];
-  for (let i = 1; i < paint.length; i++) {
-    const lower = paint[i - 1], upper = paint[i];
-    assert.ok(GROUND_LIFT[upper] > GROUND_LIFT[lower],
-      `${upper} draws over ${lower} (bias ${GROUND_LAYERS[upper]} vs ${GROUND_LAYERS[lower]}) so it must sit higher too`);
-    assert.ok(GROUND_LAYERS[upper] < GROUND_LAYERS[lower],
-      `${upper} must have the more negative bias`);
+test('every paint class clears the TOP OF THE ASPHALT, not just the road deck', () => {
+  // The invariant that actually matters, and the one the bug violated. roadDeckY() is base+0.05,
+  // but the drawn asphalt is base+0.07 plus a per-vertex bump — so a lift under ~0.029 leaves
+  // millimetres of clearance and the paint vanishes wherever the surface bumps up.
+  // bikeLane is a road SURFACE, not paint laid on it, so it is exempt by design.
+  for (const [cls, lift] of Object.entries(GROUND_LIFT)) {
+    if (cls === 'tactile' || cls === 'bikeLane' || cls === 'gore' || cls === 'drain') continue;
+    const clearance = lift - BAKED_SURFACE_ABOVE_ROAD_Y + ROAD_VISUAL_ABOVE_TERRAIN;
+    assert.ok(clearance >= MIN_PAINT_CLEARANCE,
+      `${cls} clears the asphalt by only ${(clearance * 100).toFixed(1)}cm — under ` +
+      `${MIN_PAINT_CLEARANCE * 100}cm it disappears under surface bumps, which is the reported bug`);
   }
+});
+
+test('the shipped paint stack is reproduced exactly — these numbers were audited', () => {
+  // 2026-07-16 paint-stack audit. Changing any of these moves shipped art, so it must be a
+  // deliberate edit, not a side effect of refactoring the constants into a shared table.
+  // Tolerance: these are sums of binary floats, so exact equality fails on 0.105 alone.
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `expected ~${b}, got ${a}`);
+  near(roadDeckY(0) + groundLift('marking'), 0.10);              // lane lines
+  near(roadDeckY(0) + groundLift('crossing'), 0.095);            // crosswalks
+  near(roadDeckY(0) + groundLift('stencil'), 0.095);             // arrows / pictos / zona30
+  near(roadDeckY(0) + groundLift('parkingZone'), 0.105);         // blue-zone / no-parking stripes
+  near(roadDeckY(0) + groundLift('bikeLane'), 0.09);             // bike lane surface
 });
 
 test('lane arrows clear the road surface by enough to survive a crowned ribbon', () => {
@@ -48,10 +62,10 @@ test('lane arrows clear the road surface by enough to survive a crowned ribbon',
 });
 
 test('the sidewalk is a kerb above the road, and tactile paving sits on the SIDEWALK', () => {
-  assert.equal(sidewalkSurfaceY(0), roadSurfaceY(0) + CURB_HEIGHT);
+  assert.equal(sidewalkSurfaceY(0), roadDeckY(0) + CURB_HEIGHT);
   const tactile = sidewalkSurfaceY(0) + groundLift('tactile');
   assert.ok(tactile > sidewalkSurfaceY(0), 'tactile must sit on the sidewalk surface');
-  assert.ok(tactile > roadSurfaceY(0) + groundLift('stencil'),
+  assert.ok(tactile > roadDeckY(0) + groundLift('stencil'),
     'tactile is on a raised sidewalk — it must be above any paint lying on the road');
 });
 
@@ -63,7 +77,7 @@ test('both surface helpers track the road, so nothing is placed at an absolute h
   // difference carries normal binary-float residue. What matters is that the helpers TRACK the
   // road 1:1 — a constant would give a delta of 0 here, which is the bug being guarded against.
   const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `expected ~${b}, got ${a}`);
-  near(roadSurfaceY(slope) - roadSurfaceY(0), slope);
+  near(roadDeckY(slope) - roadDeckY(0), slope);
   near(sidewalkSurfaceY(slope) - sidewalkSurfaceY(0), slope);
 });
 

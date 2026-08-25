@@ -32,7 +32,18 @@ export default {
     terracotta:    0xB5673F,   // roof pantile
     graniteKerb:   0x5A5A5A,   // bordillo
     panot:         0xC8C2B5,   // the flower-tile sidewalk
-    asphalt:       0x4A4A4A,
+    /**
+     * v3 D-26: was 0x4A4A4A (luminance 0.290). Real asphalt reflects 0.07-0.12; road paint reflects
+     * ~0.75 and ours measures 0.738 — correct. So markings read dull not because the paint is wrong
+     * but because there was nothing dark for them to stand against: contrast was 2.5x where reality
+     * is 8.3x. ETS2's asphalt is also far darker than ours was.
+     *
+     * 0x2E2E2E takes contrast to 4.1x — most of the way to real while staying inside the stylised
+     * palette. Do NOT chase the remaining gap by brightening paint: it is already at physical
+     * reflectance, and pushing it up puts it back over the 0.72 night bloom threshold, which is the
+     * bug removed from the lane arrows this session.
+     */
+    asphalt:       0x2E2E2E,
     planeFoliage:  0x6E7F4A,   // pollarded plane canopy — olive, never vivid green
     palmFoliage:   0x7C8A55,
     seaMediterranean: 0x2E5F72,
