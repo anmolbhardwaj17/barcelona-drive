@@ -83,6 +83,11 @@ export const CONFIG = {
   /** Ground-floor shopfronts (glass windows + door + frame) under the awnings — 2 merged meshes/tile. */
   ENABLE_SHOPFRONTS: true,
 
+  /** ⚠ v3 P1-08: device quality is owned by src/quality.js, NOT by a CONFIG flag — it has to be
+   *  decided before the renderer exists and is read by the asset registry, the shadow setup and the
+   *  adaptive-resolution cap. Override with ?quality=low|high. SHADOW_MAP_SIZE below is the
+   *  DESKTOP value; the low tier halves it. */
+
   /** Show top-right performance debug panel (FPS, draw calls, scene counts, tiles, memory). */
   ENABLE_PERFORMANCE_PANEL: true,
 

@@ -153,7 +153,7 @@ if (ENCODE && !haveEncoder()) {
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
-const manifest = { version: 1, region: 'barcelona', generated: null, assets: [] };
+const manifest = { version: 1, region: 'barcelona', generated: null, variants: ['full', 'half'], assets: [] };
 let total = 0, failed = false;
 
 for (const cls of readdirSync(SRC_DIR)) {
@@ -177,6 +177,26 @@ for (const cls of readdirSync(SRC_DIR)) {
       const bytes = statSync(outFile).size;
       entry.maps[map] = { file: outFile.slice(OUT_DIR.length + 1), bytes, srgb: isColour && rules.srgbAlbedo };
       entry.bytes += bytes;
+
+      // ── HALF-RES VARIANT (v3 P1-08) ─────────────────────────────────────────────────────────
+      // Emitted for EVERY asset, from the first one. The low quality tier requests
+      // `<name>.half.ktx2` (see loaders.js), so the variant has to exist before any art ships —
+      // retrofitting variant emission across ~100 authored assets later is the same
+      // "free today, unrecoverable after 100 assets" trap as the art direction itself.
+      //
+      // LOW skips normal maps entirely, so only colour maps get a variant. Emitting an unused
+      // half-res normal map would be pure wire weight.
+      if (isColour) {
+        const halfPng = workPng.replace(/\.png$/, '.half.png');
+        await sharp(workPng).resize(Math.max(64, rules.size / 2), Math.max(64, rules.size / 2))
+          .png({ compressionLevel: 9 }).toFile(halfPng);
+        let halfOut = halfPng;
+        if (ENCODE) {
+          halfOut = halfPng.replace(/\.png$/, '.ktx2');
+          encodeKTX2(halfPng, halfOut, { srgb: rules.srgbAlbedo, alpha: !!rules.alpha });
+        }
+        entry.maps[`${map}.half`] = { file: halfOut.slice(OUT_DIR.length + 1), bytes: statSync(halfOut).size };
+      }
     }
     // The ceilings are KTX2 budgets. Without --encode the intermediate is PNG, which is several
     // times larger by nature — enforcing there would keep the build permanently red and teach

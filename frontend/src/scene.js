@@ -2,6 +2,7 @@
  * Create Three.js scene, camera, renderer, lights, and cannon-es ground.
  */
 import * as THREE from 'three';
+import { QUALITY } from './quality.js';   // v3 P1-08
 import * as CANNON from 'cannon-es';
 import { latLonToWorld } from './projection.js';
 import { START_LAT, START_LON } from './spawnConfig.js';
@@ -641,7 +642,9 @@ export function createScene(container) {
   const dirLight = new THREE.DirectionalLight(_rally ? 0xffcb84 : 0xffd9a0, _rally ? 1.75 : 1.2);
   dirLight.position.copy(sunDir.clone().multiplyScalar(1000));
   dirLight.castShadow = CONFIG.ENABLE_SHADOWS;
-  const shadowSize = CONFIG.SHADOW_MAP_SIZE ?? 2048; // honor config (1024) — was forced to 2048 (4× fragments)
+  // v3 P1-08: the quality tier owns this now — LOW halves it to 512 (a quarter of the fragments
+  // in the depth pass). CONFIG.SHADOW_MAP_SIZE remains the desktop value.
+  const shadowSize = QUALITY.shadowMapSize ?? CONFIG.SHADOW_MAP_SIZE ?? 1024;
   dirLight.shadow.mapSize.width  = shadowSize;
   dirLight.shadow.mapSize.height = shadowSize;
   dirLight.shadow.radius         = _rally ? 6 : 3; // softer, painterly shadows in rally style

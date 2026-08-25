@@ -16,6 +16,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import * as THREE from 'three';
+import { QUALITY, QUALITY_TIER } from './quality.js';   // v3 P1-08
 
 const TRANSCODER_PATH = '/basis/';   // vendored from three/examples/jsm/libs/basis (576 KB, unhashed)
 
@@ -90,6 +91,12 @@ const _texCache = new Map();   // url -> Promise<Texture>
  *   tiling — RepeatWrapping vs ClampToEdge.
  */
 export function getKTX2Texture(url, opts = {}) {
+  // v3 P1-08: LOW tier serves the half-res variant emitted alongside every asset by
+  // scripts/build-art.mjs, and skips normal maps entirely — that halves both the map count and the
+  // per-fragment cost of every world surface, which is the single biggest lever on a phone.
+  if (QUALITY.textureVariant && !opts.noVariant) {
+    url = url.replace(/(\.[a-z0-9]+)$/i, `.${QUALITY.textureVariant}$1`);
+  }
   if (_texCache.has(url)) return _texCache.get(url);
   if (!_ktx2) return Promise.reject(new Error('[assets] initAssetRegistry(renderer) not called yet'));
   const p = _ktx2.loadAsync(url).then((tex) => applySamplerPolicy(tex, opts));
@@ -109,9 +116,12 @@ export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso } = 
   return tex;
 }
 
+/** True when this device should not be given a normal map at all (v3 P1-08). */
+export function wantsNormalMaps() { return QUALITY.useNormalMaps; }
+
 /** Diagnostics for the metrics panel / benchmark. */
 export function getAssetStats() {
-  return { cachedTextures: _texCache.size, maxAnisotropy: _maxAniso, ktx2Ready: !!_ktx2 };
+  return { cachedTextures: _texCache.size, maxAnisotropy: _maxAniso, ktx2Ready: !!_ktx2, tier: QUALITY_TIER };
 }
 
 /** Free a cached texture (tile unload must NOT call this — library textures are city-wide). */
