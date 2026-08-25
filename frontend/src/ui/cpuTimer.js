@@ -21,6 +21,10 @@ export function createCpuTimer() {
   let worstTotal = 0;
   let worstBreakdown = {};
   let lastStart = 0;
+  // Long-frame attribution. LoAF names the SCRIPT that owned a slow frame, but the whole game loop
+  // is one script entry — "FrameRequestCallback 121ms" tells you nothing about which subsystem.
+  // These sections do know, so a frame over the threshold prints its own breakdown.
+  let longCb = null, longMs = Infinity, longSeen = 0;
 
   // `interval` is the WALL time since the previous frame's start. The gap between it and the sum of
   // the measured sections ("other") is everything the section timers can't see: GC pauses, async
@@ -36,6 +40,13 @@ export function createCpuTimer() {
       for (const k in frameHeap) winHeap.set(k, (winHeap.get(k) || 0) + frameHeap[k]);
       // Ignore absurd intervals (tab backgrounded/throttled) so they don't own the worst slot all window.
       const wall = interval > 0 && interval < 500 ? interval : total;
+      if (longCb && wall >= longMs && longSeen < 40) {
+        longSeen++;   // capped: a sustained bad patch must not turn the console into the bottleneck
+        const b = { ...frame };
+        const other = wall - total;
+        if (other > 0.05) b.other = other;
+        try { longCb(wall, b, fmt(b)); } catch { /* never let reporting break the frame */ }
+      }
       if (wall > worstTotal) {
         worstTotal = wall;
         worstBreakdown = { ...frame };
@@ -64,6 +75,13 @@ export function createCpuTimer() {
       if (dh > 0) frameHeap[name] = (frameHeap[name] || 0) + dh; // count growth; ignore GC drops
       t = now; h = hm;
     },
+    /**
+     * Report frames at or over `thresholdMs`, with the per-section breakdown that LoAF cannot see.
+     * `other` is wall time outside every section: GC, async tile-build chunks landing between
+     * frames, texture uploads, browser work. A long frame dominated by `other` means the stall is
+     * NOT in the loop and no amount of optimising these sections will touch it.
+     */
+    onLongFrame(cb, thresholdMs = 50) { longCb = cb; longMs = thresholdMs; },
     snapshot() { return { ...frame }; },
     heapSnapshot() { const o = {}; for (const k in frameHeap) o[k] = +(frameHeap[k] / 1048576).toFixed(2); return o; }, // MB/section this frame
     report() {

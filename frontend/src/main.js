@@ -153,6 +153,12 @@ composer.addPass(new RenderPass(scene, camera));
 const gpuTimer = createGpuTimer(renderer);
 // Main-thread section timer — splits the JS frame (phys/ent/tiles/ui/rend) to find the CPU bottleneck.
 const cpuTimer = createCpuTimer();
+// Attribute the hitches. LoAF reports "FrameRequestCallback 121ms" — one script entry for the whole
+// loop, which names nothing. This prints the section breakdown for the same frame, so a stall can be
+// pinned on a subsystem instead of guessed at. 50 ms = three missed vsyncs, i.e. visible.
+cpuTimer.onLongFrame((wall, _b, str) => {
+  console.warn('[frame] %sms — %s', wall.toFixed(0), str);
+}, 50);
 // Perf logger — "● REC PERF" button (bottom-left) records per-frame samples → downloads a JSON to analyze.
 const perfLogger = createPerfLogger();
 // NOTE: GTAO (ambient occlusion) and Bokeh (depth-of-field) were removed — each re-renders the ENTIRE
@@ -1201,6 +1207,7 @@ function animate(time = 0) {
     }
     _benchRoute.tick(frameDt * 1000);
   }
+  cpuTimer.lap('post');   // bench/lightgrid/logger/panel — otherwise this lands in `other` and reads as GC
   performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale(), gpuMs: gpuTimer.getMs(), cpuTimer });
 }
 
