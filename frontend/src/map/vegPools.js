@@ -70,6 +70,16 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
   function allocSlot(geoId) {
     if (freeIds.length > 0) {
       const id = freeIds.pop();
+      // ⚠ LOAD-BEARING PAIRING. setGeometryIdAt does NOT set bm._visibilityChanged, and
+      // onBeforeRender early-returns without it in our config (perObjectFrustumCulled/sortObjects
+      // both false), so the swap would never reach the draw buffers. What saves us is that
+      // remove() hides the slot BEFORE pushing it to freeIds, which makes this setVisibleAt a real
+      // false->true transition — and setVisibleAt only sets the flag on an actual change.
+      //
+      // So do not "simplify" this by dropping the hide in remove(), and do not copy this pattern
+      // for an LOD band swap: there the instance stays visible, both calls go silent, and nothing
+      // renders. Use setGeometryIdSafe() from batchedMeshSafe.js for that.
+      // Pinned by test/batchedMesh.visibility.test.js.
       bm.setGeometryIdAt(id, geoId);
       bm.setVisibleAt(id, true);
       return id;
@@ -154,6 +164,8 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     if (!handle || handle.dead) return;
     handle.dead = true;
     for (let i = 0; i < handle.ids.length; i++) {
+      // The hide is load-bearing, not cosmetic: it is what makes allocSlot's setVisibleAt(true) a
+      // real transition, which is the only thing that publishes the geometry swap. See allocSlot.
       bm.setVisibleAt(handle.ids[i], false);
       freeIds.push(handle.ids[i]);
     }

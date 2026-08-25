@@ -9,9 +9,10 @@
     "preview": "vite preview",
     "optimize:textures": "node scripts/optimize-textures.js",
     "lint:canvas": "node scripts/lint-canvas.mjs",
-    "check": "node scripts/lint-canvas.mjs && npm run build",
+    "check": "npm test && node scripts/lint-canvas.mjs && npm run build",
     "build:art": "node scripts/build-art.mjs",
-    "build:art:encode": "node scripts/build-art.mjs --encode"
+    "build:art:encode": "node scripts/build-art.mjs --encode",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.4.1",
