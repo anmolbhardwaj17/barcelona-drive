@@ -1185,7 +1185,7 @@ function animate(time = 0) {
       for (const m of getRegisteredMaterials()) { try { patchLightGrid(m); patched++; } catch {} }
       console.warn('[lightgrid] SPIKE armed — 32 lights, %d materials patched. Drive ~25 s; it A/Bs itself and prints SPIKE RESULT.', patched);
     }
-    lightGridABTick(gpuTimer.getMs());   // self-measuring A/B — see lightGrid.js
+    lightGridABTick(gpuTimer.getMs());   // self-measuring A/B — see lightGrid.js (getMs is a cached EMA, no GPU sync)
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
     if (cxN !== _lgCellX || czN !== _lgCellZ) {
       _lgCellX = cxN; _lgCellZ = czN;
@@ -1197,7 +1197,14 @@ function animate(time = 0) {
     }
   }
 
+  cpuTimer.lap('lgrid');   // logger + time-to-drive + spike — split out so none of it hides in `post`
+
+  // ⚠ adaptiveRes.tick() can call setSize(), which REALLOCATES the composer's render targets
+  // (bloom chain included). That is a multi-megabyte GPU allocation in the middle of a frame, and
+  // it is the prime suspect for the 46 ms `post`. Lapped separately so the next drive names it
+  // instead of us guessing.
   if (!_BENCH) adaptiveRes.tick(frameDt);   // v3 P0-04: pinned during a benchmark run
+  cpuTimer.lap('adaptRes');
 
   // v3 P0-04: benchmark route — starts once the world is playable, drives itself, saves the JSON.
   if (_BENCH && _timeToDriveMs != null && carDriver) {
@@ -1217,8 +1224,9 @@ function animate(time = 0) {
     }
     _benchRoute.tick(frameDt * 1000);
   }
-  cpuTimer.lap('post');   // bench/lightgrid/logger/panel — otherwise this lands in `other` and reads as GC
+  cpuTimer.lap('bench');   // scripted-route stepping; inert without ?bench
   performancePanel?.tick(time, frameDt, { cameraY: camera.position.y, renderScale: adaptiveRes.getScale(), gpuMs: gpuTimer.getMs(), cpuTimer });
+  cpuTimer.lap('panel');   // STATS panel DOM writes — closes the frame; nothing after this is unlapped
 }
 
 window.addEventListener('resize', () => {

@@ -34,12 +34,30 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
   let preScale = CAP;   // scale to restore when photo mode ends
   let w = width, h = height;
 
+  // Cost of one resolution change, measured rather than assumed. This reallocates every render
+  // target in the composer chain — bloom's mip pyramid included — and the frame attributor caught a
+  // 46 ms `post` on a drive, with this as the only plausible occupant. Timed here so the claim is a
+  // number instead of an inference.
+  //
+  // ⚠ THE BENCHMARK CANNOT SEE THIS. main.js runs `if (!_BENCH) adaptiveRes.tick(...)` — pinning is
+  // correct for comparability (an unpinned run measures "did the controller give up" rather than
+  // "how expensive is the frame"), but it means every baseline is structurally blind to this stall
+  // while a real player meets one every few seconds. Do not conclude from a clean bench run that
+  // this does not happen.
+  let _applyWorst = 0;
   function apply() {
+    const t0 = performance.now();
     renderer.setPixelRatio(scale);
     renderer.setSize(w, h, false); // updateStyle=false: backing buffer only, CSS size unchanged
     if (composer.setPixelRatio) composer.setPixelRatio(scale);
     composer.setSize(w, h);
     if (bloomPass) bloomPass.resolution.set(Math.floor(w / 2), Math.floor(h / 2));
+    const ms = performance.now() - t0;
+    if (ms > _applyWorst) _applyWorst = ms;
+    if (ms >= 8) {
+      console.warn('[adaptRes] resize to %s cost %sms — reallocated the composer chain (worst %sms)',
+        scale.toFixed(2), ms.toFixed(1), _applyWorst.toFixed(1));
+    }
   }
   apply();
 
