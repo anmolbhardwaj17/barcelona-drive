@@ -154,6 +154,16 @@ try {
   }
 } catch { /* longtask API unavailable — line simply stays quiet */ }
 
+// v3 — per-entry LoAF console output is OPT-IN via `?debug=loaf`.
+//
+// It fires on every frame over 25 ms, which during tile stream-in is a continuous wall of text that
+// buries the lines you are actually reading (`[facadeArray]`, `[lightgrid]`, shader errors). It is
+// NOT deleted: the same observer feeds `loaf …` in the STATS build line, and per-entry attribution
+// is the instrument the open frame-pipeline work (#39) is measured with. Only the printing is gated.
+const _LOAF_LOG = (() => {
+  try { return new URLSearchParams(location.search).get('debug') === 'loaf'; } catch { return false; }
+})();
+
 // ── Long-Animation-Frame observer (Chrome 123+) — NAMES the `other` time ─────
 // longtask only says "something took 92ms"; LoAF says WHICH script (file + invoker)
 // owned a slow frame. Time NOT inside any script entry = GC / style / message
@@ -174,7 +184,10 @@ try {
         });
         const scripted = scripts.reduce((a, s) => a + s.duration, 0);
         const unattr = e.duration - scripted;
-        console.warn(`[loaf] ${e.duration.toFixed(0)}ms (unattr ${unattr.toFixed(0)}ms) — ${fmt.join(' · ') || 'NO scripts ≥4ms (GC/clone/style)'}`);
+        // Aggregation below is UNCONDITIONAL — STATS keeps working with the printing off.
+        if (_LOAF_LOG) {
+          console.warn(`[loaf] ${e.duration.toFixed(0)}ms (unattr ${unattr.toFixed(0)}ms) — ${fmt.join(' · ') || 'NO scripts ≥4ms (GC/clone/style)'}`);
+        }
         if (e.duration > _loafWorst) {
           _loafWorst = e.duration;
           _loafStr = fmt[0] || `unattr ${unattr.toFixed(0)}`;

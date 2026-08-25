@@ -2228,7 +2228,11 @@ export function processBuildingsInWorker(data, config) {
   // already consistent and inconsistent winding was NOT what broke that attempt — which would mean
   // the X-mirror (`worldGroup.scale.x = -1`) is the whole story and the side flag, not the geometry,
   // is what needs choosing. If it is large, half the city really was inside-out.
-  if (_windingFixedOuter > 0 || _windingFixedInner > 0) {
+  // Gated behind `?debug=winding` (via CONFIG). It fires per TILE, so during stream-in it is a wall
+  // of text. Its job is done — the measured spread (1.6% to 50.0% of outer rings reversed, plus
+  // inner rings in two tiles) is recorded in the tracker as the evidence the 2026-07-06 attempt
+  // lacked. Kept reachable because it is the only way to see the rate change if the bake changes.
+  if (config?.DEBUG_WINDING && (_windingFixedOuter > 0 || _windingFixedInner > 0)) {
     console.warn('[buildingWorker] winding normalised — %d/%d outer rings reversed (%s%%), %d inner rings',
       _windingFixedOuter, _windingSeen,
       _windingSeen ? (100 * _windingFixedOuter / _windingSeen).toFixed(1) : '0',

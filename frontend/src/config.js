@@ -27,6 +27,11 @@ export const CONFIG = {
    * Default OFF: the placeholder layers are plainer than today's canvas facade by design. Flip when
    * P3-05's authored layers land, not before.
    */
+  /** v3 P3-03 — per-tile winding-normalisation report. Opt-in via `?debug=winding`; fires per tile. */
+  DEBUG_WINDING: (() => {
+    try { return new URLSearchParams(location.search).get('debug') === 'winding'; } catch { return false; }
+  })(),
+
   FACADE_ARRAY: (() => {
     try { return new URLSearchParams(location.search).get('facadearray') === '1'; } catch { return false; }
   })(),
