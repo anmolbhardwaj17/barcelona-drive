@@ -83,7 +83,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
-import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
+import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, assertLightingVisible, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -1255,8 +1255,12 @@ function animate(time = 0) {
       let patched = 0;
       onMaterialRegistered((m) => { try { patchLightGrid(m); patched++; _lgDirtyPrograms = true; } catch { /* non-lit material */ } });
       rebuildLightGrid();
-      console.warn('[lightgrid] armed — %d materials patched (auto-patching new ones), %d lamps in range.',
-        patched, _lgLampCount);
+      const vis = assertLightingVisible({
+        radius: _lgTune.radius ?? REGION.night?.lampRadiusM, intensity: _lgTune.intensity ?? REGION.night?.lampIntensity,
+        wrap: lightGridUniforms.uLGWrap.value, coneFloor: lightGridUniforms.uLGConeFloor.value,
+        conePower: lightGridUniforms.uLGConePower.value });
+      console.warn('[lightgrid] armed — %d materials patched, %d lamps in range. Road under a lamp %s, at 15 m %s.',
+        patched, _lgLampCount, vis.under.toFixed(3), vis.mid.toFixed(3));
     }
     // Patching a material invalidates its compiled program, so the NEXT draw pays for the
     // recompile — measured at `rend 340ms` on the arm frame, and again in smaller stalls as tiles

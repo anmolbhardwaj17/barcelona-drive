@@ -232,10 +232,13 @@ vec3 lightGridContribution(vec3 wpos, vec3 normal) {
     // is what "building lighting from road reflection" was. The ground and the lower facade should
     // take nearly all of it.
     //
-    // -normalize(d).y is +1 for a surface directly below the lamp, 0 level with it, negative above.
+    // d points FROM the surface TO the lamp (the same vector N.L uses above), so for road under a
+    // lamp d.y is POSITIVE: normalize(d).y is +1 directly below the lamp, 0 level with it, and
+    // negative for anything above it. No minus sign — negating it inverted the cone, sent every
+    // road surface to the spill floor, and put the street out entirely.
     // The floor keeps a little sideways spill: a real lamp does throw some light onto the facade
     // beside it, and clamping hard to zero reads as a stencilled edge partway up the wall.
-    float down = clamp(-normalize(d).y, 0.0, 1.0);
+    float down = clamp(normalize(d).y, 0.0, 1.0);
     float cone = mix(uLGConeFloor, 1.0, pow(down, uLGConePower));
     // Inverse-square with a smooth cutoff at the radius, so a lamp entering the grid fades in
     // instead of popping. NdotL is half-lambert-biased: a real street is full of surfaces facing
@@ -383,4 +386,47 @@ export function lightGridABTick(gpuMs) {
   if (AB.skip > 0) { AB.skip--; return; }
   if (!(gpuMs > 0)) return;
   (lightGridUniforms.uLGEnabled.value > 0.5 ? AB.on : AB.off).push(gpuMs);
+}
+
+/**
+ * JS mirror of the GLSL falloff, for ONE fragment.
+ *
+ * ⚠ THIS DUPLICATES SHADER MATH AND MUST BE UPDATED WITH IT. That cost is accepted deliberately:
+ * "the street is silently unlit" has now shipped twice — once from a grid with no lights in it,
+ * once from an inverted cone sign — and in both cases the only symptom was a dark road, which is
+ * indistinguishable from an art decision. Nothing throws, nothing is slow, nothing looks broken.
+ * A canonical sample checked on the CPU turns that into a console line.
+ *
+ * @param dx,dy,dz  surface -> lamp, metres (dy > 0 means the lamp is ABOVE the surface)
+ * @param normal    surface normal, unit
+ */
+export function lampContribution(dx, dy, dz, normal, opts = {}) {
+  const radius = opts.radius ?? 48, intensity = opts.intensity ?? 0.2;
+  const wrap = opts.wrap ?? 0.5, coneFloor = opts.coneFloor ?? 0.12, conePower = opts.conePower ?? 0.75;
+  const dist = Math.hypot(dx, dy, dz);
+  if (dist > radius) return 0;
+  const t = Math.min(1, Math.max(0, 1 - dist / radius));
+  const atten = t * t * (3 - 2 * t);                       // smoothstep
+  const ux = dx / dist, uy = dy / dist, uz = dz / dist;
+  const ndl = Math.min(1, Math.max(0,
+    (normal.x * ux + normal.y * uy + normal.z * uz) * (1 - wrap) + wrap));
+  const down = Math.min(1, Math.max(0, uy));               // +1 directly below the lamp
+  const cone = coneFloor + (1 - coneFloor) * Math.pow(down, conePower);
+  return intensity * atten * ndl * cone;
+}
+
+/**
+ * One-time smoke test of the CONFIGURED parameters: does a lamp actually light the road beneath it?
+ * Warns rather than throws — a dim street is a look bug, not a reason to stop the game.
+ */
+export function assertLightingVisible(opts) {
+  const road = { x: 0, y: 1, z: 0 };
+  const under = lampContribution(0, 8, 0, road, opts);      // road directly below an 8 m lamp head
+  const mid = lampContribution(0, 8, 15, road, opts);       // 15 m along the street
+  if (under < 0.02) {
+    console.warn('[lightgrid] the configured lamp lights the road beneath it at %s — effectively ' +
+      'DARK. Check intensity, radius, and the cone sign before assuming this is an art choice.',
+      under.toFixed(4));
+  }
+  return { under, mid };
 }

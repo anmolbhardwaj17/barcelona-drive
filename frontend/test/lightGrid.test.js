@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { initLightGrid, setLights, updateLightGrid, lightGridStats, getCellSlots, GRID_DIM, MAX_LIGHTS }
+import { initLightGrid, setLights, updateLightGrid, lightGridStats, getCellSlots, lampContribution, assertLightingVisible, GRID_DIM, MAX_LIGHTS }
   from '../src/map/lightGrid.js';
 
 const WHITE = new THREE.Color(0xffffff);
@@ -66,4 +66,50 @@ test('an empty light set lights nothing', () => {
   setLights([]);
   updateLightGrid(0, 0);
   assert.equal(lightGridStats.cellsOccupied, 0);
+});
+
+// ── Falloff physics ───────────────────────────────────────────────────────────────────────────
+// These exist because the cone term shipped with an inverted sign: d points surface->lamp, so road
+// under a lamp has d.y > 0, and negating it sent every road surface to the spill floor. The street
+// went dark, nothing threw, and a dark street looks like an art decision. Sign errors in lighting
+// are silent by nature — only an assertion about the PHYSICS catches them.
+test('a lamp lights the road directly beneath it', () => {
+  const road = { x: 0, y: 1, z: 0 };
+  const under = lampContribution(0, 8, 0, road);
+  assert.ok(under > 0.1,
+    `road under an 8 m lamp got ${under.toFixed(4)} — that is a dark street. If the cone sign is ` +
+    'inverted this collapses to the spill floor and nothing else fails.');
+});
+
+test('light falls off along the street but stays visible at mid range', () => {
+  const road = { x: 0, y: 1, z: 0 };
+  const under = lampContribution(0, 8, 0, road);
+  const mid = lampContribution(0, 8, 15, road);
+  const far = lampContribution(0, 8, 30, road);
+  assert.ok(under > mid && mid > far, 'must decrease monotonically along the street');
+  assert.ok(mid > 0.02, `at 15 m got ${mid.toFixed(4)} — pools must overlap at 22 m lamp spacing`);
+});
+
+test('THE CONE: a surface ABOVE the lamp gets far less than the road below it', () => {
+  // The whole point of the cone. A six-storey facade must not be washed to the roofline by a lamp
+  // head 8 m up — that was the "building lighting from road reflection" report.
+  const road = { x: 0, y: 1, z: 0 };
+  const wall = { x: 0, y: 0, z: 1 };
+  const below = lampContribution(0, 8, 0, road);
+  const above = lampContribution(0, -12, 2, wall);   // 20 m up a facade, i.e. above the lamp
+  assert.ok(above < below * 0.25,
+    `facade above the lamp got ${above.toFixed(4)} vs road ${below.toFixed(4)} — the cone is not shaping`);
+});
+
+test('nothing is lit beyond the radius', () => {
+  assert.equal(lampContribution(0, 8, 100, { x: 0, y: 1, z: 0 }), 0);
+});
+
+test('assertLightingVisible flags a configuration that leaves the road dark', () => {
+  const warned = [];
+  const real = console.warn; console.warn = (...a) => warned.push(a);
+  try {
+    assertLightingVisible({ intensity: 0.001 });     // far too dim to see
+  } finally { console.warn = real; }
+  assert.equal(warned.length, 1, 'a road that cannot be seen must say so, not fail silently');
 });
