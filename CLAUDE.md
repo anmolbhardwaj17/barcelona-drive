@@ -68,6 +68,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - **Road-vs-terrain fit probe**: `?debug=roadfit` — measures drawn road against drawn terrain, prints a burial distribution + slope correlation + worst points with coordinates. Measurement only (renders nothing). Fires 6 s after drive start; re-run from the console with `window._ddRoadFit()`, results on `window._ddRoadFitResult`.
 - **Tunnel debug overlay**: `?debug=tunnel` — physics-collider wireframes, tile-seam markers, per-body Y labels (`tunnelDebugOverlay.js`). Off by default, zero cost when absent.
 - Combine freely, e.g. `http://localhost:4040/?mode=car&debug=tunnel`.
+- **Drive report (perf work)**: press **F9** while driving — or `window._ddReport()` — to write a compact report of the drive to `backend/debug-reports/drive-report-<ts>.json` (dev server only; falls back to a download). It aggregates long frames and late-compiling shader variants and names WHICH feature each late variant differs by. The old per-event `[frame]` / `[variant]` console lines are gone: they were unreadable and could not be copied out of DevTools. See `frontend/src/ui/driveReport.js`.
 - **Re-bake cache note**: after any re-bake, run `window._clearTileCache()` in the console + hard-reload, or the browser serves stale (pre-rebake) tiles.
 
 > **Port note:** The backend answers CORS from an allowlist — `ALLOWED_ORIGINS` in `backend/server.js`,

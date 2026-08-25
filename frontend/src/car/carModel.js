@@ -5,7 +5,7 @@
  * Forward = +Z in physics world (Y-up).
  */
 import * as THREE from 'three';
-import { getHeadlightCookie } from './headlightCookie.js';   // v3 P2-07
+import { getHeadlightRig, HEADLIGHT_DAY, HEADLIGHT_NIGHT } from './headlightRig.js';   // v3 P2-07
 import { makeGLTFLoader } from '../loaders.js';
 import { CONFIG } from '../config.js';
 import { SKY_HORIZON, SKY_ZENITH } from '../scene.js';
@@ -269,44 +269,27 @@ export async function createCarModel(scene) {
     dayLightsMesh.material.emissiveIntensity = 3.0;
   }
 
-  // ── Headlight SpotLights ─────────────────────────────────────────────────
-  const _headlightSpots = [];
-  const HEADLIGHT_DAY = 6.0, HEADLIGHT_NIGHT = 24.0;  // soft DRL by day, warm beam at night (60 blew out to a total whiteout pool; 24 lights the road without nuking it)
-  if (CONFIG.ENABLE_CAR_LIGHTS) {
-    const spotTarget = new THREE.Object3D();
-    spotTarget.position.set(0, -1, 20);
-    bodyGroup.add(spotTarget);
-    // v3 P2-07: a real dipped-beam pattern instead of a plain cone.
-    //
-    // The cone was 56 degrees with penumbra 0.55 — a smooth circular pool, bright in the middle and
-    // fading evenly in every direction. No headlight looks like that; the defining feature of a
-    // dipped beam is a HARD HORIZONTAL CUT-OFF with the hotspot pressed up under it, and its
-    // absence is what reads as "game light" at a glance.
-    //
-    // The cookie now supplies that shape, so the cone is pulled in to 45 degrees (less wasted cone,
-    // more of the texture across the useful spread) and the penumbra dropped to 0.35 — edge
-    // softness comes from the pattern now, and stacking both blurs the cut-off away again.
-    const cookie = getHeadlightCookie();
-    for (const xPos of [-0.55, 0.55]) {
-      const spot = new THREE.SpotLight(0xFFF0CC, HEADLIGHT_DAY, 520, Math.PI / 4, 0.35);
-      // ⚠ Works with castShadow = false: WebGLLights calls shadow.updateMatrices() whenever
-      // light.map is set, independently of shadow casting (WebGLLights.js:324-334). No shadow
-      // cost is incurred by projecting a cookie.
-      spot.map = cookie;
-      spot.position.set(xPos, 0.30, 1.75);
-      spot.target = spotTarget;
-      spot.castShadow = false;
-      bodyGroup.add(spot);
-      _headlightSpots.push(spot);
-    }
-  }
+  // ── Headlights ───────────────────────────────────────────────────────────
+  // ⚠ The car does NOT create its lights any more — it ADOPTS the session's permanent pair.
+  //
+  // three compiles the scene's light counts into every shader's cache key, so creating two
+  // SpotLights here invalidated every material in the scene the moment the car spawned, and
+  // invalidated them all again on dispose(). A 2026-08-26 drive measured 72 programs compiling
+  // after the boot warm-up because of it — each a synchronous main-thread compile, each a visible
+  // stutter. See headlightRig.js and decision D-39.
+  //
+  // The rig is created at boot, before the warm-up, and never leaves the scene. attachTo() only
+  // re-parents it under the body: same light count, new transform parent.
+  const _rig = getHeadlightRig(scene);
+  if (_rig) _rig.attachTo(bodyGroup);
   /** Day/night: headlights are a soft DRL by day, a strong beam at night — unless manually overridden. */
   let _isNight = false;
   let _lightsForced = null; // null = auto (follow day/night); true = forced ON; false = forced OFF
   function _applyLights() {
     const on = _lightsForced == null ? _isNight : _lightsForced;
-    for (const s of _headlightSpots) s.intensity = on ? HEADLIGHT_NIGHT : HEADLIGHT_DAY;
+    _rig?.setIntensity(on ? HEADLIGHT_NIGHT : HEADLIGHT_DAY);
   }
+  _applyLights();   // the rig parks dark; adopting it means taking over its intensity
   function setNight(isNight) { _isNight = isNight; _applyLights(); }
   /** Cycle the headlights: auto -> ON -> OFF -> auto. Returns the new state label. */
   function toggleHeadlights() {
@@ -490,6 +473,10 @@ export async function createCarModel(scene) {
 
   // ── Cleanup ─────────────────────────────────────────────────────────────
   function dispose() {
+    // Hand the lights back BEFORE the body leaves the scene — removing bodyGroup with the lights
+    // still parented to it would take the scene from 2 spot lights to 0 and recompile every
+    // material in the world (D-39).
+    _rig?.detach();
     scene.remove(bodyGroup);
     scene.remove(carShadowMesh);
     carShadowGeo.dispose(); carShadowMat.dispose(); shadowTex.dispose();

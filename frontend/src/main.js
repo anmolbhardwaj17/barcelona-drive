@@ -83,6 +83,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
+import { getHeadlightRig } from './car/headlightRig.js';   // built before the warm-up — see D-39
 import { probeRoadFit } from './ui/roadFitProbe.js';   // ?debug=roadfit — measurement only
 import { armReport, noteVariant, noteLongFrame, shipReport } from './ui/driveReport.js';   // F9 → one file, see below
 import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, assertLightingVisible, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
@@ -216,17 +217,12 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   const gpuTag = _g != null ? `  gpu ${_g.toFixed(1)}ms (${Math.round(_g / wall * 100)}% of frame)` : '  gpu n/a';
   const heapMB = (typeof performance !== 'undefined' && performance.memory)
     ? `  heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)}MB` : '';
-  // ⚠ RECORD ALWAYS, PRINT ONLY WHEN ASKED. 40 of these lines, each carrying a section breakdown
-  // and a renderer.info dump, is more console output than can be copied out of DevTools — which is
-  // exactly how this investigation stalled at D-38. driveReport aggregates them instead, and F9
-  // ships the aggregate to a file. `?debug=frames` brings the live firehose back for a human
-  // watching a drive, which is the only case it was ever good for.
+  // ⚠ RECORDED, NEVER PRINTED. 40 of these lines, each carrying a section breakdown and a
+  // renderer.info dump, is more console output than can be copied out of DevTools — which is
+  // exactly how this investigation stalled at D-38. driveReport aggregates them; F9 ships the
+  // aggregate to a file. There is deliberately no flag to print them per-frame: that output was
+  // never readable and never shippable, and having it available is how it gets turned on again.
   noteLongFrame({ wall, sections: _b, async: async_, gpu: _g, heap: heapMB ? performance.memory.usedJSHeapSize / 1048576 : null, alloc: heapBySection, info });
-  if (DEBUG_FRAMES) {
-    console.warn('[frame] %sms — %s%s%s%s%s', wall.toFixed(0), str,
-      async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB + info,
-      alloc ? `\n         ↳ allocated: ${alloc}` : '  (no section allocated ≥0.05MB — the churn is elsewhere)');
-  }
 }, 50);
 // Hold the budget until the car is drivable — see cpuTimer.holdLongFrames(). Without this the load
 // burns all 40 report slots on frames main.js then discards, and no [frame] line ever prints.
@@ -243,22 +239,15 @@ cpuTimer.holdLongFrames();
 // every feature that changes the generated GLSL — map / vertexColors / fog / side / transparent /
 // LIGHT COUNTS / shadows — plus our own patch tags. Two materials sharing all of that share ONE
 // program; differ in any one and it is a whole new compile.
-// Both firehoses are OFF by default and recorded instead — see driveReport.js. Comma-tolerant so
-// `?debug=frames,variants` works; the single-value form matches the existing `?debug=loaf` style.
-const _dbg = (() => { try { return new Set((new URLSearchParams(location.search).get('debug') || '').split(',').map((x) => x.trim())); } catch { return new Set(); } })();
-const DEBUG_FRAMES = _dbg.has('frames');
-const DEBUG_VARIANTS = _dbg.has('variants');
 let _progSeen = renderer.info.programs?.length ?? 0;
 function watchShaderVariants() {
   const list = renderer.info.programs;
   if (!list || list.length <= _progSeen) return;
   for (let i = _progSeen; i < list.length; i++) {
-    const key = list[i]?.cacheKey ?? '(no cacheKey)';
-    // Aggregated, not printed: 66 of these per drive, each a few hundred characters of cache key,
+    // Aggregated, never printed: 72 of these per drive, each a few hundred characters of cache key,
     // is unreadable AND unshippable. driveReport diffs each one against the warm-up's vocabulary so
     // the report names the FEATURE that differs, which is the thing a fix can target.
-    noteVariant(i + 1, key);
-    if (DEBUG_VARIANTS) console.warn('[variant] NEW shader program #%d — %s', i + 1, key);
+    noteVariant(i + 1, list[i]?.cacheKey ?? '(no cacheKey)');
   }
   _progSeen = list.length;
 }
@@ -840,6 +829,14 @@ spawnTileReady.finally(() => {
         // entire output is discarded — 864 ms arm frame, then lamps flickering off and on every
         // 3-4 s for the whole load as each tile burst triggered another recompile.
         try { armLightGrid(); } catch {}
+        // ⚠ SAME RULE AS armLightGrid, FOR LIGHTS. three bakes the scene's light COUNTS into every
+        // shader's cache key, so a light appearing later invalidates every material in the world.
+        // The car's two headlight SpotLights used to be created with the car, which moved the count
+        // 1,0,0,0 -> 1,0,2,2 the instant it spawned and threw the entire warm set away: a
+        // 2026-08-26 drive measured 72 programs compiling after this point, each a synchronous
+        // main-thread compile (D-39). Building the rig HERE — before compileAsync, and permanently —
+        // means the warm-up compiles the light set the session actually runs with.
+        try { getHeadlightRig(scene); } catch {}
         // Warm the GPU shader programs once now (materials are shared singletons, so this compiles almost
         // every program the session will ever use). Kills the first-render compile stall as new tiles
         // stream in at speed. compileAsync runs off the render path (KHR_parallel_shader_compile).

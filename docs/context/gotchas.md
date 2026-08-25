@@ -987,6 +987,35 @@ Use `MeshLambertMaterial` (not `MeshStandardMaterial`) for any ground-plane mesh
 
 **Invariant:** the visual carve (`terrainBaker.js` `CARVE_COVER`), the rendered deck (`buildTunnelFloor` below-terrain test), and the physics ramp/wall colliders must stay mutually consistent. `CARVE_COVER=5` < steady tunnel depth (~6 m) on purpose: shallower = ramp opening, deeper = covered tunnel roof. Raising `CARVE_COVER` past the steady depth turns tunnels into open trenches (no roof). Physics colliders (`createTunnelWallColliders`, ramp bodies, `createApproachWallColliders`) stay ON regardless of `ENABLE_TUNNEL_VISUALS`.
 
+## G-53: NEVER add or remove a light after the boot warm-up
+
+three compiles the scene's light COUNTS into every shader's cache key —
+`numDirLights, numPointLights, numSpotLights, numSpotLightMaps`. Change any of them and **every
+material in the scene is invalidated and recompiles synchronously on the main thread**.
+
+The car's two headlight SpotLights used to be created inside `carModel` and added to `bodyGroup`,
+so the count moved three times a session:
+
+| when | counts | effect |
+|---|---|---|
+| boot warm-up | `1,0,0,0` | `compileAsync` warms the whole city against this |
+| car spawns | `1,0,2,2` | **every warmed program discarded** |
+| `dispose()` (mode switch / respawn) | `1,0,0,0` | discarded again |
+
+A 2026-08-26 drive measured **72 programs compiling after the warm-up** because of it — each one a
+synchronous compile, each a visible stutter, and the reason `[perf] shader programs` was never
+stable run to run. See decision **D-39**.
+
+**The rule:** every light the session will ever use must be in the scene BEFORE the warm-up runs,
+and must stay there. `frontend/src/car/headlightRig.js` owns the headlight pair permanently; the car
+ADOPTS it (`attachTo()` re-parents, which changes the transform parent but not the count) and hands
+it back on dispose. `test/headlightRig.test.js` holds the invariant — if those fail, the warm-up is
+compiling a light set the session does not run with.
+
+⚠ This is the same lesson as `armLightGrid()` in `main.js`, which must also precede the warm-up for
+the same reason: anything that invalidates programs has to happen before they are compiled, not
+after. Patching materials, re-lighting, and changing light counts are all the same class of bug.
+
 ## G-52: Road Y stack — roadBaker and sidewalkBaker use OPPOSITE lift conventions
 
 **What it is:** `sidewalkBaker` bakes raw elevations and documents that the frontend translate adds `ROAD_VISUAL_ABOVE_TERRAIN`. `roadBaker` instead bakes `+ROAD_VISUAL_ABOVE_TERRAIN(0.05) +ROAD_ZFIGHT_OFFSET(0.02) +ROAD_PRIORITY_Y_BUMP(0.001–0.009)` into every ribbon vertex itself. Until 2026-07-16 the frontend baked-roads translate re-added the lift → road surface at `base+0.12+bump`, which buried every paint family (oneway arrows −4cm invisible, lane lines/crosswalks co-planar z-fight), floated roads ~12cm over terrain, and made the car (wheels ride the terrain heightfield) look sunk by the same.
