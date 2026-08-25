@@ -98,3 +98,17 @@ test('no stray backtick can terminate the GLSL template literal', () => {
   assert.ok(!ROAD_V2_PARS.includes('`'), 'ROAD_V2_PARS contains a backtick');
   assert.ok(!ROAD_V2_APPLY.includes('`'), 'ROAD_V2_APPLY contains a backtick');
 });
+
+test('the shader carries NO transcendental in its hot path', () => {
+  // Roads have the largest screen coverage in the game and sit on a MeshStandardMaterial, already
+  // the expensive path. The textbook fract(sin(dot(...))) hash costs a transcendental and
+  // roadNoise2 calls it FOUR times per fragment — that was felt as frame weight on 2026-08-26.
+  // Comments are stripped first: they mention the ops precisely because they explain their removal.
+  const strip = (glsl) => glsl.replace(/\/\/[^\n]*/g, '');
+  const code = strip(ROAD_V2_PARS) + strip(ROAD_V2_APPLY);
+  assert.ok(!/\bsin\s*\(/.test(code), 'sin() in the road fragment path');
+  assert.ok(!/\bcos\s*\(/.test(code), 'cos() in the road fragment path');
+  assert.ok(!/\bpow\s*\(/.test(code), 'pow() in the road fragment path — use x*x');
+  // One exp for the rut falloff is the deliberate exception; more than one needs justifying.
+  assert.ok((code.match(/\bexp\s*\(/g) || []).length <= 1, 'more than one exp() per fragment');
+});

@@ -46,8 +46,14 @@ varying vec2 vRoadUv;
 
 // Cheap value noise — deterministic, no texture. Used ONLY at a ~40 m period, where its low quality
 // is invisible; do NOT reuse it for fine grain, which is what a real detail normal is for.
+// SIN-FREE hash. The textbook fract(sin(dot(...))) costs a transcendental, and roadNoise2 calls this
+// FOUR times per fragment — on the surface with the largest screen coverage in the game, on a
+// MeshStandardMaterial that is already the expensive path. Measured as a felt frame cost 2026-08-26.
+// This variant is multiply/fract only and is more than good enough at the ~40 m period it is used at.
 float roadHash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 float roadNoise2(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -91,7 +97,8 @@ export const ROAD_V2_APPLY = `
   // centre; ruts sit ~0.9 m either side of it, i.e. a car's track width.
   float lane = floor(across / ${LANE_W_M.toFixed(1)} + 0.5);
   float laneLocal = across - lane * ${LANE_W_M.toFixed(1)};
-  float rut = exp(-pow((abs(laneLocal) - 0.9) * 3.2, 2.0));
+  float rutD = (abs(laneLocal) - 0.9) * 3.2;
+  float rut = exp(-rutD * rutD);                   // x*x, not pow(x,2.0) — pow is a transcendental
 
   // Ruts are POLISHED, not painted: they lighten a touch and smooth out, and they fade out on wide
   // surfaces where the lane model stops being true (junction fans, plazas).

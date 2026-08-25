@@ -920,6 +920,14 @@ small value once this lands.**
 - ⚠ **(b) tiling albedo and (c) the 8× detail normal are NOT done — they need authored art** and were
   deliberately not faked with hash noise, which shimmers under motion and aliases at grazing angles,
   which is exactly where road fills the screen. Grain is still missing; wear and ruts are not grain.
+- ⚠ **PER-FRAGMENT COST IS NOT FREE, and this was felt.** The first version used the textbook
+  `fract(sin(dot(...)))` hash, which `roadNoise2` calls **four times per fragment** — four
+  transcendentals plus a `pow`, on the surface with the largest screen coverage in the game, on a
+  `MeshStandardMaterial` that is already the expensive path. The plan's "zero VRAM, strictly better"
+  is true about MEMORY and says nothing about ALU. Replaced with a multiply/fract hash and `x*x`:
+  the fragment path now holds **one** `exp` and no `sin`/`cos`/`pow`, guarded by a test that strips
+  comments before checking. **`?roadv2=0` added as an attribution switch** so this is measured rather
+  than argued next time.
 - ⚠ **The per-vertex `roadNoise` was NOT removed**, though the spec says (d) replaces it. Both are
   live, so wear is currently applied twice at different frequencies. Removing it is a visible change
   to the default road and wants one drive to judge against, not a blind deletion.

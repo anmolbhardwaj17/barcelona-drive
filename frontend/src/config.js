@@ -28,6 +28,17 @@ export const CONFIG = {
    * P3-05's authored layers land, not before.
    */
   /** v3 P3-03 — per-tile winding-normalisation report. Opt-in via `?debug=winding`; fires per tile. */
+  /**
+   * v3 P3-07 — asphalt v2 (world-metric UV, macro wear, wheel ruts). ON by default.
+   *
+   * `?roadv2=0` turns it off. It exists so a frame-cost question can be ANSWERED rather than argued:
+   * roads have the largest screen coverage in the game and sit on a MeshStandardMaterial, so any
+   * per-fragment work added here is felt. Drive the same street with and without.
+   */
+  ROAD_V2: (() => {
+    try { return new URLSearchParams(location.search).get('roadv2') !== '0'; } catch { return true; }
+  })(),
+
   DEBUG_WINDING: (() => {
     try { return new URLSearchParams(location.search).get('debug') === 'winding'; } catch { return false; }
   })(),

@@ -288,6 +288,7 @@ function patchRoadAO(mat) {
     // `halfWidth` attribute the ribbon already carries, which is what makes uv convert to METRES.
     // Declares its OWN uv varying rather than three's `vMapUv` (D-30: that one exists only under
     // #ifdef USE_MAP, and the road material binds no map).
+    if (!CONFIG.ROAD_V2) return;   // ?roadv2=0 — attribution switch, see CONFIG.ROAD_V2
     shader.uniforms.uRoadWear = { value: ROAD_V2_UNIFORMS.uRoadWear };
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader
