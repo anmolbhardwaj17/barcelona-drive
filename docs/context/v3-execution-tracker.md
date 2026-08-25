@@ -15,7 +15,14 @@
 | **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
 | **Tasks done** | **49 / 81** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **P2 gate K-N** — one `?lightgrid` drive (~25 s). The first two runs were VOID (see D-23); the harness now proves its own work. `delta <= 3.0 ms` ⇒ build the real grid (~8 d); above ⇒ P2 stops and we rethink. |
+| **Blocked on** | **ONE drive at `localhost:4044/?lightgrid`** (~30 s) — returns BOTH the K-N light-grid verdict and the first real attribution of the long frames. |
+
+### The drive that unblocks everything
+`http://localhost:4044/?lightgrid` → PLAY → Free Roam → **drive ~30 s**. Two results:
+1. `[lightgrid] SPIKE RESULT` — includes a **WORK** line proving the grid was not empty. `VOID` ⇒ re-run; `PASS` ⇒ build P2-04..07; `FAIL` ⇒ P2 stops (see D-23 for why the first two runs were void).
+2. `[frame] 153ms — other 96.0 ⟨async: build:buildings 41⟩` — the first time a long frame has had an owner. `⟨async:⟩` = tile-build chunks; a bare `other` now genuinely means GC/browser, not "we could not tell".
+
+A `?bench` run additionally writes `longFrames` + `longFrameBlame` into the JSON.
 
 ### If you are a fresh session, do exactly this
 1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.
