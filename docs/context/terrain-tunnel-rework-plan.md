@@ -540,3 +540,35 @@ the buried fraction, p50/p95/worst burial depth, the worst points with coordinat
 candidate causes. If burial tracks slope, suspicion falls on the smoothing pass and the road-drape
 ordering; if it does not, the cause is upstream of terrain steepness (simplified/junction-snapped
 polylines being the next suspect). Measurement only.
+
+### Measured, 2026-08-25 — `?debug=roadfit`, 12,928 surface-road points over 11 tiles
+
+```
+BURIED  1133 of 12928 (8.8%)
+spread  p50 -0.079m   p95 +3.241m   worst +9.615m   best -5.088m
+worst   9.615m slope 2.438 · 9.598m slope 0.000 · 9.545m slope 0.000 · 9.512m slope 0.000 ...
+```
+
+**The systematic co-planarity theory is DEAD.** p50 is **-0.079 m** — the typical surface road sits
+8 cm above terrain, exactly as designed. There is no global elevation-model error; there is a TAIL.
+
+**The tail is metres, not centimetres, and it clusters.** Worst +9.6 m buried, best -5.1 m floating,
+p95 +3.2 m. The worst points fall on a handful of ways (`20353556`, `62126122`, `902208621/2`) at two
+locations. A road 9.6 m inside a hill is not paint poking through a bump — it is a road that should
+not be at the surface at all. **Leading hypothesis: untagged tunnels.** The probe excludes only roads
+OSM has TAGGED `tunnel`/`bridge`/`layer`; an untagged one is indistinguishable from a buried surface
+road, and would present exactly like this.
+
+⚠ **The first run's "BURIAL TRACKS SLOPE (hills)" headline was an instrument artifact and must not be
+quoted.** Seven of its eight worst points reported slope exactly 0.000 — flat ground — contradicting
+its own aggregate. Cause: the slope probe sampled ±2 m against a ~3.9 m terrain grid, so the cross
+often landed inside one cell and every corner returned the same height. Radius is now 6 m. **The
+aggregate slope comparison from that run is void; re-measure before drawing any hills conclusion.**
+
+**Two bugs, one number** — the probe now bands them, because a fix aimed at the wrong one is wasted:
+- **shallow (≤0.5 m)** — co-planarity; this is the visible paint-through-asphalt report
+- **deep (>2 m)** — a data defect; belongs to the OSM repair layer as class **V1/V5**, not to a
+  render-side clamp or a terrain carve
+
+**This is also the repair layer's first census data**, arriving before P-R1 — evidence that the
+defect classes in `osm-repair-layer.md` are real and countable rather than hypothetical.

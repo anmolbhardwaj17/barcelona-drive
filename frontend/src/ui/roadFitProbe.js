@@ -20,7 +20,12 @@ import { ROAD_VISUAL_ABOVE_TERRAIN, BAKED_SURFACE_ABOVE_ROAD_Y } from '../map/gr
 
 /** Terrain slope (m/m) at (x,z), from a 4 m cross probe. Hills are the suspected worst case. */
 function terrainSlopeAt(tileManager, x, z) {
-  const H = 2;
+  // ⚠ MUST EXCEED THE TERRAIN CELL SIZE. This was 2 m against a ~3.9 m grid (128 samples over a
+  // 500 m tile), so a cross probe frequently landed inside ONE cell and every corner returned the
+  // same height -> slope 0.000. The first run reported "BURIAL TRACKS SLOPE" in aggregate while
+  // seven of its eight worst points read exactly 0.000, which is the signature of this bug, not of
+  // flat ground. 6 m spans at least two cells in every direction.
+  const H = 6;
   const e = tileManager.getTerrainHeightAt?.(x + H, z), w = tileManager.getTerrainHeightAt?.(x - H, z);
   const n = tileManager.getTerrainHeightAt?.(x, z + H), s = tileManager.getTerrainHeightAt?.(x, z - H);
   if (e == null || w == null || n == null || s == null) return null;
@@ -86,8 +91,22 @@ export function probeRoadFit(tileManager, { offset, vertExag, bakedIsRaw }) {
   worst points (x, z, buriedBy, slope):
 ${worst.map((w) => `    ${w.x.toFixed(1)}, ${w.z.toFixed(1)}  ${w.buriedBy.toFixed(3)}m  slope ${fmt(w.slope)}  way ${w.id}`).join('\n')}`);
 
+  // BAND THE BURIAL. The first run showed a median of -0.079 m (correct) with a tail at +9.6 m —
+  // two different failures wearing one number. Shallow burial is a co-planarity problem you see as
+  // paint poking through asphalt; metre-deep burial is a road inside a hill, which is a DATA defect
+  // (an untagged tunnel is the leading candidate — this probe only excludes roads OSM has tagged).
+  // Reporting one aggregate over both invites fixing the wrong one.
+  const band = (lo, hi) => buried.filter((s) => s.buriedBy > lo && s.buriedBy <= hi).length;
+  const shallow = band(0, 0.5), mid = band(0.5, 2), deep = buried.filter((s) => s.buriedBy > 2).length;
+  const waysDeep = new Set(buried.filter((s) => s.buriedBy > 2).map((s) => s.id));
+  console.warn(
+`  BANDS     shallow <=0.5m ${shallow}  ·  0.5-2m ${mid}  ·  DEEP >2m ${deep} across ${waysDeep.size} distinct ways
+            shallow = co-planarity (the visible paint-through-asphalt bug)
+            deep    = a road inside terrain: untagged tunnel / bad elevation -> OSM repair layer, class V1/V5`);
+
   const out = { total: samples.length, buried: buried.length, p50: q(0.5), p95: q(0.05),
-                worst: sorted[0].buriedBy, slopeBuried, slopeClean, worstPoints: worst };
+                worst: sorted[0].buriedBy, slopeBuried, slopeClean, worstPoints: worst,
+                bands: { shallow, mid, deep, deepWays: [...waysDeep] } };
   window._ddRoadFitResult = out;   // NOT _ddRoadFit — that stays the callable, so re-running works
   return out;
 }
