@@ -133,8 +133,10 @@ function _censusAdd(td) {
   _census.signals += td.trafficSignals?.length || 0;
   if (_censusTimer) return;
   _censusTimer = setTimeout(() => {
-    console.warn('[census] %d tiles → %d trees · %d shops (%d named) · %d traffic signals — all previously dropped',
-      _census.tiles, _census.trees, _census.shops, _census.namedShops, _census.signals);
+    if (CONFIG.DEBUG_INIT) {
+      console.warn('[census] %d tiles → %d trees · %d shops (%d named) · %d traffic signals — all previously dropped',
+        _census.tiles, _census.trees, _census.shops, _census.namedShops, _census.signals);
+    }
   }, 8000);
 }
 

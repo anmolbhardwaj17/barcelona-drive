@@ -17,6 +17,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import * as THREE from 'three';
 import { QUALITY, QUALITY_TIER } from './quality.js';   // v3 P1-08
+import { CONFIG } from './config.js';   // v3: DEBUG_INIT gating
 
 const TRANSCODER_PATH = '/basis/';   // vendored from three/examples/jsm/libs/basis (576 KB, unhashed)
 
@@ -36,7 +37,9 @@ export function initAssetRegistry(renderer) {
   _renderer = renderer;
   _maxAniso = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
   _ktx2 = new KTX2Loader().setTranscoderPath(TRANSCODER_PATH).detectSupport(renderer);
-  console.warn('[assets] registry ready — max anisotropy %d, KTX2 transcoder %s', _maxAniso, TRANSCODER_PATH);
+  if (CONFIG.DEBUG_INIT) {
+    console.warn('[assets] registry ready — max anisotropy %d, KTX2 transcoder %s', _maxAniso, TRANSCODER_PATH);
+  }
 }
 
 /**

@@ -51,8 +51,24 @@ function ctx() {
       _sfxBus = _ctx.createGain(); _sfxBus.gain.value = _sfxVol; _sfxBus.connect(_master);
     } catch { return null; }
   }
-  if (_ctx.state === 'suspended' && !_bgSuspended) _ctx.resume();
+  // ⚠ DO NOT resume() before a user gesture. Chrome refuses and logs "The AudioContext was not
+  // allowed to start" EVERY time — measured at 30 occurrences in one load, because the engine sound
+  // asks for the context every frame. Waiting for the gesture removes the spam without changing any
+  // behaviour after it: the first gesture resumes, and everything downstream is unchanged.
+  if (_ctx.state === 'suspended' && !_bgSuspended && _gestureSeen) _ctx.resume();
   return _ctx;
+}
+
+// One-shot: the first real user gesture unlocks audio. `once` on each so they unregister themselves.
+let _gestureSeen = false;
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    _gestureSeen = true;
+    if (_ctx && _ctx.state === 'suspended' && !_bgSuspended) _ctx.resume();
+  };
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+    window.addEventListener(ev, unlock, { once: true, passive: true });
+  }
 }
 
 // Pause ALL game audio when the tab isn't focused (no engine/ambience leaking from a background tab).

@@ -4,6 +4,21 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-26 — Console cleanup: three real bugs, not just suppression
+- **AudioContext spam was a real bug.** `ctx()` called `resume()` on every access, and the engine
+  sound asks for the context every frame — so before any user gesture Chrome refused and logged
+  **30 times** in one load. Now waits for the first `pointerdown`/`keydown`/`touchstart` (one-shot
+  listeners), then resumes. No behaviour change after the gesture.
+- **Analytics was firing on localhost**, defeating its own stated intent. The guard was
+  `import.meta.env.PROD`, but `npm run preview` serves a PRODUCTION build — so every verification
+  drive pinged Cloudflare and printed `net::ERR_BLOCKED_BY_CLIENT` for anyone with a blocker. Added
+  the hostname check the comment always meant.
+- **`apple-mobile-web-app-capable` deprecation** — added the modern `mobile-web-app-capable`
+  alongside it (the legacy name is still required by older iOS Safari, so both ship).
+- **Boot chatter gated behind `?debug=init`** (`[assets]`, `[census]`, `[lightgrid] armed`). Left
+  ungated on purpose: `[perf] time-to-drive` (a v3 gate metric), `[quality] tier`, and any failure.
+- Earlier the same day: `[loaf]` → `?debug=loaf`, `[buildingWorker] winding` → `?debug=winding`.
+
 ## 2026-08-25 — v3 P3-01/02/03: building geometry rebuild (fair-share detail, storey bands, winding)
 - **P3-01 fair-share detail budgets.** The per-tile detail caps were first-come counters raced in
   tile order — median tile delivered detail to 26.6% of eligible buildings. `createFairBudget` does

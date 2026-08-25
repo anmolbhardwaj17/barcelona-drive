@@ -16,7 +16,15 @@ const DEFAULT_TOKEN = 'b8d2aab7c354473298e1773edd07d9c1';
 export function initAnalytics() {
   const token = import.meta.env.VITE_CF_BEACON || DEFAULT_TOKEN;
   // Production builds only — don't count localhost / dev traffic in the stats.
-  if (!token || !import.meta.env.PROD || typeof document === 'undefined') return;
+  //
+  // ⚠ `import.meta.env.PROD` IS NOT ENOUGH, and the stated intent above was not actually met:
+  // `npm run preview` serves a PRODUCTION build from localhost, so PROD is true, the beacon loads,
+  // and every verification drive both pinged analytics and printed
+  // `GET .../beacon.min.js net::ERR_BLOCKED_BY_CLIENT` into the console for anyone with a blocker.
+  // The hostname check is what the comment always meant.
+  const host = typeof location !== 'undefined' ? location.hostname : '';
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.local');
+  if (!token || !import.meta.env.PROD || isLocal || typeof document === 'undefined') return;
   const s = document.createElement('script');
   s.defer = true;
   s.src = 'https://static.cloudflareinsights.com/beacon.min.js';

@@ -39,6 +39,9 @@
 
     <!-- ── PWA / mobile web-app ── -->
     <link rel="manifest" href="/site.webmanifest" />
+    <!-- Both: the apple- prefix is deprecated but still required by older iOS Safari, and shipping
+         only the modern name loses standalone mode there. Chrome warns about the legacy one alone. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Barcelona Drive" />
