@@ -161,3 +161,53 @@ test('the shader branch constant matches the JS constant', () => {
   assert.ok(derived >= 2, `the shader must derive its threshold from the JS constant (${derived} uses)`);
   assert.ok(!/lyr >= 16\.0/.test(patch), 'a hard-coded 16.0 in the GLSL would drift from the constant');
 });
+
+// ── v3 P3-04: the shader patch must not depend on three's CONDITIONAL varyings ───────────────────
+// Measured failure, 2026-08-25: the patch used `vMapUv`, which three declares only inside
+// `#ifdef USE_MAP`. The glass facade path is a MeshPhongMaterial without that map, so the shader
+// failed to compile —
+//     ERROR: 0:887: 'vMapUv' : undeclared identifier   [Material Type: MeshPhongMaterial]
+// — which removed every wall in the city, left only unpatched roof/detail materials visible, and
+// lagged the frame while three retried the broken program per material key.
+import { patchFacadeArrayMaterial } from '../src/map/facadeArray.js';
+
+function generate() {
+  const shader = {
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main(){ #include <begin_vertex> }',
+    fragmentShader: '#include <common>\nvoid main(){ #include <map_fragment> }',
+  };
+  const mat = { needsUpdate: false };
+  patchFacadeArrayMaterial(mat, { body: 'B', ground: 'G' });
+  mat.onBeforeCompile(shader);
+  return shader;
+}
+
+test('the patch never references a map-conditional varying', () => {
+  const s = generate();
+  const src = s.vertexShader + s.fragmentShader;
+  for (const cond of ['vMapUv', 'vAlphaMapUv', 'vEmissiveMapUv', 'vNormalMapUv']) {
+    assert.ok(!src.includes(cond),
+      `${cond} is declared only under its #ifdef — a material without that map fails to COMPILE`);
+  }
+});
+
+test('it declares and fills its own UV varying from the stock `uv` attribute', () => {
+  const s = generate();
+  assert.match(s.vertexShader, /varying vec2 vFacadeUv/, 'vertex must declare the varying');
+  assert.match(s.vertexShader, /vFacadeUv\s*=\s*uv/, 'and fill it from the stock attribute');
+  assert.match(s.fragmentShader, /varying vec2 vFacadeUv/, 'fragment must declare it too');
+});
+
+test('both array uniforms are bound and both branches sample', () => {
+  const s = generate();
+  assert.deepEqual(Object.keys(s.uniforms).sort(), ['uFacadeBody', 'uFacadeGround']);
+  assert.match(s.fragmentShader, /texture\(uFacadeGround, vec3\(vFacadeUv/);
+  assert.match(s.fragmentShader, /texture\(uFacadeBody, vec3\(vFacadeUv/);
+});
+
+test('aLayer is declared as an attribute and forwarded', () => {
+  const s = generate();
+  assert.match(s.vertexShader, /attribute float aLayer/);
+  assert.match(s.vertexShader, /vLayer\s*=\s*aLayer/);
+});

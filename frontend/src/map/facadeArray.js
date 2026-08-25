@@ -250,23 +250,36 @@ export function patchFacadeArrayMaterial(material, arrays) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uFacadeBody = { value: arrays.body };
     shader.uniforms.uFacadeGround = { value: arrays.ground };
+    // ⚠ CARRY OUR OWN UV VARYING — do NOT use three's `vMapUv`.
+    //
+    // three declares `varying vec2 vMapUv` inside `#ifdef USE_MAP` (`uv_pars_fragment`). Any facade
+    // material without a bound `map` — the glass path builds a MeshPhongMaterial — therefore has no
+    // such varying, and referencing it is a COMPILE ERROR, not a fallback. Measured 2026-08-25:
+    //   ERROR: 0:887: 'vMapUv' : undeclared identifier   [Material Type: MeshPhongMaterial]
+    // which killed every wall in the city, left only the unpatched roof/detail materials showing,
+    // and lagged the frame while three retried the broken program per material key.
+    //
+    // `uv` is a stock attribute present on all of these geometries, so deriving the varying here
+    // makes the patch independent of which maps a given material happens to bind.
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aLayer;\nvarying float vLayer;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLayer = aLayer;');
+      .replace('#include <common>',
+        '#include <common>\nattribute float aLayer;\nvarying float vLayer;\nvarying vec2 vFacadeUv;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvLayer = aLayer;\nvFacadeUv = uv;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
         '#include <common>\n' +
         'precision highp sampler2DArray;\n' +
         'uniform sampler2DArray uFacadeBody;\n' +
         'uniform sampler2DArray uFacadeGround;\n' +
-        'varying float vLayer;')
+        'varying float vLayer;\nvarying vec2 vFacadeUv;')
       .replace('#include <map_fragment>',
         // Branch on the encoded band. Both sides sample, so there is no divergent-texture-fetch
         // penalty worth avoiding, and the mip derivative stays valid on each layer.
         'float lyr = vLayer;\n' +
         'vec4 facadeTexel = lyr >= ' + GROUND_LAYER_BASE + '.0\n' +
-        '  ? texture(uFacadeGround, vec3(vMapUv, lyr - ' + GROUND_LAYER_BASE + '.0))\n' +
-        '  : texture(uFacadeBody, vec3(vMapUv, lyr));\n' +
+        '  ? texture(uFacadeGround, vec3(vFacadeUv, lyr - ' + GROUND_LAYER_BASE + '.0))\n' +
+        '  : texture(uFacadeBody, vec3(vFacadeUv, lyr));\n' +
         'diffuseColor *= facadeTexel;');
   };
   material.customProgramCacheKey = () => 'facadeArray-v1';

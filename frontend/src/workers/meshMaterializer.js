@@ -726,9 +726,10 @@ function getFacadeMaterial(hexColor, category) {
   // v3 P3-04: array-texture facade. Goes through the material registry like every other patch, so it
   // composes with the AO chunk above rather than clobbering it (P1-03's whole point).
   if (FACADE_ARRAY_ON) {
-    // The canvas facade map is what the array replaces — leaving it bound would upload a texture no
-    // shader samples, once per material key.
-    if (mat.map) { mat.map = null; }
+    // The canvas map stays bound but unsampled until P3-05 makes the array path the default and
+    // `getWindowTexture` is deleted. It is NOT load-bearing for the shader any more: the patch
+    // carries its own `vFacadeUv` varying precisely so it does not depend on which maps a material
+    // binds — the glass path is a MeshPhongMaterial and broke when the patch relied on `vMapUv`.
     patchFacadeArrayMaterial(mat, facadeArrays());
   }
   _facadeMaterialCache.set(cacheKey, markShared(mat));
