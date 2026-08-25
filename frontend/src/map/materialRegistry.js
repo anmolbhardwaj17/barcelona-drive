@@ -61,7 +61,9 @@ export function patchMaterial(mat, patch, tag, opts = {}) {
   const baseKey = ud._baseCacheKey ?? (ud._baseCacheKey = mat.customProgramCacheKey?.bind(mat) ?? null);
   mat.customProgramCacheKey = () => `${baseKey ? baseKey() : mat.type}|${tags.join('+')}`;
 
+  const isNew = !_registry.has(mat);
   _registry.add(mat);
+  if (isNew) _announce(mat);
   return mat;
 }
 
@@ -69,12 +71,36 @@ export function patchMaterial(mat, patch, tag, opts = {}) {
 export function registerMaterial(mat, kind) {
   if (!mat) return mat;
   (mat.userData ||= {})._kind = kind || mat.userData._kind || mat.type;
+  const isNew = !_registry.has(mat);
   _registry.add(mat);
+  if (isNew) _announce(mat);
   return mat;
 }
 
 /** Every material the registry knows about. Used by the boot shader warm-up (P1-04). */
 export function getRegisteredMaterials() { return [..._registry]; }
+
+// ── Late-registration hook ────────────────────────────────────────────────────────────────────
+// Tile materials are created LAZILY as tiles build, so anything that patches "every material" at a
+// single moment silently misses every material created afterwards. For the light grid that means
+// driving into a new tile yields unlit geometry — the lighting appears to stop working partway
+// down the street, with no error. Subscribers here get called for materials registered later too.
+const _listeners = new Set();
+
+/**
+ * Call `cb(mat)` for every material registered from now on, and (by default) once for each one
+ * already known — so a subscriber cannot miss materials merely because of when it subscribed.
+ * Returns an unsubscribe function.
+ */
+export function onMaterialRegistered(cb, replayExisting = true) {
+  _listeners.add(cb);
+  if (replayExisting) for (const m of [..._registry]) { try { cb(m); } catch { /* one bad material must not stop the rest */ } }
+  return () => _listeners.delete(cb);
+}
+
+function _announce(mat) {
+  for (const cb of _listeners) { try { cb(mat); } catch { /* never let a listener break material creation */ } }
+}
 
 /**
  * Which mesh kinds it is VALID to compile this material on — the warm-up asks before building one.

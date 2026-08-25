@@ -82,7 +82,7 @@ import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
-import { getRegisteredMaterials, meshKindsFor } from './map/materialRegistry.js';   // v3 P1-03
+import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
 import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
@@ -1225,10 +1225,15 @@ function animate(time = 0) {
     if (!_lgArmed) {
       _lgArmed = true;
       initLightGrid();
+      // Subscribe rather than sweep once: tile materials are created lazily, so a one-time sweep
+      // lights the spawn tiles and nothing you drive into afterwards — the lighting would appear
+      // to stop working partway down the street, with no error to explain it. replayExisting
+      // handles the already-built spawn tiles in the same call.
       let patched = 0;
-      for (const m of getRegisteredMaterials()) { try { patchLightGrid(m); patched++; } catch {} }
+      onMaterialRegistered((m) => { try { patchLightGrid(m); patched++; } catch { /* non-lit material */ } });
       rebuildLightGrid();
-      console.warn('[lightgrid] armed — %d materials patched, %d lamps in range.', patched, _lgLampCount);
+      console.warn('[lightgrid] armed — %d materials patched (auto-patching new ones), %d lamps in range.',
+        patched, _lgLampCount);
     }
     lightGridABTick(gpuTimer.getMs());   // dev A/B — see lightGrid.js (getMs is a cached EMA, no GPU sync)
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
