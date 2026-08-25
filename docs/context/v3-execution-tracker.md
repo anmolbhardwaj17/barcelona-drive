@@ -920,6 +920,10 @@ small value once this lands.**
 - ⚠ **(b) tiling albedo and (c) the 8× detail normal are NOT done — they need authored art** and were
   deliberately not faked with hash noise, which shimmers under motion and aliases at grazing angles,
   which is exactly where road fills the screen. Grain is still missing; wear and ruts are not grain.
+- ✅ **A/B CONFIRMS THE FIX, 2026-08-26.** Before the bake, `?roadv2=0` was noticeably faster than
+  default. After it, the two are **indistinguishable** — so asphalt v2 now costs approximately
+  nothing, and the remaining frame lag is NOT the road. The attribution switch paid for itself: it
+  turned "the site feels heavy" into a bounded answer instead of a third round of guessing.
 - **2026-08-26 — (b) LANDED as a BAKED texture; (d) DELETED.** The procedural wear measurably lost to
   `?roadv2=0`, so it is gone rather than tuned. `createAsphaltTexture` bakes the grain ONCE at boot
   (512², deterministic LCG, wrapping bilinear so it tiles seamlessly) and the shader takes **one
