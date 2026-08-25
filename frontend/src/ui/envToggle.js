@@ -7,7 +7,7 @@ import { setGuardRailNightMode, setBillboardNightMode, setRoadMarkingNightMode, 
 import { setCloudNightMode, setMoonNightMode, setStarsNightMode } from '../scene.js';
 import { setAoNightScale } from '../map/aoSampler.js';
 import { setBuildingNightMode } from '../map/buildingRenderer.js';
-import { setFacadeNightMode, setHeroSpillNight } from '../workers/meshMaterializer.js';
+import { setFacadeNightMode } from '../workers/meshMaterializer.js';
 import { setBusStopNightMode } from '../map/busStopRenderer.js';
 import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
 import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetlightRenderer.js';
@@ -163,7 +163,6 @@ export function createEnvToggle(refs) {
     setStarsNightMode(isNight);
     setBuildingNightMode(isNight);
     setFacadeNightMode(isNight);   // the LIVE facade materials (worker/materializer path) — window glow
-    setHeroSpillNight(isNight);    // hero-building warm ground-glow decals
     setAoNightScale(isNight);      // soften baked sky-AO — the night rig is dark already
     setRoadDecalNightMode(isNight); // bike-lane green + blue-zone stripes crush to black otherwise
     setBusStopNightMode(isNight);

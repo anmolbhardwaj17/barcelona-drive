@@ -914,37 +914,15 @@ export async function materializeBuildingMeshes(workerResult, yieldFn) {
     meshes.push(pipeMesh);
   }
 
-  // ── Building warm ground-spill decals (night-only) ──────────────────────────
-  // A soft amber gradient at EVERY building's base (heroes wider + stronger via per-instance
-  // colour) — fakes the "buildings light the street around them" look of the reference renders
-  // without any real lights (same trick as the streetlight pools). Hidden by day (setHeroSpillNight).
-  if (workerResult.heroSpills && workerResult.heroSpills.length >= 5) {
-    const spills = workerResult.heroSpills;
-    const count = spills.length / 5;
-    const spillMesh = new THREE.InstancedMesh(getHeroSpillGeometry(), getHeroSpillMaterial(), count);
-    const _m = new THREE.Matrix4();
-    const _c = new THREE.Color();
-    for (let i = 0; i < count; i++) {
-      const r = spills[i * 5 + 3];
-      const strength = spills[i * 5 + 4];
-      // +0.42: clear of the sidewalk/curb decks (extruded above the building's ground elevation) —
-      // at +0.14 the decal sat UNDER the pavement and lost the depth test (invisible).
-      _m.makeScale(r * 2, 1, r * 2).setPosition(spills[i * 5], spills[i * 5 + 1] + 0.42, spills[i * 5 + 2]);
-      spillMesh.setMatrixAt(i, _m);
-      // warm-tinted brightness scale — a plain grey scalar washed the amber texture into pale ghost discs
-      spillMesh.setColorAt(i, _c.setRGB(strength, strength * 0.82, strength * 0.6));
-    }
-    spillMesh.frustumCulled = false;   // unit-plane bounds don't cover the scaled instances
-    spillMesh.castShadow = false;
-    spillMesh.receiveShadow = false;
-    spillMesh.renderOrder = 2;         // over the road surface decals
-    spillMesh.visible = _heroSpillNight;
-    spillMesh.userData.sharedGeometry = true;
-    spillMesh.userData.sharedMaterial = true;
-    _heroSpillMeshes.add(spillMesh);
-    spillMesh.addEventListener('removed', () => _heroSpillMeshes.delete(spillMesh));
-    meshes.push(spillMesh);
-  }
+  // v3 P2-06: the per-building warm ground-spill decal is DELETED. It put a soft amber gradient at
+  // the base of EVERY building to fake "buildings light the street around them" — the same trick as
+  // the streetlight ground pools, and removed for the same reason: the light grid now casts real
+  // light, so this was a second, fake copy of it painted on the pavement. It also had the tell a
+  // real spill does not: a hard disc edge that slid over the ground as the camera moved, and it was
+  // frustumCulled = false, so every one of them was submitted every frame at every distance.
+  //
+  // workerResult.heroSpills is no longer consumed. (Removing its PRODUCTION is a worker change,
+  // tracked with the aWash removal in the same note.)
 
   // ── Water-tower beacons — pulsing red lights on the finials (user call 2026-07-11) ──────────
   // Shares the comm-tower beacon material, which updateTowerBeacons() breathes every frame.
@@ -985,46 +963,6 @@ export function warmAllBuildingMaterials() {
 }
 
 // ── Hero spill shared resources + night toggle ───────────────────────────────
-const _heroSpillMeshes = new Set();
-let _heroSpillNight = false;
-let _heroSpillGeo = null;
-let _heroSpillMat = null;
-
-function getHeroSpillGeometry() {
-  if (_heroSpillGeo) return _heroSpillGeo;
-  _heroSpillGeo = new THREE.PlaneGeometry(1, 1);
-  _heroSpillGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
-  return _heroSpillGeo;
-}
-
-function getHeroSpillMaterial() {
-  if (_heroSpillMat) return _heroSpillMat;
-  const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = size; canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const cx = size / 2, r = size / 2;
-  const grad = ctx.createRadialGradient(cx, cx, 0, cx, cx, r);
-  grad.addColorStop(0,    'rgba(255, 196, 110, 0.42)');
-  grad.addColorStop(0.35, 'rgba(255, 178, 80, 0.20)');
-  grad.addColorStop(0.7,  'rgba(255, 160, 50, 0.07)');
-  grad.addColorStop(1,    'rgba(255, 150, 40, 0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  _heroSpillMat = new THREE.MeshBasicMaterial({
-    map: new THREE.CanvasTexture(canvas),
-    transparent: true,
-    depthWrite: false,
-    fog: false,
-  });
-  return _heroSpillMat;
-}
-
-/** Show/hide the hero building ground-glow decals (night only). */
-export function setHeroSpillNight(isNight) {
-  _heroSpillNight = isNight;
-  for (const m of _heroSpillMeshes) m.visible = isNight;
-}
 
 // =============================================================================
 //  VEGETATION MATERIALIZER

@@ -13,7 +13,7 @@
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
 | **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
-| **Tasks done** | **51 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Tasks done** | **55 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **ONE drive at `localhost:4044/?lightgrid`** (~30 s) — returns BOTH the K-N light-grid verdict and the first real attribution of the long frames. |
 
@@ -551,7 +551,7 @@ Promote it into a **region profile** — one module per city owning everything t
 ## P2 — LOD AND NIGHT · 17.5 days · 8 tasks
 **Goal.** Buy the GPU headroom the art wave spends, and answer the project's #1 unsolved problem. **The 1-day spike gates the 8 days behind it.**
 
-**Progress:** 3 / 7 (P2-02 ✅, P2-03 ✅ PASS, P2-04 ⏳ visual check) — next: **P2-05** (opt-in + delete the 6 fakes, SAME COMMIT)
+**Progress:** 6 / 8 — P2-02 ✅ · P2-03 ✅ · P2-04 ✅ · P2-05 ✅ · P2-06 ✅ · P2-08 `[~]`. Remaining: **P2-07 headlight cookie** (0.5 d) and **P2-01 staticPools** (6 d, deferred by D-19b)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -600,14 +600,14 @@ Promote it into a **region profile** — one module per city owning everything t
 - **Full spec:** master plan §4 → P2
 - **Done when:** ⏳ **code complete, 19/19 tests pass — needs ONE visual check at night.** Real lamps from `getStreetlightPositions()`, nearest-first slots, circle (not square) cell test, range-cutoff truncation, region-driven radius/intensity/wrap, late-material auto-patching, tile-epoch rebuild.
 
-### `[ ]` P2-05 · 2.0d · risk high
+### `[x]` P2-05 · 2.0d · risk high
 **Material opt-in + warm-list extension, SAME COMMIT.** Road, sidewalk, terrain, facade, vegetation, props, traffic/parked cars, pedestrians. Adding a define invalidates all 125 compiled programs at once.
 
-- **Files:** `roadRenderer.js`, `terrainRenderer.js`, `vegetationRenderer.js`, `meshMaterializer.js:965-984`, ~15 modules via the registry
+- **Files:** `materialRegistry.js` (`onMaterialRegistered`), `main.js`
 - **Depends:** lightGrid
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P2
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Done **more broadly than specified.** Rather than a hand-listed opt-in, materials subscribe via `onMaterialRegistered(cb, replayExisting)` — tile materials are created LAZILY, so any one-time sweep lights the spawn tiles and nothing driven into afterwards. `patchLightGrid` also warns once per material kind when a material has no `<lights_fragment_end>` (unlit / hand-built shaders) instead of silently not lighting it. Programs rebuilt off the hot path via `renderer.compileAsync` (the arm frame was measured at `rend 340ms`).
 
 ### `[~]` P2-08 · 2.0d · risk medium
 **ONE surface-height source for every road decal.** Road paint (zebra, edge lines, lane arrows,
@@ -642,14 +642,14 @@ small value once this lands.**
 - **Progress:** shared stack landed (`groundLayers.js` now owns `GROUND_LIFT`, `roadSurfaceY`, `sidewalkSurfaceY`, one `CURB_HEIGHT`, one `ROAD_VISUAL_ABOVE_TERRAIN`); lane arrows, drain covers, sidewalk and tactile all rebased onto it; 7 invariant tests. **Corrected the diagnosis — see D-27.** Remaining: crosswalk/zona30/bikePicto rebasing, and the on-screen drive check.
 - **Done when:** a drive over crowned/sloped/multi-layer road shows no floating and no buried paint at ANY viewing angle, `ROAD_Y_OFFSET` is back under 0.06, and a test asserts decal Y == road-mesh Y + lift for a sloped sample.
 
-### `[ ]` P2-06 · 1.0d · risk high
+### `[x]` P2-06 · 1.0d · risk high
 **DELETE the fake-night stack, SAME COMMIT as the opt-in** — ground-pool decals (`streetlightRenderer.js:24,113-121,214,526-531,596-599`), hero-building spill decals (`meshMaterializer.js:917-946,1023`), road night wash (`roadRenderer.js:273` — **the AO half was already split out in P0**), vegetation night wash (`vegetationRenderer.js:235`). KEEP the lamp emissive (it becomes the corona source). Half-landed, night double-lights and looks **worse than today**. Capture 3 committed night poses **before** any of it starts.
 
-- **Files:** as listed + `envToggle.js:147-172`
+- **Files:** `streetlightRenderer.js`, `lightPoolDecal.js` (deleted), `meshMaterializer.js`, `buildingWorker.js`, `roadRenderer.js`, `vegetationRenderer.js`, `vegPools.js`, `tileManager.js`, `envToggle.js`, `nightFakes.js` (added then deleted)
 - **Depends:** material opt-in
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P2
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **All six deleted**, verified on a night drive via a temporary `?nofakes` switch BEFORE removal ("no fakes is the way to go for sure"), then the switch deleted with them. Ground-pool decals · hero-building spill decals (+ their worker production) · road/sidewalk wash · vegetation wash · facade lower-floor wash · decal colour lift. **KEPT:** lamp head emissive (the source being visible, not a fake) and v9 baked AO (measured occlusion). **Unplanned perf win:** the washes were the most expensive per-vertex work in the bake — `washAt` ran ~900 distance checks/vertex (55 ms chunks, the `p3 veg-wash` tag) plus a colour-texture `needsUpdate` per tree/bush.
 
 ### `[ ]` P2-07 · 0.5d · risk low
 **Headlight cookie** — a 512² single-channel Blender-authored beam pattern on the two existing SpotLights, with a flat low-beam cut-off, pulling the cone in from 56° to a real low-beam spread. **Cheapest ETS2-identifiable win in the whole domain.**

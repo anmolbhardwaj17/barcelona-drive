@@ -862,7 +862,9 @@ export function processBuildingsInWorker(data, config) {
 
   // Global vertex budget across ALL material groups (walls + roofs + details)
   let totalTileVerts = 0;
-  const heroSpills = [];   // flat [x, baseY, z, radius, strength, ...] — building warm ground-glow decals
+  // v3 P2-06: heroSpills removed. It computed a max-radius scan over every hero building's
+  // footprint and shipped a Float32Array per tile for a fake ground glow that the light grid
+  // replaced. Nothing consumed it after the decal was deleted, so it was pure per-tile cost.
   const beaconPoints = []; // flat [x, y, z, ...] — pulsing red beacons (water-tower finials)
   // v3 P1-12: raised 100,000 → 220,000. The measured maximum in a dense Eixample tile today is
   // ~46,570, so 100k was never actually reached — but P3 adds modular storey bands (1 quad → 12-16
@@ -1127,15 +1129,6 @@ export function processBuildingsInWorker(data, config) {
     // HERO buildings emit a warm ground-spill decal (rendered at night only) — the reference
     // renders' "glowing tower lights its surroundings". Hero-only: an every-building version was
     // tried and looked wrong — flat discs clip visibly on sloped/stepped streets, and at low
-    // strength they read as pale ghost circles. [x, baseY, z, radius, strength]
-    if (matKey.includes('#hero') && b.footprint?.length >= 3) {
-      let maxR = 0;
-      for (const p of b.footprint) {
-        const d = Math.hypot(p.x - cx, p.y - cy);
-        if (d > maxR) maxR = d;
-      }
-      heroSpills.push(cx, baseY, cy, Math.min(34, Math.max(14, maxR * 1.7)), 1.0);
-    }
 
     // ── Roof cap ── (bullet towers close their own crown — a flat roof would float above it)
     let roofBuffers = isBulletTower
@@ -2079,7 +2072,6 @@ export function processBuildingsInWorker(data, config) {
     detailGroups,
     tankInstances: tankResult,
     pipeInstances: pipeResult,
-    heroSpills: heroSpills.length ? new Float32Array(heroSpills) : null,
     beaconPoints: beaconPoints.length ? new Float32Array(beaconPoints) : null,
   };
 }
