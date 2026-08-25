@@ -12,7 +12,7 @@
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
-| **Next task** | **P3-02 · modular storey bands · 4.0 d** (P3-01 ✅). P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
+| **Next task** | **P3-02 · modular storey bands** — geometry + tests landed, **wiring is next**. See its Progress note: the mid-air-shopfront fix turned out to be gated on P3-04, measured not assumed. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
 | **Tasks done** | **58 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
@@ -719,13 +719,33 @@ small value once this lands.**
 - **Full spec:** master plan §4 → P3
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P3-02 · 4.0d · risk medium
+### `[~]` P3-02 · 4.0d · risk medium
 **MODULAR STOREY BANDS — the geometry rebuild.** Split each wall face from 1 quad (4 verts) into 3 UV-independent bands: ground (0→`STOREY_H`), body (`STOREY_H`→height−crownH, v-repeat = floors), crown. 12–16 verts/face. Simultaneously kills the 10 m wrap defect (mid-air shopfronts on 88.5% of buildings), gives the ground floor its own UV rect, **puts real vertices at 3.5/8/16 m so the baked AO fade finally works**, and creates the seam the array-texture layer index attaches to. Worst-tile wall verts 33,320 → ~100,000.
 
 - **Files:** new `extrudePolygonWallBands` in `workerGeometry.js:36-125`; `buildingWorker.js:494-520,1040-1092`
 - **Depends:** buildingConstants; triangle budgets
 - **Subsystem:** buildings
 - **Full spec:** master plan §4 → P3
+- **Progress (2026-08-25):** `extrudePolygonWallBands` written and tested in `workerGeometry.js`
+  (**10 tests**, 62 total) — 3 UV-independent bands, one agreed split across all faces, short
+  buildings degrade instead of emitting degenerate quads, outward horizontal normals, bands tile the
+  full height with no gap. **NOT YET WIRED into `buildingWorker.js`** — that is the remaining work.
+- ⚠ **SPEC CORRECTION — "kills the 10 m wrap defect" is NOT true from geometry alone.** Measured
+  here: against today's tile the shopfront occupies v `0..gFrac`, so a body band spanning more than
+  one repeat crosses v=1.0, which wraps to the same rows and repaints it — a 12 m building gives body
+  v `0.38 → 1.62`, i.e. a shopfront at v 1.0–1.38. Bands REDUCE the wrap (one, not one per 10 m);
+  they do not eliminate it.
+- **The only geometry-side fix was costed and REJECTED.** One quad per storey is the only way to
+  repeat windows-only against the current tile: 8 bands/face at a 25 m mean height = **~266,000 wall
+  verts against a `GLOBAL_VERTEX_BUDGET` of 220,000. It does not fit.** So the zero-shopfront claim
+  belongs to **P3-04's window-only texture layer**, which the plan's own dependency chain implies
+  ("creates the seam the array-texture layer index attaches to") but whose done-when did not say.
+  The switch is already in place: `opts.windowOnlyTile` maps the body to v `0 → N`, and a test
+  asserts the zero-wrap guarantee under it, ready to become live when P3-04 lands.
+- **Remaining:** wire into `createPolygonWallBuffers`; source `groundH` per category from
+  `WINDOW_STYLES[...].marginB` (currently only in `meshMaterializer.js` — moving it to
+  `buildingConstants.js` kills a fourth mirror, in the spirit of P1-13); then a drive check on wall
+  vertex count (expect worst tile ~33,320 → ~100,000) and on the crown reading against the sky.
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
 ### `[ ]` P3-03 · 2.0d · risk medium

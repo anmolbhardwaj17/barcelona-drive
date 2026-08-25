@@ -33,6 +33,130 @@
  *     — called per edge so UV density can vary with wall length.
  * @returns {{ positions: Float32Array, normals: Float32Array, uvs: Float32Array, indices: Uint32Array }}
  */
+/**
+ * v3 P3-02 — MODULAR STOREY BANDS. Splits each wall face into up to three UV-independent bands
+ * instead of one quad, and is the fix for the mid-air shopfront.
+ *
+ * THE BUG IT KILLS. `extrudePolygonWalls` below emits ONE quad per face with `v: 0 -> height/
+ * FLOOR_HEIGHT`. The facade tile carries its shopfront in the bottom `groundH/FLOOR_HEIGHT` of its
+ * height, so every repeat of the tile paints another shopfront: at 10 m, at 20 m, at 30 m. Measured
+ * on the region — a shopfront in MID-AIR on 36,122 of 40,828 buildings (88.5%), twice on 30.8%.
+ * A quad has no storey structure to texture, so no texture could have fixed it.
+ *
+ * THE BANDS, bottom to top:
+ *   ground  baseY -> baseY+groundH        v 0 -> gFrac         the shopfront, exactly ONCE
+ *   body    -> topY-crownH                v gFrac -> 1, xN     windows only, N = storeys
+ *   crown   -> topY                       v cFrac -> 1         reads against the sky
+ *
+ * `gFrac` = groundH / FLOOR_HEIGHT is the same fraction meshMaterializer paints the shopfront into,
+ * so the ground band addresses the shopfront rows and the body band CANNOT — the repeat now starts
+ * above it. That is why this works against today's texture and does not wait on the array-texture
+ * rebuild.
+ *
+ * ⚠ SHORT BUILDINGS DEGRADE, THEY DO NOT BREAK. Under groundH there is only a ground band (a shop
+ * unit is all you can see anyway); under groundH+crownH there is no body. Emitting a zero- or
+ * negative-height band would produce degenerate triangles that survive to the depth buffer as
+ * z-fighting slivers.
+ *
+ * ⚠ VERTEX COST IS REAL: up to 12 verts/face against 4. Worst-tile wall verts go ~33,320 ->
+ * ~100,000, which is inside GLOBAL_VERTEX_BUDGET (220,000) only because P1-12 raised it. Do not
+ * add a fourth band without re-checking that budget.
+ *
+ * @param {{x:number,y:number}[]} footprintPoints  polygon, CW in world-XZ for outward normals
+ * @param {number} height     building height in metres
+ * @param {number} baseY      ground level
+ * @param {object} opts
+ * @param {number} opts.hRepeatM    world metres per horizontal texture repeat
+ * @param {number} opts.groundH     ground-floor/shopfront height in metres
+ * @param {number} opts.gFrac       fraction of the texture tile the shopfront occupies (v)
+ * @param {number} opts.storeyH     body storey height in metres (UV repeat period)
+ * @param {number} opts.crownH      crown band height in metres
+ * @returns {{positions:Float32Array,normals:Float32Array,uvs:Float32Array,indices:Uint32Array}|null}
+ */
+export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
+  const pts = footprintPoints;
+  if (!pts || pts.length < 3 || !(height > 0)) return null;
+  const n = pts.length;
+  const closed = n > 1 && Math.abs(pts[0].x - pts[n - 1].x) < 1e-8 && Math.abs(pts[0].y - pts[n - 1].y) < 1e-8;
+  const edgeCount = closed ? n - 1 : n;
+  if (edgeCount < 3) return null;
+
+  const hRepeatM = opts.hRepeatM > 0 ? opts.hRepeatM : 12;
+  const gFrac = Math.min(0.9, Math.max(0.05, opts.gFrac ?? 0.38));
+  const storeyH = opts.storeyH > 0 ? opts.storeyH : 3.5;
+  let groundH = opts.groundH > 0 ? opts.groundH : 3.8;
+  let crownH = opts.crownH > 0 ? opts.crownH : 1.2;
+
+  // Decide the band split ONCE for the whole building — every face must agree or the bands step
+  // around the building instead of ringing it.
+  if (groundH >= height) { groundH = height; crownH = 0; }
+  else if (groundH + crownH >= height) { crownH = 0; }
+  const bodyH = height - groundH - crownH;
+
+  // v-space: the tile is FLOOR-tall; the shopfront sits in 0..gFrac, the windows in gFrac..1.
+  // One body repeat covers the window-only slice of the tile and spans ONE storey in world metres.
+  const bodyVPerTile = 1 - gFrac;                      // window-only fraction of one tile
+  const bodyRepeats = bodyH > 0 ? Math.max(1, bodyH / storeyH) : 0;
+
+  const bands = [];
+  if (groundH > 1e-4) bands.push({ y0: baseY, y1: baseY + groundH, v0: 0, v1: gFrac });
+  // ⚠ THE MID-AIR SHOPFRONT IS NOT FIXED BY GEOMETRY ALONE — measured here, 2026-08-25.
+  // Against TODAY'S tile the shopfront occupies v 0..gFrac, so a body band spanning more than one
+  // repeat crosses v=1.0, which wraps to the same rows and paints the shopfront again. Verified:
+  // a 12 m building gave body v 0.38 -> 1.62, i.e. a shopfront at v 1.0-1.38.
+  //
+  // The only way to repeat WINDOWS ONLY against that tile is one quad per storey — and that was
+  // costed: 8 bands/face on a 25 m mean-height tile = ~266,000 wall verts against a
+  // GLOBAL_VERTEX_BUDGET of 220,000. It does not fit. So the fix belongs to P3-04's window-only
+  // texture layer, which is exactly what `windowOnlyTile` switches on. Until then bands REDUCE the
+  // defect (one wrap instead of one per 10 m) without eliminating it — do not claim otherwise.
+  if (bodyH > 1e-4) {
+    const bodyV0 = opts.windowOnlyTile ? 0 : gFrac;
+    const bodyV1 = opts.windowOnlyTile ? bodyRepeats : gFrac + bodyRepeats * bodyVPerTile;
+    bands.push({ y0: baseY + groundH, y1: baseY + groundH + bodyH, v0: bodyV0, v1: bodyV1 });
+  }
+  if (crownH > 1e-4)  bands.push({ y0: baseY + height - crownH, y1: baseY + height, v0: gFrac, v1: 1 });
+  if (!bands.length) return null;
+
+  const quadCount = edgeCount * bands.length;
+  const positions = new Float32Array(quadCount * 4 * 3);
+  const normals   = new Float32Array(quadCount * 4 * 3);
+  const uvs       = new Float32Array(quadCount * 4 * 2);
+  const indices   = new Uint32Array(quadCount * 2 * 3);
+
+  let q = 0;
+  for (let i = 0; i < edgeCount; i++) {
+    const p0 = pts[i], p1 = pts[(i + 1) % n];
+    const dx = p1.x - p0.x, dz = p1.y - p0.y;
+    const wallLen = Math.hypot(dx, dz);
+    // Outward normal for CW winding viewed from above — same convention as extrudePolygonWalls.
+    const nx = wallLen > 1e-10 ? -dz / wallLen : 0;
+    const nz = wallLen > 1e-10 ?  dx / wallLen : 1;
+    const uRepeat = wallLen / hRepeatM;
+
+    for (let bIdx = 0; bIdx < bands.length; bIdx++) {
+      const bnd = bands[bIdx];
+      const base = q * 4, bp = base * 3, bu = base * 2;
+      positions[bp]      = p0.x; positions[bp + 1]  = bnd.y0; positions[bp + 2]  = p0.y;
+      positions[bp + 3]  = p1.x; positions[bp + 4]  = bnd.y0; positions[bp + 5]  = p1.y;
+      positions[bp + 6]  = p1.x; positions[bp + 7]  = bnd.y1; positions[bp + 8]  = p1.y;
+      positions[bp + 9]  = p0.x; positions[bp + 10] = bnd.y1; positions[bp + 11] = p0.y;
+      for (let v = 0; v < 4; v++) {
+        normals[bp + v * 3] = nx; normals[bp + v * 3 + 1] = 0; normals[bp + v * 3 + 2] = nz;
+      }
+      uvs[bu]     = 0;       uvs[bu + 1] = bnd.v0;
+      uvs[bu + 2] = uRepeat; uvs[bu + 3] = bnd.v0;
+      uvs[bu + 4] = uRepeat; uvs[bu + 5] = bnd.v1;
+      uvs[bu + 6] = 0;       uvs[bu + 7] = bnd.v1;
+      const bi = q * 6;
+      indices[bi] = base; indices[bi + 1] = base + 1; indices[bi + 2] = base + 2;
+      indices[bi + 3] = base; indices[bi + 4] = base + 2; indices[bi + 5] = base + 3;
+      q++;
+    }
+  }
+  return { positions, normals, uvs, indices };
+}
+
 export function extrudePolygonWalls(footprintPoints, height, baseY, uvConfig) {
   const pts = footprintPoints;
   const n = pts.length;
