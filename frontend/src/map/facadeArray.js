@@ -156,16 +156,35 @@ export function decodeLayer(encoded) {
 const PLACEHOLDER_BODY_PX = 512;
 const PLACEHOLDER_GROUND_PX = 256;
 
-/** Per-variant look for the placeholders. Real art replaces this wholesale. */
+/**
+ * Per-variant placeholder look.
+ *
+ * ⚠ THESE MUST STAY NEAR-NEUTRAL. Building colour does NOT come from the texture — it is baked into
+ * the VERTEX COLOUR attribute as a palette pick, and every facade material is deliberately WHITE so
+ * the tint shows through (`buildingWorker.js`, "DRAW-CALL COLLAPSE"). The fragment chain is
+ *
+ *     diffuseColor = white(material) × vColor(palette) × facadeTexel
+ *
+ * so a TINTED layer multiplies against a tint that is already there. Measured 2026-08-25: the first
+ * placeholders carried plaster colours (#d8cfc0 … #a88f7f) and the product went to near-black on
+ * buildings whose palette entry was already dark — "some buildings entirely black, some still
+ * coloured", varying per building because BOTH factors vary. Near-white keeps the layer a
+ * *modulation* (window rows, panel breaks) and leaves colour where it already lives.
+ *
+ * ⚠ OPEN SPEC QUESTION FOR P3-05: the task says its albedo has "weathering baked in", i.e. the ART
+ * owns colour. That collides with the vertex-colour palette in exactly this way. P3-05 must pick ONE
+ * owner — author neutral layers and keep the palette, or author coloured layers and neutralise
+ * `getFacadeTint`. It cannot have both.
+ */
 const PLACEHOLDER_TINTS = [
-  { wall: '#d8cfc0', win: '#3d4652' },   // residential a — warm plaster
-  { wall: '#cfc6b6', win: '#39424e' },   // residential b
-  { wall: '#e0d6c6', win: '#424b57' },   // residential c
-  { wall: '#c8bfae', win: '#353d48' },   // residential d
-  { wall: '#d2c9b9', win: '#3f4854' },   // residential e
-  { wall: '#b9c3cc', win: '#2f3945' },   // commercial
-  { wall: '#c4c9cf', win: '#333c47' },   // office
-  { wall: '#a88f7f', win: '#2c3036' },   // industrial brick
+  { wall: '#f2f0ec', win: '#2b3038' },   // residential a — near-white, subtle warm
+  { wall: '#efedea', win: '#282d34' },   // residential b
+  { wall: '#f4f2ee', win: '#2e333b' },   // residential c
+  { wall: '#eceae6', win: '#252a31' },   // residential d
+  { wall: '#f0eeea', win: '#2b3037' },   // residential e
+  { wall: '#eef0f2', win: '#232830' },   // commercial — a hair cooler
+  { wall: '#f0f1f3', win: '#262b33' },   // office
+  { wall: '#edeae6', win: '#22262c' },   // industrial
 ];
 
 /** Paint one BODY layer: plaster with window rows, tiling in BOTH axes. */
