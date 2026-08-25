@@ -933,6 +933,49 @@ small value once this lands.**
   to the default road and wants one drive to judge against, not a blind deletion.
 - **Done when:** _(a drive judging ruts at street level + the `roadNoise` removal + (b)/(c) art)_
 
+### `[ ]` P3-07b · 2.0d · risk low · **AUTHORED ROAD TEXTURES — replaces the procedural wear**
+**Decided 2026-08-26 on measurement: textures are BOTH cheaper and better-looking than procedural
+noise here.** `?roadv2=0` measurably outperformed `?roadv2=1` on the user's machine, which settled it.
+
+| | procedural wear (current) | authored texture |
+|---|---|---|
+| per-fragment cost | **~40 ALU ops** (4× hash + mixes + smoothstep + exp) | **1 TMU fetch**, runs in PARALLEL with ALU |
+| filtering at distance | **none — aliases and shimmers** at grazing angles, which is exactly how road is viewed | mip chain, correct by construction |
+| VRAM | 0 | ~2 MiB for asphalt albedo+normal, ~8 MiB for 4 road types (KTX2/BC7) |
+| against the 200 MiB budget | — | **negligible** |
+
+The plan's "zero VRAM, strictly better" for (d) is true about MEMORY and silent about ALU, and ALU is
+what a full-screen surface on a `MeshStandardMaterial` actually spends. Roads have the largest screen
+coverage in the game; a texture fetch is the cheap way to spend it.
+
+**KEEP the analytic parts — they are not what cost:**
+- **(a) world-metric UV is the PREREQUISITE, not wasted work.** Texturing needs `across`/`along` in
+  real metres or the tiling scale changes with every road's width. It already ships.
+- **(e) wheel ruts stay analytic.** They are LANE-RELATIVE, derived from `halfWidth` — a tiling
+  texture cannot know where the lane centre is, so this cannot be baked. ~8 ops and it is the single
+  most recognisable real-road cue.
+- **(d) macro wear is what a texture replaces.** Authored albedo carries its own variation, mip-filtered.
+
+**Then per-road-type textures + blending (the user's proposal, 2026-08-26):**
+- Different surface per `highwayType` is cheap and the machinery EXISTS — per-vertex `aLayer` from
+  P3-04, layers wrapping independently, no `fract()` seams. Motorway / primary / residential / service
+  as four layers.
+- **Along-road blending between types comes nearly free**: `aLayer` is per-vertex, so a blend weight
+  ramped across a few metres of ribbon crossfades two layers where a primary becomes a secondary.
+- ⚠ **JUNCTION blending is a SEPARATE, much larger task and must not be smuggled in here.** Different
+  ribbons are different meshes with no shared vertices to blend across, and the junction fan is its
+  own geometry. That is where road systems usually look worst; cost it on its own.
+
+⚠ **BLOCKED ON THE SAME DECISION AS P3-05 (D-31): who owns colour.** Roads are vertex-coloured like
+buildings, so authored road albedo collides the same way — either the art owns colour and the vertex
+tint is neutralised, or the art stays neutral and modulates. **Decide once, for facades AND roads,
+before anything is painted.**
+
+- **Files:** `map/roadMaterial.js`, `map/roadRenderer.js`, new `frontend/public/art/v1/roads/*.ktx2`
+- **Depends:** P3-07 (a) ✅ shipped; the D-31 colour-ownership decision
+- **Subsystem:** road
+- **Done when:** _(road frame cost at or below `?roadv2=0`, measured — plus no shimmer at grazing angles)_
+
 ### `[ ]` P3-08 · 2.5d · risk medium
 **Road asset set** — `asphalt_worn_1k` (ambientCG CC0, normalized), `asphalt_detail_512` (normal only, AI tiling or high-pass), `panot_1k` (baked offline from the existing `makePanotCanvas` generator upgraded 256→1024 under node-canvas, Sobel normal, **AD-12 20×20 grid over 4.0 m**, and the AD-4 v-flip fix at `roadRenderer.js:1690-1694` lands with it), `concrete_kerb_512`. Ship `.ktx2`, keep the generator as the authoring tool.
 
