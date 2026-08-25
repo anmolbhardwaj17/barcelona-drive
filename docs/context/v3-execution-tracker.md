@@ -12,8 +12,8 @@
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
-| **Next task** | **P3-02 · modular storey bands** — geometry + tests landed, **wiring is next**. See its Progress note: the mid-air-shopfront fix turned out to be gated on P3-04, measured not assumed. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **58 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Next task** | **P3-03 · normalise building winding at source · 2.0 d** (P3-02 ✅ wired). ⚠ P3-02 needs an on-screen drive it has not had, and P3's "mid-air shopfronts: 0" gate now belongs to P3-04. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
+| **Tasks done** | **59 / 83** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
@@ -719,7 +719,7 @@ small value once this lands.**
 - **Full spec:** master plan §4 → P3
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[~]` P3-02 · 4.0d · risk medium
+### `[x]` P3-02 · 4.0d · risk medium
 **MODULAR STOREY BANDS — the geometry rebuild.** Split each wall face from 1 quad (4 verts) into 3 UV-independent bands: ground (0→`STOREY_H`), body (`STOREY_H`→height−crownH, v-repeat = floors), crown. 12–16 verts/face. Simultaneously kills the 10 m wrap defect (mid-air shopfronts on 88.5% of buildings), gives the ground floor its own UV rect, **puts real vertices at 3.5/8/16 m so the baked AO fade finally works**, and creates the seam the array-texture layer index attaches to. Worst-tile wall verts 33,320 → ~100,000.
 
 - **Files:** new `extrudePolygonWallBands` in `workerGeometry.js:36-125`; `buildingWorker.js:494-520,1040-1092`
@@ -742,11 +742,20 @@ small value once this lands.**
   ("creates the seam the array-texture layer index attaches to") but whose done-when did not say.
   The switch is already in place: `opts.windowOnlyTile` maps the body to v `0 → N`, and a test
   asserts the zero-wrap guarantee under it, ready to become live when P3-04 lands.
-- **Remaining:** wire into `createPolygonWallBuffers`; source `groundH` per category from
-  `WINDOW_STYLES[...].marginB` (currently only in `meshMaterializer.js` — moving it to
-  `buildingConstants.js` kills a fourth mirror, in the spirit of P1-13); then a drive check on wall
-  vertex count (expect worst tile ~33,320 → ~100,000) and on the crown reading against the sky.
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **WIRED 2026-08-25.** `createPolygonWallBuffers` now emits bands for outer ring AND inner rings,
+  taking `category` so the ground band matches the painted shopfront. **`FACADE_GROUND_H_M` +
+  `STOREY_H` + `CROWN_H` added to `buildingConstants.js` and `meshMaterializer`'s `WINDOW_STYLES`
+  now READS them — a fourth mirror killed** (the geometry places the band at `groundH` while the
+  painter fills `groundH/FLOOR_HEIGHT` of the tile; two copies would drift until the shopfront
+  straddled the seam, which looks worse than the defect it replaces). A test greps the materializer
+  and fails if a numeric `marginB` is ever hard-coded back in.
+- **Done when:** ✅ **15 tests (65 total).** Wall vertex cost computed over the Barcelona height mix:
+  **3.00 mean bands/face → worst tile 33,320 → ~99,960**, against the spec's ~100,000 estimate and a
+  220,000 `GLOBAL_VERTEX_BUDGET` — **fits**. ⚠ **Mid-air shopfronts are NOT zero yet** — that is
+  gated on P3-04, measured and explained above. P3's exit-gate metric "mid-air shopfronts: 0" must
+  therefore be checked AFTER P3-04, not here.
+- **Still to verify on screen:** a night/day drive for the crown reading against the sky, the ground
+  band sitting at street level on sloped streets, and the real (not computed) wall vertex count.
 
 ### `[ ]` P3-03 · 2.0d · risk medium
 **Normalise building winding at source** → flip `BUILDING_SIDE` to `FrontSide`. Signed-area check per outer and inner ring, reverse when needed. Halves raster and shadow cost on the largest triangle population. **NOTE: flipping the flag alone was tried 2026-07-06 and reverted (`changelog.md:930`) — the fix must be in the worker,** with a debug pass colouring back-facing walls.

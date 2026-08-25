@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
-import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, FACADE_GROUND_H_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -35,15 +35,18 @@ const SHADOW_Y_OFFSET = 0.02;
 
 // Barcelona Eixample: tall ~2 m French-window openings, ~3 m floor period (aligns with 3 m balconies),
 // taller ~3.5–4 m ground floor for shopfronts.
+// v3 P3-02: `marginB` now comes from FACADE_GROUND_H_M in buildingConstants — the storey-band
+// geometry places its ground band against the SAME number, and two copies would drift until the
+// shopfront straddled the band seam.
 const WINDOW_STYLES = {
-  residential:      { winW: 1.1, winH: 2.0, gapH: 1.4, gapV: 1.0, marginB: 3.8, seed: 42  },
-  commercial:       { winW: 1.2, winH: 1.9, gapH: 1.2, gapV: 1.1, marginB: 4.0, seed: 137 },
-  commercial_glass: { winW: 1.8, winH: 2.4, gapH: 0.20, gapV: 0.6, marginB: 3.5, seed: 313 },
-  office:           { winW: 1.3, winH: 1.8, gapH: 0.8, gapV: 1.2, marginB: 3.5, seed: 271 },
-  hospital:         { winW: 1.0, winH: 1.6, gapH: 1.2, gapV: 1.4, marginB: 3.0, seed: 389 },
-  school:           { winW: 1.4, winH: 1.6, gapH: 1.4, gapV: 1.4, marginB: 3.0, seed: 503 },
-  industrial:       { winW: 1.6, winH: 1.4, gapH: 1.6, gapV: 1.6, marginB: 3.0, seed: 631 },
-  religious:        { winW: 0.7, winH: 2.4, gapH: 2.2, gapV: 1.4, marginB: 1.5, seed: 757 },
+  residential:      { winW: 1.1, winH: 2.0, gapH: 1.4, gapV: 1.0, marginB: FACADE_GROUND_H_M.residential,      seed: 42  },
+  commercial:       { winW: 1.2, winH: 1.9, gapH: 1.2, gapV: 1.1, marginB: FACADE_GROUND_H_M.commercial,       seed: 137 },
+  commercial_glass: { winW: 1.8, winH: 2.4, gapH: 0.20, gapV: 0.6, marginB: FACADE_GROUND_H_M.commercial_glass, seed: 313 },
+  office:           { winW: 1.3, winH: 1.8, gapH: 0.8, gapV: 1.2, marginB: FACADE_GROUND_H_M.office,           seed: 271 },
+  hospital:         { winW: 1.0, winH: 1.6, gapH: 1.2, gapV: 1.4, marginB: FACADE_GROUND_H_M.hospital,         seed: 389 },
+  school:           { winW: 1.4, winH: 1.6, gapH: 1.4, gapV: 1.4, marginB: FACADE_GROUND_H_M.school,           seed: 503 },
+  industrial:       { winW: 1.6, winH: 1.4, gapH: 1.6, gapV: 1.6, marginB: FACADE_GROUND_H_M.industrial,       seed: 631 },
+  religious:        { winW: 0.7, winH: 2.4, gapH: 2.2, gapV: 1.4, marginB: FACADE_GROUND_H_M.religious,        seed: 757 },
 };
 
 // ─── Detail material definitions ─────────────────────────────────────────────

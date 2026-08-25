@@ -29,3 +29,37 @@ export const AO_FACADE_STRENGTH = 0.50;
 
 /** AO curve shape. >1 keeps mid-tones bright and darkens only genuinely enclosed spots. */
 export const AO_GAMMA = 1.2;
+
+// ── v3 P3-02: modular storey bands ───────────────────────────────────────────────────────────────
+
+/** Real storey height in metres — the vertical period of ONE window row. */
+export const STOREY_H = 3.5;
+
+/** Crown band height in metres. Small: it exists so the top reads as a cornice against the sky. */
+export const CROWN_H = 1.2;
+
+/**
+ * Ground-floor (shopfront) height per category, in metres.
+ *
+ * ⚠ FOURTH MIRROR, KILLED HERE. These were `WINDOW_STYLES[...].marginB` inside
+ * `workers/meshMaterializer.js`, where the canvas painter used them to place the shopfront band.
+ * The band GEOMETRY now has to agree with that placement to the metre — the ground band's UV
+ * top is `groundH / FLOOR_HEIGHT`, which is exactly the fraction the painter fills. Two copies of
+ * that number would drift and the shopfront would straddle the band seam, which is worse-looking
+ * than the mid-air shopfront it replaces. Same reasoning as P1-13.
+ */
+export const FACADE_GROUND_H_M = {
+  residential:      3.8,
+  commercial:       4.0,
+  commercial_glass: 3.5,
+  office:           3.5,
+  hospital:         3.0,
+  school:           3.0,
+  industrial:       3.0,
+  religious:        1.5,
+};
+
+/** Ground-floor height for a category, falling back to the residential norm. */
+export function groundFloorH(category) {
+  return FACADE_GROUND_H_M[category] ?? FACADE_GROUND_H_M.residential;
+}

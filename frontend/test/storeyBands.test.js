@@ -111,3 +111,36 @@ test('degenerate input returns null rather than a broken buffer', () => {
   assert.equal(extrudePolygonWallBands(SQUARE, 0, 0, OPTS), null);
   assert.equal(extrudePolygonWallBands(null, 10, 0, OPTS), null);
 });
+
+// ── v3 P3-02: cross-module contract ──────────────────────────────────────────────────────────────
+// The band geometry places its ground band at groundH metres; meshMaterializer paints the shopfront
+// into the bottom groundH/FLOOR_HEIGHT of the tile. If those two numbers ever drift, the shopfront
+// straddles the band seam — which looks WORSE than the mid-air shopfront this replaces, and would
+// show up as an art complaint rather than an obvious bug. FACADE_GROUND_H_M is now the one source;
+// this test fails if anyone reintroduces a local copy.
+import { FACADE_GROUND_H_M, groundFloorH, FLOOR_HEIGHT, STOREY_H, CROWN_H } from '../src/buildingConstants.js';
+import fs from 'node:fs';
+
+test('meshMaterializer reads the SHARED ground-floor heights, not a local copy', () => {
+  const src = fs.readFileSync(new URL('../src/workers/meshMaterializer.js', import.meta.url), 'utf8');
+  assert.match(src, /FACADE_GROUND_H_M/, 'materializer must import the shared map');
+  const styles = src.slice(src.indexOf('const WINDOW_STYLES'), src.indexOf('};', src.indexOf('const WINDOW_STYLES')));
+  const literals = styles.match(/marginB:\s*[0-9]/g);
+  assert.equal(literals, null, `marginB was hard-coded again: ${literals} — reintroduces the mirror`);
+});
+
+test('every painted category has a ground-floor height, and it is a plausible storey', () => {
+  for (const [cat, h] of Object.entries(FACADE_GROUND_H_M)) {
+    assert.ok(h > 0 && h < FLOOR_HEIGHT, `${cat}: ${h} m must be positive and inside one tile`);
+    assert.equal(groundFloorH(cat), h);
+  }
+  assert.equal(groundFloorH('not-a-category'), FACADE_GROUND_H_M.residential, 'unknown must fall back');
+});
+
+test('the band constants leave a body on a normal Eixample building', () => {
+  // ground + crown must not swallow a typical 6-storey block, or every building becomes two bands.
+  const typical = 21;
+  assert.ok(groundFloorH('residential') + CROWN_H < typical * 0.4,
+    'ground+crown eat too much of a normal building — the body band would barely exist');
+  assert.ok(STOREY_H > 2.5 && STOREY_H < 4.5, 'storey height must be a real storey');
+});

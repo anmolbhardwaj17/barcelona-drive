@@ -10,6 +10,7 @@
 
 import {
   extrudePolygonWalls,
+  extrudePolygonWallBands,
   createCylinderWalls,
   triangulatePolygon,
   createCylinderFull,
@@ -25,7 +26,7 @@ import {
 } from './workerGeometry.js';
 
 import earcut from './earcut.js';
-import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, AO_FACADE_STRENGTH, AO_GAMMA, STOREY_H, CROWN_H, groundFloorH } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -536,18 +537,33 @@ function getCylinderParams(building) {
 /**
  * Create wall geometry for a polygon building (replaces createPolygonBuilding).
  */
-function createPolygonWallBuffers(building, baseY) {
+function createPolygonWallBuffers(building, baseY, category) {
   let footprint = building.footprint || [];
   if (footprint.length < 3) return null;
   footprint = simplifyFootprint(footprint);
 
-  const uvConfigFn = (wallLength) => ({
-    hRepeat: wallLength / WALL_REPEAT_HORIZONTAL_M,  // wallLength is real metres (Unstretch-X)
-    vRepeat: building.height / FLOOR_HEIGHT,
-  });
+  // v3 P3-02: 3 UV-independent storey bands per face instead of one quad. The ground band gets its
+  // own UV rect (so the shopfront lands at street level, once), the body repeats per real storey,
+  // and the crown reads against the sky. It also puts real vertices at groundH and at the crown,
+  // which is what the baked AO fade needs to interpolate against.
+  //
+  // ⚠ `groundH` MUST match what meshMaterializer paints — both now read FACADE_GROUND_H_M.
+  // ⚠ `windowOnlyTile` stays FALSE until P3-04 ships the window-only layer. Until then the body
+  //    still wraps once (measured: 12 m building → body v 0.38→1.62). Bands reduce the mid-air
+  //    shopfront; they do not remove it. Flipping this before that layer exists paints windows
+  //    where the shopfront should be.
+  const groundH = groundFloorH(category);
+  const bandOpts = {
+    hRepeatM: WALL_REPEAT_HORIZONTAL_M,   // wallLength is real metres (Unstretch-X)
+    groundH,
+    gFrac: groundH / FLOOR_HEIGHT,        // the fraction of the tile the painter fills with shopfront
+    storeyH: STOREY_H,
+    crownH: CROWN_H,
+    windowOnlyTile: false,
+  };
 
   // Handle inner rings (holes) — walls also needed for inner edges
-  const outerWalls = extrudePolygonWalls(footprint, building.height, baseY, uvConfigFn);
+  const outerWalls = extrudePolygonWallBands(footprint, building.height, baseY, bandOpts);
   if (!outerWalls) return null;
 
   if (building.innerRings && building.innerRings.length > 0) {
@@ -555,7 +571,7 @@ function createPolygonWallBuffers(building, baseY) {
     for (let ring of building.innerRings) {
       if (!ring || ring.length < 3) continue;
       ring = simplifyFootprint(ring);
-      const innerWalls = extrudePolygonWalls(ring, building.height, baseY, uvConfigFn);
+      const innerWalls = extrudePolygonWallBands(ring, building.height, baseY, bandOpts);
       if (innerWalls) allWalls.push(innerWalls);
     }
     return allWalls.length === 1 ? outerWalls : mergeBufferSets(allWalls);
@@ -1125,7 +1141,7 @@ export function processBuildingsInWorker(data, config) {
     } else if (b.shapeType === 'cylinder') {
       wallBuffers = createCylinderWallBuffers(b, baseY);
     } else {
-      wallBuffers = createPolygonWallBuffers(b, baseY);
+      wallBuffers = createPolygonWallBuffers(b, baseY, category);   // v3 P3-02: category picks the ground-floor height
     }
 
     if (!wallBuffers) {
