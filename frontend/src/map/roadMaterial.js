@@ -61,6 +61,22 @@ float roadNoise2(vec2 p) {
  * The fragment body. Applied AFTER BACKTICK_PLACEHOLDER<color_fragment>BACKTICK_PLACEHOLDER so it modulates the vertex-colour asphalt
  * rather than replacing it — road colour lives in the vertex colour, same as buildings (D-31).
  */
+/**
+ * ⚠ TONE ONLY — this deliberately does NOT touch roughness. Two reasons, both measured 2026-08-26:
+ *
+ *  1. `roughnessFactor` is declared in three's `<roughnessmap_fragment>`, which comes AFTER
+ *     `<color_fragment>` where this is injected. Writing it there is an undeclared identifier and the
+ *     shader FAILS TO COMPILE — the road vanished entirely, leaving the separately-materialled lane
+ *     paint and crosswalks drawn over bare terrain.
+ *  2. `patchRoadAO` is shared with `MeshLambertMaterial` surfaces, which have NO roughness at all, so
+ *     even at the correct injection point the term could not be written unconditionally.
+ *
+ * Ruts are therefore a tone modulation — which is also the honest description: worn asphalt reads
+ * polished because it IS lighter, not because a specular response changed.
+ *
+ * ⚠ Keep the GLSL literal free of BACKTICKS. A backtick used to quote an identifier in a shader
+ * comment closes the template string and breaks the build — that has happened twice.
+ */
 export const ROAD_V2_APPLY = `
 {
   // uv -> metres, using the halfWidth the ribbon already carries.
@@ -82,11 +98,8 @@ export const ROAD_V2_APPLY = `
   float laneValid = 1.0 - smoothstep(8.0, 14.0, vHalfW);
   float rutAmt = rut * uRoadRut * laneValid;
 
+  // Tone only — see the note above the export for why there is no roughness term.
   diffuseColor.rgb *= (1.0 + wear + rutAmt * 0.5);
-  #ifdef USE_ROUGHNESSMAP
-  #else
-    roughnessFactor = clamp(roughnessFactor - rutAmt * 0.25, 0.05, 1.0);
-  #endif
 }
 `;
 

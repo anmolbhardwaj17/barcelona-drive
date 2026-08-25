@@ -78,3 +78,23 @@ test('macro wear is centred on zero, so it darkens AND lightens', () => {
   // city's asphalt tone rather than adding variation.
   assert.match(ROAD_V2_APPLY, /wear\s*=\s*\(wear\s*-\s*0\.5\)/);
 });
+
+test('the injection touches NOTHING that is out of scope at <color_fragment>', () => {
+  // Measured 2026-08-26: the patch wrote `roughnessFactor`, which three declares in
+  // <roughnessmap_fragment> — AFTER the injection point. The road shader failed to compile and the
+  // road VANISHED, leaving lane paint and crosswalks drawn over bare terrain.
+  //   ERROR: 0:995: 'roughnessFactor' : undeclared identifier   [Material Type: MeshLambertMaterial]
+  // The material type matters too: patchRoadAO is shared with Lambert surfaces, which have no
+  // roughness at all, so the term could not be written unconditionally even at the right point.
+  for (const later of ['roughnessFactor', 'metalnessFactor', 'reflectedLight', 'geometryNormal', 'material.']) {
+    assert.ok(!ROAD_V2_APPLY.includes(later),
+      `${later} is not in scope at <color_fragment> — this failed to compile and hid every road`);
+  }
+});
+
+test('no stray backtick can terminate the GLSL template literal', () => {
+  // Twice now a backtick used to quote an identifier inside a GLSL comment closed the template
+  // string early and broke the build. The literals must contain none at all.
+  assert.ok(!ROAD_V2_PARS.includes('`'), 'ROAD_V2_PARS contains a backtick');
+  assert.ok(!ROAD_V2_APPLY.includes('`'), 'ROAD_V2_APPLY contains a backtick');
+});
