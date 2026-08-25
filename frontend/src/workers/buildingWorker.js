@@ -952,7 +952,19 @@ export function processBuildingsInWorker(data, config) {
   {
     let balconyElig = 0, commercialElig = 0;
     for (const b of buildings) {
-      const cat = getBuildingCategory(b, roads, cx, cy);
+      // ⚠ cx/cy are the BUILDING's centroid and are computed PER-BUILDING inside the main loop —
+      // they do not exist out here. Referencing them threw a ReferenceError on the first tile and
+      // took EVERY building in the city with it (2026-08-25). Derive the same value locally.
+      let bcx, bcy;
+      if (b.center != null) { bcx = b.center.x; bcy = b.center.y; }
+      else {
+        const fp0 = b.footprint || [];
+        if (fp0.length) {
+          bcx = fp0.reduce((t, p) => t + p.x, 0) / fp0.length;
+          bcy = fp0.reduce((t, p) => t + p.y, 0) / fp0.length;
+        } else { bcx = 0; bcy = 0; }
+      }
+      const cat = getBuildingCategory(b, roads, bcx, bcy);
       b._cat = cat;   // consumed by the main loop — one computation, one source of truth
       const fpOk = b.footprint?.length >= 3;
       const notCyl = b.shapeType !== 'cylinder';
