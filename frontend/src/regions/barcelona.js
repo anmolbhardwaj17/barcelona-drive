@@ -89,7 +89,9 @@ export default {
      * Lowered again with the smoothstep falloff: that holds near 1 through the near field where
      * quadratic had collapsed, so the same number now reads far brighter than it did.
      */
-    lampIntensity: 0.2,   // chosen on a night drive; 0.6 read hot once the falloff went smoothstep
+    lampIntensity: 0.28,  // chosen on a night drive: 0.2 read right before the downward cone landed,
+                          // and the cone costs ~40% at mid-street, so this restores that reach
+                          // without touching how little the cone gives the facades above.
     /** Half-lambert bias. Real streets are full of surfaces facing away from a lamp that are still
      *  visibly lit by bounce, and there is no GI here to supply it. 0 = true lambert, 1 = fully
      *  wrapped. Warmer, hazier cities want more. */
