@@ -23,19 +23,19 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
-  // 2026-08-25 — RONDA DE DALT (B-20), Sant Gervasi trench portal. tile 16_33154_24471.
-  // Roadfit hotspot A was checked on the ground: NO tunnel, and a residential street with no
-  // plausible need for one — so "untagged tunnel" is weakened for that case and picking more spots
-  // by hand is guessing. Moved to an EXPRESSWAY instead, because grade separation (trenches,
-  // portals, flyovers) is where missing-structure defects can actually exist, and because the
-  // roadfit probe now breaks the deep band down BY ROAD CLASS. Driving here samples motorway/trunk
-  // tiles, so the class table answers it with a rate rather than an anecdote:
-  //   deep burial concentrated on motorway/trunk/primary -> missing structure, OSM repair class V1/M1
-  //   deep burial spread across residential              -> bad elevation data, class V5
-  // (Roadfit hotspots for reference: A world 4578,3262 = 41.37930/2.16979 way 902208621, 9.615 m —
-  //  CHECKED, no tunnel. B world 4993,3908 = 41.38509/2.17475 way 20353556, 9.598 m — unchecked.)
-  lat: 41.4098,
-  lon: 2.1257,
+  // 2026-08-25 — TÚNEL GLÒRIES. tile 16_33166_24473. Chosen from the BAKED DATA, not by eye:
+  // a scan of all 427 baked tiles for roads with tunnel=true on motorway/trunk/primary ranked the
+  // real tunnel systems, and this one is named "Túnel Glòries" AND tagged tunnel=true across 6
+  // tiles — unmistakable, so a portal is genuinely there to find. Use DRONE/FLY mode (?mode=fly)
+  // and look down: the question is whether the tunnel mouth reads as a mouth, or whether the road
+  // just vanishes into untouched terrain with no portal geometry.
+  //
+  // Runner-up sites from the same scan, if this one is unclear:
+  //   Ronda Litoral   trunk   25 tiles  41.39123, 2.20001  <- the largest tunnel system in the bake
+  //   Ronda del Mig   primary 13 tiles  41.37063, 2.12860
+  //   Ronda de Dalt   trunk    8 tiles  41.40772, 2.12311
+  lat: 41.40360,
+  lon: 2.18903,
   heading: null,
 };
 

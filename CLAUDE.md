@@ -50,7 +50,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 
 ## Current Dev State (as of 2026-05-29)
 - **Region**: Barcelona (Delhi tiles preserved as fallback)
-- **Spawn**: **Ronda de Dalt (B-20)** trench portal — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.4098, lon:2.1257}` (tile 16_33154_24471). An EXPRESSWAY, chosen so `?debug=roadfit` samples motorway/trunk tiles: its new DEEP-BY-ROAD-CLASS table then says whether metre-deep burial concentrates on grade-separated classes (missing structure, OSM repair V1/M1) or is spread across residential (bad elevation data, V5). Roadfit hotspot A was checked on the ground — no tunnel, so that hypothesis is weakened there. `GRAN_VIA_SPAWN` is the previous default.
+- **Spawn**: **Túnel Glòries** — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.40360, lon:2.18903}` (tile 16_33166_24473). Picked from the BAKED DATA (scan of all 427 tiles for `tunnel=true` on motorway/trunk/primary), not by eye: named "Túnel Glòries" AND tagged tunnel across 6 tiles, so a portal is genuinely there. **Inspect in drone mode: `?mode=fly`.** Runner-ups: Ronda Litoral 41.39123/2.20001 (25 tiles, largest system) · Ronda del Mig 41.37063/2.12860 · Ronda de Dalt 41.40772/2.12311. `GRAN_VIA_SPAWN` is the old default.
 - **Mode**: default `ENABLE_CAR: false` (fly/free camera). **Override per-load via URL** — see toggles below.
 - **Fog**: ON — `ENABLE_FOG: true` (the pre-ship re-enable already happened)
 - **Tile format**: v9 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`)

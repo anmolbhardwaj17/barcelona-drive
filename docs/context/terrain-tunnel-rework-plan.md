@@ -590,3 +590,24 @@ matters more than 40 out of 4000 — with the worst instance, way id and street 
 
 Spawn moved to **Ronda de Dalt (B-20)**, a real expressway with trenches and portals, so the probe
 samples motorway/trunk tiles and the table has something to say.
+
+### Tunnel sites, from the baked data (2026-08-25)
+
+Hand-picking spots was failing, so all 427 baked tiles were scanned for roads with `tunnel=true` on
+motorway/trunk/primary. The real tunnel systems, by tile span:
+
+| class | tiles | centre | name |
+|---|---|---|---|
+| trunk | 25 | 41.39123, 2.20001 | **Ronda Litoral** — largest system in the bake |
+| trunk | 14 | 41.41184, 2.20001 | Gran Via de les Corts Catalanes |
+| primary | 13 | 41.37063, 2.12860 | Ronda del Mig |
+| trunk | 8 | 41.40772, 2.12311 | Ronda de Dalt |
+| primary | 6 | 41.40360, 2.18903 | **Túnel Glòries** — named AND tagged, least ambiguous |
+| motorway | 2 | 41.35826, 2.12860 | Autovia de Castelldefels |
+
+**Spawn set to Túnel Glòries**, to be inspected in drone mode (`?mode=fly`). The question is whether
+the tunnel mouth reads as a mouth, or whether the road vanishes into untouched terrain with no portal
+geometry — which is the `V1 tunnel-discontinuity` defect the repair layer is designed to catch.
+
+**Note this list is TAGGED tunnels only.** It says nothing about untagged ones, which is the separate
+hypothesis the roadfit deep band is testing.
