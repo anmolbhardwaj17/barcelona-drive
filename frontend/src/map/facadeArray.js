@@ -223,9 +223,17 @@ export function createFacadeArrays(THREE) {
     // what an atlas cannot do and why `fract()` is not needed.
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    // ⚠ NO MIPMAPS ON THE PLACEHOLDER ARRAY. `texStorage3D` allocates the full mip chain up front,
+    // and if the levels are never generated the texture is INCOMPLETE — and an incomplete texture
+    // samples BLACK, not blurry. That is the leading suspect for "some buildings entirely black"
+    // (2026-08-25). LinearFilter needs no mip chain, so the texture is always complete.
+    //
+    // The cost is aliasing on distant facades, which is real but visible only at range and is the
+    // right trade for scaffolding. **P3-05's KTX2 ships its mip chain in the file**, so the real art
+    // path can and should set LinearMipmapLinearFilter — re-check this line then.
+    tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = true;
+    tex.generateMipmaps = false;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.needsUpdate = true;
     return tex;
@@ -246,8 +254,23 @@ export function createFacadeArrays(THREE) {
  * emitted GLSL1 this would fail to compile — if the dependency is ever downgraded, this is the first
  * thing that breaks, and the symptom is a shader error, not a wrong picture.
  */
+let _facadeDiagLogged = false;
+const _facadeTypesSeen = new Set();
 export function patchFacadeArrayMaterial(material, arrays) {
   material.onBeforeCompile = (shader) => {
+    // One-shot diagnostic. Two wrong guesses have already been made on this task (vMapUv, then the
+    // mip chain), so the next drive should REPORT rather than need another guess: which material
+    // types are actually being patched, and what the arrays look like.
+    if (!_facadeTypesSeen.has(material.type)) {
+      _facadeTypesSeen.add(material.type);
+      console.warn('[facadeArray] patching material type: %s (aLayer path)', material.type);
+    }
+    if (!_facadeDiagLogged) {
+      _facadeDiagLogged = true;
+      const d = (t) => t && t.image ? `${t.image.width}x${t.image.height}x${t.image.depth} mips=${t.generateMipmaps} min=${t.minFilter}` : 'MISSING';
+      console.warn('[facadeArray] patched %s · body %s · ground %s',
+        material.type, d(arrays.body), d(arrays.ground));
+    }
     shader.uniforms.uFacadeBody = { value: arrays.body };
     shader.uniforms.uFacadeGround = { value: arrays.ground };
     // ⚠ CARRY OUR OWN UV VARYING — do NOT use three's `vMapUv`.
