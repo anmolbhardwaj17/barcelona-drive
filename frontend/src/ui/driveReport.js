@@ -42,9 +42,20 @@ const _long = [];
 let _lastLongAt = -1e9;       // when the most recent long frame was seen, for the "during a stutter" tag
 let _meta = {};               // whatever the call site knew at drive start (time-to-drive, mainly)
 
-/** Split a three.js program cache key into comparable features. Schema-agnostic on purpose. */
+/**
+ * Split a three.js program cache key into comparable features. Schema-agnostic on purpose.
+ *
+ * One wrinkle: the tail of the key is our own `customProgramCacheKey`, and after minification it
+ * reads `(l,u)=>{a&&a(l,u),e(l,u)}|roadAO+lightGrid` — a function body containing COMMAS. Splitting
+ * naively tore that into fragments and named a group `u)}|roadAO+lightGrid`, which is legible by
+ * luck rather than design. The bodies carry no information (they are the same minified closure for
+ * every patched material); the tag after the `|` is the whole point. So collapse the bodies first.
+ */
 function tokenise(key) {
-  return String(key || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const cleaned = String(key || '')
+    .replace(/\([^()]*\)\s*=>\s*\{[^{}]*\}/g, 'patched')     // (l,u)=>{...}  — a patched material
+    .replace(/[A-Za-z_$][\w$]*\s*\([^()]*\)\s*\{[^{}]*\}/g, 'unpatched'); // onBeforeCompile(){}
+  return cleaned.split(',').map((t) => t.trim()).filter(Boolean);
 }
 
 /**
@@ -74,7 +85,9 @@ export function noteVariant(index, cacheKey) {
     novel,
     // Only kept when there is no novel token to explain it — otherwise the diff IS the answer and
     // the full key is 300 bytes of noise. When novel is empty the key is the only lead, so keep it.
-    key: novel.length ? undefined : cacheKey,
+    // Kept only when the diff found nothing to say — then the key is the sole remaining lead. When
+    // novel tokens exist they ARE the answer and the key is 300 bytes of noise.
+    key: novel.length ? undefined : String(cacheKey || ''),
     keyLen: String(cacheKey || '').length,
     // Did this compile land in a frame we already flagged as long? 120 ms back-window: the compile
     // is reported on the frame AFTER the one that paid for it, so an exact match would miss it.
@@ -107,9 +120,16 @@ function pct(sorted, p) {
 function groupVariants() {
   const groups = new Map();
   for (const v of _variants) {
-    const sig = v.novel.length ? v.novel.join(',') : '(no novel token — see key)';
+    // ⚠ The novel-token diff degrades when the warm set is SMALL: with only a few dozen warm
+    // programs the vocabulary is thin, every late key looks familiar, and everything lands in one
+    // useless bucket. So fall back to the two fields that are always meaningful — the material TYPE
+    // (first token) and our patch tag (after the last `|`) — and carry a sample key besides.
+    const type = v.tokens[0] || '?';
+    const tag = (v.key || '').includes('|') ? (v.key || '').split('|').pop() : (v.tokens.find((t) => t.includes('|')) || '').split('|').pop();
+    const sig = v.novel.length ? v.novel.join(',') : `${type}${tag ? ' | ' + tag : ''} (no novel token)`;
     let g = groups.get(sig);
     if (!g) groups.set(sig, (g = { cause: sig, count: 0, firstAtS: v.atS, lastAtS: v.atS, inLongFrames: 0, sampleKey: v.key }));
+    if (!g.sampleKey && v.key) g.sampleKey = v.key;
     g.count++;
     g.lastAtS = v.atS;
     if (v.inLongFrame) g.inLongFrames++;
@@ -166,6 +186,7 @@ export function digest(r) {
   for (const g of r.shaders.byCause.slice(0, 12)) {
     L.push(`  ×${String(g.count).padStart(3)}  ${g.cause}${g.inLongFrames ? `   [${g.inLongFrames} in long frames]` : ''}` +
            `   ${g.firstAtS}s→${g.lastAtS}s`);
+    if (g.sampleKey) L.push(`         key: ${g.sampleKey.slice(0, 160)}${g.sampleKey.length > 160 ? '…' : ''}`);
   }
   L.push(`FRAMES   ${r.frames.longFrames} long · p50 ${r.frames.msP50}ms · p95 ${r.frames.msP95}ms · max ${r.frames.msMax}ms`);
   L.push(`  time   ${r.frames.totalMsBySection.join(' · ') || '(none)'}`);
