@@ -786,14 +786,37 @@ small value once this lands.**
   largest triangle population" is the task's claim, and no before/after GPU number was captured.
   Bank it in the performance ledger only after a bench run, per the no-double-counting rule.
 
-### `[ ]` P3-04 · 4.0d · risk medium
+### `[~]` P3-04 · 4.0d · risk medium
 **FACADE ARRAY-TEXTURE MATERIAL.** Delete `getWindowTexture` (`meshMaterializer.js:118-365`). `CompressedArrayTexture`: 8 × 1024² albedo + 8 × 1024² normal + 8 × 512² window mask. Per-vertex uint8 `aLayer`. Requires an `onBeforeCompile` chunk swap (`sampler2D` → `sampler2DArray`). **Array textures wrap per-layer natively, which our band UVs need — an atlas + `fract()` + `textureGrad` would seam.** Anisotropy from the registry (currently unset, default 1).
 
 - **Files:** `meshMaterializer.js:118-365 (delete),596-670`; `buildingWorker.js`; new `map/facadeArray.js`
 - **Depends:** modular bands; P1 pipeline
 - **Subsystem:** buildings
 - **Full spec:** master plan §4 → P3
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Progress (2026-08-25): the UV SPEC is written and tested** — `map/facadeArray.js`, **11 tests
+  (91 total)**. This is what **P3-05 is blocked on** ("Depends: array material UV spec"), so it
+  unblocks the 6 days of authoring. Spec: body layer 8.0 × 8.0 m (2 storeys of 4.0) at 1024² = 128
+  texels/m, tiling in BOTH axes; ground layer 8.0 × 4.0 m at 512², tiling in u only — its bottom edge
+  is the pavement. Deterministic variant pick from a hashed OSM id (a building straddling two tiles
+  is emitted by both; a random pick would seam it down the middle), spread verified across all five
+  residential variants.
+- ⚠ **A CONTRADICTION IN THE TASK, resolved.** It asks for 8 layers, "ground-floor module rect and
+  body module rect on the same layer", AND rejects `fract()` seams. Those cannot all hold — two rects
+  on one layer IS the atlas case it rejects, one level down, and the body band tiles v 0→N so it
+  would cross the rect boundary every storey. Resolved by **splitting into two arrays** (body 8×1024²,
+  ground 8×512²), which the task's own "per-vertex uint8 `aLayer`" already licenses: ground-band
+  vertices index the ground array, body/crown vertices index the body array. 8 variants preserved,
+  no `fract()`, no seams.
+- ⚠ **THE SPLIT COSTS VRAM: measured 80.0 MiB vs the plan's 72.0 MiB uncompressed, and the split does
+  not yet include a window mask (+~8 MiB).** So **+8 to +16 MiB**, bought to avoid per-storey seams.
+  ~4:1 under KTX2/BC7. **Must be counted against the 200 MiB budget and not double-counted with
+  P3-05's art budget.** If the overrun matters more than the seams, the lever is 4 ground layers
+  instead of 8. (An earlier draft of the module comment claimed the split was CHEAPER — it is not.)
+- **Remaining:** the `DataArrayTexture`/`CompressedArrayTexture` construction, the `onBeforeCompile`
+  chunk swap (`sampler2D` → `sampler2DArray`), the per-vertex `aLayer` attribute in
+  `buildingWorker.js`, deleting `getWindowTexture`, and flipping `windowOnlyTile` — which is what
+  finally takes **mid-air shopfronts to 0**, the P3 gate metric P3-02 handed forward.
+- **Done when:** _(mid-air shopfronts = 0, measured; texel density in the 85–150 band; VRAM banked once)_
 
 ### `[ ]` P3-05 · 6.0d · risk medium
 **Author the 8 facade layers** to the band UV spec at **128 texels/m** (`1024² over 8.0 m × 8.0 m = 2 storeys of 4.0 m`): 5 residential variants + 1 commercial + 1 office/institutional + 1 industrial-brick. Albedo (weathering baked in), normal, window mask. Ground-floor module rect and body module rect on the same layer.
