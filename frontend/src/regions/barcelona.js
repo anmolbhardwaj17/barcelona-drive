@@ -78,7 +78,14 @@ export default {
      * reaches; going wider mostly buys overlap, not visible light.
      */
     lampRadiusM: 26,
-    lampIntensity: 3.0,
+    /**
+     * Added directly to reflectedLight.directDiffuse, so it lives on the same scale as the rest of
+     * the night rig — where diffuse sits around 0.05–0.2. The spike used 3.0 purely so 32 stub
+     * lamps would be unmistakably visible while its COST was measured; that is roughly an order of
+     * magnitude past a lit night street, and with real lamp density up to 4 lamps stack in a cell.
+     * Tune live with window._lg.set({ intensity }) rather than guessing through rebuilds.
+     */
+    lampIntensity: 1.1,
     /** Half-lambert bias. Real streets are full of surfaces facing away from a lamp that are still
      *  visibly lit by bounce, and there is no GI here to supply it. 0 = true lambert, 1 = fully
      *  wrapped. Warmer, hazier cities want more. */

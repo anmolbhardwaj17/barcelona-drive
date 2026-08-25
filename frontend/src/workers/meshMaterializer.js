@@ -6,6 +6,7 @@
  * All geometry data arrives pre-merged from workers — no mergeGeometries calls.
  */
 import * as THREE from 'three';
+import { fakeNight } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B, delete with the fakes
 import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
@@ -588,7 +589,7 @@ export function setFacadeNightMode(isNight) {
     else mat.color.setHex(mat.userData._dayHex ?? 0xffffff);
   }
   for (const [cacheKey, mat] of _facadeMaterialCache.entries()) {
-    if (mat.userData._uNightWash) mat.userData._uNightWash.value = isNight ? FACADE_WASH_NIGHT : 0;
+    if (mat.userData._uNightWash) mat.userData._uNightWash.value = isNight ? fakeNight(FACADE_WASH_NIGHT) : 0;
     if (!mat.emissiveMap) continue;
     mat.emissiveIntensity = isNight
       ? (cacheKey.includes('#hero') ? HERO_EMISSIVE_INTENSITY : NIGHT_EMISSIVE_INTENSITY)
@@ -653,7 +654,7 @@ function getFacadeMaterial(hexColor, category) {
   // Warm ground-glow wash on the LOWER FLOORS at night — reads as street light reflecting up the
   // facade (per-vertex aWash factor baked by the building worker: 1 at base → 0 by ~7 m). Geometry
   // without the attribute reads 0 (WebGL default) → no wash, so shared use elsewhere is safe.
-  mat.userData._uNightWash = { value: _facadeNight ? FACADE_WASH_NIGHT : 0 };
+  mat.userData._uNightWash = { value: _facadeNight ? fakeNight(FACADE_WASH_NIGHT) : 0 };
   patchMaterial(mat, (shader) => {
     shader.uniforms.uNightWash = mat.userData._uNightWash;
     bindAoScaleUniform(shader);

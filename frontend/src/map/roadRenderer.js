@@ -4,6 +4,7 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
+import { fakeNight } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B, delete with the fakes
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -259,7 +260,7 @@ let edgeStripMaterial = null;
 // baked by tileManager from building proximity) falls to 0 and the road fades to plain dark.
 // ONE shared uniform drives every patched road material; geometry without aWash reads 0 (no wash).
 const _roadWashUniform = { value: 0 };
-export function setRoadNightWash(isNight) { _roadWashUniform.value = isNight ? 0.045 : 0; }
+export function setRoadNightWash(isNight) { _roadWashUniform.value = isNight ? fakeNight(0.045) : 0; }
 
 // Deep-albedo road decals crush to BLACK under the blue night rig (PAINT_BLUE's red channel is 0;
 // the bike-lane green is dark) — the "black patches" on night streets. Lift to moonlit variants.

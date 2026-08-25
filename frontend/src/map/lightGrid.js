@@ -95,7 +95,10 @@ export function setLights(lights, nearTo = null) {
     lights = lights.slice().sort((a, b) =>
       ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
   }
+  lightGridStats.lightsOffered = lights.length;
+  lightGridStats.truncated = lights.length > MAX_LIGHTS;
   _lights = lights.length > MAX_LIGHTS ? lights.slice(0, MAX_LIGHTS) : lights;
+  lightGridStats.lightCount = _lights.length;
   for (let i = 0; i < _lights.length; i++) {
     const L = _lights[i], o = (i + 1) * 8;   // +1: slot 0 is the "empty" sentinel
     _lightData[o] = L.x; _lightData[o + 1] = L.y; _lightData[o + 2] = L.z; _lightData[o + 3] = L.radius;
@@ -109,7 +112,13 @@ export function setLights(lights, nearTo = null) {
  * Rebuild the index grid around a world position. **Only call when the camera crosses a cell** —
  * this is O(lights × cells-in-radius) and has no business running every frame.
  */
-export const lightGridStats = { cellsOccupied: 0, cellsTotal: 0, slotsUsed: 0, meanOccupancy: 0 };
+export const lightGridStats = {
+  cellsOccupied: 0, cellsTotal: 0, slotsUsed: 0, meanOccupancy: 0,
+  lightCount: 0,      // lights actually uploaded
+  lightsOffered: 0,   // lights handed to setLights before truncation
+  truncated: false,   // offered > MAX_LIGHTS — the lit area is a range cutoff, and lamps beyond it
+                      // go dark. Visible as light appearing to switch off as the car moves.
+};
 
 export function updateLightGrid(camWorldX, camWorldZ) {
   if (!_indexTex) return;
@@ -237,23 +246,40 @@ export const LIGHT_GRID_VERT_BODY = 'vLGWorldPos = (modelMatrix * vec4(transform
  * wrong puts every lamp's pool on the wrong side of the street, symmetrically, which reads as
  * "the lighting is subtly off" rather than as an obvious bug.
  */
+const _warnedKinds = new Set();   // warn once per material kind, not once per material
+
 export function patchLightGrid(mat) {
   return patchMaterial(mat, (shader) => {
     Object.assign(shader.uniforms, lightGridUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n' + LIGHT_GRID_VERT_PARS)
       .replace('#include <project_vertex>', LIGHT_GRID_VERT_BODY + '\n#include <project_vertex>');
+    // ⚠ SILENT NO-OP GUARD. The injection point only exists in materials that go through three's
+    // lighting chain (Lambert / Standard / Phong). On an unlit material — MeshBasic, and anything
+    // that builds its own fragment shader — String.replace finds nothing, returns the source
+    // UNCHANGED, and the grid quietly does not light that surface. Nothing throws; the material
+    // just stays dark at night while everything around it lifts, which reads as an art problem.
+    const before = shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + LIGHT_GRID_PARS)
       // After <lights_fragment_end> so it ADDS to the existing rig rather than being overwritten by it.
       .replace('#include <lights_fragment_end>',
         '#include <lights_fragment_end>\n' +
         'reflectedLight.directDiffuse += lightGridContribution(vLGWorldPos, normal) * diffuseColor.rgb;');
+    if (!shader.fragmentShader.includes('lightGridContribution(vLGWorldPos')) {
+      const kind = mat.userData?._kind || mat.type;
+      if (!_warnedKinds.has(kind)) {
+        _warnedKinds.add(kind);
+        console.warn('[lightgrid] "%s" has no <lights_fragment_end> — it will NOT be lit by street ' +
+          'lamps. Unlit material type, or one with a hand-built fragment shader.', kind);
+      }
+      shader.fragmentShader = before;   // do not leave the unused pars/varying behind
+    }
   }, 'lightGrid');
 }
 
 /**
- * SPIKE ONLY — 32 lamps around a point, so the cost can be measured before committing to the build.
+ * DEV ONLY — 32 lamps around a point, so the cost can be measured before committing to the build.
  *
  * ⚠ These must be RE-PLACED as the camera moves. The grid window follows the camera; the lights do
  * not follow it by themselves. Place them once at spawn and after ~200 m of driving every cell in
@@ -317,6 +343,8 @@ export function lightGridABTick(gpuMs) {
         '  GPU p95    OFF %s ms   ON %s ms   DELTA %s ms\\n' +
         '  WORK       %s cells lit of %d, %s lights per lit cell  ->  %s\\n' +
         '  GATE K-N: delta must be <= 3.0 ms  ->  %s',
+        lightGridStats.lightCount,
+        lightGridStats.truncated ? ` (TRUNCATED from ${lightGridStats.lightsOffered} — cap ${MAX_LIGHTS})` : '',
         AB.on.length, AB.off.length,
         mOff.toFixed(2), mOn.toFixed(2), d.toFixed(2),
         p95(AB.off).toFixed(2), p95(AB.on).toFixed(2), (p95(AB.on) - p95(AB.off)).toFixed(2),

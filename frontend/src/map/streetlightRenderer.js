@@ -6,6 +6,7 @@
  * coords (used by the dynamic PointLight pool in main.js).
  */
 import * as THREE from 'three';
+import { fakesDisabled } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B
 import { getLightPoolGeometry, makeLightPoolMaterial, POOL_SIZE } from './lightPoolDecal.js';   // v3 P1-24
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -509,6 +510,10 @@ export function buildStreetlights(roads, junctionPoints, options) {
 
   // Pool decals: flat quad, no shadow, additive-style transparency
   const poolMesh = new THREE.InstancedMesh(poolGeom, poolMat, instances.length);
+  // v3 P2-05: the additive ground pool is the fake that overlaps the REAL lamp light most directly
+  // — a 16 m glow disc under every lamp at 22 m spacing, i.e. >100% road coverage. `?nofakes` hides
+  // it so the light grid can be judged alone. Deleted outright in P2-05.
+  if (fakesDisabled()) poolMesh.visible = false;
   poolMesh.userData.sharedGeometry = true;
   poolMesh.userData.sharedMaterial = true;
   poolMesh.castShadow   = false;

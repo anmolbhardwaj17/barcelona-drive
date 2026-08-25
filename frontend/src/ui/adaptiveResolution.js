@@ -29,6 +29,11 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
   const PHOTO_SCALE = Math.min(window.devicePixelRatio || 1, 2); // full crispness for photos (retina if available)
   let scale = CAP;
   let acc = 0, n = 0;
+  let gacc = 0, gn = 0;   // GPU ms accumulator over the same window
+  // Share of the frame the GPU must own before resolution is treated as the right lever. 0.55 is
+  // deliberately generous: we would rather occasionally fail to drop than blur the game chasing a
+  // CPU stall. A genuinely GPU-bound frame sits far above this.
+  const GPU_BOUND_SHARE = 0.55;
   let cool = 0;   // frames left in the post-change cooldown
   let photo = false;
   let preScale = CAP;   // scale to restore when photo mode ends
@@ -74,18 +79,36 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
       else { scale = preScale; }
       apply();
     },
-    /** Call once per frame with the frame delta (seconds). */
-    tick(frameDtSeconds) {
+    /**
+     * Call once per frame with the frame delta (seconds) and, if available, the measured GPU ms.
+     *
+     * ⚠ RESOLUTION IS A GPU LEVER. Dropping it shrinks the number of fragments shaded and does
+     * NOTHING for a frame that is slow on the CPU — streaming, tile builds, physics, GC. Without
+     * the gate below, a CPU-bound frame looks identical to a GPU-bound one from `frameDt` alone,
+     * so the controller kept cutting resolution against a bottleneck it cannot move: the picture
+     * got blurrier, the frame did not get faster, and each attempt cost ~47 ms of composer
+     * reallocation which itself caused more slow frames. Measured in the wild: frames at 87 ms
+     * with GPU at 7.7 ms, resolution collapsed to 0.56.
+     *
+     * So we only drop when the GPU is plausibly the constraint. With no GPU timer (unsupported),
+     * we fall back to the old behaviour rather than never adapting at all.
+     */
+    tick(frameDtSeconds, gpuMs = null) {
       if (photo) return;   // resolution pinned high for photos — don't auto-adjust
       acc += (frameDtSeconds || 0) * 1000;
+      if (gpuMs != null && gpuMs > 0) { gacc += gpuMs; gn += 1; }
       n += 1;
       if (cool > 0) cool -= 1;
       if (n < WINDOW) return;
       const avg = acc / n;
-      acc = 0; n = 0;
+      const gAvg = gn ? gacc / gn : null;
+      acc = 0; n = 0; gacc = 0; gn = 0;
       if (cool > 0) return;   // holding after a change — don't reallocate again yet (anti-flicker)
+      // GPU-bound test. If the GPU is using less than this share of the frame, the time is being
+      // spent somewhere resolution cannot reach, and cutting it only costs a 47 ms reallocation.
+      const gpuBound = gAvg == null || gAvg > avg * GPU_BOUND_SHARE;
       let next = scale;
-      if (avg > SLOW_MS && scale > FLOOR) next = Math.max(FLOOR, +(scale - STEP_DOWN).toFixed(3));
+      if (avg > SLOW_MS && scale > FLOOR && gpuBound) next = Math.max(FLOOR, +(scale - STEP_DOWN).toFixed(3));
       else if (avg < FAST_MS && scale < CAP) next = Math.min(CAP, +(scale + STEP_UP).toFixed(3));
       if (next !== scale) { scale = next; apply(); cool = COOLDOWN; }
     },

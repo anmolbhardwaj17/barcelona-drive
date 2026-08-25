@@ -6,6 +6,7 @@
  * Building perimeter trees for coverage near structures.
  */
 import * as THREE from 'three';
+import { fakeNight } from '../nightFakes.js';   // v3 P2-05: ?nofakes A/B, delete with the fakes
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -247,7 +248,7 @@ const _vegWashUniform = { value: 0 };
 // already user-approved BEFORE that change, so undo the deepening on the shared material after dark.
 const TREE_NIGHT_RESTORE = 1.55;
 export function setVegNightWash(isNight) {
-  _vegWashUniform.value = isNight ? 0.04 : 0;
+  _vegWashUniform.value = isNight ? fakeNight(0.04) : 0;
   if (proceduralMaterial) proceduralMaterial.color.setScalar(isNight ? TREE_NIGHT_RESTORE : 1);
 }
 function patchVegWash(shader) {

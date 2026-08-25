@@ -83,7 +83,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
-import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
+import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -866,6 +866,25 @@ const _lgColor = new THREE.Color(REGION.night?.lampColor ?? 0xFFB25E);
 let _lgLampCount = 0;
 let _lgTileEpoch = -1;
 
+// Live tuning. Night lighting is a look decision, and a look decision made through edit-rebuild-
+// reload cycles gets made badly — the previous value is gone by the time the new one renders.
+// window._lg.set({ intensity: 0.8 }) applies on the next rebuild, which is one cell crossing away.
+const _lgTune = { intensity: null, radius: null };
+if (typeof window !== 'undefined') {
+  window._lg = {
+    set(o = {}) {
+      if (o.intensity != null) _lgTune.intensity = o.intensity;
+      if (o.radius != null) _lgTune.radius = o.radius;
+      if (o.wrap != null) lightGridUniforms.uLGWrap.value = o.wrap;
+      rebuildLightGrid();
+      console.warn('[lightgrid] intensity %s · radius %s · wrap %s · %d lamps',
+        _lgTune.intensity ?? REGION.night?.lampIntensity, _lgTune.radius ?? REGION.night?.lampRadiusM,
+        lightGridUniforms.uLGWrap.value.toFixed(2), _lgLampCount);
+    },
+    stats: () => ({ ...lightGridStats, lamps: _lgLampCount }),
+  };
+}
+
 function rebuildLightGrid() {
   const positions = tileManager.getStreetlightPositions();
   _lgCamLocal.copy(camera.position);
@@ -873,8 +892,8 @@ function rebuildLightGrid() {
 
   const half = (GRID_DIM * CELL_M) / 2;      // 256 m — anything outside the window cannot contribute
   const half2 = half * half;
-  const radius = REGION.night?.lampRadiusM ?? 26;
-  const intensity = REGION.night?.lampIntensity ?? 3.0;
+  const radius = _lgTune.radius ?? REGION.night?.lampRadiusM ?? 26;
+  const intensity = _lgTune.intensity ?? REGION.night?.lampIntensity ?? 1.1;
 
   const lights = [];
   for (let i = 0; i < positions.length; i++) {
@@ -1253,7 +1272,7 @@ function animate(time = 0) {
   // (bloom chain included). That is a multi-megabyte GPU allocation in the middle of a frame, and
   // it is the prime suspect for the 46 ms `post`. Lapped separately so the next drive names it
   // instead of us guessing.
-  if (!_BENCH) adaptiveRes.tick(frameDt);   // v3 P0-04: pinned during a benchmark run
+  if (!_BENCH) adaptiveRes.tick(frameDt, gpuTimer.getMs());   // v3 P0-04: pinned during a benchmark run
   cpuTimer.lap('adaptRes');
 
   // v3 P0-04: benchmark route — starts once the world is playable, drives itself, saves the JSON.
