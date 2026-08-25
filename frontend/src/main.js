@@ -182,12 +182,28 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   // this reads GPU-bound the cost is GEOMETRY — draw calls, vertices, shadow passes — not fill rate.
   // The shadow map is a fixed 1024² and re-renders every caster, which is exactly the kind of GPU
   // cost that is completely indifferent to pixel ratio.
+  // ⚠ GPU IS RULED OUT — measured 2026-08-26 on a dense-Eixample drive: gpu 7.3-7.8 ms while the
+  // frame took 50-76 ms, i.e. **12% of the frame on average**. Halving the pixels had already failed
+  // (D-33); this is the direct confirmation. No scene optimisation — geometry, shadows, draw calls,
+  // materials — can touch a bottleneck the GPU is not in.
+  //
+  // What the same drive DOES show: the JS heap sawtooths **405 ↔ 429 MB, repeatedly**, and LoAF
+  // reports the long frames as "NO scripts ≥4ms (GC/clone/style)". A 24 MB swing recovered over and
+  // over is allocation churn, and the pauses are the collector.
+  //
+  // So the question is no longer WHERE the time goes, it is WHO ALLOCATES. cpuTimer already measures
+  // heap growth per section; it just was never printed. `heapSnapshot()` is still valid here because
+  // finalizeFrame() invokes this callback BEFORE clearing the frame's counters.
+  const heapBySection = cpuTimer.heapSnapshot?.() || {};
+  const alloc = Object.entries(heapBySection).filter(([, mb]) => mb >= 0.05)
+    .sort((a, b) => b[1] - a[1]).map(([k, mb]) => `${k} ${mb.toFixed(2)}MB`).join(' · ');
   const _g = gpuTimer.getMs();
   const gpuTag = _g != null ? `  gpu ${_g.toFixed(1)}ms (${Math.round(_g / wall * 100)}% of frame)` : '  gpu n/a';
   const heapMB = (typeof performance !== 'undefined' && performance.memory)
     ? `  heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)}MB` : '';
-  console.warn('[frame] %sms — %s%s%s%s', wall.toFixed(0), str,
-    async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB);
+  console.warn('[frame] %sms — %s%s%s%s%s', wall.toFixed(0), str,
+    async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB,
+    alloc ? `\n         ↳ allocated: ${alloc}` : '  (no section allocated ≥0.05MB — the churn is elsewhere)');
 }, 50);
 // Hold the budget until the car is drivable — see cpuTimer.holdLongFrames(). Without this the load
 // burns all 40 report slots on frames main.js then discards, and no [frame] line ever prints.
