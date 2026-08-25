@@ -197,12 +197,26 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   const heapBySection = cpuTimer.heapSnapshot?.() || {};
   const alloc = Object.entries(heapBySection).filter(([, mb]) => mb >= 0.05)
     .sort((a, b) => b[1] - a[1]).map(([k, mb]) => `${k} ${mb.toFixed(2)}MB`).join(' · ');
+  // ⚠ `rend` ALLOCATING 7-13 MB PER FRAME is the finding — measured 2026-08-26. `rend` wraps
+  // renderer.render(); rendering itself should allocate almost nothing steady-state. Two candidates,
+  // and three.js already counts both, so this needs no new instrumentation:
+  //
+  //   SHADER RECOMPILES → `programs` CLIMBS while driving. Each compile builds large source strings,
+  //     which explains both the megabytes and the 429 ms `rend 421.6` frame. Note the program count
+  //     is NOT stable run to run (153 here vs 211/212/216 earlier), which is what this looks like.
+  //   OBJECT CHURN → `programs` is flat but `calls` is huge, i.e. per-draw-call garbage.
+  //
+  // `geometries`/`textures` are printed alongside because a climb there is a LEAK, and a leak would
+  // explain the heap drifting upward across a session.
+  const _ri = renderer.info;
+  const info = `  progs ${_ri.programs?.length ?? -1} · calls ${_ri.render.calls} · tris ${(_ri.render.triangles / 1000).toFixed(0)}k` +
+    ` · geom ${_ri.memory.geometries} · tex ${_ri.memory.textures}`;
   const _g = gpuTimer.getMs();
   const gpuTag = _g != null ? `  gpu ${_g.toFixed(1)}ms (${Math.round(_g / wall * 100)}% of frame)` : '  gpu n/a';
   const heapMB = (typeof performance !== 'undefined' && performance.memory)
     ? `  heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)}MB` : '';
   console.warn('[frame] %sms — %s%s%s%s%s', wall.toFixed(0), str,
-    async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB,
+    async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB + info,
     alloc ? `\n         ↳ allocated: ${alloc}` : '  (no section allocated ≥0.05MB — the churn is elsewhere)');
 }, 50);
 // Hold the budget until the car is drivable — see cpuTimer.holdLongFrames(). Without this the load
