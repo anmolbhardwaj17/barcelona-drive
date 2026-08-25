@@ -33,18 +33,30 @@ import { REGION } from '../regions/index.js';
 
 export const GRID_DIM = 64;        // texels per axis
 export const CELL_M = 8;           // world metres per cell → 512 m window
-export const MAX_LIGHTS = 255;     // index 0 = "empty", so 1..255 are real lights
+// v3 P2: 1023, not 255.
+//
+// The index texture is RGBA8 — one BYTE per slot — so light ids were capped at 255. A dense
+// Eixample night puts ~370+ lamps inside the 512 m window, so the nearest-255 cull left everything
+// past roughly 120-150 m unlit, and the lit zone travelled with the camera. That is the "lamps only
+// light up when I get there" report: not a falloff problem, an ADDRESS SPACE problem.
+//
+// The index is now 16-bit, split across two RGBA8 textures (low byte + high byte) rather than an
+// integer sampler, which keeps the shader on plain texture2D and works without a GLSL3 opt-in. That
+// affords 65535 ids; the practical cap is CPU rebuild cost, which is O(lights x cells-per-lamp), so
+// it is set at 1023 — comfortably more than a 512 m window holds.
+export const MAX_LIGHTS = 1023;    // index 0 = "empty", so 1..1023 are real lights
 const SLOTS = 4;                   // lights per cell (RGBA) — the per-fragment cost bound
 
-let _indexTex = null, _dataTex = null;
-let _indexData = null, _lightData = null;
+let _indexTex = null, _indexHiTex = null, _dataTex = null;
+let _indexData = null, _indexHiData = null, _lightData = null;
 let _lights = [];                  // {x,y,z,r, cr,cg,cb, i}
 let _originX = 0, _originZ = 0;    // world XZ of grid texel (0,0)
 let _enabled = false;
 
 /** Shared uniforms — every patched material binds THESE OBJECTS, so one write updates all of them. */
 export const lightGridUniforms = {
-  uLGIndex:   { value: null },
+  uLGIndex:   { value: null },   // low byte of each slot's light id
+  uLGIndexHi: { value: null },   // high byte — together they address 65535 lights
   uLGData:    { value: null },
   uLGOrigin:  { value: new THREE.Vector2() },
   uLGEnabled: { value: 0 },
@@ -67,6 +79,11 @@ export function initLightGrid() {
   _indexTex.magFilter = _indexTex.minFilter = THREE.NearestFilter;   // indices must NOT interpolate
   _indexTex.needsUpdate = true;
 
+  _indexHiData = new Uint8Array(GRID_DIM * GRID_DIM * 4);
+  _indexHiTex = new THREE.DataTexture(_indexHiData, GRID_DIM, GRID_DIM, THREE.RGBAFormat);
+  _indexHiTex.magFilter = _indexHiTex.minFilter = THREE.NearestFilter;
+  _indexHiTex.needsUpdate = true;
+
   _slotDist = new Float32Array(GRID_DIM * GRID_DIM * SLOTS);
   _lightData = new Float32Array((MAX_LIGHTS + 1) * 2 * 4);
   _dataTex = new THREE.DataTexture(_lightData, 2, MAX_LIGHTS + 1, THREE.RGBAFormat, THREE.FloatType);
@@ -74,6 +91,7 @@ export function initLightGrid() {
   _dataTex.needsUpdate = true;
 
   lightGridUniforms.uLGIndex.value = _indexTex;
+  lightGridUniforms.uLGIndexHi.value = _indexHiTex;
   lightGridUniforms.uLGData.value = _dataTex;
   _enabled = true;
   lightGridUniforms.uLGEnabled.value = 1;
@@ -129,6 +147,7 @@ export function updateLightGrid(camWorldX, camWorldZ) {
   _originZ = Math.floor(camWorldZ / CELL_M) * CELL_M - (GRID_DIM / 2) * CELL_M;
   lightGridUniforms.uLGOrigin.value.set(_originX, _originZ);
   _indexData.fill(0);
+  _indexHiData.fill(0);
 
   _slotDist.fill(0);
 
@@ -158,12 +177,16 @@ export function updateLightGrid(camWorldX, camWorldZ) {
         // 4-slot cap is what bounds per-fragment cost — but now the DROPPED ones are the farthest.
         let placed = false, worstS = -1, worstD = -1;
         for (let sl = 0; sl < SLOTS; sl++) {
-          if (_indexData[t + sl] === 0) {
-            _indexData[t + sl] = i + 1; _slotDist[t + sl] = d2; placed = true; break;
+          if (_indexData[t + sl] === 0 && _indexHiData[t + sl] === 0) {
+            _indexData[t + sl] = (i + 1) & 255; _indexHiData[t + sl] = (i + 1) >> 8;
+            _slotDist[t + sl] = d2; placed = true; break;
           }
           if (_slotDist[t + sl] > worstD) { worstD = _slotDist[t + sl]; worstS = sl; }
         }
-        if (!placed && d2 < worstD) { _indexData[t + worstS] = i + 1; _slotDist[t + worstS] = d2; }
+        if (!placed && d2 < worstD) {
+          _indexData[t + worstS] = (i + 1) & 255; _indexHiData[t + worstS] = (i + 1) >> 8;
+          _slotDist[t + worstS] = d2;
+        }
       }
     }
   }
@@ -182,6 +205,7 @@ export function updateLightGrid(camWorldX, camWorldZ) {
   lightGridStats.meanOccupancy = occ ? slots / occ : 0;
 
   _indexTex.needsUpdate = true;
+  _indexHiTex.needsUpdate = true;
 }
 
 /**
@@ -196,12 +220,15 @@ export function getCellSlots(worldX, worldZ) {
   const cz = Math.floor((worldZ - _originZ) / CELL_M);
   if (cx < 0 || cz < 0 || cx >= GRID_DIM || cz >= GRID_DIM) return [0, 0, 0, 0];
   const t = (cz * GRID_DIM + cx) * SLOTS;
-  return [_indexData[t], _indexData[t + 1], _indexData[t + 2], _indexData[t + 3]];
+  // Must recombine BOTH planes. Reading only the low byte silently reports id 300 as 44, which
+  // makes a working grid look broken and a broken one look fine.
+  return [0, 1, 2, 3].map((k) => _indexData[t + k] + (_indexHiData[t + k] << 8));
 }
 
 /** GLSL injected into a material's fragment shader. Adds accumulated punctual light to the diffuse. */
 export const LIGHT_GRID_PARS = /* glsl */`
 uniform sampler2D uLGIndex;
+uniform sampler2D uLGIndexHi;
 uniform sampler2D uLGData;
 uniform vec2 uLGOrigin;
 uniform float uLGEnabled;
@@ -214,10 +241,17 @@ vec3 lightGridContribution(vec3 wpos, vec3 normal) {
   if (uLGEnabled < 0.5) return vec3(0.0);
   vec2 cell = (wpos.xz - uLGOrigin) / ${CELL_M}.0;
   if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= ${GRID_DIM}.0 || cell.y >= ${GRID_DIM}.0) return vec3(0.0);
-  vec4 idx = texture2D(uLGIndex, (floor(cell) + 0.5) / ${GRID_DIM}.0) * 255.0;
+  vec2 uv = (floor(cell) + 0.5) / ${GRID_DIM}.0;
+  // 16-bit light id split across two RGBA8 planes. One byte per slot capped ids at 255, which is
+  // fewer lamps than a dense 512 m window holds — so the far half of the street had no lights to
+  // reference and stayed dark until the camera brought it inside the nearest-255 set.
+  vec4 idxLo = texture2D(uLGIndex, uv) * 255.0;
+  vec4 idxHi = texture2D(uLGIndexHi, uv) * 255.0;
   vec3 acc = vec3(0.0);
   for (int s = 0; s < 4; s++) {
-    float id = s == 0 ? idx.r : s == 1 ? idx.g : s == 2 ? idx.b : idx.a;
+    float lo = s == 0 ? idxLo.r : s == 1 ? idxLo.g : s == 2 ? idxLo.b : idxLo.a;
+    float hi = s == 0 ? idxHi.r : s == 1 ? idxHi.g : s == 2 ? idxHi.b : idxHi.a;
+    float id = lo + hi * 256.0;
     if (id < 0.5) continue;
     float v = (id + 0.5) / ${MAX_LIGHTS + 1}.0;
     vec4 P = texture2D(uLGData, vec2(0.25, v));   // xyz = position, w = radius

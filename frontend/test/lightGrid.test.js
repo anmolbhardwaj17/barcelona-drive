@@ -113,3 +113,33 @@ test('assertLightingVisible flags a configuration that leaves the road dark', ()
   } finally { console.warn = real; }
   assert.equal(warned.length, 1, 'a road that cannot be seen must say so, not fail silently');
 });
+
+test('more than 255 lamps can be addressed — the old 8-bit index cap', () => {
+  // The cap was not a falloff or budget limit, it was an ADDRESS SPACE limit: RGBA8 gave one byte
+  // per slot. A dense 512 m window holds ~370+ lamps, so the far half of the street had no lights
+  // to reference and stayed dark until the camera brought it into the nearest-255 set — which read
+  // as lamps switching on as you arrived.
+  initLightGrid();
+  const many = [];
+  for (let i = 0; i < 400; i++) many.push(lamp(-200 + i, 0, 48));
+  setLights(many, { x: 0, z: 0 });
+  updateLightGrid(0, 0);
+  // A cell 190 m out is lit only by lamps well past index 255 in this list.
+  const far = getCellSlots(190, 0);
+  assert.ok(far.some((v) => v > 255),
+    `expected a light id above 255 at 190 m, got [${far}] — the index is still 8-bit`);
+});
+
+test('the grid rebuild stays cheap enough to run on a cell crossing', () => {
+  // O(lamps x cells-per-lamp), and it runs roughly twice a second at speed. If this grows past a
+  // few ms it becomes a hitch, and hitches are what the whole `[frame]` attributor exists to hunt.
+  initLightGrid();
+  const many = [];
+  for (let i = 0; i < 600; i++) many.push(lamp((i % 30) * 17 - 250, Math.floor(i / 30) * 17 - 170, 48));
+  setLights(many, { x: 0, z: 0 });
+  const t0 = performance.now();
+  for (let i = 0; i < 10; i++) updateLightGrid(i * 8, 0);
+  const per = (performance.now() - t0) / 10;
+  assert.ok(per < 8, `rebuild took ${per.toFixed(1)}ms for 600 lamps — too slow for a cell crossing`);
+  console.log(`    (rebuild: ${per.toFixed(2)}ms for 600 lamps, ${lightGridStats.cellsOccupied} cells lit)`);
+});
