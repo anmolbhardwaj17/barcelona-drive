@@ -158,6 +158,11 @@ const cpuTimer = createCpuTimer();
 // loop, which names nothing. This prints the section breakdown for the same frame, so a stall can be
 // pinned on a subsystem instead of guessed at. 50 ms = three missed vsyncs, i.e. visible.
 cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
+  // Ignore everything before the car is driveable. Loading is EXPECTED to produce long frames —
+  // that is the whole tile build running flat out — and there are enough of them to consume the
+  // report budget before the drive starts, leaving nothing for the hitches this exists to catch.
+  // Load-time cost is not unmeasured: the time-to-drive gate owns it, and it is a different problem.
+  if (_timeToDriveMs == null) return;
   // Async build chunks run between frames, so no section can see them and they land in `other`.
   // Naming them here is the difference between "other 96ms" (GC? build? unknowable) and an owner.
   const async_ = formatChunks(chunksIn(t0, t1));
