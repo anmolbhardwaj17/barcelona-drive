@@ -531,3 +531,12 @@ pixels, so this is likely sub-centimetre).
    what the baker already claims it does.
 
 **Do not "fix" this with depth bias.** Same trap as P2-08 — see that task's warning.
+
+**Instrument (2026-08-25):** `?debug=roadfit` (`frontend/src/ui/roadFitProbe.js`) walks every resident
+SURFACE road (bridges/tunnels excluded — they are meant to be off the ground), compares
+`roadDeckY + BAKED_SURFACE_ABOVE_ROAD_Y` against `getTerrainHeightAt` at the same point, and reports
+the buried fraction, p50/p95/worst burial depth, the worst points with coordinates and way ids, and
+**mean terrain slope of the buried set vs the clean set** — which is the discriminator between the
+candidate causes. If burial tracks slope, suspicion falls on the smoothing pass and the road-drape
+ordering; if it does not, the cause is upstream of terrain steepness (simplified/junction-snapped
+polylines being the next suspect). Measurement only.

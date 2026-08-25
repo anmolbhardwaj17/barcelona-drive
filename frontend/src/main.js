@@ -83,6 +83,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
+import { probeRoadFit } from './ui/roadFitProbe.js';   // ?debug=roadfit — measurement only
 import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, assertLightingVisible, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
@@ -228,6 +229,12 @@ const _BENCH = isBenchMode();
 const _LGPARAM = (() => { try { return new URLSearchParams(location.search); } catch { return null; } })();
 const _LIGHTGRID = !_LGPARAM?.has('nolightgrid');
 const _LIGHTGRID_AB = _LGPARAM?.get('lightgrid') === 'ab';
+
+// ?debug=roadfit — measures drawn road vs drawn terrain and prints a distribution. Measurement only:
+// renders nothing, changes nothing, costs nothing when the flag is absent. Also exposed as
+// window._ddRoadFit() so it can be re-run after driving somewhere interesting without a reload.
+const _ROADFIT = _LGPARAM?.get('debug') === 'roadfit';
+let _roadFitDone = false;
 let _lgArmed = false, _lgCellX = NaN, _lgCellZ = NaN;
 let _benchRoute = null;
 let _programsAtLoaderHide = null;
@@ -1235,6 +1242,20 @@ function animate(time = 0) {
 
   if (CONFIG.DEBUG_COLLIDERS) {
     updateDebugColliders(scene, world);
+  }
+
+  // ?debug=roadfit — fire ONCE, 6 s after the car is driveable, so a useful set of tiles is resident.
+  // Re-runnable by hand from the console via window._ddRoadFit() after driving somewhere else.
+  if (_ROADFIT && !_roadFitDone && _timeToDriveMs != null && time - _timeToDriveMs > 6000 && tileManager) {
+    _roadFitDone = true;
+    const runProbe = () => probeRoadFit(tileManager, {
+      offset: getWorldElevationOffset() ?? 0,
+      vertExag: (CONFIG.ELEVATION_VERTICAL_EXAGGERATION != null ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION : 1),
+      bakedIsRaw: !!CONFIG.BAKED_ROAD_ELEVATION_IS_RAW,
+    });
+    window._ddRoadFit = runProbe;              // call it again after driving elsewhere
+                                               // (results land on window._ddRoadFitResult)
+    try { runProbe(); } catch (e) { console.warn('[roadfit] probe failed:', e); }
   }
 
   // Phase 0 tunnel diagnostic overlay (?debug=tunnel) — flag-gated, no cost when off.

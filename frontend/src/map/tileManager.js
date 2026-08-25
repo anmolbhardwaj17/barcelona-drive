@@ -3460,5 +3460,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     normalizedGroundFloor,
     getCurrentTileTerrainRange,
     getStreetlightPositions,
+    /** DEBUG ONLY — resident tile entries, for measurement probes (?debug=roadfit). Never used by the game. */
+    __debugTileEntries: () => [...tileCache.values()],
   };
 }

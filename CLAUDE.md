@@ -60,6 +60,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 ### URL toggles (read once at page load; change URL + reload to switch)
 - **Mode**: `?mode=car` (drive) / `?mode=fly` (free camera). Shorthand: `?car` / `?fly`. No param → `CONFIG.ENABLE_CAR`. Wired in `main.js` (resolves `ENABLE_CAR` from URL).
 - **Street lighting**: ON by default (v3 P2-04, shipped 2026-08-25). `?nolightgrid` kills it — but P2-06 deleted the fake-night stack in exchange, so with it off the city has NO street lighting; "off" is the broken state, not the safe one. `?lightgrid=ab` runs the 40 s A/B harness, which flips the grid every 2.5 s and visibly strobes the whole scene (do not leave it on).
+- **Road-vs-terrain fit probe**: `?debug=roadfit` — measures drawn road against drawn terrain, prints a burial distribution + slope correlation + worst points with coordinates. Measurement only (renders nothing). Fires 6 s after drive start; re-run from the console with `window._ddRoadFit()`, results on `window._ddRoadFitResult`.
 - **Tunnel debug overlay**: `?debug=tunnel` — physics-collider wireframes, tile-seam markers, per-body Y labels (`tunnelDebugOverlay.js`). Off by default, zero cost when absent.
 - Combine freely, e.g. `http://localhost:4040/?mode=car&debug=tunnel`.
 - **Re-bake cache note**: after any re-bake, run `window._clearTileCache()` in the console + hard-reload, or the browser serves stale (pre-rebake) tiles.
