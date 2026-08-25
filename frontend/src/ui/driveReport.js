@@ -68,6 +68,17 @@ export function armReport(programs, meta = {}) {
   _armedAt = performance.now();
   _meta = meta;
   _warmCount = programs?.length ?? 0;
+  // ⚠ ARMING IS THE START OF MEASUREMENT, so it must also be the start of the DATA. Without this
+  // the watcher's load-time records survived into the report and were counted as compiles that
+  // happened while driving: a drive reported "+124 compiled while driving" when 92 of those were
+  // the warm-up's own programs, recorded before arming, and only 32 were real. Every shader number
+  // quoted from this instrument before this line existed was inflated by the size of the warm set.
+  //
+  // Same failure as D-35 and as the F9 crash: the collecting path worked perfectly and the thing it
+  // reported was not the thing it claimed. An instrument's own semantics need a test.
+  _variants.length = 0;
+  _long.length = 0;
+  _lastLongAt = -1e9;
   _warmTokens.clear();
   _warmKeys.length = 0;
   if (programs) {

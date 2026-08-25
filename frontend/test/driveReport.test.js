@@ -68,3 +68,17 @@ test('the digest survives having nothing to report', () => {
   const d = digest(buildReport());
   assert.match(d, /FRAMES\s+1 long/);
 });
+
+test('arming discards anything recorded before it — the count means "while driving"', () => {
+  // The bug this holds shut: the watcher runs from the first frame, so without a reset the warm-up's
+  // own programs were reported as compiles that happened while driving. A drive said "+124" when the
+  // honest number was 32.
+  noteVariant(100, 'basic,highp,srgb,recorded-before-arming');
+  noteLongFrame({ wall: 999, sections: { rend: 999 } });
+
+  armReport([{ cacheKey: PLAIN }], { timeToDriveMs: 1000 });
+
+  const r = buildReport();
+  assert.equal(r.shaders.compiledWhileDriving, 0, 'pre-arm variants must not survive arming');
+  assert.equal(r.frames.longFrames, 0, 'pre-arm long frames must not survive arming either');
+});
