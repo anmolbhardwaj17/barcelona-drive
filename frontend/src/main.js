@@ -169,7 +169,25 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   // Naming them here is the difference between "other 96ms" (GC? build? unknowable) and an owner.
   const async_ = formatChunks(chunksIn(t0, t1));
   recordLongFrame(wall, _b, async_);   // kept for the bench JSON — see frameAttribution.js
-  console.warn('[frame] %sms — %s%s', wall.toFixed(0), str, async_ ? `  ⟨async: ${async_}⟩` : '');
+  // ⚠ `other` IS NOT AN ANSWER — it is wall time minus every section, so it names nothing on its own.
+  // A 2026-08-26 dense-Eixample drive read `other` at **94% of a 50-80 ms frame** with every named
+  // section at ~0, no async chunks, and a rAF callback of only 5-15 ms. That is consistent with two
+  // completely different causes, and the fix differs entirely between them:
+  //
+  //   GPU-bound  → gpu ms is near the frame time. The CPU is idle WAITING on the GPU.
+  //   not GPU    → gpu ms is small. Then it is GC, compositing, or browser scheduling, and no amount
+  //                of scene optimisation will touch it.
+  //
+  // Resolution was already falsified as the lever (D-33: 49% fewer pixels changed nothing), so if
+  // this reads GPU-bound the cost is GEOMETRY — draw calls, vertices, shadow passes — not fill rate.
+  // The shadow map is a fixed 1024² and re-renders every caster, which is exactly the kind of GPU
+  // cost that is completely indifferent to pixel ratio.
+  const _g = gpuTimer.getMs();
+  const gpuTag = _g != null ? `  gpu ${_g.toFixed(1)}ms (${Math.round(_g / wall * 100)}% of frame)` : '  gpu n/a';
+  const heapMB = (typeof performance !== 'undefined' && performance.memory)
+    ? `  heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)}MB` : '';
+  console.warn('[frame] %sms — %s%s%s%s', wall.toFixed(0), str,
+    async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB);
 }, 50);
 // Perf logger — "● REC PERF" button (bottom-left) records per-frame samples → downloads a JSON to analyze.
 const perfLogger = createPerfLogger();
