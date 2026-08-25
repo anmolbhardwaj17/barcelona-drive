@@ -12,9 +12,9 @@
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
 | **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P1-05** (`scripts/build-art.mjs` — normalize → encode → manifest → contact sheet) · branch `v3-p1-pipeline` |
-| **Tasks done** | **44 / 81** — P0 ✅ complete · **P1 at 22/27** (1 deferred). Remaining: 03 materialRegistry, 05 build-art, 08 quality tier, 09 rallyStyle ADR |
-| **Baseline captured?** | ❌ NO — `docs/context/v3-baseline.json` does not exist yet. **Until it does, every performance number in the plan is an estimate.** |
+| **Next task** | **P1-03 materialRegistry** · branch `v3-p1-pipeline`. ⚠ Deliberately NOT started at a limit boundary: 3 d across ~20 modules, and it MUST chain `onBeforeCompile` rather than assign (three's `CSM.js:443` assigns, which would silently delete the road night wash AND the baked v9 AO from every road). Start it with time to drive-test. |
+| **Tasks done** | **46 / 81** — P0 ✅ · **P1 at 25/27** (1 deferred). Remaining: **P1-03 materialRegistry** (3 d, ~20 modules) and **P1-08 quality tier** (2 d) |
+| **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | nothing |
 
 ### If you are a fresh session, do exactly this
@@ -310,14 +310,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** ✅ Warm set now covers Mesh + InstancedMesh + **BatchedMesh** (three keys programs per USE_BATCHING/USE_INSTANCING define, so only the vanilla variant was warmed), supplies the declared `aAO` attribute, and extends past buildings to vegetation. ⚠ UNVERIFIED — gate is programsΔ=0; baseline measured 8.
 
-### `[ ]` P1-05 · 3.0d · risk medium
+### `[x]` P1-05 · 3.0d · risk medium
 **`scripts/build-art.mjs` — the 8-step normalize + encode + manifest + contact sheet.** Committed artefact, **never run on Pages**. Hard per-class and total byte ceilings that **exit non-zero**. Emits half-res variant paths.
 
 - **Files:** new `scripts/build-art.mjs`, `scripts/normalize-art.mjs`; fold in `scripts/optimize-textures.js`
 - **Depends:** asset registry
 - **Subsystem:** pipeline
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ `scripts/build-art.mjs` — normalize (de-light + palette tone-match + grade headroom) → encode → manifest, with per-class byte ceilings that fail under `--encode`. **De-light VERIFIED on a synthetic photoscan: gradient spread 142 → 3, texture preserved.** ⚠ no `toktx` on this machine; `--encode` exits with install instructions.
 
 ### `[x]` P1-06 · 1.0d · risk low
 **Canvas-retirement register + CI lint.** Enumerate all 48 `new THREE.CanvasTexture` sites with owner domain, target KTX2 asset and target phase; lint exits non-zero on any new site outside a **monotonically shrinking** allowlist. Without it the ~34 unowned sites survive by default, because every domain assumes foundation owns them and foundation budgeted 0 days.
@@ -346,14 +346,14 @@ Cache + deploy hygiene: `public/_headers` with `Cache-Control: immutable` on `/b
 - **Full spec:** master plan §4 → P1
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P1-09 · 1.0d · risk high
+### `[x]` P1-09 · 1.0d · risk high
 **`rallyStyle` ADR + 7-consumer migration.** Flip the default, make `?style=rally` the escape hatch, audit all 7 consumers. Currently owned by nobody, allocated 0.25 d as "not my call", and it **gates ~26 days of vehicle art plus terrain's flatShading item**.
 
 - **Files:** `rallyStyle.js:8`; `scene.js`, `main.js`, `ui/colorGradePass.js`, `car/carModel.js`, `car/carEffects.js`, `map/buildingRenderer.js`, `map/terrainRenderer.js`; `decisions.md` (new ADR D-18)
 - **Depends:** nothing
 - **Subsystem:** art direction
 - **Full spec:** master plan §4 → P1
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ All 15 `isRallyStyle()` sites collapsed to the rally side (the side already executing) and `rallyStyle.js` deleted. Removed an extra terrain shader variant and a 416 KB JPEG that only the dead branch sampled. **ADR D-20.** Nothing visible should change.
 
 ### `[x]` P1-10 · 0.25d · risk low
 **ADR D-19 — the MeshStandard inventory** (§5.11). No city-wide ruling; record the per-surface inventory. Costs 0 ms and 0 days beyond writing it. Also delete `roadRenderer.js:372` `getSharedMaterials` — **17 dead MeshStandard materials, zero call sites.**
