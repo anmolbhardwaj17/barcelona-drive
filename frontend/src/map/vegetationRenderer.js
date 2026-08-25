@@ -7,6 +7,8 @@
  */
 import * as THREE from 'three';
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
+import { injectTreeWind, updateTreeWind } from './treeWind.js';
+import { buildTreeCardGeometries, getTreeCardMaterial, getTreeCardAtlas, TREE_CARD_SPECIES } from './treeCards.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
@@ -166,86 +168,37 @@ export function buildProceduralTreeGeometries() {
   return proceduralGeometries;
 }
 
-// Phase A.2: tree wind — module-level uniform ref, populated by onBeforeCompile
-let _treeWindUniforms = null;
-
 export function getProceduralMaterial() {
   if (proceduralMaterial) return proceduralMaterial;
   proceduralMaterial = new THREE.MeshLambertMaterial({
     vertexColors: true,
     side: THREE.DoubleSide,
   });
-
-  // Phase A.2: inject multi-frequency wind sway — same math as grass shader (grassRenderer.js)
-  // Y-position proxy: position.y / TREE_HEIGHT gives ~0 at trunk base, ~1 at foliage tip.
-  // Quadratic ramp ensures trunk base stays still, foliage tips sway fully.
-  // Billboard trees use a separate material and are NOT affected by this patch.
-  patchMaterial(proceduralMaterial, (shader) => {
-    shader.uniforms.uTime         = { value: 0.0 };
-    shader.uniforms.uWindStrength = { value: 0.6 };
-    _treeWindUniforms = shader.uniforms;
-
-    // Inject uniforms at the top of the vertex shader only.
-    // No fragment shader patch — unused varyings cause linker warnings on some drivers.
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <common>',
-      `#include <common>
-      uniform float uTime;
-      uniform float uWindStrength;`
-    );
-
-    // Wind displacement: use transformed.y as trunk/foliage proxy.
-    // World position sampled from modelMatrix only (no instanceMatrix multiply) to
-    // keep phase coherent across all instances while avoiding driver-specific issues.
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-
-      // Phase A.2 tree wind — reuses grass multi-frequency pattern
-      float treeH = clamp(transformed.y / 10.0, 0.0, 1.0);
-      float windInfluence = treeH * treeH;  // quadratic: trunk base ~0, foliage tip ~1
-
-      // World-space phase derived from THIS INSTANCE's position (stable per tree, varies between).
-      //
-      // v3 P1-21: this used modelMatrix alone, and every tree in the city swayed in EXACT UNISON.
-      // The vegetation pools are BatchedMeshes parented straight to the Scene (getVegPools), so
-      // modelMatrix is identity and windOrigin evaluated to (0,0,0) for every vertex of every tree —
-      // one global phase. The per-instance transform lives in batchingMatrix / instanceMatrix, and
-      // neither is folded into transformed until <project_vertex>, which runs AFTER this chunk.
-      // Both branches are needed: the pools are batched, but environmentClusterRenderer puts the
-      // same material on an InstancedMesh.
-      vec3 windOrigin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-      #ifdef USE_BATCHING
-        windOrigin = (modelMatrix * batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-      #endif
-      #ifdef USE_INSTANCING
-        windOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-      #endif
-
-      float windPhase = windOrigin.x * 0.08 + windOrigin.z * 0.06 + uTime * 1.8;
-      float windGust  = sin(windPhase) * 0.6 + sin(windPhase * 2.3 + 1.4) * 0.3 + sin(windPhase * 0.4 - 0.7) * 0.1;
-      float swayPhase = windOrigin.x * 0.12 - windOrigin.z * 0.09 + uTime * 1.2;
-      float windSway  = sin(swayPhase) * 0.3;
-
-      transformed.x += windGust * windInfluence * uWindStrength;
-      transformed.z += windSway * windInfluence * uWindStrength * 0.6;`
-    );
-
-  }, 'vegTree');
-
+  // Sway lives in treeWind.js so the blob path and the card path cannot drift apart.
+  patchMaterial(proceduralMaterial, injectTreeWind, 'vegTree');
   return proceduralMaterial;
 }
 
+// updateTreeWind moved to treeWind.js (it now drives every registered tree material, not one).
+// Re-exported so main.js and the other existing callers keep their import unchanged.
+export { updateTreeWind };
 
 /**
- * Update tree wind animation time. Call once per frame from main render loop.
- * Must be called AFTER getProceduralMaterial() has been called at least once
- * (onBeforeCompile fires on first render, setting _treeWindUniforms).
+ * ── THE TREE SEAM ───────────────────────────────────────────────────────────────────────────────
+ * Everything that draws a tree goes through these two functions: the global vegetation pools, the
+ * per-tile fallback path, environmentClusterRenderer, and the boot shader warm-up.
+ *
+ * They MUST be used as a pair. The pools hand BatchedMesh a geometry list and one material, and the
+ * per-instance geoIndex is an index into that list — so card geometry paired with the blob material
+ * (or vice versa) does not throw, it draws garbage. Routing every consumer through one switch is
+ * what makes that impossible rather than merely unlikely.
  */
-export function updateTreeWind(timeSeconds) {
-  if (_treeWindUniforms) {
-    _treeWindUniforms.uTime.value = timeSeconds;
-  }
+export function getTreeGeometries() {
+  return CONFIG.TREE_CARDS ? buildTreeCardGeometries() : buildProceduralTreeGeometries();
+}
+
+export function getTreeMaterial() {
+  return CONFIG.TREE_CARDS ? getTreeCardMaterial() : getProceduralMaterial();
 }
 
 /**
@@ -253,7 +206,7 @@ export function updateTreeWind(timeSeconds) {
  * Exported so main.js can await on startup (resolves immediately).
  */
 export function preloadTreeModels() {
-  buildProceduralTreeGeometries();
+  getTreeGeometries();   // the ACTIVE path — cards or blobs, whichever TREE_CARDS selects
   return Promise.resolve();
 }
 
@@ -723,10 +676,10 @@ const yieldToMain = () => new Promise((resolve) => setTimeout(resolve, 0));
 async function createTreeMesh(positions, typeIndex, getElevationAt, getWorldElevation) {
   if (positions.length === 0) return null;
 
-  const geometries = buildProceduralTreeGeometries();
+  const geometries = getTreeGeometries();
   const geometry = geometries[typeIndex];
   if (!geometry) return null;
-  const material = getProceduralMaterial();
+  const material = getTreeMaterial();
 
   const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
   mesh.count = 0; // start empty — instances appear progressively
@@ -878,13 +831,30 @@ export function setTreeBillboardNightMode(isNight) {
 }
 
 const _bbMaterials = [];
-export function getTreeBillboardMaterial(variantIndex) {
-  if (_bbMaterials[variantIndex]) return _bbMaterials[variantIndex];
+/**
+ * v3 P3-10(c) — BILLBOARD COLLAPSE.
+ *
+ * There used to be one material and one pool set PER VARIANT, each carrying a `bbUvOff` uniform
+ * that shifted the shared quad's UVs into that variant's atlas cell. That is a uniform doing a
+ * job the vertex data can do for free: the atlas cell is now baked into each variant's own
+ * geometry UVs (getTreeBillboardGeometry), the pools select it with setGeometryIdAt, and every
+ * impostor in the city draws from ONE material and ONE pool.
+ *
+ * Also dropped: `transparent: true`. alphaTest 0.05 already does the cutout, and blending forced
+ * every impostor through the sorted transparent pass with no Z-rejection — the most expensive
+ * possible way to draw a distant tree.
+ */
+export function getTreeBillboardMaterial() {
+  if (_bbMaterials[0]) return _bbMaterials[0];
 
-  const atlas = getTreeBillboardAtlas();
+  // With cards on the impostors draw from the SAME photographic atlas as the near trees, so a tree
+  // does not change species as it crosses the LOD band. That atlas already carries mips and
+  // LinearMipmapLinear filtering; the legacy ellipse canvas did not, which is why distant impostor
+  // rows used to shimmer.
+  const atlas = CONFIG.TREE_CARDS ? getTreeCardAtlas().albedo : getTreeBillboardAtlas();
   const mat = new THREE.MeshBasicMaterial({
     map: atlas,
-    transparent: true,
+    transparent: false,
     alphaTest: 0.05,
     side: THREE.DoubleSide,
     depthWrite: true,
@@ -892,23 +862,8 @@ export function getTreeBillboardMaterial(variantIndex) {
   });
   _applyBbNight(mat);   // match current day/night state at creation
 
-  const uOff = variantIndex / 4;
   // v3 P1-03: through the registry so a later patch (IBL, light grid) cannot clobber it.
   patchMaterial(mat, (shader) => {
-    shader.uniforms.bbUvOff = { value: uOff };
-
-    // Declare uniform
-    shader.vertexShader = shader.vertexShader.replace(
-      'void main() {',
-      'uniform float bbUvOff;\nvoid main() {'
-    );
-
-    // Remap UVs into atlas cell
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <uv_vertex>',
-      '#include <uv_vertex>\nvMapUv = vec2(vMapUv.x * 0.25 + bbUvOff, vMapUv.y);'
-    );
-
     // Cylindrical billboard: rotate quad to face camera around Y axis
     shader.vertexShader = shader.vertexShader.replace(
       '#include <project_vertex>',
@@ -937,9 +892,40 @@ export function getTreeBillboardMaterial(variantIndex) {
     );
   }, 'vegBillboard');
 
-  _bbMaterials[variantIndex] = mat;
+  _bbMaterials[0] = mat;
   return mat;
 }
+
+/**
+ * Impostor quad for one variant, with its atlas cell baked into the UVs and sized to the species
+ * it stands in for. Sizing matters: a 15 m Washingtonia and a 5 m bitter orange carry the same
+ * instance scale, so one shared quad made every impostor the same height and trees visibly jumped
+ * as they crossed the band.
+ */
+const _bbGeos = [];
+export function getTreeBillboardGeometry(variantIndex = 0) {
+  if (_bbGeos[variantIndex]) return _bbGeos[variantIndex];
+  const cards = CONFIG.TREE_CARDS;
+  const sp = cards ? TREE_CARD_SPECIES[variantIndex] : null;
+  const H = sp ? sp.heightM : 7;
+  const W = sp ? sp.heightM * sp.aspect : 5;
+  // Cell rect in atlas UV space: the species' opaque sub-rect for cards, or the Nth quarter-strip
+  // of the 4-cell ellipse atlas for blobs.
+  const [u0, v0, du, dv] = cards ? sp.contentUV : [variantIndex / 4, 0, 0.25, 1];
+
+  const geo = new THREE.PlaneGeometry(W, H);
+  const pa = geo.getAttribute('position');
+  for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) + H / 2);   // stand it on y=0
+  const uv = geo.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, u0 + uv.getX(i) * du, v0 + uv.getY(i) * dv);
+  }
+  pa.needsUpdate = true; uv.needsUpdate = true;
+  geo.computeBoundingSphere();
+  _bbGeos[variantIndex] = geo;
+  return geo;
+}
+
 
 /**
  * Create billboard InstancedMesh for one tree variant.
@@ -948,15 +934,9 @@ export function getTreeBillboardMaterial(variantIndex) {
 function createTreeBillboardMesh(positions, variantIndex, getWorldElevation) {
   if (!positions || positions.length === 0) return null;
 
-  // Plane sized smaller than 3D tree bounds — at distance, trees read smaller
-  const W = 5, H = 7;
-  const geo = new THREE.PlaneGeometry(W, H);
-  // Shift up so bottom edge is at y=0 (tree base at ground)
-  const pa = geo.getAttribute('position');
-  for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) + H / 2);
-  pa.needsUpdate = true;
-
-  const mat = getTreeBillboardMaterial(variantIndex);
+  // Shared per-variant quad — carries its own atlas cell in its UVs and its species' size.
+  const geo = getTreeBillboardGeometry(variantIndex);
+  const mat = getTreeBillboardMaterial();
   const mesh = new THREE.InstancedMesh(geo, mat, positions.length);
   mesh.count = positions.length;
   mesh.frustumCulled = false; // billboard shader moves verts outside default bounds

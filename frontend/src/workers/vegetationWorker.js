@@ -78,7 +78,13 @@ const TREE_VARIANTS = [
     ],
   },
 ];
-const NUM_TREE_VARIANTS = TREE_VARIANTS.length;
+// How many tree variants the RENDERER has geometry for — 6 card species or 4 legacy blob variants,
+// per CONFIG.TREE_CARDS. It arrives with the config rather than being a constant here because the
+// worker cannot see the geometry it is bucketing for, and getting it wrong is silent: meshMaterializer
+// filters out any variantIndex past the end of the geometry list, so an over-count deletes trees
+// without a warning. Set once per call in processVegetationInWorker; the legacy table length is the
+// fallback for callers that pass no config (tests).
+let NUM_TREE_VARIANTS = TREE_VARIANTS.length;
 
 // ============================================================================
 // Constants
@@ -125,8 +131,13 @@ const DENSITY_WOOD = 1 / 15;
 const DENSITY_PARK = 1 / 30;
 const DENSITY_GRASS_AREA = 1 / 55;
 const ENABLE_ROADSIDE_TREES = true;
-const ROADSIDE_SPACING_MIN = 2;
-const ROADSIDE_SPACING_MAX = 5;
+// v3 P3-10(b) — roadside stride widened from 2-5 m to ~7 m (6-8). A 2 m stride plants trees closer
+// together than their own canopies are wide, which reads as a hedge rather than a street planting;
+// real Barcelona street trees sit at roughly one canopy width apart. Also removes ~35-40% of the
+// city's tree instances, which is the single largest vegetation cost reduction available without
+// touching what a tree costs to draw.
+const ROADSIDE_SPACING_MIN = 6;
+const ROADSIDE_SPACING_MAX = 8;
 const ROADSIDE_OFFSET_MIN = 3;
 const ROADSIDE_OFFSET_MAX = 7;
 const ROADSIDE_TREE_CAP = 4000;
@@ -1011,8 +1022,10 @@ function getRoadsideTreePositions(tileData, tileKey, neighborRoads) {
           stepIdx++;
           continue;
         }
-        if (!skipLeft) positions.push({ x: cx + perpX * offL, y: cz + perpZ * offL });
-        if (!skipRight) positions.push({ x: cx - perpX * offR, y: cz - perpZ * offR });
+        // ctx drives the species classifier — an avenue plants planes, a side street plants celtis.
+        const ctx = AVENUE_ROAD_TYPES.has(road.highwayType) ? 'avenue' : 'street';
+        if (!skipLeft) positions.push({ x: cx + perpX * offL, y: cz + perpZ * offL, ctx });
+        if (!skipRight) positions.push({ x: cx - perpX * offR, y: cz - perpZ * offR, ctx });
         dist += stepSpacing;
         stepIdx++;
       }
@@ -1075,11 +1088,19 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
   // (including OSM-tagged ones) get rejected if they land on a road surface.
   const groundGrid = buildGroundRoadGrid(roads);
 
-  // OSM trees — also reject if on ground road
+  // Is this tile coastal? Palms belong on the Passeig Marítim and the Barceloneta front, and
+  // nowhere inland. Tile-level rather than per-tree: a tile either meets the sea or it does not,
+  // and a per-tree distance test would need the coastline geometry the worker does not carry.
+  const coastal = (tileData.greens || []).some((g) => g.type === 'beach' || g.type === 'sand') ||
+                  (tileData.water || []).some((w) => w.isCoast || w.type === 'sea' || w.type === 'ocean');
+
+  // OSM trees — also reject if on ground road.
+  // These are real tagged trees but their SPECIES string does not reach the worker (see the
+  // classifier note), so they are classified by context like everything else.
   for (const p of veg.trees || []) {
     if (isOnGroundRoad(groundGrid, p.x, p.y)) continue;
     if (!isExcluded(p.x, p.y, 3)) {
-      positions.push({ x: p.x, y: p.y });
+      positions.push({ x: p.x, y: p.y, ctx: coastal ? 'coast' : 'street' });
     }
   }
   if (positions.length >= cap) return positions.slice(0, cap);
@@ -1090,7 +1111,7 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
     if (isOnGroundRoad(groundGrid, p.x, p.y)) continue;
     if (!isInsideOrNearBuilding(p.x, p.y, buildings) &&
         !(hasUF && isNearUrbanFeature(p.x, p.y, exclusionZones))) {
-      positions.push({ x: p.x, y: p.y });
+      positions.push({ x: p.x, y: p.y, ctx: coastal ? 'coast' : p.ctx });
     }
     if (positions.length >= cap) break;
   }
@@ -1099,6 +1120,7 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
     const perim = getBuildingPerimeterTreePositions(tileData, vegMask);
     for (const p of perim) {
       if (!isExcluded(p.x, p.y, 2)) {
+        p.ctx = 'plaza';        // building forecourts and plaça edges — the bitter orange's home
         positions.push(p);
       }
       if (positions.length >= cap) break;
@@ -1115,7 +1137,7 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
       for (const ring of b.innerRings) {
         const pts = scatterTreesInPolygon(ring, 0.02, ((b.id | 0) % 977 + 977) % 977, 8);
         for (const p of pts) {
-          positions.push({ x: p.x, y: p.y });
+          positions.push({ x: p.x, y: p.y, ctx: 'plaza' });   // patis de manzana: small ornamentals
           if (positions.length >= cap) break;
         }
         if (positions.length >= cap) break;
@@ -1125,6 +1147,67 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
   }
 
   return positions.slice(0, cap);
+}
+
+// ── v3 P3-10(a): species-by-context classifier ────────────────────────────────────────────────
+//
+// Replaces `bakedVariantIndices[i] % NUM_TREE_VARIANTS`, which was species-BLIND: it spread six
+// species uniformly over every context, so palms grew in courtyards and bitter oranges lined Gran
+// Via. The species a driver expects is a function of WHERE the tree is, and that is known here.
+//
+// SCOPE — this is TIER 3 ONLY, and deliberately so. The design is three-tier: (1) an OSM-tagged
+// species within 4 m, (2) the tile's own species histogram, (3) context. Tiers 1 and 2 need the
+// per-tree `species` string, which the bake DOES extract (pbfPointFeatures.js:189) but which stops
+// at the tile format — the worker receives only positions and an index array. Piping it through is
+// the P1 species pipe, and it is not done. Tier 3 stands alone by design: species coverage is 13.8%,
+// so graceful degradation was always going to carry ~86% of the city regardless.
+//
+// Indices MUST match the atlas cell order in map/treeAtlas.js.
+const SP_PLANE = 0, SP_TIPUANA = 1, SP_CELTIS = 2, SP_PALM = 3, SP_JACARANDA = 4, SP_ORANGE = 5;
+
+// Weighted species sets per context. Weights are relative, not percentages.
+export const SPECIES_SETS = {
+  // Gran Via, Diagonal, Passeig de Gràcia: the pollarded plane is THE Barcelona avenue tree.
+  avenue:  [[SP_PLANE, 6], [SP_TIPUANA, 3], [SP_JACARANDA, 1]],
+  // Side streets: smaller crowns, more mixed.
+  street:  [[SP_CELTIS, 5], [SP_PLANE, 4], [SP_ORANGE, 1]],
+  // Passeig Marítim, Barceloneta, Port Olímpic.
+  coast:   [[SP_PALM, 8], [SP_TIPUANA, 2]],
+  // Parks and gardens: the only context where the jacaranda is anything but sparse.
+  park:    [[SP_TIPUANA, 4], [SP_CELTIS, 3], [SP_JACARANDA, 2], [SP_PALM, 1]],
+  // Plaças, courtyards, building perimeters: the bitter orange's home.
+  plaza:   [[SP_ORANGE, 5], [SP_CELTIS, 3], [SP_PALM, 2]],
+};
+
+// Road classes that read as an avenue rather than a side street.
+const AVENUE_ROAD_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+
+/** Test seam: the classifier reads the module-level variant count, which normally arrives with the
+ *  per-tile config. Tests need to pin it to exercise both the card and blob branches. */
+export function _setTreeVariantCountForTest(n) { NUM_TREE_VARIANTS = n; }
+
+function pickWeighted(set, r) {
+  let total = 0;
+  for (let i = 0; i < set.length; i++) total += set[i][1];
+  let acc = r * total;
+  for (let i = 0; i < set.length; i++) {
+    acc -= set[i][1];
+    if (acc <= 0) return set[i][0];
+  }
+  return set[set.length - 1][0];
+}
+
+/**
+ * Map one tree's context to a species index.
+ *
+ * Falls back to the legacy modulo whenever the renderer is NOT on the 6-species card path — the
+ * blob path has 4 variants that mean something else entirely, and handing it a species index would
+ * silently draw the wrong geometry rather than fail.
+ */
+export function classifySpecies(pos, i, seed, fallbackIndex) {
+  if (NUM_TREE_VARIANTS !== 6) return fallbackIndex % NUM_TREE_VARIANTS;
+  const set = SPECIES_SETS[pos.ctx] || SPECIES_SETS.street;
+  return pickWeighted(set, seeded(i, seed + 4242));
 }
 
 function bucketPositionsByType(positions, tileKey) {
@@ -1841,6 +1924,9 @@ export function processVegetationInWorker(data, config) {
     tileBounds, elevationOffset, sortCenter,
   } = data;
 
+  NUM_TREE_VARIANTS = Number.isInteger(config.NUM_TREE_VARIANTS) && config.NUM_TREE_VARIANTS > 0
+    ? config.NUM_TREE_VARIANTS : TREE_VARIANTS.length;
+
   const vertExag = config.ELEVATION_VERTICAL_EXAGGERATION != null &&
     Number.isFinite(config.ELEVATION_VERTICAL_EXAGGERATION)
     ? config.ELEVATION_VERTICAL_EXAGGERATION : 1;
@@ -1942,9 +2028,12 @@ export function processVegetationInWorker(data, config) {
   const treeVariants = [];
   if (bakedVariantIndices) {
     // Use pre-baked variant indices
+    // v3 P3-10(a): species by CONTEXT, not by `bakedVariantIndices[i] % N`. The baked index is kept
+    // as the fallback so the blob path (4 variants) is untouched — see classifySpecies().
+    const clsSeed = (tileKey || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
     const variantBuckets = Array.from({ length: NUM_TREE_VARIANTS }, () => []);
     for (let i = 0; i < positions.length; i++) {
-      const vi = bakedVariantIndices[i] % NUM_TREE_VARIANTS;
+      const vi = classifySpecies(positions[i], i, clsSeed, bakedVariantIndices[i]);
       variantBuckets[vi].push(positions[i]);
     }
     for (let vi = 0; vi < NUM_TREE_VARIANTS; vi++) {
@@ -1988,16 +2077,21 @@ export function processVegetationInWorker(data, config) {
     const keySeed = (tileKey || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);
     const zoneBuckets = Array.from({ length: NUM_TREE_VARIANTS }, () => ({ pos: [], scales: [] }));
 
+    // Zone trees are, by construction, inside a greens polygon — so their context is 'park'
+    // (the one set where the jacaranda is more than an accent). Same classifier, same fallback:
+    // on the blob path classifySpecies returns the legacy modulo untouched.
+    const PARK_CTX = { ctx: 'park' };
     if (zoneTreeVariantIndices) {
-      // Use pre-baked zone variant indices
       for (let i = 0; i < zoneTreePosArr.length; i++) {
-        const vi = (zoneTreeVariantIndices[i] || 0) % NUM_TREE_VARIANTS;
+        const vi = classifySpecies(PARK_CTX, i, keySeed, zoneTreeVariantIndices[i] || 0);
         zoneBuckets[vi].pos.push(zoneTreePosArr[i]);
         zoneBuckets[vi].scales.push(zoneTreeScalesArr[i] || 1.0);
       }
     } else {
       for (let i = 0; i < zoneTreePosArr.length; i++) {
-        const vi = Math.floor(seeded(i, keySeed + 9999) * NUM_TREE_VARIANTS) % NUM_TREE_VARIANTS;
+        const vi = classifySpecies(
+          PARK_CTX, i, keySeed + 9999,
+          Math.floor(seeded(i, keySeed + 9999) * NUM_TREE_VARIANTS));
         zoneBuckets[vi].pos.push(zoneTreePosArr[i]);
         zoneBuckets[vi].scales.push(zoneTreeScalesArr[i] || 1.0);
       }

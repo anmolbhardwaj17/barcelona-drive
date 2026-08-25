@@ -1033,14 +1033,26 @@ before anything is painted.**
 - **Full spec:** master plan §4 → P3
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P3-10 · 3.5d · risk medium
+### `[x]` P3-10 · 3.5d · risk medium — **DONE (partial: tiers 1-2 of the classifier blocked on P1 species pipe)**
 **Vegetation, data-only wave — no re-bake, no art, no KTX2.** (a) **Species-by-context classifier** replacing the species-blind `bakedVariantIndices[i] % 4`: three-tier — OSM tagged tree within 4 m → its species; else per-tile species histogram from that tile's own tagged trees; else context (inside a greens polygon → park set, adjacent to coast/beach → palm, road class primary/secondary → avenue set). **Species coverage is 13.8%, so graceful degradation is the whole design.** (b) **Roadside decimation** 2–5 m baked stride → ~7 m (fixes density realism and ~35–40% of the tree count). (c) **Billboard collapse**:…
 
 - **Files:** `vegetationWorker.js:1940-1975,1348-1400,679-720,128-129`; `vegetationRenderer.js:875-877,899-957`; `meshMaterializer.js:1068-1073`; `tileManager.js:2971-2975`; `config.js`
 - **Depends:** P1 species pipe; staticPools
 - **Subsystem:** vegetation
 - **Full spec:** master plan §4 → P3
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **DONE 2026-08-26.** Cards ON by default (`?treecards=0` reverts). Measured:
+  **tree geometry 80 tris → 4** (trunk cylinder + 2-3 icosahedron lobes → 2 crossed quads);
+  **impostor materials + pool sets 4+4 → 1+1**; **roadside stride 2-5 m → 6-8 m** (~35-40% fewer
+  tree instances); **`bbEnd` clamped 470 m → `FOG_FULL_DIST` 280 m**, closing the band where
+  impostors could never reach full count. Six species normalized through art-bible §4.4
+  (`tools/artNormalize.py`): **|N.xy| 0.53 → 0.275** (foliage band 0.20-0.35, was ~2× out),
+  **C\* tipuana 37.9 → 20.5, jacaranda 55.8 → 20.5**. 164 tests pass (was 151).
+  - **NOT done:** classifier tiers 1-2 (OSM species / per-tile histogram) — the bake extracts
+    `species` but it stops at the tile format. Blocked on the P1 species pipe. Tier 3 (context)
+    ships alone by design; coverage was only 13.8% anyway.
+  - **Open gates:** jacaranda ΔE2000 **17.01** vs the ≤15 gate-4 threshold (bible's own note calls
+    it tunable to 18 — not silently widened); washingtonia **8.3%** rally-saturation clip.
+  - **Full write-up:** `docs/context/tree-cards.md`
 
 ### `[ ]` P3-11 · 1.5d · risk medium
 **Sky dome texture — 2 keys.** 2048×1024 equirect ETC1S per key (day/night), **2.67 MiB total**, cross-faded by the normalized sun-elevation scalar, with the existing analytic gradient retained underneath as the fallback tint and carrying dawn/dusk. Sourced by cropping **CC0 Poly Haven sky HDRIs** — real photographic cloud structure, and the same source the cloud atlas already prefers. **Un-hides the night sky** (`envToggle.js:63-64` `skyVisible:false` + flat `bgColor 0x0a1224`) and unblocks NIGHT-10 / BLK-9.

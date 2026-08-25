@@ -2,6 +2,19 @@
  * Global feature toggles. All systems check these before generating geometry.
  * Change here to enable/disable features; no geometry is created when disabled.
  */
+// The tree-card manifest, imported for its species COUNT alone (see NUM_TREE_VARIANTS below).
+// Importing it here cannot create a cycle: JSON is inert data with no imports of its own.
+import TREE_ATLAS from './map/treeAtlas.js';
+
+// Variant count of the legacy blob path (TREE_VARIANTS in map/vegetationRenderer.js). Duplicated
+// here because config must not import the renderer — treeCards.test.js asserts the two agree.
+const LEGACY_TREE_VARIANT_COUNT = 4;
+
+// Read once at load, like every other URL switch. Hoisted out of the CONFIG literal because
+// NUM_TREE_VARIANTS below is derived from it and CONFIG cannot reference itself while being built.
+const TREE_CARDS_ON = (() => {
+  try { return new URLSearchParams(location.search).get('treecards') !== '0'; } catch { return true; }
+})();
 // export const CONFIG = {
 
 //   ENABLE_BUILDINGS: true,
@@ -38,6 +51,35 @@ export const CONFIG = {
   ROAD_V2: (() => {
     try { return new URLSearchParams(location.search).get('roadv2') !== '0'; } catch { return true; }
   })(),
+
+  /**
+   * v3 P3-10 — photographic crossed-quad tree cards. ON by default.
+   *
+   * `?treecards=0` falls back to the legacy icosahedron blobs. Like ROAD_V2 this is an ATTRIBUTION
+   * switch, not a preference: cards trade ~80 triangles per tree for 4 plus an alpha-tested
+   * fragment, which moves cost from vertex to fill. Whether that is a win at Eixample tree density
+   * is a question to be MEASURED on the same street both ways.
+   */
+  TREE_CARDS: TREE_CARDS_ON,
+
+  /**
+   * How many tree variants exist — 6 card species, or 4 legacy blob variants.
+   *
+   * This is CONFIG rather than a worker constant because the vegetation worker buckets trees by
+   * variant index and meshMaterializer DROPS any bucket whose index is past the end of the geometry
+   * array. An over-count therefore does not warn, it silently deletes part of the city's trees.
+   * treeCards.test.js asserts this equals the live geometry count in both switch positions.
+   */
+  NUM_TREE_VARIANTS: TREE_CARDS_ON ? TREE_ATLAS.species.length : LEGACY_TREE_VARIANT_COUNT,
+
+  /**
+   * How many tree variants exist — 6 card species, or 4 legacy blob variants.
+   *
+   * This is CONFIG rather than a worker constant because the vegetation worker buckets trees by
+   * variant index and meshMaterializer DROPS any bucket whose index is past the end of the geometry
+   * array. An over-count therefore does not warn, it silently deletes a third of the city's trees.
+   * treeCards.test.js asserts this equals the live geometry count for both switch positions.
+   */
 
   DEBUG_WINDING: (() => {
     try { return new URLSearchParams(location.search).get('debug') === 'winding'; } catch { return false; }

@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
-import { buildProceduralTreeGeometries, getProceduralMaterial, getBushGeometry, getBushMaterial } from './vegetationRenderer.js';
+import { getTreeGeometries, getTreeMaterial, getBushGeometry, getBushMaterial } from './vegetationRenderer.js';
 
 // ---------------------------------------------------------------------------
 // Deterministic PRNG (same as vegetationRenderer)
@@ -46,7 +46,7 @@ function getRockMaterial() {
 
 /** Get a random tree geometry from the main procedural tree variants. */
 function getClusterTreeGeometry(variantIdx) {
-  const geos = buildProceduralTreeGeometries();
+  const geos = getTreeGeometries();
   return geos[variantIdx % geos.length];
 }
 
@@ -445,8 +445,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
 
   // Tree InstancedMesh — reuse main procedural tree geometries (one mesh per variant)
   if (treeInstances.length > 0) {
-    const treeGeos = buildProceduralTreeGeometries();
-    const treeMat = getProceduralMaterial();
+    const treeGeos = getTreeGeometries();
+    const treeMat = getTreeMaterial();
     const numVariants = treeGeos.length;
 
     // Group tree instances by variant

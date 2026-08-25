@@ -19,14 +19,49 @@ with the sobel detail layered on top.
 """
 import json, os, sys
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageDraw
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import artNormalize as AN
 
 SRC = 'art-src/trees-v1/src'
 CUT = 'art-src/trees-v1/cutout'
 OUT = 'frontend/public/textures/vegetation'
+# The two atlases are runtime-loaded assets and live in public/. The manifest is NOT an asset: the
+# renderer imports it as a module so card geometry can be built synchronously (see treeCards.js).
+# It is emitted as JS rather than JSON because the test runner is bare `node --test`, where a JSON
+# import needs an import attribute that Vite treats differently — a plain ES module behaves
+# identically under both, which is what keeps the tests testing the code the browser runs.
+MANIFEST = 'frontend/src/map/treeAtlas.js'
 CELL = 1024
 COLS, ROWS = 3, 2
 MARGIN = 12          # px of empty cell edge, so mip levels cannot bleed one tree into its neighbour
+
+# ── art-bible §4.4 normalize configuration for this asset ─────────────────────────────────────
+# The plates are AI-generated (k=0.35), the dominant surface is foliage leaf, and the anchor is P9
+# Platanus Green — "dusty olive, never emerald, never lime". alpha=0.35 is the props/foliage snap.
+#
+# The whole card is normalized as ONE class rather than segmenting bark from leaf. Segmenting by
+# colour is exactly wrong here: the jacaranda's violet blossom and the tipuana's gold both read as
+# "not green", so a hue-based leaf/bark split would route the very foliage that most needs the
+# olive snap into the bark class instead. Foliage is the dominant opaque area; treating the card as
+# one surface also keeps it internally consistent, which is what stops it reading as a collage.
+# No plate repairs are needed: the jacaranda's blossom measures hue 300-330 straight out of the
+# key — genuine violet. The pink it briefly rendered as was a bug in step5's single-anchor snap,
+# fixed in artNormalize (see step5_palette_snap).
+PLATE_REPAIR = {}
+
+NORMALIZE_VERSION = 2
+SOURCE_TYPE   = 'ai'
+SURFACE_CLASS = 'foliage_leaf'
+# Two anchors are allowed for foliage cards, and each pixel snaps toward whichever it is nearer.
+# P9 is the foliage anchor and carries all five green species. P10 is admitted for ONE reason: a
+# violet-flowering street tree has no green-anchor-legal representation, and forcing it at P9 rotates
+# it through red into pink — further from the Barcelona palette than where it started. P10 is the
+# only cool anchor in the ten. NOTE: §4.1 assigns P10 to water/haze, so this is a proposed amendment
+# to the bible's allowed-set for foliage, not something it already sanctions.
+PALETTE_ANCHOR = [AN.ANCHORS['P9_platanus_green'], AN.ANCHORS['P10_mediterrani_blue']]
+SNAP_ALPHA    = AN.SNAP_ALPHA['prop']
+NORMAL_BAND   = 'foliage'
 
 # Real-world dimensions. The renderer needs these: a Washingtonia is three times the height of a
 # bitter orange, and normalising every card to its cell would render them identical. Heights are
@@ -143,19 +178,59 @@ def foliage_normal(rgb, alpha):
     n /= (np.linalg.norm(n, axis=-1, keepdims=True) + 1e-6)
     return n * 0.5 + 0.5
 
+def repair_key_contamination(rgb, alpha, band, target_hue, strength, chroma_mul):
+    """
+    Undo hue contamination left by the magenta key, BEFORE normalize runs.
+
+    This is an ingest repair (STEP 1 territory), not a grading exemption. The jacaranda ships with
+    despill=0 because its violet blossom overlaps the key and any despill strong enough to clear
+    the plate also eats the flowers — so the blossom keeps a magenta lean it never had. Left in, the
+    §4.4 pipeline then faithfully normalizes the WRONG hue: the tree passes gate 4 on the numbers
+    and still reads as a hot-pink blob next to five olive-greens, which is precisely the failure the
+    contact sheet exists to catch. Real Jacaranda mimosifolia is blue-violet, not pink.
+
+    Rotates only hues inside `band` (degrees, may wrap) toward `target_hue`, and scales their chroma.
+    """
+    lab = AN.rgb_to_lab(rgb)
+    L, C, h = AN.lab_to_lch(lab)
+    lo, hi = band
+    inb = (h >= lo) | (h <= hi) if lo > hi else (h >= lo) & (h <= hi)
+    inb &= alpha > 0.02
+    d = (target_hue - h + 180) % 360 - 180
+    h2 = np.where(inb, (h + strength * d) % 360, h)
+    C2 = np.where(inb, C * chroma_mul, C)
+    return AN.lab_to_rgb(AN.lch_to_lab(L, C2, h2))
+
+
 def main():
     os.makedirs(CUT, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
     atlas = Image.new('RGBA', (CELL * COLS, CELL * ROWS), (0, 0, 0, 0))
     natlas = Image.new('RGBA', (CELL * COLS, CELL * ROWS), (128, 128, 255, 0))
-    manifest = {'cell': CELL, 'cols': COLS, 'rows': ROWS, 'species': []}
+    manifest = {'cell': CELL, 'cols': COLS, 'rows': ROWS,
+                'normalizeVersion': NORMALIZE_VERSION, 'species': []}
 
     for i, (name, h_m, w_m, despill, note) in enumerate(SPECIES):
         src = Image.open(f'{SRC}/{name}.png').convert('RGB')
         rgb = np.asarray(src, dtype=np.float32) / 255.0
         rgb, alpha = key_magenta(rgb, despill)
         rgb = bleed_rgb(rgb, alpha)     # MUST precede every resample — see bleed_rgb()
+
+        if name in PLATE_REPAIR:
+            rgb = repair_key_contamination(rgb, alpha, *PLATE_REPAIR[name])
+
+        # ── art-bible §4.4 STEPS 2/3/5/6 — NOT optional (rule N-5) ───────────────────────────
+        # Without this the plates keep their own baked sun and their own exposure, the scene then
+        # lights them a second time, and six differently-graded photos sit in a desaturated
+        # low-poly city looking pasted on. This is the step that makes a card belong.
+        rgb, stats = AN.normalize_albedo(
+            rgb, alpha, source_type=SOURCE_TYPE, surface_class=SURFACE_CLASS,
+            anchor=PALETTE_ANCHOR, alpha_snap=SNAP_ALPHA)
+        rgb = bleed_rgb(rgb, alpha)     # re-bleed: normalize moved the transparent margin too
+
+        # Normal is derived AFTER de-light so it encodes surface shape, not the plate's lighting.
         nrm = foliage_normal(rgb, alpha)
+        nrm, n_before, n_after, n_ok = AN.step4_calibrate_normal(nrm, NORMAL_BAND)
 
         keep = alpha > 0.02
         ys, xs = np.nonzero(keep)
@@ -180,6 +255,7 @@ def main():
         place(nrm, natlas, 'n')
         card.save(f'{CUT}/{name}.png')
 
+        cx0, cy0 = (i % COLS) * CELL, (i // COLS) * CELL
         u0 = ((i % COLS) * CELL) / (CELL * COLS)
         v0 = 1.0 - (((i // COLS) + 1) * CELL) / (CELL * ROWS)
         manifest['species'].append({
@@ -189,15 +265,59 @@ def main():
             # Where the trunk meets the ground, as a fraction of the cell. The card is anchored here.
             'trunkBase': [round((ox + nw / 2) / CELL, 4), round((CELL - MARGIN) / CELL, 4)],
             'aspect': round(nw / nh, 4),
+            # The OPAQUE sub-rect inside the cell, in atlas UV space. This is what the renderer maps
+            # onto a card quad: mapping the whole cell instead would wrap the transparent margin into
+            # the quad, so a card sized to heightM would draw a tree visibly shorter than heightM.
+            'contentUV': [
+                round((cx0 + ox) / (CELL * COLS), 6),
+                round((CELL * ROWS - (cy0 + oy + nh)) / (CELL * ROWS), 6),
+                round(nw / (CELL * COLS), 6),
+                round(nh / (CELL * ROWS), 6),
+            ],
         })
+        manifest['species'][-1]['normalize'] = {
+            'version': NORMALIZE_VERSION, 'sourceType': SOURCE_TYPE, 'k': AN.DELIGHT_K[SOURCE_TYPE],
+            'surfaceClass': SURFACE_CLASS, 'anchor': PALETTE_ANCHOR, 'snapAlpha': SNAP_ALPHA,
+            'LStar': round(stats['L_mean'], 1), 'CStar': round(stats['C_mean'], 1),
+            'nearestAnchor': stats['anchor'], 'deltaE2000': round(stats['deltaE'], 2),
+            'gate4Pass': bool(stats['gate4_pass']),
+            'normalMeanXY': round(float(n_after), 3), 'normalBandPass': bool(n_ok),
+            'rallyClipPct': round(stats['rally_clip_pct'], 3),
+        }
         op = float((alpha > 0.98).mean() * 100)
-        edge = float(((alpha > 0.02) & (alpha < 0.98)).mean() * 100)
-        print(f'  {name:<18} {cw}x{ch} -> {nw}x{nh}  opaque {op:5.2f}%  soft-edge {edge:5.2f}%')
+        gate = 'OK ' if stats['gate4_pass'] else 'FAIL'
+        print(f'  {name:<18} {nw}x{nh}  opaque {op:5.2f}%  '
+              f'L* {stats["src_L_mean"]:5.1f}->{stats["L_mean"]:5.1f}  '
+              f'C* {stats["src_C_mean"]:5.1f}->{stats["C_mean"]:5.1f}  '
+              f'|N.xy| {n_before:.3f}->{n_after:.3f}{"" if n_ok else " OUT-OF-BAND"}  '
+              f'dE {stats["deltaE"]:5.2f} vs {stats["anchor"]:<20} {gate}  '
+              f'rallyclip {stats["rally_clip_pct"]:.2f}%')
+
+    # ── STEP 8 — CONTACT SHEET ────────────────────────────────────────────────────────────────
+    # "every library asset rendered at identical fixed lighting on identical geometry, labelled...
+    # This sheet is the kitbash detector and no automated check substitutes for it." Six plates that
+    # each pass gate 4 individually can still not belong together; only the eye catches that.
+    SW, SH = 420, 460
+    sheet = Image.new('RGB', (SW * 3, SH * 2), (128, 128, 128))
+    for i, (name, *_rest) in enumerate(SPECIES):
+        card = Image.open(f'{CUT}/{name}.png').convert('RGBA')
+        card.thumbnail((SW - 40, SH - 60), Image.LANCZOS)
+        cell = Image.new('RGBA', (SW, SH), (128, 128, 128, 255))
+        cell.alpha_composite(card, ((SW - card.width) // 2, SH - 40 - card.height))
+        d = ImageDraw.Draw(cell)
+        st = manifest['species'][i]['normalize']
+        d.text((10, SH - 32), f"{name}  L*{st['LStar']} C*{st['CStar']}  dE {st['deltaE2000']}"
+                              f" -> {st['nearestAnchor'].split('_',1)[1]}", fill=(255, 255, 255))
+        sheet.paste(cell.convert('RGB'), ((i % 3) * SW, (i // 3) * SH))
+    sheet.save(f'{OUT}/tree_atlas_contact_sheet.png')
 
     atlas.save(f'{OUT}/tree_atlas_albedo.png')
     natlas.save(f'{OUT}/tree_atlas_normal.png')
-    with open(f'{OUT}/tree_atlas.json', 'w') as f:
-        json.dump(manifest, f, indent=2)
+    with open(MANIFEST, 'w') as f:
+        f.write('// GENERATED by tools/build-tree-atlas.py — do not edit by hand.\n')
+        f.write('// Re-run the tool after changing SPECIES or any source plate.\n')
+        f.write('export default ' + json.dumps(manifest, indent=2) + ';\n')
     print(f'\natlas {atlas.size[0]}x{atlas.size[1]}  ->  {OUT}/')
+    print(f'manifest -> {MANIFEST}')
 
 main()

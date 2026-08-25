@@ -2830,7 +2830,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           : nearEdgeDist >= treeMaxDist ? 0
           : 1 - (nearEdgeDist - treeFullDist) / treeFadeRange;
         const bbStart = treeMaxDist;          // where the 3D trees are fully gone
-        const bbEnd = treeMaxDist + 300;      // billboard fade-out
+        // v3 P3-10(c): fade out exactly where fog culls the tile, not 300 m past it. The old
+        // +300 spread the fade across 170-470 m while everything beyond FOG_FULL_DIST is hidden
+        // outright — so impostors never reached full count in the only band they are visible in.
+        const bbEnd = Math.min(treeMaxDist + 300, FOG_FULL_DIST);
         const bbFrac = (nearEdgeDist <= bbStart || nearEdgeDist >= bbEnd) ? 0
           : 1 - (nearEdgeDist - bbStart) / (bbEnd - bbStart);
         for (const h of entry.vegPoolHandles) {
@@ -2885,8 +2888,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             }
           } else if (m.isInstancedMesh && m.userData.isTreeBillboard && m.userData.maxInstanceCount > 0) {
             // Billboard trees: show beyond where 3D ends, using nearest-edge distance
-            const bbStart = treeMaxDist;   // 500m from nearest edge — where 3D trees fully fade out
-            const bbEnd = bbStart + 300;   // 800m — billboard fade-out
+            const bbStart = treeMaxDist;   // where 3D trees fully fade out
+            const bbEnd = Math.min(bbStart + 300, FOG_FULL_DIST);   // clamped — see the pooled path
             if (nearEdgeDist <= bbStart) {
               m.visible = false;
             } else if (nearEdgeDist >= bbEnd) {

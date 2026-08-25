@@ -1021,3 +1021,30 @@ after. Patching materials, re-lighting, and changing light counts are all the sa
 **What it is:** `sidewalkBaker` bakes raw elevations and documents that the frontend translate adds `ROAD_VISUAL_ABOVE_TERRAIN`. `roadBaker` instead bakes `+ROAD_VISUAL_ABOVE_TERRAIN(0.05) +ROAD_ZFIGHT_OFFSET(0.02) +ROAD_PRIORITY_Y_BUMP(0.001–0.009)` into every ribbon vertex itself. Until 2026-07-16 the frontend baked-roads translate re-added the lift → road surface at `base+0.12+bump`, which buried every paint family (oneway arrows −4cm invisible, lane lines/crosswalks co-planar z-fight), floated roads ~12cm over terrain, and made the car (wheels ride the terrain heightfield) look sunk by the same.
 
 **Invariant:** the baked road surface is `base + 0.07 + bump` (`base = elevation − offset`, vertExag 1). The baked-roads translate in `renderTileRoads` adds ONLY `−bakedOffset`; the baked-SIDEWALK translate (`buildBakedSidewalkMeshes`) DOES add `+ROAD_VISUAL_ABOVE_TERRAIN` — they are different on purpose, do not "unify" them without changing the bakers. Every paint `*_Y_ABOVE` constant in `roadRenderer.js` is tuned against `base+0.07+bump`, AND families built via `buildFlatRibbonGeometry` receive a hidden `+ROAD_ZFIGHT_OFFSET(0.02)` (custom-quad families — arrows, pictograms, zona30 — do not). The full table lives in the comment at `MARKING_Y_ABOVE_ROAD`. Changing ANY of: the bakers' lifts, the translate, `ROAD_VISUAL_ABOVE_TERRAIN`, or `ROAD_ZFIGHT_OFFSET` requires retuning ALL paint constants together (and a re-bake if bake-side).
+
+## G-54 — `getTreeGeometries()` and `getTreeMaterial()` must be used as a PAIR
+
+`CONFIG.TREE_CARDS` switches the whole tree path between 6 photographic cards and 4 legacy blobs.
+The vegetation pools hand `BatchedMesh` a geometry LIST and ONE material, and each instance's
+`geoIndex` is an index into that list.
+
+**Card geometry paired with the blob material does not throw — it draws garbage.** Every consumer
+(global pools, per-tile fallback, `environmentClusterRenderer`, the boot shader warm-up in `main.js`)
+must route through the two seam functions in `vegetationRenderer.js`. Never call
+`buildProceduralTreeGeometries()` / `getProceduralMaterial()` directly from outside that file.
+
+Corollary: **`CONFIG.NUM_TREE_VARIANTS` must equal the live geometry count.** It is shipped to the
+vegetation worker (which cannot see the geometry it buckets for), and `meshMaterializer` silently
+DROPS any `variantIndex` past the end of the geometry list — an over-count deletes a fraction of
+the city's trees with no error. `treeCards.test.js` asserts both switch positions.
+
+## G-55 — art-bible §4.4 normalize is not optional, and its palette snap must pick the NEAREST anchor
+
+Any new texture asset passes `tools/artNormalize.py` before it ships (rule N-5, "including 'it
+already looked fine'"). Skipping it is what made the first tree atlas read as stickers: six plates,
+each with its own baked sun and exposure, lit a second time by the scene.
+
+Inside step 5, snap each pixel toward the nearest ALLOWED anchor, never toward a single fixed one.
+A hue roughly opposite its anchor has two ~180° arcs, and the shorter one can pass through a hue
+far worse than the start: the jacaranda's genuine violet blossom snapped toward P9 Platanus Green
+went **through red and landed on hot pink**. The plate was correct; the code was not.

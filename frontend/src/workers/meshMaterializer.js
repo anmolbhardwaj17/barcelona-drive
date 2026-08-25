@@ -14,11 +14,12 @@ import { createRoofArray, patchRoofArrayMaterial } from '../map/roofArray.js';  
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import {
-  buildProceduralTreeGeometries,
-  getProceduralMaterial,
+  getTreeGeometries,
+  getTreeMaterial,
   getBushGeometry,
   getBushMaterial,
   getTreeBillboardMaterial,
+  getTreeBillboardGeometry,
 } from '../map/vegetationRenderer.js';
 import { createVegPoolSet } from '../map/vegPools.js';
 import { bindAoScaleUniform, AO_FRAG_APPLY } from '../map/aoSampler.js';
@@ -1048,15 +1049,7 @@ export function warmAllBuildingMaterials() {
 // Created once, added to the tile parent group; tiles add/remove instances via handles.
 // Collapses ~3 scene objects per resident tile (trees/shadows/bushes ×[main+zone]) to 3 total,
 // plus up to 4 billboard-impostor meshes per tile to 4 total (one pool per variant material).
-let _bbPoolGeo = null;
-function getBillboardPoolGeometry() {
-  if (_bbPoolGeo) return _bbPoolGeo;
-  const BB_W = 5, BB_H = 7;
-  _bbPoolGeo = new THREE.PlaneGeometry(BB_W, BB_H);
-  const pa = _bbPoolGeo.getAttribute('position');
-  for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) + BB_H / 2);
-  return _bbPoolGeo;
-}
+
 
 let _vegPools = null;
 export function getVegPools(parentGroup) {
@@ -1066,7 +1059,7 @@ export function getVegPools(parentGroup) {
   // all textures (60-110ms stalls), and bigger caps quadrupled the per-upload cost to 4 MB.
   _vegPools = {
     trees: createVegPoolSet({
-      name: 'trees', geometries: buildProceduralTreeGeometries(), material: getProceduralMaterial(),
+      name: 'trees', geometries: getTreeGeometries(), material: getTreeMaterial(),
       capacity: 16384, castShadow: false, receiveShadow: true,
       // castShadow stays false — blob shadows ground the trees; the directional shadow depth pass
       // over 100k+ tree verts was the single biggest tree GPU cost.
@@ -1080,11 +1073,15 @@ export function getVegPools(parentGroup) {
       capacity: 16384, castShadow: false, receiveShadow: true,
     }, parentGroup),
     // Billboard impostors — one pool set per variant (each has its own atlas-offset material).
-    billboards: [0, 1, 2, 3].map((vi) => createVegPoolSet({
-      name: `treeBillboards${vi}`, geometries: [getBillboardPoolGeometry()],
-      material: getTreeBillboardMaterial(vi),
-      capacity: 4096, castShadow: false, receiveShadow: false,
-    }, parentGroup)),
+    // v3 P3-10(c): ONE impostor pool for the whole city. This was one pool set and one material per
+    // variant; the atlas cell now lives in each variant's geometry UVs and setGeometryIdAt picks it,
+    // exactly as the solid-tree pool already worked.
+    billboards: createVegPoolSet({
+      name: 'treeBillboards',
+      geometries: Array.from({ length: CONFIG.NUM_TREE_VARIANTS }, (_, vi) => getTreeBillboardGeometry(vi)),
+      material: getTreeBillboardMaterial(),
+      capacity: 16384, castShadow: false, receiveShadow: false,
+    }, parentGroup),
   };
   return _vegPools;
 }
@@ -1102,8 +1099,8 @@ export async function materializeVegetationMeshes(workerResult, yieldFn, pools =
   const YIELD_EVERY = 600; // instances between cooperative yields (keeps this off the critical frame)
 
   // ── Tree BatchedMesh: all 4 variants in a single draw call ─────────────
-  const geometries = buildProceduralTreeGeometries();
-  const material = getProceduralMaterial();
+  const geometries = getTreeGeometries();
+  const material = getTreeMaterial();
 
   const variants = (workerResult.treeVariants || []).filter(
     v => v.count > 0 && v.variantIndex >= 0 && v.variantIndex < geometries.length
@@ -1253,17 +1250,10 @@ export async function materializeVegetationMeshes(workerResult, yieldFn, pools =
   }
 
   // ── Tree billboard impostors (2 triangles per tree for distant LOD) ──────
+  // Quad geometry comes from getTreeBillboardGeometry so the per-tile fallback and the pooled path
+  // cannot disagree about impostor size or atlas cell. (It also stops allocating a fresh
+  // PlaneGeometry per tile — the old local cache was scoped to this call, so every tile built one.)
   const treeBillboardMeshes = [];
-  const BB_W = 5, BB_H = 7;
-  let _bbGeo = null;
-  function getBBGeo() {
-    if (_bbGeo) return _bbGeo;
-    _bbGeo = new THREE.PlaneGeometry(BB_W, BB_H);
-    const pa = _bbGeo.getAttribute('position');
-    for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) + BB_H / 2);
-    pa.needsUpdate = true;
-    return _bbGeo;
-  }
 
   for (const variant of workerResult.treeVariants || []) {
     if (variant.count === 0) continue;
@@ -1291,15 +1281,15 @@ export async function materializeVegetationMeshes(workerResult, yieldFn, pools =
       if (yieldFn && (i % YIELD_EVERY) === (YIELD_EVERY - 1)) await yieldFn();
     }
 
-    if (pools && vi >= 0 && vi < pools.billboards.length) {
+    if (pools && vi >= 0 && vi < CONFIG.NUM_TREE_VARIANTS) {
       // Global-pool path: added HIDDEN — billboards only show in their 500–800 m band once the
       // tile LOD pass runs (default-visible would double-draw over the 3D trees).
-      const h = await pools.billboards[vi].add([{ geoIndex: 0, count: variant.count, matrices: bbMatrices }], yieldFn, false);
+      const h = await pools.billboards.add([{ geoIndex: vi, count: variant.count, matrices: bbMatrices }], yieldFn, false);
       if (h) { h.kind = 'billboard'; poolHandles.push(h); }
       continue;
     }
 
-    const bbMesh = new THREE.InstancedMesh(getBBGeo(), getTreeBillboardMaterial(vi), variant.count);
+    const bbMesh = new THREE.InstancedMesh(getTreeBillboardGeometry(vi), getTreeBillboardMaterial(), variant.count);
     bbMesh.instanceMatrix = new THREE.InstancedBufferAttribute(bbMatrices, 16);
     bbMesh.count = variant.count;
     bbMesh.frustumCulled = false; // billboard shader moves verts

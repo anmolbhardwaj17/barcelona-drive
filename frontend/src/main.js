@@ -52,7 +52,7 @@ import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
 import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
-import { renderVegetation, preloadTreeModels, updateTreeWind, getProceduralMaterial, getTreeBillboardMaterial, getBushMaterial } from './map/vegetationRenderer.js';
+import { renderVegetation, preloadTreeModels, updateTreeWind, getTreeMaterial, getTreeBillboardMaterial, getBushMaterial } from './map/vegetationRenderer.js';
 import { createSpatialIndex, queryNearestRoadSegment } from './map/spatialIndex.js';
 import { createStreetDisplay } from './ui/streetDisplay.js';
 import { createSpeedDisplay } from './ui/speedDisplay.js';
@@ -878,7 +878,7 @@ spawnTileReady.finally(() => {
           // uniform, but three keys the program on defines, so one warm covers the set.
           const _warmMats = [...warmAllBuildingMaterials(), getWaterMaterial()];
           try {
-            _warmMats.push(getProceduralMaterial(), getBushMaterial());
+            _warmMats.push(getTreeMaterial(), getBushMaterial());
             for (let v = 0; v < 4; v++) { const bm = getTreeBillboardMaterial(v); if (bm) _warmMats.push(bm); }
           } catch {}
           // v3 P1-03: anything the material registry has patched is, by definition, a material with

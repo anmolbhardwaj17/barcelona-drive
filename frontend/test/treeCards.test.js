@@ -1,0 +1,154 @@
+/**
+ * v3 P3-10 — photographic tree cards.
+ *
+ * The failures these guard against are all SILENT ones: a variant-count mismatch deletes trees
+ * without a warning, a UV that spans the whole cell shrinks a tree without an error, and a three
+ * upgrade that renames one shader chunk turns every card black on its far side while still
+ * compiling cleanly.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { CONFIG } from '../src/config.js';
+import MANIFEST from '../src/map/treeAtlas.js';
+import { buildTreeCardGeometries, TREE_CARD_SPECIES, TREE_CARD_COUNT, _cardInternals } from '../src/map/treeCards.js';
+import { buildProceduralTreeGeometries } from '../src/map/vegetationRenderer.js';
+import * as rendererMod from '../src/map/vegetationRenderer.js';
+
+test('variant count matches the geometry the renderer actually has — both switch positions', () => {
+  // Cards on (the default under node: no location, so the URL switch falls through to true).
+  assert.equal(CONFIG.TREE_CARDS, true);
+  assert.equal(CONFIG.NUM_TREE_VARIANTS, buildTreeCardGeometries().length);
+  // And the hardcoded legacy count in config.js still matches the real blob table. If someone adds
+  // a fifth blob variant, this fails rather than ?treecards=0 quietly dropping it.
+  assert.equal(buildProceduralTreeGeometries().length, 4);
+});
+
+test('every species card is 2 crossed quads standing on y=0 at its real height', () => {
+  const geos = buildTreeCardGeometries();
+  assert.equal(geos.length, TREE_CARD_COUNT);
+
+  for (let i = 0; i < geos.length; i++) {
+    const sp = TREE_CARD_SPECIES[i];
+    const pos = geos[i].getAttribute('position');
+    assert.equal(pos.count, 8, `${sp.name}: 8 verts (2 quads)`);
+    assert.equal(geos[i].getIndex().count, 12, `${sp.name}: 4 triangles`);
+
+    let minY = Infinity, maxY = -Infinity, maxX = -Infinity, maxZ = -Infinity;
+    for (let v = 0; v < pos.count; v++) {
+      minY = Math.min(minY, pos.getY(v)); maxY = Math.max(maxY, pos.getY(v));
+      maxX = Math.max(maxX, pos.getX(v)); maxZ = Math.max(maxZ, pos.getZ(v));
+    }
+    // Stands on the ground: the pools place instances at terrain height, so a card that
+    // straddles y=0 would sink half the trunk into the road.
+    assert.equal(minY, 0, `${sp.name}: base at y=0`);
+    assert.equal(maxY, sp.heightM, `${sp.name}: full height`);
+    // Image proportions preserved — a stretched canopy is the most obvious card artefact there is.
+    const w = sp.heightM * sp.aspect;
+    assert.ok(Math.abs(maxX * 2 - w) < 1e-4, `${sp.name}: quad width from image aspect`);
+    assert.ok(Math.abs(maxZ * 2 - w) < 1e-4, `${sp.name}: crossed quad matches`);
+  }
+});
+
+test('card UVs stay inside their own atlas cell (no bleed into a neighbouring species)', () => {
+  const geos = buildTreeCardGeometries();
+  const [cellW, cellH] = [MANIFEST.cell * MANIFEST.cols, MANIFEST.cell * MANIFEST.rows];
+  for (let i = 0; i < geos.length; i++) {
+    const sp = TREE_CARD_SPECIES[i];
+    const [u0, v0, du, dv] = sp.contentUV;
+    // The content rect must sit within the full cell rect...
+    const [cu, cv, cdu, cdv] = sp.uv;
+    assert.ok(u0 >= cu - 1e-6 && u0 + du <= cu + cdu + 1e-6, `${sp.name}: content inside cell (u)`);
+    assert.ok(v0 >= cv - 1e-6 && v0 + dv <= cv + cdv + 1e-6, `${sp.name}: content inside cell (v)`);
+    // ...and the rect's pixel proportions must be the aspect the geometry was sized with, or the
+    // card is stretched even though every individual number looks right.
+    assert.ok(Math.abs((du * cellW) / (dv * cellH) - sp.aspect) < 2e-3, `${sp.name}: contentUV aspect`);
+
+    const uv = geos[i].getAttribute('uv');
+    for (let v = 0; v < uv.count; v++) {
+      assert.ok(uv.getX(v) >= u0 - 1e-6 && uv.getX(v) <= u0 + du + 1e-6, `${sp.name}: u in cell`);
+      assert.ok(uv.getY(v) >= v0 - 1e-6 && uv.getY(v) <= v0 + dv + 1e-6, `${sp.name}: v in cell`);
+    }
+  }
+});
+
+test('normals form an outward dome, never pointing back into the canopy', () => {
+  const geos = buildTreeCardGeometries();
+  for (let i = 0; i < geos.length; i++) {
+    const sp = TREE_CARD_SPECIES[i];
+    const pos = geos[i].getAttribute('position'), nrm = geos[i].getAttribute('normal');
+    const cy = sp.heightM * _cardInternals().CANOPY_CENTRE_Y;
+    for (let v = 0; v < pos.count; v++) {
+      const n = [nrm.getX(v), nrm.getY(v), nrm.getZ(v)];
+      assert.ok(Math.abs(Math.hypot(...n) - 1) < 1e-5, `${sp.name}: normal is unit length`);
+      // Outward: the normal must have a positive component along (vertex - canopy centre).
+      const r = [pos.getX(v), pos.getY(v) - cy, pos.getZ(v)];
+      const dot = n[0] * r[0] + n[1] * r[1] + n[2] * r[2];
+      assert.ok(dot > 0, `${sp.name}: normal points away from the canopy centre`);
+    }
+  }
+});
+
+test('the double-sided flip that treeCards cancels still exists in the installed three', () => {
+  // treeCards rewrites this exact line so both faces of a card shade alike. If a three upgrade
+  // changes it the material logs a warning at compile time — but that only shows up in a browser,
+  // and a card path that silently blackens from behind is exactly the sort of regression that
+  // survives to a release. Fail here instead.
+  const chunk = fs.readFileSync(
+    'node_modules/three/src/renderers/shaders/ShaderChunk/normal_fragment_begin.glsl.js', 'utf8');
+  assert.ok(chunk.includes(_cardInternals().FACE_DIRECTION_SRC),
+    'three ShaderChunk changed — update FACE_DIRECTION_SRC in treeCards.js');
+});
+
+test('cards are alpha-tested cutouts, never blended', () => {
+  // Blending tens of thousands of quads means a full per-frame depth sort and no early-z. This is
+  // the single most expensive mistake available on this path, so it is asserted rather than trusted.
+  const { CARD_ALPHA_TEST } = _cardInternals();
+  assert.ok(CARD_ALPHA_TEST > 0 && CARD_ALPHA_TEST < 1);
+  const src = fs.readFileSync('src/map/treeCards.js', 'utf8');
+  assert.ok(/transparent:\s*false/.test(src), 'card material must not set transparent:true');
+});
+
+test('P3-10(c): impostor quads carry their own atlas cell and their species size', () => {
+  // The collapse removed the per-variant bbUvOff uniform by baking the cell into geometry UVs. If
+  // that bake is wrong every distant tree draws a slice of the wrong species — and it would look
+  // like an art bug, not a wiring bug.
+  const { getTreeBillboardGeometry } = require_renderer();
+  for (let i = 0; i < TREE_CARD_COUNT; i++) {
+    const sp = TREE_CARD_SPECIES[i];
+    const geo = getTreeBillboardGeometry(i);
+    const [u0, v0, du, dv] = sp.contentUV;
+    const uv = geo.getAttribute('uv');
+    for (let v = 0; v < uv.count; v++) {
+      assert.ok(uv.getX(v) >= u0 - 1e-6 && uv.getX(v) <= u0 + du + 1e-6, `${sp.name}: impostor u in cell`);
+      assert.ok(uv.getY(v) >= v0 - 1e-6 && uv.getY(v) <= v0 + dv + 1e-6, `${sp.name}: impostor v in cell`);
+    }
+    const pos = geo.getAttribute('position');
+    let minY = Infinity, maxY = -Infinity;
+    for (let v = 0; v < pos.count; v++) {
+      minY = Math.min(minY, pos.getY(v)); maxY = Math.max(maxY, pos.getY(v));
+    }
+    assert.ok(Math.abs(minY) < 1e-4, `${sp.name}: impostor stands on y=0`);
+    assert.ok(Math.abs(maxY - sp.heightM) < 1e-4, `${sp.name}: impostor matches card height`);
+  }
+  // Distinct cells: two species must not share a UV origin, which is what a stale cache would give.
+  const origins = new Set();
+  for (let i = 0; i < TREE_CARD_COUNT; i++) {
+    const uv = getTreeBillboardGeometry(i).getAttribute('uv');
+    origins.add(`${uv.getX(0).toFixed(5)},${uv.getY(0).toFixed(5)}`);
+  }
+  assert.equal(origins.size, TREE_CARD_COUNT, 'every impostor variant has its own cell');
+});
+
+test('P3-10(c): impostors are not blended', () => {
+  // transparent:true pushed every distant tree through the sorted pass with no Z-rejection.
+  const src = fs.readFileSync('src/map/vegetationRenderer.js', 'utf8');
+  const block = src.slice(src.indexOf('export function getTreeBillboardMaterial()'));
+  const mat = block.slice(0, block.indexOf('});'));
+  assert.ok(/transparent:\s*false/.test(mat), 'impostor material must not blend');
+  assert.ok(/alphaTest:/.test(mat), 'impostor material still cuts out');
+});
+
+function require_renderer() {
+  return rendererMod;
+}
