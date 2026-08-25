@@ -6,6 +6,7 @@
  * All geometry data arrives pre-merged from workers — no mergeGeometries calls.
  */
 import * as THREE from 'three';
+import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';   // v3 P1-13: single source (was mirrored here)
 import { markShared } from '../sharedMaterial.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -653,7 +654,7 @@ function getFacadeMaterial(hexColor, category) {
   // facade (per-vertex aWash factor baked by the building worker: 1 at base → 0 by ~7 m). Geometry
   // without the attribute reads 0 (WebGL default) → no wash, so shared use elsewhere is safe.
   mat.userData._uNightWash = { value: _facadeNight ? FACADE_WASH_NIGHT : 0 };
-  mat.onBeforeCompile = (shader) => {
+  patchMaterial(mat, (shader) => {
     shader.uniforms.uNightWash = mat.userData._uNightWash;
     bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
@@ -667,7 +668,7 @@ function getFacadeMaterial(hexColor, category) {
       .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`)
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
-  };
+  }, 'facade');
 
   injectFogShader(mat);
   _facadeMaterialCache.set(cacheKey, markShared(mat));

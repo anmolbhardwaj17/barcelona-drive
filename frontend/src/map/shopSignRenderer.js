@@ -7,6 +7,7 @@
  * (tile meshes live in the mirrored world group, same as the direction boards).
  */
 import * as THREE from 'three';
+import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { worldToLatLon } from '../projection.js';
 
 const COLS = 4, ROWS = 6;
@@ -85,14 +86,14 @@ function getShopSignMaterial() {
   if (_signMaterial) return _signMaterial;
   const cw = (1 / COLS).toFixed(6), ch = (1 / ROWS).toFixed(6);
   const mat = new THREE.MeshBasicMaterial({ map: getShopSignAtlas(), fog: true, color: _signNight ? _SIGN_NIGHT : _SIGN_DAY });
-  mat.onBeforeCompile = (shader) => {
+  patchMaterial(mat, (shader) => {
     shader.vertexShader = 'attribute vec2 aUvOffset;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <uv_vertex>',
       `#include <uv_vertex>
        vMapUv = vec2((1.0 - uv.x) * ${cw} + aUvOffset.x, uv.y * ${ch} + aUvOffset.y);`
     );
-  };
+  }, 'shopSign');
   _signMaterial = mat;
   return _signMaterial;
 }

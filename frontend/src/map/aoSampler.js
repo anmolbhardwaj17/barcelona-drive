@@ -13,6 +13,7 @@
  */
 
 import { latLonToWorld } from '../projection.js';
+import { patchMaterial } from '../map/materialRegistry.js';   // v3 P1-03
 
 // Perf A/B escape hatch: ?ao=off disables ALL AO consumption for the session (samplers return
 // null → no attribute fills, no worker sampling). Baked grids still download; purely a runtime gate.
@@ -104,7 +105,7 @@ export function bindAoScaleUniform(shader) { shader.uniforms.uAoScale = _aoScale
  * shares one compiled program across all patched materials of a type.
  */
 export function patchAoDarkening(mat) {
-  mat.onBeforeCompile = (shader) => {
+  patchMaterial(mat, (shader) => {
     bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
@@ -112,6 +113,6 @@ export function patchAoDarkening(mat) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;')
       .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`);
-  };
+  }, 'aoDarken');
   return mat;
 }

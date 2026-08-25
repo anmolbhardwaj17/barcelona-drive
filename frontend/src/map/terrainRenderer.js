@@ -5,6 +5,7 @@
  * World elevation normalization: optional worldElevationOffset (spawn elevation) is subtracted so spawn is near Y=0.
  */
 import * as THREE from 'three';
+import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import * as CANNON from 'cannon-es';
 import { latLonToWorld } from '../projection.js';
 import { CONFIG } from '../config.js';
@@ -761,7 +762,11 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   // Vertex colors provide coarse base; the shader adds per-pixel Delhi-style
   // macro patches, micro variation, soil blotches, and fiber texture detail
   // all sampled in world space for seamless cross-tile continuity.
-  material.onBeforeCompile = (shader) => {
+  // v3 P1-03: the base cache key must be set BEFORE patchMaterial, which captures it and appends
+  // its patch tags. Assigning it AFTER (as this did) clobbers the composed key — the same
+  // last-writer-wins bug the registry exists to stop, just in the cache key instead of the shader.
+  material.customProgramCacheKey = () => 'terrainBcnLush';
+  patchMaterial(material, (shader) => {
     shader.uniforms.detailScale = { value: 0.07 };
     bindAoScaleUniform(shader);
 
@@ -879,8 +884,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       // vAo is a MULTIPLIER (1 = open sky); uAoScale softens it under the night rig.
       diffuseColor.rgb *= (1.0 - (1.0 - vAo) * uAoScale);`
     );
-  };
-  material.customProgramCacheKey = () => 'terrainBcnLush';   // v3 P1-09: one variant, not two
+  }, 'terrain');
 
   const mesh = new THREE.Mesh(geometry, material);
   if (useBaked) {

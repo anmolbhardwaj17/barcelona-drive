@@ -80,6 +80,7 @@ import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
+import { getRegisteredMaterials } from './map/materialRegistry.js';   // v3 P1-03
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -716,6 +717,13 @@ spawnTileReady.finally(() => {
           try {
             _warmMats.push(getProceduralMaterial(), getBushMaterial());
             for (let v = 0; v < 4; v++) { const bm = getTreeBillboardMaterial(v); if (bm) _warmMats.push(bm); }
+          } catch {}
+          // v3 P1-03: anything the material registry has patched is, by definition, a material with
+          // a non-default shader — exactly the set that sync-compiles on first appearance. Pulling
+          // from the registry means the warm list stops being a hand-maintained array that silently
+          // falls behind (the P0-05 baseline measured 8 programs still compiling mid-drive).
+          try {
+            for (const m of getRegisteredMaterials()) if (m && !_warmMats.includes(m)) _warmMats.push(m);
           } catch {}
           const _wg = new THREE.BufferGeometry();
           _wg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0.01, 0, 0.01, 0, 0], 3));

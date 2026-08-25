@@ -4,6 +4,7 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
+import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
@@ -280,9 +281,10 @@ export function setRoadDecalNightMode(isNight) {
  * (and with anything that patches these materials later — see gotcha H9: three's CSM hard-assigns).
  */
 function patchRoadAO(mat) {
-  const prev = mat.onBeforeCompile;
-  mat.onBeforeCompile = (shader, renderer) => {
-    if (prev) prev(shader, renderer);
+  // v3 P1-03: the hand-rolled chain from P0-07 now goes through the registry, which also feeds the
+  // patch tag into customProgramCacheKey — without that, two materials differing only in patches
+  // hash to the same compiled program and one silently renders with the other's shader.
+  return patchMaterial(mat, (shader, renderer) => {
     bindAoScaleUniform(shader);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aAO;\nvarying float vAoDark;')
@@ -290,8 +292,7 @@ function patchRoadAO(mat) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;')
       .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}`);
-  };
-  return mat;
+  }, 'roadAO');
 }
 
 /**
@@ -302,9 +303,10 @@ function patchRoadAO(mat) {
  * Chains `onBeforeCompile` — see `patchRoadAO` above.
  */
 function patchRoadNightWash(mat) {
-  const prev = mat.onBeforeCompile;
-  mat.onBeforeCompile = (shader, renderer) => {
-    if (prev) prev(shader, renderer);
+  // v3 P1-03: the hand-rolled chain from P0-07 now goes through the registry, which also feeds the
+  // patch tag into customProgramCacheKey — without that, two materials differing only in patches
+  // hash to the same compiled program and one silently renders with the other's shader.
+  return patchMaterial(mat, (shader, renderer) => {
     shader.uniforms.uNightWash = _roadWashUniform;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aWash;\nvarying float vWash;')
@@ -313,8 +315,7 @@ function patchRoadNightWash(mat) {
       .replace('#include <common>', '#include <common>\nuniform float uNightWash;\nvarying float vWash;')
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.34) * (vWash * uNightWash);');
-  };
-  return mat;
+  }, 'roadNightWash');
 }
 
 /** Asphalt road material with vertex color variation (stylized mode). */

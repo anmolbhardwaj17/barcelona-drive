@@ -2,6 +2,7 @@
  * Create Three.js scene, camera, renderer, lights, and cannon-es ground.
  */
 import * as THREE from 'three';
+import { patchMaterial } from './map/materialRegistry.js';   // v3 P1-03
 import { QUALITY } from './quality.js';   // v3 P1-08
 import * as CANNON from 'cannon-es';
 import { latLonToWorld } from './projection.js';
@@ -426,7 +427,7 @@ function addClouds(scene, spawnX, spawnZ) {
   // Camera-facing quads + per-instance atlas tile (same technique as the tree impostors): put the
   // instance origin in view space, then push the quad corners out in view-plane XY scaled by the
   // instance matrix's column lengths (w/h live in the matrix scale — no extra scale attribute needed).
-  mat.onBeforeCompile = (shader) => {
+  patchMaterial(mat, (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aCloudTile;\nvarying float vCloudTile;\nvarying float vCloudDist;')
       .replace('#include <project_vertex>', [
@@ -447,7 +448,7 @@ function addClouds(scene, spawnX, spawnZ) {
         // moon, fog, curtains all ruled out first). Fully gone within 350m, untouched past 850m.
         'diffuseColor.a *= smoothstep(350.0, 850.0, vCloudDist);',
       ].join('\n'));
-  };
+  }, 'sceneMat');
   _cloudMaterials = [mat];   // setCloudNightMode tints through this list
 
   // Fuller sky — several populated rings from near-mid out to high wisps. Each ring wraps 360° with

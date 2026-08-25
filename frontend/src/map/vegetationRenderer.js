@@ -6,6 +6,7 @@
  * Building perimeter trees for coverage near structures.
  */
 import * as THREE from 'three';
+import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
@@ -179,7 +180,7 @@ export function getProceduralMaterial() {
   // Y-position proxy: position.y / TREE_HEIGHT gives ~0 at trunk base, ~1 at foliage tip.
   // Quadratic ramp ensures trunk base stays still, foliage tips sway fully.
   // Billboard trees use a separate material and are NOT affected by this patch.
-  proceduralMaterial.onBeforeCompile = (shader) => {
+  patchMaterial(proceduralMaterial, (shader) => {
     shader.uniforms.uTime         = { value: 0.0 };
     shader.uniforms.uWindStrength = { value: 0.6 };
     _treeWindUniforms = shader.uniforms;
@@ -231,7 +232,7 @@ export function getProceduralMaterial() {
     );
 
     patchVegWash(shader);   // urban-glow wash (see below) — shares the same compile pass
-  };
+  }, 'vegTree');
 
   return proceduralMaterial;
 }
@@ -922,7 +923,8 @@ export function getTreeBillboardMaterial(variantIndex) {
   _applyBbNight(mat);   // match current day/night state at creation
 
   const uOff = variantIndex / 4;
-  mat.onBeforeCompile = (shader) => {
+  // v3 P1-03: through the registry so a later patch (IBL, light grid) cannot clobber it.
+  patchMaterial(mat, (shader) => {
     shader.uniforms.bbUvOff = { value: uOff };
 
     // Declare uniform
@@ -963,7 +965,7 @@ export function getTreeBillboardMaterial(variantIndex) {
       gl_Position = projectionMatrix * mvPosition;
       `
     );
-  };
+  }, 'vegBillboard');
 
   _bbMaterials[variantIndex] = mat;
   return mat;
@@ -1196,7 +1198,7 @@ export function getBushGeometry() {
 export function getBushMaterial() {
   if (_bushMat) return _bushMat;
   _bushMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-  _bushMat.onBeforeCompile = (shader) => { patchVegWash(shader); };   // urban-glow wash at night
+  patchMaterial(_bushMat, (shader) => { patchVegWash(shader); }, 'vegWash');   // urban-glow wash at night
   return _bushMat;
 }
 
