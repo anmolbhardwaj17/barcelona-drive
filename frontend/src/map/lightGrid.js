@@ -89,6 +89,8 @@ export function setLights(lights) {
  * Rebuild the index grid around a world position. **Only call when the camera crosses a cell** —
  * this is O(lights × cells-in-radius) and has no business running every frame.
  */
+export const lightGridStats = { cellsOccupied: 0, cellsTotal: 0, slotsUsed: 0, meanOccupancy: 0 };
+
 export function updateLightGrid(camWorldX, camWorldZ) {
   if (!_indexTex) return;
   _originX = Math.floor(camWorldX / CELL_M) * CELL_M - (GRID_DIM / 2) * CELL_M;
@@ -114,6 +116,20 @@ export function updateLightGrid(camWorldX, camWorldZ) {
       }
     }
   }
+
+  // Proof-of-work stat. A cost measurement is only meaningful if the shader actually had lights to
+  // evaluate; without this, an empty grid reports a confident PASS and nobody can tell.
+  let occ = 0, slots = 0;
+  for (let c = 0; c < GRID_DIM * GRID_DIM; c++) {
+    const t = c * 4;
+    const n = (_indexData[t] ? 1 : 0) + (_indexData[t + 1] ? 1 : 0) + (_indexData[t + 2] ? 1 : 0) + (_indexData[t + 3] ? 1 : 0);
+    if (n) { occ++; slots += n; }
+  }
+  lightGridStats.cellsOccupied = occ;
+  lightGridStats.cellsTotal = GRID_DIM * GRID_DIM;
+  lightGridStats.slotsUsed = slots;
+  lightGridStats.meanOccupancy = occ ? slots / occ : 0;
+
   _indexTex.needsUpdate = true;
 }
 
@@ -179,7 +195,19 @@ export function patchLightGrid(mat) {
   }, 'lightGrid');
 }
 
-/** SPIKE ONLY — 32 lamps in a grid around a point, so the cost can be measured before the build. */
+/**
+ * SPIKE ONLY — 32 lamps around a point, so the cost can be measured before committing to the build.
+ *
+ * ⚠ These must be RE-PLACED as the camera moves. The grid window follows the camera; the lights do
+ * not follow it by themselves. Place them once at spawn and after ~200 m of driving every cell in
+ * view is empty, every slot fails `id < 0.5`, and the shader costs one texture fetch — which
+ * measures nothing and reports a confident PASS. That is exactly the false pass this comment exists
+ * to prevent.
+ *
+ * Laid out 8x4 at 22 m with radius 26, centred on the camera: the near field that actually fills the
+ * screen sits inside several overlapping radii, so its cells saturate all 4 slots. That is the
+ * worst case for fill cost, which is the honest thing for a gate to measure.
+ */
 export function stubSpikeLights(cx, cz, y = 6) {
   const col = new THREE.Color(0xFFB25E);   // Barcelona sodium-warm (regions/barcelona.js night.lampColor)
   const out = [];
@@ -202,7 +230,7 @@ export function stubSpikeLights(cx, cz, y = 6) {
  * Discards the first sample after each flip: the frame that toggles also pays for whatever the
  * driver was doing at that instant, and a state change is exactly when a stall is most likely.
  */
-const AB = { on: [], off: [], t0: 0, phase: 0, last: 0, done: false, skip: 0 };
+const AB = { on: [], off: [], t0: 0, phase: 0, last: 0, done: false, skip: 0, occ: [], slots: [] };
 const AB_INTERVAL_MS = 2500;
 const AB_CYCLES = 8;            // 8 flips ≈ 20 s of driving
 
@@ -222,20 +250,30 @@ export function lightGridABTick(gpuMs) {
       const mean = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
       const p95 = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length * 0.95)]; };
       const mOn = mean(AB.on), mOff = mean(AB.off), d = mOn - mOff;
+      const occ = mean(AB.occ), slots = mean(AB.slots);
+      // A near-empty grid makes the shader early-out and the cost vanish. That is not a pass, it is
+      // a failed experiment, and it must not be reported as a green light to spend a week.
+      const valid = occ >= 40 && slots >= 1.5;
       console.warn(
         '[lightgrid] SPIKE RESULT — 32 lights, %d samples on / %d off\\n' +
         '  GPU mean   OFF %s ms   ON %s ms   DELTA %s ms\\n' +
         '  GPU p95    OFF %s ms   ON %s ms   DELTA %s ms\\n' +
+        '  WORK       %s cells lit of %d, %s lights per lit cell  ->  %s\\n' +
         '  GATE K-N: delta must be <= 3.0 ms  ->  %s',
         AB.on.length, AB.off.length,
         mOff.toFixed(2), mOn.toFixed(2), d.toFixed(2),
         p95(AB.off).toFixed(2), p95(AB.on).toFixed(2), (p95(AB.on) - p95(AB.off)).toFixed(2),
-        d <= 3.0 ? 'PASS — build it' : 'FAIL — stop, the approach is wrong');
+        occ.toFixed(0), GRID_DIM * GRID_DIM, slots.toFixed(2),
+        valid ? 'grid was doing real work' : 'GRID WAS EMPTY — measurement is void',
+        !valid ? 'VOID — re-run, this measured nothing'
+               : d <= 3.0 ? 'PASS — build it' : 'FAIL — stop, the approach is wrong');
       window._ddLightGridAB = { meanOn: mOn, meanOff: mOff, delta: d,
                                 p95On: p95(AB.on), p95Off: p95(AB.off), samples: AB.on.length + AB.off.length };
       return;
     }
   }
+  AB.occ.push(lightGridStats.cellsOccupied);
+  AB.slots.push(lightGridStats.meanOccupancy);
   if (AB.skip > 0) { AB.skip--; return; }
   if (!(gpuMs > 0)) return;
   (lightGridUniforms.uLGEnabled.value > 0.5 ? AB.on : AB.off).push(gpuMs);

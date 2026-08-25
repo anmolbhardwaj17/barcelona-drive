@@ -1164,6 +1164,7 @@ function animate(time = 0) {
       // Spike lights are placed in the RENDERER's frame (camera.position), the same frame
       // vLGWorldPos is computed in. Do not use physics coords here — X is mirrored.
       setLights(stubSpikeLights(camera.position.x, camera.position.z));
+      updateLightGrid(camera.position.x, camera.position.z);
       let patched = 0;
       for (const m of getRegisteredMaterials()) { try { patchLightGrid(m); patched++; } catch {} }
       console.warn('[lightgrid] SPIKE armed — 32 lights, %d materials patched. Drive ~25 s; it A/Bs itself and prints SPIKE RESULT.', patched);
@@ -1172,6 +1173,10 @@ function animate(time = 0) {
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
     if (cxN !== _lgCellX || czN !== _lgCellZ) {
       _lgCellX = cxN; _lgCellZ = czN;
+      // SPIKE ONLY: re-place the stub lamps around the camera. The grid window follows the camera
+      // but the lights do not, so without this they are left behind at spawn and the shader ends up
+      // measuring an empty grid. The real build takes lamp positions from the tiles and this goes.
+      setLights(stubSpikeLights(camera.position.x, camera.position.z));
       updateLightGrid(camera.position.x, camera.position.z);
     }
   }
