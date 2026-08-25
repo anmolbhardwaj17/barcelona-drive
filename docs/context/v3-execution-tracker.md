@@ -31,22 +31,20 @@
 | `[adaptRes]` rare, res near 1.0 | ✅ 3 resizes, monotone 1.20 → 0.96, settled |
 | light-grid cost, REAL lamps | ✅ **+0.45 ms mean / +1.51 ms p95**, gate ≤3.0 |
 
-### ⚠ OPEN-1 · lamps flicker on/off every ~3–4 s during load, then settle
+### ✅ CLOSED-1 · the "lamps flicker every 3-4 s" report was the A/B HARNESS
 
-**Reported on the same drive. Root cause identified, NOT yet fixed.** An init-ordering bug:
+**Not a bug.** `lightGridABTick` (`lightGrid.js`) flips `uLGEnabled` every `AB_INTERVAL_MS` 2500 ms
+for 16 phases (~40 s) then pins it on. That is the reported cadence exactly, it strobes the WHOLE
+scene because it toggles the whole grid, and it ran on every `?lightgrid` load. **It is now behind
+`?lightgrid=ab` and never runs in normal play.**
 
-1. The boot warm-up compiles the program set at spawn (`main.js:799`).
-2. The light grid arms **later**, in the animate loop (`main.js:1256`), and patches every registered
-   material — **invalidating every program the warm-up just built**. That is the measured **864 ms**
-   `rend` arm frame; `main.js:1274` predicted 340 ms.
-3. Each tile burst then registers new materials → patch → `_lgDirtyPrograms` → `compileAsync`
-   debounced at 500 ms → another recompile. Lamps pop out and back on each cycle until streaming stops.
+⚠ **This session first blamed shader recompiles (arm-after-warm-up) — that diagnosis was WRONG for
+the flicker.** The reorder was independently correct and stays: the arm frame went **864 ms → 85 ms**
+and programs-at-drive **151 → 216** (warmed up front, not mid-drive). Two real problems with one
+symptom; fixing the stall did not fix the strobe because they were never the same thing.
 
-**It is NOT adaptRes.** Its resize does flash black (`adaptiveResolution.js:26`), but the three
-`[adaptRes]` lines land at the END of the log while the flicker and the `rend` hitches are at load.
-
-**Fix direction:** arm the grid BEFORE the boot warm-up so the warm set compiles the grid-patched
-variants once. This is also the ledger's open **"shader programs Δ, gate 0 — road/terrain unwarmed"** row.
+**Lesson, generalising D-23:** an instrument that mutates what the player sees must be opt-in and
+must announce itself, or its own output gets reported as a rendering bug. It was, twice.
 
 ### ⚠ OPEN-2 · road markings should pick up light harder (user request)
 
@@ -59,7 +57,8 @@ is retroreflective. Two levers, see the decision log. Perf cost of either is ~ze
 slabs (`roadRenderer.js:2600-2608`) plus bus-stop markings (`busStopRenderer.js:461`) — genuinely
 unlit, so they stay flat under lamps by design.
 
-⚠ **The light grid is still `?lightgrid`-only** (`main.js:220`) — measured, not shipped-on.
+✅ **The light grid is ON by default** as of 2026-08-25 (`?nolightgrid` is the escape hatch). H8's
+prerequisite for P4 foliage is therefore met.
 
 ### If you are a fresh session, do exactly this
 1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.

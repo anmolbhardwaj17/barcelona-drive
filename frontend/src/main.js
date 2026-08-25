@@ -217,7 +217,17 @@ const _BENCH = isBenchMode();
 // ── v3 P2 LIGHT-GRID SPIKE (?lightgrid) ────────────────────────────────────────────────────────
 // Measures the cost of clustered street lighting BEFORE committing the 8 days behind it.
 // Kill criterion K-N: >3.0 ms for 32 lights means this approach is wrong and P2 stops here.
-const _LIGHTGRID = (() => { try { return new URLSearchParams(location.search).has('lightgrid'); } catch { return false; } })();
+// v3 P2-04 SHIPPED 2026-08-25. The grid is ON by default — it is the night lighting, not an
+// experiment. P2-06 deleted the fake-night stack (ground-pool decals, hero spill, road/vegetation
+// night wash) in exchange for this, so with the grid OFF the city has no street lighting at all;
+// "off" is the broken state now, not the safe one. Gate K-N passed on 172 real lamps at
+// +0.45 ms mean / +1.51 ms p95 against a 3.0 ms budget.
+//   ?nolightgrid  — escape hatch, kills the grid (use to A/B a suspected grid regression by hand)
+//   ?lightgrid=ab — run the 40 s A/B harness. NOT on by default: it flips uLGEnabled every 2.5 s,
+//                   which visibly strobes the whole scene. That strobe was reported as a bug twice.
+const _LGPARAM = (() => { try { return new URLSearchParams(location.search); } catch { return null; } })();
+const _LIGHTGRID = !_LGPARAM?.has('nolightgrid');
+const _LIGHTGRID_AB = _LGPARAM?.get('lightgrid') === 'ab';
 let _lgArmed = false, _lgCellX = NaN, _lgCellZ = NaN;
 let _benchRoute = null;
 let _programsAtLoaderHide = null;
@@ -1307,7 +1317,10 @@ function animate(time = 0) {
       _lgDirtyPrograms = false; _lgLastCompile = time;
       renderer.compileAsync?.(scene, camera)?.catch(() => { /* falls back to sync compile on first draw */ });
     }
-    lightGridABTick(gpuTimer.getMs());   // dev A/B — see lightGrid.js (getMs is a cached EMA, no GPU sync)
+    // ?lightgrid=ab ONLY. This flips the whole grid on and off every 2.5 s for 40 s; running it by
+    // default made the entire scene strobe, which was reported as a rendering bug (twice) before
+    // anyone connected it to the measurement harness.
+    if (_LIGHTGRID_AB) lightGridABTick(gpuTimer.getMs());   // getMs is a cached EMA, no GPU sync
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
     // Rebuild on cell crossing OR when the tile set changed — a tile loading in brings new lamps
     // that would otherwise stay dark until the car happened to cross a cell boundary.

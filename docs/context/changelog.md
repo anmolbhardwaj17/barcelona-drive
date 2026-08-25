@@ -4,6 +4,22 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-25 — Light grid SHIPPED on by default; A/B harness moved behind ?lightgrid=ab
+- **The reported "lights come and go every 3-4 s" was the MEASUREMENT HARNESS, not a bug.**
+  `lightGridABTick` flips `uLGEnabled` every `AB_INTERVAL_MS` (2500 ms) for `AB_CYCLES * 2` = 16
+  phases (~40 s), then pins it on — which is exactly "every 3-4 seconds, then fine after a while",
+  and it strobes the WHOLE scene because it toggles the whole grid. It ran on every `?lightgrid`
+  load. **An earlier diagnosis in this session blamed shader recompiles from arm-after-warm-up; that
+  was wrong for the flicker.** (The reorder was still correct and still landed: the arm frame went
+  864 ms → 85 ms and programs-at-drive 151 → 216, i.e. warmed up front instead of mid-drive.)
+- A/B now runs ONLY under `?lightgrid=ab`. Default play never strobes.
+- **Grid is ON by default.** `_LIGHTGRID` was `has('lightgrid')`; it is now `!has('nolightgrid')`.
+  P2-06 deleted the fake-night stack in exchange for the grid, so grid-off is the broken state, not
+  the safe one. Gate K-N passed on 172 real lamps: +0.45 ms mean / +1.51 ms p95 vs a 3.0 ms budget.
+- **Generalises D-23's lesson:** a measurement harness that mutates what the player sees must be
+  opt-in and must say so on screen, or its own instrumentation gets filed as a rendering bug.
+- 41/41 tests pass.
+
 ## 2026-08-25 — Light grid: arm BEFORE the shader warm-up (kills the load-time lamp flicker) + brighter road paint
 - **Lamp flicker at load, fixed at the cause.** The grid armed from the animate loop (`main.js`), i.e.
   AFTER the boot shader warm-up. Arming patches every registered material, which invalidates its
