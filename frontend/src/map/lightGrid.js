@@ -190,3 +190,53 @@ export function stubSpikeLights(cx, cz, y = 6) {
   }
   return out;
 }
+
+/**
+ * SPIKE A/B HARNESS — measures the grid's real cost without a human comparing two drives.
+ *
+ * Two separate 90 s runs are a bad instrument here: different route, different tiles in view,
+ * different traffic, so a 1–2 ms difference is indistinguishable from having driven differently.
+ * This flips `uLGEnabled` every INTERVAL_MS within ONE drive and compares the means. Same frame,
+ * same geometry, same everything — the only variable is the grid.
+ *
+ * Discards the first sample after each flip: the frame that toggles also pays for whatever the
+ * driver was doing at that instant, and a state change is exactly when a stall is most likely.
+ */
+const AB = { on: [], off: [], t0: 0, phase: 0, last: 0, done: false, skip: 0 };
+const AB_INTERVAL_MS = 2500;
+const AB_CYCLES = 8;            // 8 flips ≈ 20 s of driving
+
+export function lightGridABTick(gpuMs) {
+  if (AB.done || !_indexTex) return;
+  const now = performance.now();
+  if (AB.t0 === 0) { AB.t0 = now; AB.last = now; AB.skip = 2; return; }
+
+  if (now - AB.last >= AB_INTERVAL_MS) {
+    AB.last = now;
+    AB.phase++;
+    lightGridUniforms.uLGEnabled.value = AB.phase % 2 === 0 ? 1 : 0;
+    AB.skip = 2;                                   // ignore the two frames straddling the flip
+    if (AB.phase >= AB_CYCLES * 2) {
+      AB.done = true;
+      lightGridUniforms.uLGEnabled.value = 1;
+      const mean = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+      const p95 = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length * 0.95)]; };
+      const mOn = mean(AB.on), mOff = mean(AB.off), d = mOn - mOff;
+      console.warn(
+        '[lightgrid] SPIKE RESULT — 32 lights, %d samples on / %d off\\n' +
+        '  GPU mean   OFF %s ms   ON %s ms   DELTA %s ms\\n' +
+        '  GPU p95    OFF %s ms   ON %s ms   DELTA %s ms\\n' +
+        '  GATE K-N: delta must be <= 3.0 ms  ->  %s',
+        AB.on.length, AB.off.length,
+        mOff.toFixed(2), mOn.toFixed(2), d.toFixed(2),
+        p95(AB.off).toFixed(2), p95(AB.on).toFixed(2), (p95(AB.on) - p95(AB.off)).toFixed(2),
+        d <= 3.0 ? 'PASS — build it' : 'FAIL — stop, the approach is wrong');
+      window._ddLightGridAB = { meanOn: mOn, meanOff: mOff, delta: d,
+                                p95On: p95(AB.on), p95Off: p95(AB.off), samples: AB.on.length + AB.off.length };
+      return;
+    }
+  }
+  if (AB.skip > 0) { AB.skip--; return; }
+  if (!(gpuMs > 0)) return;
+  (lightGridUniforms.uLGEnabled.value > 0.5 ? AB.on : AB.off).push(gpuMs);
+}

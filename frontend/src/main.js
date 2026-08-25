@@ -81,7 +81,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor } from './map/materialRegistry.js';   // v3 P1-03
-import { initLightGrid, setLights, updateLightGrid, patchLightGrid, stubSpikeLights, CELL_M } from './map/lightGrid.js';   // v3 P2
+import { initLightGrid, setLights, updateLightGrid, patchLightGrid, stubSpikeLights, lightGridABTick, CELL_M } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
 import { createTrafficSystem } from './car/trafficSystem.js';
@@ -1166,8 +1166,9 @@ function animate(time = 0) {
       setLights(stubSpikeLights(camera.position.x, camera.position.z));
       let patched = 0;
       for (const m of getRegisteredMaterials()) { try { patchLightGrid(m); patched++; } catch {} }
-      console.warn('[lightgrid] SPIKE armed — 32 lights, %d materials patched. Compare GPU ms against a ?bench run WITHOUT ?lightgrid.', patched);
+      console.warn('[lightgrid] SPIKE armed — 32 lights, %d materials patched. Drive ~25 s; it A/Bs itself and prints SPIKE RESULT.', patched);
     }
+    lightGridABTick(gpuTimer.getMs());   // self-measuring A/B — see lightGrid.js
     const cxN = Math.floor(camera.position.x / CELL_M), czN = Math.floor(camera.position.z / CELL_M);
     if (cxN !== _lgCellX || czN !== _lgCellZ) {
       _lgCellX = cxN; _lgCellZ = czN;
