@@ -11,54 +11,37 @@
 | | |
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
-| **Current phase** | **P2 — LOD and Night** (7/8 done) |
-| **Next task** | **The verification drive below.** P2 is 7/8; only `staticPools` remains and D-19b says do not start it — it buys GPU headroom we already have (GPU p50 **8.02 ms** of 16.7), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Keep attacking CPU/stream-in instead. |
-| **Tasks done** | **56 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
+| **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
+| **Next task** | **P3-01 · per-building proportional triangle budgets · 1.5 d.** P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
+| **Tasks done** | **57 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **Nothing.** P2-04 is signed off, console + visual. Two follow-ups (lamp flicker at load; marking brightness) are scoped in the box below and need a go-ahead, not a drive. |
+| **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
-### ▶ DO THIS FIRST — P2-04's visual check PASSED. Two follow-ups are open.
+### ▶ DO THIS FIRST — start P3-01. The bug-chase thread is PARKED, not lost.
 
-**The 2026-08-25 night drive is complete, console + visual.** P2-04 is visually signed off.
+**P2 is done.** P2-04 signed off (console + visual, light grid now ON by default); P2-08 code-complete
+with 12 invariant tests. `staticPools` stays deferred per D-19b.
 
-| check | result |
-|---|---|
-| street lamps | ✅ pools reach into the distance |
-| buildings | ✅ dark above the lamp line, no roofline wash |
-| road paint | ✅ flat on the asphalt at every angle |
-| headlights | ✅ defined beam with a cut-off |
-| `[frame]` names a subsystem | ✅ `rend`/`adaptRes`/`traffic`/`lgrid`; `ui 0.0`, `other` ≤1.6 ms |
-| `[adaptRes]` rare, res near 1.0 | ✅ 3 resizes, monotone 1.20 → 0.96, settled |
-| light-grid cost, REAL lamps | ✅ **+0.45 ms mean / +1.51 ms p95**, gate ≤3.0 |
+**PARKED — recorded, owned, none of them blocking P3.** Each has a written finding; resuming any of
+them is a decision, not a default:
 
-### ✅ CLOSED-1 · the "lamps flicker every 3-4 s" report was the A/B HARNESS
+| what | where | state |
+|---|---|---|
+| Surface roads buried in terrain | `terrain-tunnel-rework-plan.md` | measured: 8.8% of points, but p50 is −0.079 m — a TAIL, not systematic. Needs the by-road-class table from one more `?debug=roadfit` run |
+| Buildings sliced by the trench carve | `terrain-tunnel-rework-plan.md` | cause found (`trenchCorridors` has no building consumer). Fix is a bake filter + **re-bake** |
+| Túnel Glòries has no roof | — | **NOT A BUG.** Option L, deferred to Phase 4 by design |
+| OSM defect-repair layer | `osm-repair-layer.md` | designed, P-R1..P-R6. Recommendation stands: census only, AFTER P3 |
+| P2-08 drive check | P2-08 below | one drive; does not block P3 |
 
-**Not a bug.** `lightGridABTick` (`lightGrid.js`) flips `uLGEnabled` every `AB_INTERVAL_MS` 2500 ms
-for 16 phases (~40 s) then pins it on. That is the reported cadence exactly, it strobes the WHOLE
-scene because it toggles the whole grid, and it ran on every `?lightgrid` load. **It is now behind
-`?lightgrid=ab` and never runs in normal play.**
+**Why the warning:** every one of those came from looking at the game and finding something real, which
+is how bugs get found — but the v3 list is what moves the *look*, and a session of it produced two
+tasks off that list. Both things are worth doing; only one of them is the plan.
 
-⚠ **This session first blamed shader recompiles (arm-after-warm-up) — that diagnosis was WRONG for
-the flicker.** The reorder was independently correct and stays: the arm frame went **864 ms → 85 ms**
-and programs-at-drive **151 → 216** (warmed up front, not mid-drive). Two real problems with one
-symptom; fixing the stall did not fix the strobe because they were never the same thing.
-
-**Lesson, generalising D-23:** an instrument that mutates what the player sees must be opt-in and
-must announce itself, or its own output gets reported as a rendering bug. It was, twice.
-
-### ⚠ OPEN-2 · road markings should pick up light harder (user request)
-
-Markings are **already lit** — `MeshLambertMaterial`, P2-05 landed (`roadRenderer.js:962`), and the
-grid demonstrably reaches them (a crosswalk under a lamp reads yellow). Effective albedo is
-`MARK_ALBEDO 0xC4C4C4` × vertex `PAINT_WHITE 0xf5f5f5` ≈ **0.74**. The ask is more punch — real paint
-is retroreflective. Two levers, see the decision log. Perf cost of either is ~zero.
-
-⚠ **The `MeshBasicMaterial` light-grid warning is NOT the markings.** It is guard rails, railings and
-slabs (`roadRenderer.js:2600-2608`) plus bus-stop markings (`busStopRenderer.js:461`) — genuinely
-unlit, so they stay flat under lamps by design.
-
-✅ **The light grid is ON by default** as of 2026-08-25 (`?nolightgrid` is the escape hatch). H8's
-prerequisite for P4 foliage is therefore met.
+### ▶ P3-01 · per-building proportional triangle budgets · 1.5 d · risk medium
+Replace first-come `BALCONY_VERT_CAP` / `COMMERCIAL_VERT_CAP` / `BOUNDARY_VERT_CAP` racing in tile
+order. Measured: the median tile delivers detail to **26.6%** of eligible buildings, p10 **14.6%**,
+worst tiles 8.5–12.4%, and **127 of 158 dense tiles sit below 50%**. Compute a per-tile allowance,
+divide by eligible count, redistribute unspent slices. Full spec: master plan §4 → P3.
 
 ### If you are a fresh session, do exactly this
 1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.
