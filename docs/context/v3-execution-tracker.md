@@ -11,25 +11,37 @@
 | | |
 |---|---|
 | **Branch** | `v3` (plan/docs) · work branches off it per phase, e.g. `v3-p0-foundation` |
-| **Current phase** | **P0 — Truth, Safety, Deletion** · work branch `v3-p0-foundation` |
-| **Next task** | **P2 — but RE-SEQUENCE FIRST, see D-19b.** The plan spends 6 d on `staticPools` for GPU headroom the post-P1 baseline says we already have (GPU p50 **8.02 ms** of a 16.7 ms budget), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Attack stream-in / task #39 first. |
+| **Current phase** | **P2 — LOD and Night** · work branch `v3-p2-lighting` |
+| **Next task** | **The verification drive below.** P2 is 7/8; only `staticPools` remains and D-19b says do not start it — it buys GPU headroom we already have (GPU p50 **8.02 ms** of 16.7), while **19.9 ms of the 33.7 ms p95 frame is NOT GPU**. Keep attacking CPU/stream-in instead. |
 | **Tasks done** | **56 / 82** — **P0 ✅ · P1 ✅ COMPLETE** (26/27, P1-11 folded into P2). Next phase: **P2** |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **ONE drive at `localhost:4044/?lightgrid`** (~30 s) — returns BOTH the K-N light-grid verdict and the first real attribution of the long frames. |
+| **Blocked on** | **ONE verification drive — see the box directly below.** Nothing else needs the user. |
 
-### The drive that unblocks everything
-`http://localhost:4044/?lightgrid` **at NIGHT** → PLAY → Free Roam → **drive ~30 s**.
+### ▶ DO THIS FIRST — one verification drive
 
-**P2-04 visual check:** street lamps must now light the road and facades near them — the first real
-punctual light in the world. Watch for the X-mirror failure: pools on the WRONG SIDE of the street,
-symmetrically. That reads as "lighting looks a bit off", not as an obvious bug, so look for it
-deliberately. Lighting must NOT stop working as you drive into fresh tiles (late-material patching).
+After a laptop restart the servers are down. Two commands, two terminals:
 
-Also still reported:
-1. `[lightgrid] SPIKE RESULT` — includes a **WORK** line proving the grid was not empty. `VOID` ⇒ re-run; `PASS` ⇒ build P2-04..07; `FAIL` ⇒ P2 stops (see D-23 for why the first two runs were void).
-2. `[frame] 153ms — other 96.0 ⟨async: build:buildings 41⟩` — the first time a long frame has had an owner. `⟨async:⟩` = tile-build chunks; a bare `other` now genuinely means GC/browser, not "we could not tell".
+```bash
+cd /Users/apple/Desktop/delhi-drive/backend && npm start          # tiles, port 4041
+cd /Users/apple/Desktop/delhi-drive/frontend && npm run build && npm run preview   # port 4044
+```
 
-A `?bench` run additionally writes `longFrames` + `longFrameBlame` into the JSON.
+Then open **`http://localhost:4044/game?lightgrid`**, switch to NIGHT, and drive for about a minute
+on a street with traffic and street lamps. Paste the console output back.
+
+That single drive verifies everything landed since the last one:
+
+| what to look at | what should be true |
+|---|---|
+| street lamps | pools reach into the distance, not switching on as you arrive |
+| buildings | dark above the lamp line — no warm wash to the roofline |
+| road paint | flat on the asphalt at every angle, near and far; dark unless lit |
+| headlights | flat-topped beam with a defined cut-off, not an even circular pool |
+| `[frame]` lines | should name a subsystem (`roadq`, `hud`, `sky`) instead of `ui` |
+| `[adaptRes]` lines | should be rare now, and resolution should hold near 1.0 |
+
+**Nothing else is blocked on you.** Everything below is code-complete and tested; this drive is
+the only thing that can confirm it on screen.
 
 ### If you are a fresh session, do exactly this
 1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.
