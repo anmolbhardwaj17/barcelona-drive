@@ -189,6 +189,9 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   console.warn('[frame] %sms — %s%s%s%s', wall.toFixed(0), str,
     async_ ? `  ⟨async: ${async_}⟩` : '', gpuTag, heapMB);
 }, 50);
+// Hold the budget until the car is drivable — see cpuTimer.holdLongFrames(). Without this the load
+// burns all 40 report slots on frames main.js then discards, and no [frame] line ever prints.
+cpuTimer.holdLongFrames();
 // Perf logger — "● REC PERF" button (bottom-left) records per-frame samples → downloads a JSON to analyze.
 const perfLogger = createPerfLogger();
 // NOTE: GTAO (ambient occlusion) and Bokeh (depth-of-field) were removed — each re-renders the ENTIRE
@@ -1334,6 +1337,7 @@ function animate(time = 0) {
   if (_timeToDriveMs == null && carDriver
       && !document.getElementById('dd-loading') && !document.getElementById('dd-modeload')) {
     _timeToDriveMs = Math.round(performance.now());
+    cpuTimer.armLongFrames();   // fresh budget now that the measured thing has actually started
     _programsAtLoaderHide = renderer.info.programs?.length ?? null;
     console.warn('[perf] time-to-drive %d ms · shader programs %s', _timeToDriveMs, _programsAtLoaderHide);
   }

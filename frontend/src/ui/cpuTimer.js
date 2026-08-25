@@ -25,6 +25,13 @@ export function createCpuTimer() {
   // is one script entry — "FrameRequestCallback 121ms" tells you nothing about which subsystem.
   // These sections do know, so a frame over the threshold prints its own breakdown.
   let longCb = null, longMs = Infinity, longSeen = 0;
+  // ⚠ THE BUDGET MUST BE ARMED, NOT JUST CAPPED. `longSeen` increments HERE, but main.js discards
+  // every report until the car is drivable ("loading is expected to produce long frames"). A 21 s
+  // load therefore spent all 40 slots on frames that were thrown away, and NOT ONE `[frame]` line
+  // could print for the rest of the session — measured 2026-08-26, and it silently cost a whole
+  // diagnostic drive. A shorter 12 s load left slots over, so the same build "worked" one run and
+  // produced nothing the next, which is worse than failing outright.
+  let longArmed = true;
 
   // `interval` is the WALL time since the previous frame's start. The gap between it and the sum of
   // the measured sections ("other") is everything the section timers can't see: GC pauses, async
@@ -40,7 +47,7 @@ export function createCpuTimer() {
       for (const k in frameHeap) winHeap.set(k, (winHeap.get(k) || 0) + frameHeap[k]);
       // Ignore absurd intervals (tab backgrounded/throttled) so they don't own the worst slot all window.
       const wall = interval > 0 && interval < 500 ? interval : total;
-      if (longCb && wall >= longMs && longSeen < 40) {
+      if (longCb && longArmed && wall >= longMs && longSeen < 40) {
         longSeen++;   // capped: a sustained bad patch must not turn the console into the bottleneck
         const b = { ...frame };
         const other = wall - total;
@@ -84,6 +91,12 @@ export function createCpuTimer() {
      * NOT in the loop and no amount of optimising these sections will touch it.
      */
     onLongFrame(cb, thresholdMs = 50) { longCb = cb; longMs = thresholdMs; },
+    /**
+     * Hold long-frame reports (load time is expected to be slow and would eat the whole budget),
+     * then arm them with a FRESH budget once the thing being measured actually starts.
+     */
+    holdLongFrames() { longArmed = false; },
+    armLongFrames() { longArmed = true; longSeen = 0; },
     snapshot() { return { ...frame }; },
     heapSnapshot() { const o = {}; for (const k in frameHeap) o[k] = +(frameHeap[k] / 1048576).toFixed(2); return o; }, // MB/section this frame
     report() {
