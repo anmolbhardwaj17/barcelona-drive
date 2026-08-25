@@ -228,6 +228,34 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
 // burns all 40 report slots on frames main.js then discards, and no [frame] line ever prints.
 cpuTimer.holdLongFrames();
 
+/**
+ * compileAsync, bound to the render target we ACTUALLY draw into (D-40).
+ *
+ * three bakes the output colour space into every program's cache key and reads it from the bound
+ * target: null (the canvas) gives `srgb`, a plain WebGLRenderTarget gives `srgb-linear`. Every frame
+ * goes through `composer.render()`, into the composer's LINEAR target — so compiling with nothing
+ * bound builds a parallel set of programs the session never draws, and the next real frame compiles
+ * them all over again.
+ *
+ * ⚠ THIS IS THE ONLY PLACE ALLOWED TO CALL renderer.compileAsync. There were two call sites; the
+ * boot warm-up was fixed and the debounced lightGrid recompile below was not, so the warm-up
+ * compiled 150 programs correctly and 1.9 s later the other site recompiled THE WHOLE SCENE in the
+ * wrong colour space — 224 programs in a single 50 ms burst, every one of them a duplicate.
+ * test/compileTarget.test.js holds the "only one call site" rule.
+ *
+ * compile() runs synchronously inside compileAsync; only the readiness poll is async. So the target
+ * is restored immediately and no frame ever renders with it bound.
+ */
+function compileForComposer() {
+  const prev = renderer.getRenderTarget();
+  try {
+    renderer.setRenderTarget(composer.renderTarget1 ?? null);
+    return renderer.compileAsync?.(scene, camera);
+  } finally {
+    renderer.setRenderTarget(prev);
+  }
+}
+
 // ── SHADER-VARIANT WATCH (D-38) ────────────────────────────────────────────────────────────────
 // 66 programs compiled WHILE DRIVING on a 2026-08-26 drive (153 at time-to-drive → 219), each a
 // synchronous compile and each a visible stutter. We know the count climbs; we do NOT yet know WHICH
@@ -908,27 +936,9 @@ spawnTileReady.finally(() => {
           }
           _warmGrp.position.set(0, -5000, 0);
           scene.add(_warmGrp);
-          // ⚠ COMPILE FOR THE TARGET WE ACTUALLY RENDER INTO. three bakes the OUTPUT COLOUR SPACE
-          // into every program's cache key, and it reads that from the currently-bound render
-          // target: null (the canvas) gives `srgb`, a plain WebGLRenderTarget gives `srgb-linear`.
-          //
-          // Every frame goes through `composer.render()`, i.e. into the composer's LINEAR target.
-          // compileAsync with no target bound therefore warmed the whole city as `srgb` — a
-          // parallel set of programs the session never draws — and the first real frame compiled
-          // all of them again as `srgb-linear`. The 2026-08-26 drive shows the pairs interleaved:
-          // vegTree/sceneMat/vegBillboard/terrain/roadAO each appear twice, identical but for that
-          // one token (D-39).
-          //
-          // compile() runs SYNCHRONOUSLY inside compileAsync — only the readiness poll is async —
-          // so the target is restored immediately and no frame ever renders with it bound.
-          const _prevRT = renderer.getRenderTarget();
-          let _p;
-          try {
-            renderer.setRenderTarget(composer.renderTarget1 ?? null);
-            _p = renderer.compileAsync?.(scene, camera);
-          } finally {
-            renderer.setRenderTarget(_prevRT);
-          }
+          // Compiled against the composer's target, like every other compile — see
+          // compileForComposer() for why that matters (D-40).
+          const _p = compileForComposer();
           // ⚠ The warm group MUST come back out, on every path. three's own readiness poll can die
           // mid-flight — a 2026-08-26 drive caught `Cannot read properties of undefined (reading
           // 'isReady')` thrown from inside compileAsync's setTimeout, which leaves the promise
@@ -1463,7 +1473,7 @@ function animate(time = 0) {
     // material would be worse than the stall it replaces.
     if (_lgDirtyPrograms && time - _lgLastCompile > 500) {
       _lgDirtyPrograms = false; _lgLastCompile = time;
-      renderer.compileAsync?.(scene, camera)?.catch(() => { /* falls back to sync compile on first draw */ });
+      compileForComposer()?.catch(() => { /* falls back to sync compile on first draw */ });
     }
     // ?lightgrid=ab ONLY. This flips the whole grid on and off every 2.5 s for 40 s; running it by
     // default made the entire scene strobe, which was reported as a rendering bug (twice) before
