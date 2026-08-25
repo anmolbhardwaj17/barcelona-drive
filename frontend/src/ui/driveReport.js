@@ -37,6 +37,7 @@ const MAX_LONG = 200;
 let _armedAt = null;          // performance.now() at drive start — all times are relative to this
 let _warmCount = 0;           // programs the boot warm-up produced (D-38 measured 153)
 const _warmTokens = new Set();
+const _warmKeys = [];         // the warm keys as TOKEN ARRAYS — see nearestWarmDiff()
 const _variants = [];
 const _long = [];
 let _lastLongAt = -1e9;       // when the most recent long frame was seen, for the "during a stutter" tag
@@ -68,7 +69,14 @@ export function armReport(programs, meta = {}) {
   _meta = meta;
   _warmCount = programs?.length ?? 0;
   _warmTokens.clear();
-  if (programs) for (const p of programs) for (const t of tokenise(p?.cacheKey)) _warmTokens.add(t);
+  _warmKeys.length = 0;
+  if (programs) {
+    for (const p of programs) {
+      const t = tokenise(p?.cacheKey);
+      _warmKeys.push(t);
+      for (const x of t) _warmTokens.add(x);
+    }
+  }
 }
 
 export function isArmed() { return _armedAt != null; }
@@ -88,6 +96,9 @@ export function noteVariant(index, cacheKey) {
     // moment it must not. Same lesson as D-35: an instrument has to be tested for the path that
     // produces its output, not just the path that collects data.
     type: tokens[0] || '?',
+    // Only computed when the vocabulary diff came up empty — that is exactly when it is needed,
+    // and it costs a scan of the warm keys.
+    fieldDiff: novel.length ? null : nearestWarmDiff(tokens),
     tag: raw.includes('|') ? raw.slice(raw.lastIndexOf('|') + 1) : '',
     novel,
     // Only kept when there is no novel token to explain it — otherwise the diff IS the answer and
@@ -118,6 +129,37 @@ export function noteLongFrame({ wall, sections, async: asyncStr, gpu, heap, allo
   });
 }
 
+/**
+ * Name a late program by POSITION, not by vocabulary.
+ *
+ * The novel-token diff answers "what value is here that the warm set never had", and it ran out of
+ * road: a drive produced 124 late programs and every single one reported "no novel token". That is
+ * not a failure to find a cause — it is the correct answer to the wrong question. Those keys carry
+ * no new VALUE; they differ from a warm key by a COMBINATION, one field flipping to a value that
+ * already appears in some other program. A set difference cannot see that, by construction.
+ *
+ * So line the late key up against each warm key of the same length and report the positions that
+ * differ. When one field moved, this says exactly which — `#31 0→1` — and that is the whole answer.
+ * Bail past 4 differing fields: beyond that the two keys are unrelated and the "diff" is noise.
+ */
+function nearestWarmDiff(tokens) {
+  let best = null;
+  for (const w of _warmKeys) {
+    if (w.length !== tokens.length) continue;
+    const at = [];
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] !== tokens[i]) {
+        at.push(i);
+        if (at.length > 4) break;
+      }
+    }
+    if (at.length && at.length <= 4 && (!best || at.length < best.at.length)) best = { w, at };
+    if (best && best.at.length === 1) break;   // a single-field difference is the answer; stop looking
+  }
+  if (!best) return null;
+  return best.at.map((i) => `#${i} ${best.w[i] || '∅'}→${tokens[i] || '∅'}`);
+}
+
 function pct(sorted, p) {
   if (!sorted.length) return null;
   return +sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))].toFixed(1);
@@ -131,7 +173,10 @@ function groupVariants() {
     // programs the vocabulary is thin, every late key looks familiar, and everything lands in one
     // useless bucket. So fall back to the two fields that are always meaningful — the material TYPE
     // (first token) and our patch tag (after the last `|`) — and carry a sample key besides.
-    const sig = v.novel.length ? v.novel.join(',') : `${v.type}${v.tag ? ' | ' + v.tag : ''} (no novel token)`;
+    const where = v.fieldDiff ? v.fieldDiff.join(' · ') : '';
+    const sig = v.novel.length ? v.novel.join(',')
+      : where ? `${v.type}${v.tag ? ' | ' + v.tag : ''}   ${where}`
+      : `${v.type}${v.tag ? ' | ' + v.tag : ''} (identical to a warm key — recompiled, not new)`;
     let g = groups.get(sig);
     if (!g) groups.set(sig, (g = { cause: sig, count: 0, firstAtS: v.atS, lastAtS: v.atS, inLongFrames: 0, sampleKey: v.key }));
     if (!g.sampleKey && v.key) g.sampleKey = v.key;
@@ -191,7 +236,9 @@ export function digest(r) {
   for (const g of r.shaders.byCause.slice(0, 12)) {
     L.push(`  ×${String(g.count).padStart(3)}  ${g.cause}${g.inLongFrames ? `   [${g.inLongFrames} in long frames]` : ''}` +
            `   ${g.firstAtS}s→${g.lastAtS}s`);
-    if (g.sampleKey) L.push(`         key: ${g.sampleKey.slice(0, 160)}${g.sampleKey.length > 160 ? '…' : ''}`);
+    if (g.sampleKey && !/#\d+ /.test(g.cause)) {
+      L.push(`         key: ${g.sampleKey.slice(0, 160)}${g.sampleKey.length > 160 ? '…' : ''}`);
+    }
   }
   L.push(`FRAMES   ${r.frames.longFrames} long · p50 ${r.frames.msP50}ms · p95 ${r.frames.msP95}ms · max ${r.frames.msMax}ms`);
   L.push(`  time   ${r.frames.totalMsBySection.join(' · ') || '(none)'}`);

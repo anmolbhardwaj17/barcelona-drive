@@ -138,6 +138,10 @@ function check(label, checked, onChange, live, syncers) {
 export function createEscMenu(refs = {}) {
   document.head.appendChild(Object.assign(el('style'), { textContent: CSS }));
   const syncers = [];   // run on menu-open to refresh toggle states that can change elsewhere
+  // ...and on any fullscreen change, which is the one state the player can alter without touching
+  // this menu at all (Esc, F11, the macOS green button). Without this the Fullscreen toggle goes
+  // stale the first time they leave fullscreen by any route but the toggle itself.
+  document.addEventListener('fullscreenchange', () => { for (const s of syncers) s(); });
 
   const overlay = el('div'); overlay.id = 'dd-esc-overlay';
   const wrap = el('div', 'dd-esc-wrap'); overlay.appendChild(wrap);
@@ -230,6 +234,20 @@ export function createEscMenu(refs = {}) {
   const applyMetrics = () => { for (const e of metricsEls) e.style.display = metricsOn ? '' : 'none'; };
   applyMetrics();
   dispRow.appendChild(check('Stats for nerds', metricsOn, (v) => { metricsOn = v; ss('dd_showMetrics', v ? 'true' : 'false'); applyMetrics(); }));
+  // Fullscreen. The click IS the user gesture the API requires, which is why this lives on a toggle
+  // rather than being offered at load.
+  //
+  // ⚠ The toggle must not be the source of truth — the browser is. The user can leave fullscreen in
+  // ways this code never sees (Esc, F11, the green macOS button, switching Spaces), and a toggle
+  // that flipped optimistically would then sit there lying. So it reads document.fullscreenElement
+  // via `live`, and a fullscreenchange listener re-runs the syncers so it corrects itself the moment
+  // reality diverges — not merely the next time the menu happens to open.
+  dispRow.appendChild(check('Fullscreen', !!document.fullscreenElement, (v) => {
+    try {
+      if (v) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })?.catch(() => {});
+      else document.exitFullscreen?.()?.catch(() => {});
+    } catch { /* unsupported, or refused for want of a gesture — the syncer puts the toggle back */ }
+  }, () => !!document.fullscreenElement, syncers));
   // Fly mode (free camera vs driving) — reloads to switch. Reflect the RESOLVED mode (a URL ?mode param
   // outranks dd_flyMode), and strip any mode param from the URL on reload so the toggle isn't a dead no-op.
   const flyInitial = refs.carMode != null ? !refs.carMode : (ls('dd_flyMode', 'false') === 'true');
