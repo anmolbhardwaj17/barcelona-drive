@@ -484,3 +484,50 @@ Small, scoped, visible. NOT a rewrite.
 
 ## Status Legend
 ⬜ not started · 🟡 in progress · ✅ done (drive-test gate confirmed on screen)
+
+---
+
+## ⚠ FINDINGS REPORT — surface roads buried in terrain (2026-08-25, OPEN)
+
+**Symptom (user, night drive on Gran Via):** "road lines like crosswalks or side edge lines are
+coming above base DEM terrain, same goes for the road in some places."
+
+**This is NOT the P2-08 decal bug.** That one was decal-relative-to-road and is fixed. This is
+road-relative-to-TERRAIN, one level down the stack.
+
+**The two paths disagree, and one of them already documents the disagreement:**
+
+| path | where the road surface is |
+|---|---|
+| query / placement (`tileManager.js:3379`) | `Math.max(roadResult.height, terrainVal)` — **clamped up to terrain** |
+| rendered ribbon (`roadRenderer.js`) | the baked road elevation, **no terrain term anywhere** |
+
+`getSurfaceHeightAt` carries the comment *"Non-tunnel road: never below terrain (aligns visually, no
+sinking, slopes still work)"* — an explicit admission that baked road elevation CAN fall below
+terrain. The clamp makes gameplay placement safe and leaves the visuals alone, so where terrain wins,
+the asphalt is swallowed and only the paint — which sits `groundLift` (4.5-5 cm) above the road deck
+— still pokes out. That is exactly "lines above the terrain, and the road itself in some places".
+
+**Ruled out during diagnosis:**
+- Per-tile vs global elevation baseline — retired by D-12; both use `getWorldElevationOffset()`.
+- Terrain downsample breaking the conform guarantee — `CONFIG.TERRAIN_MAX_GRID` (128) matches
+  `terrainBaker.js` `GRID_SIZE` (128), so `useBaked` holds and the mesh equals the DEM grid.
+- DEM sampling being nearest-pixel — `demLoader.sampleElevation` is bilinear and noData-aware.
+
+**Not yet established:** WHY the baked road elevation falls below the terrain grid at the same (x,z)
+when both derive from the same sampler. Candidates, in order of suspicion: the selective terrain
+smoothing pass running after road elevations were sampled; road-point elevations coming from
+simplified//junction-snapped polylines rather than the drawn vertex positions; triangulated terrain
+vs bilinear DEM between grid points (smallest effect — the 128 grid is ~3.9 m against ~30 m DEM
+pixels, so this is likely sub-centimetre).
+
+**Fix directions (NOT chosen — this needs a decision, and 1 needs a re-bake):**
+1. **Bake-side conform** — carve terrain down to the carriageway where it exceeds road height, the
+   same shape as the existing tunnel-corridor carve (`terrainBaker.js:163`). Matches the spec's
+   "Roads conform to terrain; no floating/buried surface roads on slopes". **Requires a full re-bake.**
+2. **Render-side clamp** — build the ribbon at `max(roadY, terrainY)`, mirroring the query. No
+   re-bake, but the road would ride terrain noise and stop being a smooth ribbon.
+3. **Root fix** — make baked road elevation equal the terrain grid value at the same point, which is
+   what the baker already claims it does.
+
+**Do not "fix" this with depth bias.** Same trap as P2-08 — see that task's warning.
