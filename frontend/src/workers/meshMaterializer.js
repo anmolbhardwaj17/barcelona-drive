@@ -570,28 +570,29 @@ function injectFogShader(_mat) {}
 // as a giant flat plane; BackSide made others hollow)". P3-03 fixed the CAUSE — every ring is now
 // normalised by signed area in the worker, walls CW and courtyard holes CCW, roofs to match.
 //
-// That is NECESSARY but NOT SUFFICIENT, and the difference is why this has not simply been flipped:
-// `worldGroup.scale.x = -1` mirrors the whole scene and INVERTS the handedness of every triangle,
-// which is why the 2026-07-06 note concluded exterior = BackSide rather than FrontSide. The task
-// text says "flip to FrontSide"; the mirror says otherwise. Guessing between them is precisely how
-// the last attempt failed, so the choice is made by LOOKING:
+// RESOLVED BY DRIVE, 2026-08-25: **FrontSide**. BackSide rendered buildings hollow (you saw the far
+// interior wall through the near one); FrontSide is correct.
 //
-//   ?buildingside=back     expected correct under the X-mirror — try this first
-//   ?buildingside=front    what the task text assumes
-//   ?buildingside=double   today's behaviour, the safe fallback
+// This settles a contradiction that stood since July. The 2026-07-06 note reasoned that
+// `worldGroup.scale.x = -1` inverts triangle handedness and therefore "exterior = BackSide". The
+// mirror does invert handedness — but that note was written against INCONSISTENTLY WOUND geometry,
+// where neither side was right for every building, so its conclusion described a broken state rather
+// than the mirror's real effect. With rings normalised (walls CW, courtyard holes CCW, roofs to
+// match) the extruder's outward convention plus the mirror lands on FrontSide. The task text was
+// right and the changelog's inference was not; only a drive could tell them apart, which is why the
+// flag was made selectable instead of guessed.
 //
-// Wrong choice looks like: hollow buildings (you see the far interior wall), or a building collapsed
-// into a giant flat plane. Right choice looks identical to today, at roughly half the fragment cost
-// on the largest triangle population in the game.
+// Escape hatch kept — `?buildingside=back|front|double`. If a future geometry change breaks culling,
+// `?buildingside=double` restores the old always-safe behaviour in one reload, without a rebuild.
 //
-// ⚠ Do NOT change this default without a drive that checked courtyards and cylinders too — those are
-// the shapes most likely to have escaped the normalisation.
+// ⚠ Do NOT change this default without a drive that checked courtyards and cylinders — those are the
+// shapes most likely to escape the normalisation, and a street of plain boxes will not reveal them.
 const BUILDING_SIDE = (() => {
   let pick = null;
   try { pick = new URLSearchParams(location.search).get('buildingside'); } catch { /* worker/no-DOM */ }
-  if (pick === 'front') return THREE.FrontSide;
   if (pick === 'back') return THREE.BackSide;
-  return THREE.DoubleSide;
+  if (pick === 'double') return THREE.DoubleSide;
+  return THREE.FrontSide;   // default — measured, not assumed
 })();
 
 /**

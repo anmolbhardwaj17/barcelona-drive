@@ -4,6 +4,30 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-25 — v3 P3-01/02/03: building geometry rebuild (fair-share detail, storey bands, winding)
+- **P3-01 fair-share detail budgets.** The per-tile detail caps were first-come counters raced in
+  tile order — median tile delivered detail to 26.6% of eligible buildings. `createFairBudget` does
+  water-filling (`remaining/eligibleLeft` at each building's turn). Simulated on a dense tile:
+  67/120 served → 120/120, same vertex spend. Spec correction: `BOUNDARY_VERT_CAP`, `MALL_` and
+  `RELIGIOUS_` are dead in Barcelona (`ENABLE_DELHI_DETAILS = false`), so only balcony + commercial
+  were converted.
+- **P3-02 modular storey bands.** 3 UV-independent bands per wall face (ground/body/crown) replacing
+  the single quad; worst-tile wall verts 33,320 → ~99,960 against a 220,000 budget. `FACADE_GROUND_H_M`
+  / `STOREY_H` / `CROWN_H` moved into `buildingConstants.js` and `meshMaterializer` now reads them —
+  a fourth mirror killed. **Mid-air shopfronts are NOT zero yet:** measured that a body band spanning
+  >1 repeat crosses v=1.0 and repaints the shopfront, and that the geometry-only fix (one quad per
+  storey) costs ~266k verts against a 220k budget. The claim moves to P3-04's window-only layer;
+  `opts.windowOnlyTile` is already wired for it.
+- **P3-03 winding normalised at source** → `BUILDING_SIDE = FrontSide` shipped. Settles the
+  2026-07-06 revert: that note inferred "exterior = BackSide" from the X-mirror, but was written
+  against inconsistently-wound geometry, so it described a broken state rather than the mirror's real
+  effect. Resolved by driving `?buildingside=back|front|double`, which survives as an escape hatch.
+- **Regression, caught by driving not testing (D-29):** the P3-01 pre-pass referenced `cx`/`cy` from
+  outside the loop that defines them — every tile threw and NOT ONE BUILDING RENDERED, while fifteen
+  unit tests stayed green because none called `processBuildingsInWorker`. Added
+  `test/buildingWorker.smoke.test.js` (7 failures without the fix, 0 with).
+- 80 tests total.
+
 ## 2026-08-25 — Light grid SHIPPED on by default; A/B harness moved behind ?lightgrid=ab
 - **The reported "lights come and go every 3-4 s" was the MEASUREMENT HARNESS, not a bug.**
   `lightGridABTick` flips `uLGEnabled` every `AB_INTERVAL_MS` (2500 ms) for `AB_CYCLES * 2` = 16
