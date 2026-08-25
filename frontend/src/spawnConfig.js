@@ -23,17 +23,19 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
-  // 2026-08-25 — ROADFIT HOTSPOT A. world (4578.4, 3262.1), tile 16_33162_24479, way 902208621.
-  // The worst point the ?debug=roadfit probe found: a SURFACE road drawn 9.615 m BELOW the terrain.
-  // Placed here to answer one question by eye — is there a tunnel mouth or underpass at this spot?
-  // If yes, the way is an UNTAGGED TUNNEL and this belongs to the OSM repair layer (class V1), not
-  // to any terrain carve or render-side clamp. See terrain-tunnel-rework-plan.md.
-  //
-  // ⚠ findRoadSpawn() snaps to the nearest drivable NON-TUNNEL road, so the car may land on a
-  // neighbouring surface street rather than on the offending way itself — look AROUND, not just down.
-  // Hotspot B, if this one is inconclusive: lat 41.38509, lon 2.17475 (way 20353556, 9.598 m).
-  lat: 41.37930,
-  lon: 2.16979,
+  // 2026-08-25 — RONDA DE DALT (B-20), Sant Gervasi trench portal. tile 16_33154_24471.
+  // Roadfit hotspot A was checked on the ground: NO tunnel, and a residential street with no
+  // plausible need for one — so "untagged tunnel" is weakened for that case and picking more spots
+  // by hand is guessing. Moved to an EXPRESSWAY instead, because grade separation (trenches,
+  // portals, flyovers) is where missing-structure defects can actually exist, and because the
+  // roadfit probe now breaks the deep band down BY ROAD CLASS. Driving here samples motorway/trunk
+  // tiles, so the class table answers it with a rate rather than an anecdote:
+  //   deep burial concentrated on motorway/trunk/primary -> missing structure, OSM repair class V1/M1
+  //   deep burial spread across residential              -> bad elevation data, class V5
+  // (Roadfit hotspots for reference: A world 4578,3262 = 41.37930/2.16979 way 902208621, 9.615 m —
+  //  CHECKED, no tunnel. B world 4993,3908 = 41.38509/2.17475 way 20353556, 9.598 m — unchecked.)
+  lat: 41.4098,
+  lon: 2.1257,
   heading: null,
 };
 

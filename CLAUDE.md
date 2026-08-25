@@ -50,7 +50,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 
 ## Current Dev State (as of 2026-05-29)
 - **Region**: Barcelona (Delhi tiles preserved as fallback)
-- **Spawn**: **roadfit hotspot A** — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.37930, lon:2.16979}` (tile 16_33162_24479). The worst point `?debug=roadfit` found: a surface road drawn **9.615 m below terrain** (way 902208621). Set to answer by eye whether there is a tunnel mouth there — if so it is an UNTAGGED TUNNEL and belongs to the OSM repair layer (class V1), not to a terrain carve. `GRAN_VIA_SPAWN` in the same file is the previous default; swap it back when this check is done.
+- **Spawn**: **Ronda de Dalt (B-20)** trench portal — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.4098, lon:2.1257}` (tile 16_33154_24471). An EXPRESSWAY, chosen so `?debug=roadfit` samples motorway/trunk tiles: its new DEEP-BY-ROAD-CLASS table then says whether metre-deep burial concentrates on grade-separated classes (missing structure, OSM repair V1/M1) or is spread across residential (bad elevation data, V5). Roadfit hotspot A was checked on the ground — no tunnel, so that hypothesis is weakened there. `GRAN_VIA_SPAWN` is the previous default.
 - **Mode**: default `ENABLE_CAR: false` (fly/free camera). **Override per-load via URL** — see toggles below.
 - **Fog**: ON — `ENABLE_FOG: true` (the pre-ship re-enable already happened)
 - **Tile format**: v9 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`)

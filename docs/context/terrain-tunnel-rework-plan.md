@@ -572,3 +572,21 @@ aggregate slope comparison from that run is void; re-measure before drawing any 
 
 **This is also the repair layer's first census data**, arriving before P-R1 — evidence that the
 defect classes in `osm-repair-layer.md` are real and countable rather than hypothetical.
+
+### Hotspot A checked on the ground, 2026-08-25 — NEGATIVE
+
+world (4578, 3262) / 41.37930, 2.16979 / way 902208621, buried 9.615 m. **No tunnel, no underpass,
+and a street with no plausible need for either.** So "untagged tunnel" does NOT explain that case,
+and hand-picking further hotspots is guessing.
+
+**Instrument extended instead:** `?debug=roadfit` now breaks the DEEP (>2 m) band down **by road
+class** (`highwayType`), as a RATE per class rather than a raw count — 4 deep points out of 40
+matters more than 40 out of 4000 — with the worst instance, way id and street name per class.
+
+**The discriminator:** grade separation only exists on motorway / trunk / primary. So —
+- deep burial concentrated on those classes → **missing structure** is still live (repair V1/M1)
+- deep burial spread across residential → **bad elevation data** instead (repair V5), and the
+  untagged-tunnel story is dead for the whole tail, not just for hotspot A
+
+Spawn moved to **Ronda de Dalt (B-20)**, a real expressway with trenches and portals, so the probe
+samples motorway/trunk tiles and the table has something to say.

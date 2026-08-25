@@ -58,7 +58,8 @@ export function probeRoadFit(tileManager, { offset, vertExag, bakedIsRaw }) {
         const terrainY = tileManager.getTerrainHeightAt?.(p.x, p.y);
         if (terrainY == null) { noTerrain++; continue; }
         // positive = terrain is ABOVE the drawn asphalt = the road is buried by this much
-        samples.push({ buriedBy: terrainY - asphaltY, x: p.x, z: p.y, id: road.id ?? road.wayId ?? '?' });
+        samples.push({ buriedBy: terrainY - asphaltY, x: p.x, z: p.y, id: road.id ?? road.wayId ?? '?',
+                       cls: road.highwayType || '?', name: road.name || '' });
       }
     }
   }
@@ -98,7 +99,38 @@ ${worst.map((w) => `    ${w.x.toFixed(1)}, ${w.z.toFixed(1)}  ${w.buriedBy.toFix
   // Reporting one aggregate over both invites fixing the wrong one.
   const band = (lo, hi) => buried.filter((s) => s.buriedBy > lo && s.buriedBy <= hi).length;
   const shallow = band(0, 0.5), mid = band(0.5, 2), deep = buried.filter((s) => s.buriedBy > 2).length;
-  const waysDeep = new Set(buried.filter((s) => s.buriedBy > 2).map((s) => s.id));
+  const deepPts = buried.filter((s) => s.buriedBy > 2);
+  const waysDeep = new Set(deepPts.map((s) => s.id));
+
+  // WHICH ROAD CLASSES? Hotspot A was checked on the ground and had no tunnel and no plausible need
+  // for one, which weakens "untagged tunnel" for a residential street. Grade separation lives on
+  // motorway / trunk / primary, so the class mix is the discriminator: if deep burial concentrates
+  // on those, missing structure is still the story; if it is spread across residential, it is bad
+  // elevation data instead. Normalised per class — 4 deep points out of 40 matters more than 40
+  // out of 4000.
+  const byClass = new Map();
+  for (const smp of samples) {
+    const e = byClass.get(smp.cls) || { total: 0, deep: 0, ways: new Set(), worst: -Infinity, at: null };
+    e.total++;
+    if (smp.buriedBy > 2) {
+      e.deep++; e.ways.add(smp.id);
+      if (smp.buriedBy > e.worst) { e.worst = smp.buriedBy; e.at = smp; }
+    }
+    byClass.set(smp.cls, e);
+  }
+  const classRows = [...byClass.entries()]
+    .filter(([, e]) => e.deep > 0)
+    .sort((a, b) => (b[1].deep / b[1].total) - (a[1].deep / a[1].total));
+  if (classRows.length) {
+    console.warn('  DEEP >2m BY ROAD CLASS (worst rate first) — grade separation lives on motorway/trunk/primary:\n' +
+      classRows.map(([cls, e]) =>
+        `    ${String(cls).padEnd(14)} ${String(e.deep).padStart(5)}/${String(e.total).padEnd(6)} pts` +
+        ` (${(100 * e.deep / e.total).toFixed(1).padStart(5)}%)  ${String(e.ways.size).padStart(3)} ways` +
+        `  worst ${e.worst.toFixed(2)}m at ${e.at.x.toFixed(0)},${e.at.z.toFixed(0)}` +
+        `  way ${e.at.id}${e.at.name ? ` "${e.at.name}"` : ''}`).join('\n'));
+  } else {
+    console.warn('  DEEP >2m BY ROAD CLASS — none. Every buried point is under 2 m; this is purely co-planarity.');
+  }
   console.warn(
 `  BANDS     shallow <=0.5m ${shallow}  ·  0.5-2m ${mid}  ·  DEEP >2m ${deep} across ${waysDeep.size} distinct ways
             shallow = co-planarity (the visible paint-through-asphalt bug)
