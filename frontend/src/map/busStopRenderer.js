@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyGroundLayer } from './groundLayers.js';   // v3 P1
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 
@@ -59,6 +60,9 @@ function getSharedPoolMat() {
       opacity: POOL_OPACITY_DAY,
       depthWrite: false,
       side: THREE.DoubleSide,
+      // v3 P1: EXEMPT from groundLayers by its own RULES — a transparent, depthWrite:false decal is
+      // ordered by renderOrder, not by depth bias. The small offset here just keeps it off the
+      // asphalt it sits on. assertGroundLayers() skips transparent+depthWrite:false for this reason.
       polygonOffset: true,
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
@@ -458,10 +462,11 @@ export function buildBusStopMeshes(busStops, roads, getElevationAt) {
         color: 0xffffff,
         side: THREE.DoubleSide,
         depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
       });
+      // v3 P1: was a hand-rolled -2, which is LESS negative than road's -4 — so the bus-bay
+      // marking lost the depth test to the asphalt it is painted on. Exactly the bug P0-14 found in
+      // lane arrows and drain covers, surfaced here by the assertGroundLayers dev guard.
+      applyGroundLayer(_sharedMarkingMat, 'marking');
     }
     const markingMat = _sharedMarkingMat;
     const mergedMarking = mergeGeometries(validMarkings);
