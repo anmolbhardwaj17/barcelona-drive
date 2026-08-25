@@ -20,6 +20,8 @@
  * controller give up" rather than "how expensive is the frame".
  */
 
+import { getLongFrames, longFrameBlame } from '../ui/frameAttribution.js';
+
 // Gran Via de les Corts Catalanes, north-eastbound through the dense Eixample grid.
 //
 // ⚠ THESE MUST LIE ON THE STREET. The first version of this list ran lat-DOWN / lon-UP, which is
@@ -164,6 +166,11 @@ export function startBenchRoute(deps) {
         heapEndMB: +(heap1 / 1048576).toFixed(1),
         heapGrowthPct: heap0 ? +(((heap1 - heap0) / heap0) * 100).toFixed(1) : null,
       },
+      // WHY the slow frames were slow, not just that they were. Section breakdown plus the async
+      // build chunks that landed in the same frame — the part no section timer can see. Without
+      // this the JSON records that p95 was 33 ms and nothing about what owned it.
+      longFrames: getLongFrames(40),
+      longFrameBlame: longFrameBlame(),
       worstFrames: [...samples].sort((a, b) => b.ms - a.ms).slice(0, 30),
       samples,
     };
@@ -175,7 +182,8 @@ export function startBenchRoute(deps) {
       '  triangles p50 %s  p95 %s\n' +
       '  programs  %s → %s (delta %s)              ← GATE: delta 0\n' +
       '  heap      %s MB → %s MB (%s%%)\n' +
-      '  time-to-drive %s ms',
+      '  time-to-drive %s ms\n' +
+      '  long frames (>50ms) %s   blame: %s',
       reason,
       frame?.p50, frame?.p95, frame?.p99, frame?.max,
       gpu?.p50, gpu?.p95, gpu?.p99, gpu?.max,
@@ -183,6 +191,8 @@ export function startBenchRoute(deps) {
       out.gates.programsAtLoaderHide, out.gates.programsAtEnd, out.gates.programsDelta,
       out.gates.heapStartMB, out.gates.heapEndMB, out.gates.heapGrowthPct,
       out.gates.timeToDriveMs,
+      out.longFrames.length,
+      Object.entries(out.longFrameBlame).slice(0, 4).map(([k, v]) => `${k} ${v}`).join(' · ') || '—',
     );
     const blob = new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');

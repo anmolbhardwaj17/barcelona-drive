@@ -45,3 +45,30 @@ export function chunksIn(t0, t1, limit = 3) {
 export function formatChunks(list) {
   return list.length ? list.map((c) => `${c.label} ${c.ms.toFixed(0)}`).join(' · ') : '';
 }
+
+/**
+ * Attributed long frames, kept for the benchmark JSON.
+ *
+ * The console line is for a human watching a drive; this is for comparing runs. Without it, the
+ * bench JSON records that p95 was 33 ms and nothing about WHY, which is how a gate ends up
+ * measured for weeks with no owner. Capped so a bad run cannot grow the payload without bound.
+ */
+const LONG_CAP = 120;
+const _long = [];
+
+export function recordLongFrame(wallMs, breakdown, asyncStr) {
+  if (_long.length >= LONG_CAP) return;
+  _long.push({ ms: +wallMs.toFixed(1), sections: breakdown, async: asyncStr || null });
+}
+
+/** Longest first. Non-destructive: a bench run should not erase what the panel may still show. */
+export function getLongFrames(limit = 40) {
+  return [..._long].sort((a, b) => b.ms - a.ms).slice(0, limit);
+}
+
+/** Aggregate blame: total ms attributed to each section across every long frame. */
+export function longFrameBlame() {
+  const t = {};
+  for (const f of _long) for (const k in f.sections) t[k] = (t[k] || 0) + f.sections[k];
+  return Object.fromEntries(Object.entries(t).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, +v.toFixed(1)]));
+}

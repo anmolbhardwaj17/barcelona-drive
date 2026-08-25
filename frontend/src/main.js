@@ -66,7 +66,7 @@ import { createCompassBar } from './ui/compassBar.js';
 import { createPerformancePanel } from './ui/performancePanel.js';
 import { createGpuTimer } from './ui/gpuTimer.js';
 import { createCpuTimer } from './ui/cpuTimer.js';
-import { chunksIn, formatChunks } from './ui/frameAttribution.js';
+import { chunksIn, formatChunks, recordLongFrame } from './ui/frameAttribution.js';
 import { createPerfLogger } from './ui/perfLogger.js';
 import { createEscMenu } from './ui/escMenu.js';
 import { initTouchControls } from './ui/touchControls.js';
@@ -161,6 +161,7 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
   // Async build chunks run between frames, so no section can see them and they land in `other`.
   // Naming them here is the difference between "other 96ms" (GC? build? unknowable) and an owner.
   const async_ = formatChunks(chunksIn(t0, t1));
+  recordLongFrame(wall, _b, async_);   // kept for the bench JSON — see frameAttribution.js
   console.warn('[frame] %sms — %s%s', wall.toFixed(0), str, async_ ? `  ⟨async: ${async_}⟩` : '');
 }, 50);
 // Perf logger — "● REC PERF" button (bottom-left) records per-frame samples → downloads a JSON to analyze.
