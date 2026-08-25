@@ -563,7 +563,36 @@ function injectFogShader(_mat) {}
 // CCW), so NO single side renders every building correctly — FrontSide left some buildings inside-out
 // (a giant flat plane where a near wall was culled), BackSide made others hollow. DoubleSide is the only
 // reliable choice; backface culling here would need the worker to emit consistent winding first (deferred).
-const BUILDING_SIDE = THREE.DoubleSide;
+// v3 P3-03 — building face culling, and why this is still DoubleSide.
+//
+// Backface culling was switched on and REVERTED on 2026-07-06: "building geometry has inconsistent
+// triangle winding, so no single side renders every building right (FrontSide left some inside-out
+// as a giant flat plane; BackSide made others hollow)". P3-03 fixed the CAUSE — every ring is now
+// normalised by signed area in the worker, walls CW and courtyard holes CCW, roofs to match.
+//
+// That is NECESSARY but NOT SUFFICIENT, and the difference is why this has not simply been flipped:
+// `worldGroup.scale.x = -1` mirrors the whole scene and INVERTS the handedness of every triangle,
+// which is why the 2026-07-06 note concluded exterior = BackSide rather than FrontSide. The task
+// text says "flip to FrontSide"; the mirror says otherwise. Guessing between them is precisely how
+// the last attempt failed, so the choice is made by LOOKING:
+//
+//   ?buildingside=back     expected correct under the X-mirror — try this first
+//   ?buildingside=front    what the task text assumes
+//   ?buildingside=double   today's behaviour, the safe fallback
+//
+// Wrong choice looks like: hollow buildings (you see the far interior wall), or a building collapsed
+// into a giant flat plane. Right choice looks identical to today, at roughly half the fragment cost
+// on the largest triangle population in the game.
+//
+// ⚠ Do NOT change this default without a drive that checked courtyards and cylinders too — those are
+// the shapes most likely to have escaped the normalisation.
+const BUILDING_SIDE = (() => {
+  let pick = null;
+  try { pick = new URLSearchParams(location.search).get('buildingside'); } catch { /* worker/no-DOM */ }
+  if (pick === 'front') return THREE.FrontSide;
+  if (pick === 'back') return THREE.BackSide;
+  return THREE.DoubleSide;
+})();
 
 /**
  * Create or retrieve a facade material by category and hex color.

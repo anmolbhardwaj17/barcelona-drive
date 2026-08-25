@@ -34,6 +34,63 @@
  * @returns {{ positions: Float32Array, normals: Float32Array, uvs: Float32Array, indices: Uint32Array }}
  */
 /**
+ * v3 P3-03 — signed-area winding normalisation for building rings.
+ *
+ * WHY. `extrudePolygonWalls`/`extrudePolygonWallBands` derive the outward normal from edge
+ * direction: for a CW ring in world-XZ, edge (dx,dz) has outward normal (-dz, dx). OSM footprints
+ * arrive in BOTH orientations, so half the buildings in the city are extruded inside-out — their
+ * "outward" normals point in, and their triangles wind backwards.
+ *
+ * That is why backface culling could not be switched on. From changelog 2026-07-06:
+ *   "building geometry has inconsistent triangle winding, so no single side renders every building
+ *    right (FrontSide left some inside-out as a giant flat plane; BackSide made others hollow)."
+ * The flag was flipped, it failed, and it was reverted. Normalising HERE is the prerequisite that
+ * attempt was missing — one orientation for every ring, decided from the geometry itself.
+ *
+ * ⚠ HOLES WIND THE OTHER WAY, DELIBERATELY. A courtyard wall must face INTO the courtyard, which is
+ * the opposite outward direction to the outer wall. Normalising an inner ring to the same handedness
+ * as the outer one turns every courtyard inside-out — a subtle bug, because courtyards are rare
+ * enough to miss on a drive and the building still looks solid from the street.
+ *
+ * ⚠ THIS DOES NOT BY ITSELF LICENSE `FrontSide`. `worldGroup.scale.x = -1` mirrors the scene and
+ * INVERTS the handedness of every triangle, which is why the 2026-07-06 note says exterior =
+ * BackSide. Consistent winding is necessary, not sufficient — the flag must still be chosen by
+ * looking, and `?debug=winding` exists for that.
+ */
+
+/** Shoelace signed area in world-XZ. Positive = counter-clockwise when +x is right and +z is up. */
+export function signedAreaXZ(points) {
+  let a = 0;
+  const n = points.length;
+  if (n < 3) return 0;
+  // Skip a duplicated closing point — it contributes a zero-length edge but breaks the modulo pairing.
+  const closed = Math.abs(points[0].x - points[n - 1].x) < 1e-8 && Math.abs(points[0].y - points[n - 1].y) < 1e-8;
+  const m = closed ? n - 1 : n;
+  for (let i = 0; i < m; i++) {
+    const p = points[i], q = points[(i + 1) % m];
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a / 2;
+}
+
+/**
+ * Return `points` wound in the requested direction, reversing a COPY when it is not.
+ * @param {{x:number,y:number}[]} points
+ * @param {boolean} wantCCW  true for counter-clockwise in world-XZ
+ * @returns {{points:{x:number,y:number}[], reversed:boolean}}
+ */
+export function normalizeRingWinding(points, wantCCW) {
+  if (!points || points.length < 3) return { points, reversed: false };
+  const area = signedAreaXZ(points);
+  // A degenerate ring (collinear, zero area) has no meaningful winding — leave it rather than
+  // reversing on the sign of floating-point noise.
+  if (Math.abs(area) < 1e-9) return { points, reversed: false };
+  const isCCW = area > 0;
+  if (isCCW === wantCCW) return { points, reversed: false };
+  return { points: points.slice().reverse(), reversed: true };
+}
+
+/**
  * v3 P3-02 — MODULAR STOREY BANDS. Splits each wall face into up to three UV-independent bands
  * instead of one quad, and is the fix for the mid-air shopfront.
  *

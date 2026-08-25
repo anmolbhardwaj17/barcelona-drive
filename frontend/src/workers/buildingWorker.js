@@ -11,6 +11,7 @@
 import {
   extrudePolygonWalls,
   extrudePolygonWallBands,
+  normalizeRingWinding,
   createCylinderWalls,
   triangulatePolygon,
   createCylinderFull,
@@ -534,6 +535,11 @@ function getCylinderParams(building) {
   return { cx, cy, radius };
 }
 
+// v3 P3-03 — how many rings actually needed reversing. The 2026-07-06 backface attempt failed
+// without ever knowing this number; it is reported per tile so the scale of the inconsistency is a
+// measurement rather than an assumption.
+let _windingFixedOuter = 0, _windingFixedInner = 0, _windingSeen = 0;
+
 /**
  * Create wall geometry for a polygon building (replaces createPolygonBuilding).
  */
@@ -541,6 +547,16 @@ function createPolygonWallBuffers(building, baseY, category) {
   let footprint = building.footprint || [];
   if (footprint.length < 3) return null;
   footprint = simplifyFootprint(footprint);
+
+  // v3 P3-03: OSM footprints arrive in BOTH orientations, so half the city was extruded inside-out —
+  // outward normals pointing in, triangles winding backwards. That is exactly why backface culling
+  // was reverted on 2026-07-06. The extruder wants CW in world-XZ for outward normals.
+  {
+    const norm = normalizeRingWinding(footprint, /* wantCCW */ false);
+    footprint = norm.points;
+    _windingSeen++;
+    if (norm.reversed) _windingFixedOuter++;
+  }
 
   // v3 P3-02: 3 UV-independent storey bands per face instead of one quad. The ground band gets its
   // own UV rect (so the shopfront lands at street level, once), the body repeats per real storey,
@@ -571,6 +587,12 @@ function createPolygonWallBuffers(building, baseY, category) {
     for (let ring of building.innerRings) {
       if (!ring || ring.length < 3) continue;
       ring = simplifyFootprint(ring);
+      // ⚠ OPPOSITE handedness ON PURPOSE: a courtyard wall must face INTO the courtyard, which is
+      // the other outward direction. Matching the outer ring turns every courtyard inside-out — and
+      // courtyards are rare enough that it would not show on a casual drive.
+      const innerNorm = normalizeRingWinding(ring, /* wantCCW */ true);
+      ring = innerNorm.points;
+      if (innerNorm.reversed) _windingFixedInner++;
       const innerWalls = extrudePolygonWallBands(ring, building.height, baseY, bandOpts);
       if (innerWalls) allWalls.push(innerWalls);
     }
@@ -652,6 +674,10 @@ function createPolygonRoofBuffers(building, baseY) {
   let footprint = building.footprint || [];
   if (footprint.length < 3) return null;
   footprint = simplifyFootprint(footprint);
+  // v3 P3-03: roofs need the same treatment. `triangulatePolygon` inherits the ring's handedness, so
+  // an inconsistently-wound footprint gives some roofs a downward-facing normal — invisible under
+  // DoubleSide, a hole in the skyline the moment culling is switched on.
+  footprint = normalizeRingWinding(footprint, /* wantCCW */ false).points;
 
   const roofY = baseY + building.height + ROOF_Y_OFFSET;
   let holes = null;
@@ -920,6 +946,10 @@ export function processBuildingsInWorker(data, config) {
   // Instance data
   const tankInstanceList = [];
   const pipeInstanceList = [];
+
+  // v3 P3-03: per-TILE, not cumulative — module-level counters would otherwise report the worker's
+  // whole lifetime and make a single bad tile invisible inside a large total.
+  _windingFixedOuter = 0; _windingFixedInner = 0; _windingSeen = 0;
 
   // Global vertex budget across ALL material groups (walls + roofs + details)
   let totalTileVerts = 0;
@@ -2171,6 +2201,17 @@ export function processBuildingsInWorker(data, config) {
   if (_budgetDowngrades > 0) {
     console.warn('[buildingWorker] %d building(s) over the %dk vertex budget — detail suppressed',
       _budgetDowngrades, Math.round(GLOBAL_VERTEX_BUDGET / 1000));
+  }
+
+  // v3 P3-03: the number the 2026-07-06 backface attempt never had. If this is ~0 the source data was
+  // already consistent and inconsistent winding was NOT what broke that attempt — which would mean
+  // the X-mirror (`worldGroup.scale.x = -1`) is the whole story and the side flag, not the geometry,
+  // is what needs choosing. If it is large, half the city really was inside-out.
+  if (_windingFixedOuter > 0 || _windingFixedInner > 0) {
+    console.warn('[buildingWorker] winding normalised — %d/%d outer rings reversed (%s%%), %d inner rings',
+      _windingFixedOuter, _windingSeen,
+      _windingSeen ? (100 * _windingFixedOuter / _windingSeen).toFixed(1) : '0',
+      _windingFixedInner);
   }
   return {
     buildingGroups,
