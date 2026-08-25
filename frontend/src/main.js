@@ -222,6 +222,28 @@ cpuTimer.onLongFrame((wall, _b, str, t0, t1) => {
 // Hold the budget until the car is drivable — see cpuTimer.holdLongFrames(). Without this the load
 // burns all 40 report slots on frames main.js then discards, and no [frame] line ever prints.
 cpuTimer.holdLongFrames();
+
+// ── SHADER-VARIANT WATCH (D-38) ────────────────────────────────────────────────────────────────
+// 66 programs compiled WHILE DRIVING on a 2026-08-26 drive (153 at time-to-drive → 219), each a
+// synchronous compile and each a visible stutter. We know the count climbs; we do NOT yet know WHICH
+// variants arrive late, and guessing has been wrong three times today (D-33, D-36, and the
+// shadow-map theory). three stores every program's cache key, so the answer is already in memory —
+// this just reads it the moment the count grows. Zero cost when nothing is compiling.
+//
+// A "variant" is one compiled shader program. three derives its cache key from the material TYPE plus
+// every feature that changes the generated GLSL — map / vertexColors / fog / side / transparent /
+// LIGHT COUNTS / shadows — plus our own patch tags. Two materials sharing all of that share ONE
+// program; differ in any one and it is a whole new compile.
+let _progSeen = renderer.info.programs?.length ?? 0;
+function watchShaderVariants() {
+  const list = renderer.info.programs;
+  if (!list || list.length <= _progSeen) return;
+  for (let i = _progSeen; i < list.length; i++) {
+    console.warn('[variant] NEW shader program #%d — %s', i + 1, list[i]?.cacheKey ?? '(no cacheKey)');
+  }
+  _progSeen = list.length;
+}
+
 // Perf logger — "● REC PERF" button (bottom-left) records per-frame samples → downloads a JSON to analyze.
 const perfLogger = createPerfLogger();
 // NOTE: GTAO (ambient occlusion) and Bokeh (depth-of-field) were removed — each re-renders the ENTIRE
@@ -1339,7 +1361,8 @@ function animate(time = 0) {
   composer.render();
   warmupEnd();
   gpuTimer.end();
-  cpuTimer.lap('rend'); // CPU cost of submitting draws (not GPU exec — that's the gpuTimer)
+  cpuTimer.lap('rend');
+  watchShaderVariants();   // D-38: name late-compiling variants (no-op unless the count grew) // CPU cost of submitting draws (not GPU exec — that's the gpuTimer)
   if (perfLogger.recording) {
     perfLogger.sample({
       t: Math.round(time),
