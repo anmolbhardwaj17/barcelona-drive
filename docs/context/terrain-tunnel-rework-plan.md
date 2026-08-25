@@ -611,3 +611,37 @@ geometry — which is the `V1 tunnel-discontinuity` defect the repair layer is d
 
 **Note this list is TAGGED tunnels only.** It says nothing about untagged ones, which is the separate
 hypothesis the roadfit deep band is testing.
+
+---
+
+## ⚠ FINDING — the trench carve never consults BUILDINGS (2026-08-25, drone inspection)
+
+Túnel Glòries inspected in fly mode. **Two separate things are visible; only one is a bug.**
+
+**1. The open trench is CORRECT and deliberate.** Option L (slice ② addendum, 2026-06-11): a
+heightfield cannot open its own cliff face, so corridors are carved open end-to-end and *"Phase 4
+adds the physics-free visual roof."* A missing roof at Glòries is a KNOWN DEFERRED ITEM. Do not
+"fix" it — that is ADR territory, and re-sealing the roof is the exact design that failed its gate.
+
+**2. Buildings on the trench footprint are SLICED AND LEFT FLOATING. This is a real defect.**
+Drone shots show buildings on the trench lip sheared open with interior floor planes exposed,
+overhanging the void.
+
+**Cause, from the bake:** `trenchCorridors` (`buildRegion.js:1099`) has exactly three consumers —
+`flagTrenchCrossings` (roads → deck colliders), `flagFloatersOverCarve` (roads), and
+`carveTrenchesIntoGrid` (the terrain grid). **No building path consults it.** `pbfBuildings.js` and
+`buildingNormalize.js` contain no reference to trenches or corridors. So the terrain under a building
+is carved away while the building is emitted at its original footprint and base height, and it ends
+up hanging over the cut.
+
+**This is NOT the roadfit deep-burial tail** and not the untagged-tunnel hypothesis. Different
+subsystem, different symptom, found by looking rather than measuring.
+
+**Fix direction (not started):** test building footprints against the corridor polygons during the
+bake and drop — or set back — any that intersect. The polygons already exist at that point in the
+pipeline, so this is a filter, not new geometry. **Needs a re-bake** (Golden Rule 5: warn first).
+
+⚠ **Scope it to the trench footprint.** `flagFloatersOverCarve`'s inverse clause already found
+14,037 floating samples of which only 32 were deckless, *"all on 2 roads over NATIVE terrain/water
+dips — pre-existing class, NOT trench-caused"*. A building-side check written too broadly will
+re-discover that population and delete buildings over natural dips.
