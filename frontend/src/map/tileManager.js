@@ -1197,7 +1197,7 @@ function createApproachWallColliders(wallApproachRoads, tunnelRoads, world, road
 
 /**
  * Create tile manager. Requires roadRenderer, buildingRenderer, and renderVegetation.
- * Optional: renderBushes, renderTrafficLights.
+ * (v3 P1: renderBushes / renderTrafficLights removed — see decisions.md and the P1 deletions.)
  * @param {THREE.Group} scene - worldGroup to add meshes to
  * @param {(roads: object[]) => THREE.Mesh[]} createRoadMeshes
  * @param {(buildings: object[]) => THREE.Mesh[]} createBuildingMeshes
@@ -1416,7 +1416,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       rampBodies: [],
       tunnelShoulderBody: null,
       terrainTrimeshBody: null,
-      decalMeshes: [],
       spatialIndex: {},
       roadMinY: null,
       roadMaxY: null,
@@ -2429,7 +2428,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       approachWallBody: null,
         tunnelShoulderBody: null,
         terrainTrimeshBody: null,
-        decalMeshes: [],
         spatialIndex: {},
         roadMinY: null,
         roadMaxY: null,
@@ -2475,7 +2473,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       approachWallBody: null,
         tunnelShoulderBody: null,
         terrainTrimeshBody: null,
-          decalMeshes: [],
           spatialIndex: {},
           roadMinY: null,
           roadMaxY: null,
@@ -2631,7 +2628,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         collectArrayAndRemove(entry.roadInfraMeshes);
         collectArrayAndRemove(entry.urbanFeatureMeshes);
         collectArrayAndRemove(entry.vendorCartMeshes);
-        if (entry.decalMeshes?.length) entry.decalMeshes.forEach((m) => scene.remove(m));
         collectAndRemove(entry.terrainMesh);
         if (entry.tunnelMeshGroup)      { scene.remove(entry.tunnelMeshGroup);      allMeshes.push(entry.tunnelMeshGroup); }
         if (entry.canopyMeshGroup)      { scene.remove(entry.canopyMeshGroup);      allMeshes.push(entry.canopyMeshGroup); }
@@ -2676,7 +2672,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         }
 
         // Phase B: queue GPU disposal for deferred processing
-        _pendingDisposals.push({ meshes: allMeshes, decals: entry.decalMeshes || null, entry });
+        _pendingDisposals.push({ meshes: allMeshes, entry });
         tileCache.delete(key);
         if (_onMapTileRemoved) { try { _onMapTileRemoved(key); } catch (e) { /* minimap must never break tiles */ } }
       }
@@ -2709,7 +2705,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           if (m.isInstancedMesh || m.isBatchedMesh) { m.instanceMatrix?.dispose?.(); m.instanceColor?.dispose?.(); }
         }
       }
-      if (disposal.decals) disposeDecalMeshes(disposal.decals);
+      // v3 P1-15 REGRESSION FIX: this called disposeDecalMeshes(), which went with decalRenderer.js.
+      // entry.decalMeshes is now always [] — and an EMPTY ARRAY IS TRUTHY, so the guard passed and
+      // threw a ReferenceError inside update() on every tile unload, aborting the rest of the frame's
+      // work (including the whole LOD/culling pass). Decal plumbing removed entirely.
     }
 
     // Distance-based LOD — throttled: only recalc when viewer moves >15m
@@ -2758,7 +2757,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         hideAll(entry.busStopMeshes);
         hideAll(entry.urbanFeatureMeshes);
         hideAll(entry.vendorCartMeshes);
-        hideAll(entry.decalMeshes);
         hideAll(entry.clusterMeshes);
         // v3 P0-17: street dressing was absent from BOTH this block and the LOD loop below,
         // so shopfronts/awnings/signs/terraces rendered at every distance in every loaded tile.
@@ -2981,7 +2979,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       for (const m of entry.parkingMeshes || []) m.visible = showDetail;
       for (const m of entry.urbanFeatureMeshes || []) m.visible = showDetail;
       for (const m of entry.vendorCartMeshes || []) m.visible = showDetail;
-      for (const m of entry.decalMeshes || []) m.visible = showDetail;
 
       // Water
       if (entry.waterMesh) entry.waterMesh.visible = nearEdgeDist <= bldgMaxDist;
