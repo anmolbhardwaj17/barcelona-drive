@@ -1916,3 +1916,31 @@ User-reported from a drive ("too fake"). Three independent causes, all in `shopS
   `public/` grew to 183 MB. It also resolves the two `art-src/legacy/` masters that have no build tool.
 - New `frontend/test/colorGrade.test.js` proves the rolloff is hue-preserving by reimplementing the
   shader maths and asserting channel ratios survive, versus a 48% R:G skew under per-channel clamping.
+
+## 2026-08-27 — P4-01 step 1–2: the terrain-bake proof passed (read-only, nothing deleted yet)
+
+Two harnesses under `backend/tools/`, both read-only:
+
+- `terrainBakeCensus.mjs` — **bakedTerrain is 384.6 MB, 68.4% of the 562.2 MB tile store.** Planning
+  estimated 369 MB; confirmed and beaten. The elevation grid that would remain is 55.5 MB.
+- `terrainRegenProof.mjs` — re-runs the real `bakeTerrainMesh` against each tile's own stored grid
+  and compares every float and index. **442 of 444 tiles are bit-equal.**
+
+**The cross-tile dependency the spec feared does not exist.** `bakeTerrainMesh` takes
+`crossTileApproaches`, which a per-tile parser worker could never supply — but `buildRegion.js:1571`
+passes `(payload.elevation, [], null, [], null)`. Every tunnel/water/approach input is empty, because
+the legacy tunnel carve was disabled when the authored trench moved into the elevation grid. The
+baker is a pure function of the grid in current practice.
+
+**The 2 divergent tiles are stale, not unreproducible** — `gridSize 64` against `gridRows 128`, from
+before GRID_SIZE moved to 128. They already fail the `useBaked` gate and take the runtime fallback in
+production today, so the regeneration path is already live and correct; regenerating FIXES them.
+
+**Uint16 indices are feasible**: max vertex index across all 444 tiles is 16 383 (max 16 384
+verts/tile), so the 163.4 MB of Uint32 indices would halve if kept at all.
+
+⚠ The spec's "4 known NaN-normal sea tiles" no longer exist — 0 of 444 tiles carry a NaN normal.
+
+P4-01 risk drops from **high to low-medium**. The "delete" half is unchanged and still needs care:
+the second runtime water dip (`terrainRenderer.js:225-260`) must go in the SAME commit or it
+double-applies.

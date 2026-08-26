@@ -1131,7 +1131,39 @@ before anything is painted.**
 </details>
 
 
-### `[ ]` P4-01 · 3.0d · risk high · ⚠ **RE-BAKE**
+### `[~]` P4-01 · 3.0d · **risk high → LOW-MEDIUM, the proof passed** · ⚠ **RE-BAKE**
+
+> **STEP 1-2 DONE 2026-08-27 — the "prove" half of prove-then-delete. Harnesses:
+> `backend/tools/terrainBakeCensus.mjs` and `backend/tools/terrainRegenProof.mjs` (read-only).**
+>
+> | claim | measured |
+> |---|---|
+> | payload saving | **384.6 MB, 68.4%** of the 562.2 MB tile store (planning said 369 MB — confirmed and beaten) |
+> | grid that stays | **55.5 MB** |
+> | regenerates bit-equal | **442 / 444 tiles**, every float and index, using the real baker on each tile's own stored grid |
+> | Uint16 indices | **feasible** — max vertex index across all 444 tiles is **16 383**, max 16 384 verts/tile. Indices are 163.4 MB as Uint32 |
+>
+> **The cross-tile dependency the spec feared does not exist.** `bakeTerrainMesh` takes
+> `(elevation, tunnelRoads, waterPolygons, approachRoads, crossTileApproaches)` and a per-tile parser
+> worker cannot see its neighbours — but `buildRegion.js:1571` calls it as
+> `bakeTerrainMesh(payload.elevation, [], null, [], null)`. Every tunnel/water/approach input is
+> EMPTY, because the legacy tunnel carve was disabled when the authored trench moved into the
+> elevation grid (slice ②). In current practice the baker is a **pure function of the grid**.
+>
+> **The 2 divergent tiles are STALE, not unreproducible.** `16/33154/24485` and one other carry
+> `bakedTerrain.gridSize 64` against `elevation.gridRows 128` — baked before GRID_SIZE moved to 128.
+> They already FAIL the `useBaked` gate (`gridSize === maxGrid`, and `TERRAIN_MAX_GRID` is 128), so
+> **they take the runtime fallback in production today**: the regeneration path is already live and
+> already correct. Regenerating would FIX them; they render at quarter terrain detail right now.
+>
+> ⚠ **The spec's "4 known NaN-normal sea tiles" no longer exist** — 0 of 444 tiles carry a NaN
+> normal. That clause is stale; do not go looking for them.
+>
+> **Remaining (the "delete" half):** move generation into `tileParserWorker`, Uint16 indices,
+> repoint `getElevationAt` at the grid, and delete the second runtime water dip
+> (`terrainRenderer.js:225-260`) **in the same commit or it double-applies**.
+
+
 **TERRAIN: prove-then-delete the terrain bake.** Harness regenerating positions/uvs/indices from the elevation grid, bit-equal against `bakedTerrain` on 20 sampled tiles **including the 4 known NaN-normal sea tiles and 2 trench-carved tiles**. Only then move generation into the parser worker (Uint16 indices, computed smooth normals) and repoint `getElevationAt` at the grid. **Delete the second runtime water dip (`terrainRenderer.js:225-260`) in the SAME commit or it double-applies.** −369 MB of tile payload.
 
 - **Files:** `tileParserWorker.js`, `terrainRenderer.js:140-330,905-985`, `terrainBaker.js`, `buildRegion.js:1571-1574`
