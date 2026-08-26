@@ -21,6 +21,16 @@ const ORIGIN_LON = 2.115;
 const MERCATOR_UNSTRETCH = Math.cos((ORIGIN_LAT * Math.PI) / 180);
 
 let _originMercator = null;
+import {
+  classifySpecies as classifySpeciesShared,
+  SPECIES_SETS,
+  AVENUE_ROAD_TYPES,
+  ROADSIDE_STRIDE,
+  ROADSIDE_STRIDE_DEFAULT,
+} from '../map/treeSpeciesSets.js';
+
+export { SPECIES_SETS };
+
 function getOriginMercator() {
   if (_originMercator) return _originMercator;
   _originMercator = latLonToMercator(ORIGIN_LAT, ORIGIN_LON);
@@ -131,13 +141,13 @@ const DENSITY_WOOD = 1 / 15;
 const DENSITY_PARK = 1 / 30;
 const DENSITY_GRASS_AREA = 1 / 55;
 const ENABLE_ROADSIDE_TREES = true;
-// v3 P3-10(b) — roadside stride widened from 2-5 m to ~7 m (6-8). A 2 m stride plants trees closer
-// together than their own canopies are wide, which reads as a hedge rather than a street planting;
-// real Barcelona street trees sit at roughly one canopy width apart. Also removes ~35-40% of the
-// city's tree instances, which is the single largest vegetation cost reduction available without
-// touching what a tree costs to draw.
-const ROADSIDE_SPACING_MIN = 6;
-const ROADSIDE_SPACING_MAX = 8;
+// v3 P3-10(b) — roadside stride. Was a single 2-5 m for every road in the city: shorter than a
+// plane tree's canopy is wide (~12 m), so crowns overlapped ~80% and every street read as one
+// continuous hedge. It is now PER CONTEXT (see ROADSIDE_STRIDE in map/treeSpeciesSets.js) because
+// an avenue and a narrow side street should not plant at the same interval. These constants remain
+// only as the floor/ceiling for code paths that have no road context.
+const ROADSIDE_SPACING_MIN = ROADSIDE_STRIDE_DEFAULT[0];
+const ROADSIDE_SPACING_MAX = ROADSIDE_STRIDE_DEFAULT[1];
 const ROADSIDE_OFFSET_MIN = 3;
 const ROADSIDE_OFFSET_MAX = 7;
 const ROADSIDE_TREE_CAP = 4000;
@@ -997,7 +1007,11 @@ function getRoadsideTreePositions(tileData, tileKey, neighborRoads) {
 
       while (dist < segLen && positions.length < ROADSIDE_TREE_CAP) {
         const s = stepIdx;
-        const stepSpacing = ROADSIDE_SPACING_MIN + seeded(s, 0) * (ROADSIDE_SPACING_MAX - ROADSIDE_SPACING_MIN);
+        // Stride follows the road's own context — boulevards get room between crowns, side
+        // streets sit tighter. Same ctx string that picks the species, so the two cannot disagree.
+        const strideCtx = AVENUE_ROAD_TYPES.has(road.highwayType) ? 'avenue' : 'street';
+        const [strideLo, strideHi] = ROADSIDE_STRIDE[strideCtx] || ROADSIDE_STRIDE_DEFAULT;
+        const stepSpacing = strideLo + seeded(s, 0) * (strideHi - strideLo);
         if (isLink) {
           const cumFromStart = segStarts[i] + dist;
           if (cumFromStart < LINK_SKIP_DIST || cumFromStart > totalLen - LINK_SKIP_DIST) {
@@ -1149,66 +1163,16 @@ function collectAllPositions(tileData, tileKey, vegMask, neighborRoads, exclusio
   return positions.slice(0, cap);
 }
 
-// ── v3 P3-10(a): species-by-context classifier ────────────────────────────────────────────────
-//
-// Replaces `bakedVariantIndices[i] % NUM_TREE_VARIANTS`, which was species-BLIND: it spread six
-// species uniformly over every context, so palms grew in courtyards and bitter oranges lined Gran
-// Via. The species a driver expects is a function of WHERE the tree is, and that is known here.
-//
-// SCOPE — this is TIER 3 ONLY, and deliberately so. The design is three-tier: (1) an OSM-tagged
-// species within 4 m, (2) the tile's own species histogram, (3) context. Tiers 1 and 2 need the
-// per-tree `species` string, which the bake DOES extract (pbfPointFeatures.js:189) but which stops
-// at the tile format — the worker receives only positions and an index array. Piping it through is
-// the P1 species pipe, and it is not done. Tier 3 stands alone by design: species coverage is 13.8%,
-// so graceful degradation was always going to carry ~86% of the city regardless.
-//
-// Indices MUST match the atlas cell order in map/treeAtlas.js.
-const SP_PLANE = 0, SP_TIPUANA = 1, SP_CELTIS = 2, SP_PALM = 3, SP_JACARANDA = 4, SP_ORANGE = 5;
-
-// Weighted species sets per context. Weights are relative, not percentages.
-export const SPECIES_SETS = {
-  // Gran Via, Diagonal, Passeig de Gràcia: the pollarded plane is THE Barcelona avenue tree.
-  avenue:  [[SP_PLANE, 6], [SP_TIPUANA, 3], [SP_JACARANDA, 1]],
-  // Side streets: smaller crowns, more mixed.
-  street:  [[SP_CELTIS, 5], [SP_PLANE, 4], [SP_ORANGE, 1]],
-  // Passeig Marítim, Barceloneta, Port Olímpic.
-  coast:   [[SP_PALM, 8], [SP_TIPUANA, 2]],
-  // Parks and gardens: the only context where the jacaranda is anything but sparse.
-  park:    [[SP_TIPUANA, 4], [SP_CELTIS, 3], [SP_JACARANDA, 2], [SP_PALM, 1]],
-  // Plaças, courtyards, building perimeters: the bitter orange's home.
-  plaza:   [[SP_ORANGE, 5], [SP_CELTIS, 3], [SP_PALM, 2]],
-};
-
-// Road classes that read as an avenue rather than a side street.
-const AVENUE_ROAD_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+// v3 P3-10(a) species-by-context classifier — the table lives in map/treeSpeciesSets.js so the
+// background/hillside clusters (environmentClusterRenderer) select from exactly the same sets.
+// See that file for why. Local wrapper only binds the module-level variant count.
+export function classifySpecies(pos, i, seed, fallbackIndex) {
+  return classifySpeciesShared(pos && pos.ctx, i, seed, NUM_TREE_VARIANTS, fallbackIndex);
+}
 
 /** Test seam: the classifier reads the module-level variant count, which normally arrives with the
  *  per-tile config. Tests need to pin it to exercise both the card and blob branches. */
 export function _setTreeVariantCountForTest(n) { NUM_TREE_VARIANTS = n; }
-
-function pickWeighted(set, r) {
-  let total = 0;
-  for (let i = 0; i < set.length; i++) total += set[i][1];
-  let acc = r * total;
-  for (let i = 0; i < set.length; i++) {
-    acc -= set[i][1];
-    if (acc <= 0) return set[i][0];
-  }
-  return set[set.length - 1][0];
-}
-
-/**
- * Map one tree's context to a species index.
- *
- * Falls back to the legacy modulo whenever the renderer is NOT on the 6-species card path — the
- * blob path has 4 variants that mean something else entirely, and handing it a species index would
- * silently draw the wrong geometry rather than fail.
- */
-export function classifySpecies(pos, i, seed, fallbackIndex) {
-  if (NUM_TREE_VARIANTS !== 6) return fallbackIndex % NUM_TREE_VARIANTS;
-  const set = SPECIES_SETS[pos.ctx] || SPECIES_SETS.street;
-  return pickWeighted(set, seeded(i, seed + 4242));
-}
 
 function bucketPositionsByType(positions, tileKey) {
   const seed = (tileKey || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);

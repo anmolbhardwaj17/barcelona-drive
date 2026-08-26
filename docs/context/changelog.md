@@ -1243,3 +1243,18 @@ State at time of analysis:
 - **Billboard collapse**: 4 materials + 4 pool sets → 1 + 1, cells baked into geometry UVs,
   per-species impostor sizing, `transparent:true` dropped, `bbEnd` clamped to `FOG_FULL_DIST`.
 - Tests 151 → 164. New docs: `docs/context/tree-cards.md`. New gotchas G-54, G-55.
+
+## 2026-08-26 — P3-10 follow-ups (spacing, night, hillsides)
+
+- **Roadside stride is now per context** — avenue 11–15 m, street 9–13 m, coast 10–14 m (was one
+  global 2–5 m, then 6–8 m). ~70% fewer roadside tree instances vs the original baseline. Table in
+  the new shared `map/treeSpeciesSets.js`.
+- **Night lift for cards.** Canopies read near-black at night (normalize puts foliage at L* 45, and
+  the night lighting at canopy height is ~0 because street lamps sit below the crowns). Fixed with
+  `emissive`, not `color` — colour multiplies incoming light and multiplying zero stays zero.
+  Impostor night tint re-derived for the normalized atlas (0.22/0.28/0.40 → 0.42/0.48/0.50).
+- **Hillside/background clusters now classify.** `environmentClusterRenderer` was wired to the card
+  geometry but not the classifier and picked species uniformly at random — palms and bitter-orange
+  on Collserola. New `hill` set (celtis/tipuana/plane). Species table shared between the worker and
+  the cluster renderer so the two cannot drift.
+- Tests 164 → 168.

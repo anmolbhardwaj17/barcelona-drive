@@ -6,7 +6,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySpecies, SPECIES_SETS, _setTreeVariantCountForTest } from '../src/workers/vegetationWorker.js';
+import { classifySpecies as classifyShared, SPECIES_SETS, ROADSIDE_STRIDE, AVENUE_ROAD_TYPES }
+  from '../src/map/treeSpeciesSets.js';
+import { classifySpecies, _setTreeVariantCountForTest } from '../src/workers/vegetationWorker.js';
 import { TREE_CARD_SPECIES } from '../src/map/treeCards.js';
 
 const NAME = TREE_CARD_SPECIES.map((s) => s.name);
@@ -79,5 +81,39 @@ test('every context set references only species that exist in the atlas', () => 
       assert.ok(idx >= 0 && idx < TREE_CARD_SPECIES.length, `${ctx}: species ${idx} exists`);
       assert.ok(weight > 0, `${ctx}: weights are positive`);
     }
+  }
+});
+
+test('hillsides plant wild broadleaf — no palms, no ornamentals', () => {
+  // The regression this locks: environmentClusterRenderer picked uniformly at random across all six
+  // species, which put seafront Washingtonia palms and courtyard bitter-orange on Collserola.
+  const counts = new Map();
+  for (let i = 0; i < 4000; i++) {
+    const vi = classifyShared('hill', i, 85, 6, 0);
+    counts.set(NAME[vi], (counts.get(NAME[vi]) || 0) + 1);
+  }
+  assert.ok(!counts.has('washingtonia'), 'no palms on a hillside');
+  assert.ok(!counts.has('orange_bitter'), 'no bitter orange on a hillside');
+  assert.ok(!counts.has('jacaranda'), 'no ornamental jacaranda on a hillside');
+  assert.ok(counts.get('celtis') / 4000 > 0.3, 'hillsides are mostly celtis');
+});
+
+test('roadside stride is per road class and always wider than it was', () => {
+  // The original 2-5 m planted trees closer than their canopies are wide (~12 m for a plane), so
+  // every street read as one continuous hedge rather than a row of trees.
+  for (const [ctx, [lo, hi]] of Object.entries(ROADSIDE_STRIDE)) {
+    assert.ok(lo >= 9, `${ctx}: stride floor clears the old 2-5 m band`);
+    assert.ok(hi > lo, `${ctx}: stride is a range`);
+  }
+  // Avenues must plant more sparsely than side streets — bigger species, boulevard feel.
+  assert.ok(ROADSIDE_STRIDE.avenue[0] > ROADSIDE_STRIDE.street[0]);
+  assert.ok(AVENUE_ROAD_TYPES.has('primary') && !AVENUE_ROAD_TYPES.has('residential'));
+});
+
+test('the worker wrapper and the shared classifier agree', () => {
+  // Two call sites, one table — if these ever diverge, hillsides and streets drift apart again.
+  _setTreeVariantCountForTest(6);
+  for (let i = 0; i < 200; i++) {
+    assert.equal(classifySpecies({ ctx: 'park' }, i, 7, 0), classifyShared('park', i, 7, 6, 0));
   }
 });

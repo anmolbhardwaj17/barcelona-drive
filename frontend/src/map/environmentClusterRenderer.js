@@ -9,6 +9,7 @@ import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 import { getTreeGeometries, getTreeMaterial, getBushGeometry, getBushMaterial } from './vegetationRenderer.js';
+import { classifySpecies as classifyTreeSpecies } from './treeSpeciesSets.js';
 
 // ---------------------------------------------------------------------------
 // Deterministic PRNG (same as vegetationRenderer)
@@ -44,10 +45,17 @@ function getRockMaterial() {
   return _rockMat;
 }
 
-/** Get a random tree geometry from the main procedural tree variants. */
+/**
+ * Tree geometry for a background/hillside cluster item.
+ *
+ * v3 P3-10 follow-up: this used to be a straight `variantIdx % geos.length`, i.e. uniform random
+ * across all six card species — which put Washingtonia palms and bitter-orange ornamentals on
+ * Collserola hillsides. Cluster trees are wild broadleaf, so they classify under the 'hill' set.
+ * On the blob path classifySpecies returns the modulo untouched, so nothing changes there.
+ */
 function getClusterTreeGeometry(variantIdx) {
   const geos = getTreeGeometries();
-  return geos[variantIdx % geos.length];
+  return geos[classifyTreeSpecies('hill', variantIdx, 85, geos.length, variantIdx)];
 }
 
 // ---------------------------------------------------------------------------
@@ -449,10 +457,12 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
     const treeMat = getTreeMaterial();
     const numVariants = treeGeos.length;
 
-    // Group tree instances by variant
+    // Group tree instances by species. Hillside and background scatter is wild broadleaf — see
+    // getClusterTreeGeometry above for why this is no longer a uniform random pick.
     const buckets = Array.from({ length: numVariants }, () => []);
     for (let i = 0; i < treeInstances.length; i++) {
-      const variant = Math.floor(seeded(i, 85) * numVariants) % numVariants;
+      const variant = classifyTreeSpecies(
+        'hill', i, 85, numVariants, Math.floor(seeded(i, 85) * numVariants));
       buckets[variant].push(treeInstances[i]);
     }
 

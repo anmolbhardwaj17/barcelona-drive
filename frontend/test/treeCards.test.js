@@ -152,3 +152,19 @@ test('P3-10(c): impostors are not blended', () => {
 function require_renderer() {
   return rendererMod;
 }
+
+test('night lift uses emissive, and stays below the lit facades behind it', () => {
+  // Cards are lit MeshLambert: `color` multiplies incoming light, and at canopy height at night
+  // that is ~0 (street lamps sit below the crowns pointing down). Multiplying zero stays zero, so
+  // the lever must be emissive. It must also stay faint — a glowing tree is worse than a dark one.
+  const e = _cardInternals().CARD_NIGHT_EMISSIVE;
+  assert.equal(e.length, 3);
+  for (const c of e) {
+    assert.ok(c > 0, 'night emissive actually lifts');
+    assert.ok(c < 0.15, 'night emissive stays a silhouette, not a light source');
+  }
+  const src = fs.readFileSync('src/map/treeCards.js', 'utf8');
+  assert.ok(/setTreeCardNightMode/.test(src), 'night switch is exported');
+  // G-53: emissive is a plain MeshLambert uniform, so this must NOT touch a map/define.
+  assert.ok(!/emissiveMap/.test(src), 'no emissiveMap — that would add a define and recompile');
+});

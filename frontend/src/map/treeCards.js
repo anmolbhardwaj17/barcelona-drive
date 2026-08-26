@@ -161,6 +161,7 @@ export function getTreeCardMaterial() {
   // AD-5: the normal map is CALIBRATED at bake into the §3.7 foliage band (mean |N.xy| 0.20-0.35),
   // which is what makes 1.0 the correct value here. This knob is reserved for LOD fade, never taste.
   _material.normalScale = new THREE.Vector2(1.0, 1.0);
+  _applyCardNight(_material);   // match current day/night state at creation
 
   patchMaterial(_material, (shader) => {
     injectTreeWind(shader);
@@ -181,7 +182,39 @@ export function getTreeCardMaterial() {
   return _material;
 }
 
+// ── Night ─────────────────────────────────────────────────────────────────────────────────────
+//
+// Normalize put foliage at L* 45, which is right under a sun and far too dark under none: at night
+// the canopies went near-black while the buildings behind them stayed lit.
+//
+// The lever has to be `emissive`, not `color`. Cards are lit MeshLambert, so colour MULTIPLIES the
+// incoming light — and the incoming light at canopy height is close to zero, because the dominant
+// night sources are street lamps mounted BELOW the crowns and pointing down. Multiplying zero by a
+// brighter number is still zero. Emissive adds light independent of the rig, which is also the
+// honest physical story: a city canopy at night is lit by skyglow, not by the lamps under it.
+//
+// Deliberately low. This is meant to read as "foliage silhouette you can still see", not as a
+// glowing tree, and it must not lift the canopy above the lit facades behind it.
+const CARD_NIGHT_EMISSIVE = [0.050, 0.064, 0.055];   // faint, very slightly cool-green
+
+let _cardNight = false;
+function _applyCardNight(m) {
+  if (!m) return;
+  if (_cardNight) m.emissive.setRGB(...CARD_NIGHT_EMISSIVE);
+  else m.emissive.setRGB(0, 0, 0);
+}
+
+/**
+ * Day/night switch for the card material. Called from envToggle alongside the other material
+ * callbacks. Safe with respect to G-53: `emissive` is a plain uniform on MeshLambert (the slot
+ * always exists), so changing it uploads a uniform and does NOT recompile the program.
+ */
+export function setTreeCardNightMode(isNight) {
+  _cardNight = isNight;
+  _applyCardNight(_material);
+}
+
 /** Test/debug seam. */
 export function _cardInternals() {
-  return { CARD_ALPHA_TEST, CANOPY_CENTRE_Y, DOME_UP_BIAS, FACE_DIRECTION_SRC };
+  return { CARD_ALPHA_TEST, CANOPY_CENTRE_Y, DOME_UP_BIAS, FACE_DIRECTION_SRC, CARD_NIGHT_EMISSIVE };
 }

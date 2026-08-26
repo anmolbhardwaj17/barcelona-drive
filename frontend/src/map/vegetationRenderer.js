@@ -824,7 +824,18 @@ let _bbNight = false;   // persisted so billboards created after a night toggle 
 // palette; night look predates that deepening).
 // (the ×1.55 restore was folded in here too and overshot — billboards read pale mint against the
 //  dark 3-D trees; deepened + de-blued to sit in the same night band as the near canopy)
-function _applyBbNight(m) { m.color.setRGB(_bbNight ? 0.22 : 1, _bbNight ? 0.28 : 1, _bbNight ? 0.40 : 1); }
+// The 0.22/0.28/0.40 tint was tuned against the hand-drawn ellipse atlas, which derived from the
+// day-DEEPENED foliage palette and so arrived far too bright. The card atlas is already normalized
+// to L* 45 and is not pre-brightened, so the same tint crushes it to black — and the near cards are
+// now LIFTED at night (see setTreeCardNightMode), which the impostors have to meet or trees darken
+// abruptly as they cross the LOD band. Cards therefore get their own, much gentler tint.
+const BB_NIGHT_ELLIPSE = [0.22, 0.28, 0.40];
+const BB_NIGHT_CARDS   = [0.42, 0.48, 0.50];
+function _applyBbNight(m) {
+  if (!_bbNight) { m.color.setRGB(1, 1, 1); return; }
+  const t = CONFIG.TREE_CARDS ? BB_NIGHT_CARDS : BB_NIGHT_ELLIPSE;
+  m.color.setRGB(t[0], t[1], t[2]);
+}
 export function setTreeBillboardNightMode(isNight) {
   _bbNight = isNight;
   for (const m of _bbMaterials) { if (m) _applyBbNight(m); }

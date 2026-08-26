@@ -93,11 +93,17 @@ The design is three-tier. **Only tier 3 is implemented**, and deliberately:
 |---|---|---|
 | 1 | OSM-tagged species within 4 m | **Blocked** — needs the P1 species pipe |
 | 2 | Per-tile species histogram | **Blocked** — same |
-| 3 | Context: avenue / street / coast / park / plaza | **Done** |
+| 3 | Context: avenue / street / coast / park / plaza / **hill** | **Done** |
 
 The bake *does* extract a per-tree `species` string (`pbfPointFeatures.js:189`) but it stops at the
 tile format — the worker receives only positions and an index array. Tier 3 stands alone by design:
 species coverage is 13.8%, so graceful degradation was always going to carry ~86% of the city.
+
+**The hillside gap.** `environmentClusterRenderer` (background and hill scatter) was wired to the
+card *geometry* but never to the *classifier* — it picked uniformly at random, which put seafront
+Washingtonia palms and courtyard bitter-orange on Collserola. It now selects from a `hill` set
+(celtis / tipuana / plane — wild broadleaf, no palms, no ornamentals). The species table is a
+**shared module** precisely so this gap cannot reopen.
 
 Context is assigned where trees are generated (`collectAllPositions`), because that is the only
 place it is known: roadside trees carry their road class, building-perimeter and courtyard trees are
@@ -131,12 +137,42 @@ Also in this pass:
 
 ---
 
-## 5. Roadside decimation (P3-10b)
+## 5. Roadside stride (P3-10b)
 
-`ROADSIDE_SPACING_MIN/MAX` 2–5 m → **6–8 m**. A 2 m stride plants trees closer together than their
-own canopies are wide, which reads as a hedge rather than a street planting. Also removes ~35–40% of
-the city's tree instances — the largest vegetation saving available without changing what a tree
-costs to draw.
+Was a single **2–5 m** for every road in the city — shorter than a plane tree's canopy is wide
+(~12 m), so crowns overlapped ~80% and every street read as one continuous hedge.
+
+Now **per context** (`ROADSIDE_STRIDE` in `treeSpeciesSets.js`), because an avenue and a narrow side
+street should not plant at the same interval:
+
+| Context | Stride |
+|---|---|
+| avenue | 11–15 m |
+| street | 9–13 m |
+| coast | 10–14 m |
+
+Roughly **1×–1.2× canopy width**, so crowns still touch on a boulevard but read as individual trees.
+Removes **~70% of roadside tree instances** against the original 2–5 m baseline — the largest
+vegetation saving available without changing what a tree costs to draw.
+
+The stride context and the species context are the **same string**, so the two cannot disagree.
+
+## 5b. Night
+
+Normalize puts foliage at **L\* 45** — right under a sun, far too dark under none. At night the
+canopies went near-black while the buildings behind them stayed lit.
+
+The lever is **`emissive`, not `color`**: cards are lit `MeshLambert`, so colour *multiplies*
+incoming light, and incoming light at canopy height at night is ~0 (street lamps sit **below** the
+crowns, pointing down). Multiplying zero stays zero. Emissive adds light independent of the rig,
+which is also the honest physical story — a city canopy at night is lit by skyglow, not by the lamps
+underneath it. Safe for G-53: `emissive` is a plain uniform on MeshLambert, no define, no recompile.
+
+The impostor night tint was re-derived at the same time. `0.22/0.28/0.40` was tuned against the
+hand-drawn ellipse atlas, which derived from the day-**deepened** palette and so arrived far too
+bright; the card atlas is already normalized and not pre-brightened, so the same tint crushed it to
+black. Cards use `0.42/0.48/0.50` — and it has to meet the lifted near cards, or trees darken
+abruptly as they cross the LOD band.
 
 ---
 
@@ -150,7 +186,9 @@ costs to draw.
 | `frontend/src/map/treeAtlas.js` | **GENERATED** manifest — do not edit by hand |
 | `frontend/src/map/treeWind.js` | Shared sway, so blob and card paths cannot drift |
 | `frontend/src/map/vegetationRenderer.js` | `getTreeGeometries()` / `getTreeMaterial()` — **THE SEAM** |
-| `frontend/src/workers/vegetationWorker.js` | Context tagging + `classifySpecies()` |
+| `frontend/src/workers/vegetationWorker.js` | Context tagging + `classifySpecies()` wrapper |
+| `frontend/src/map/treeSpeciesSets.js` | **Shared** species sets + per-context stride (no THREE — goes into the worker bundle) |
+| `frontend/src/map/environmentClusterRenderer.js` | Hillside / background clusters — uses the `hill` set |
 
 ### The seam
 
