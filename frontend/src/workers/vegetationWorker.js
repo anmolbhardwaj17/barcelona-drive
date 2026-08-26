@@ -1978,10 +1978,15 @@ export function processVegetationInWorker(data, config) {
     }
     bakedVariantIndices = baked.treeVariants || null;
 
-    // Bush positions from baked data
+    // Bush positions from baked data, decimated to CONFIG.MAX_BUSHES_PER_TILE.
+    // A STRIDE, not a head-slice: the baked list is generated in order along roads and around tree
+    // bases, so taking the first N would strip whole streets bare while leaving others untouched.
+    // Striding thins evenly and keeps the coverage pattern.
     bushPositions = [];
     if (baked.bushPositions && baked.bushCount > 0) {
-      for (let i = 0; i < baked.bushCount; i++) {
+      const cap = Number.isFinite(config.MAX_BUSHES_PER_TILE) ? config.MAX_BUSHES_PER_TILE : baked.bushCount;
+      const stride = Math.max(1, Math.ceil(baked.bushCount / Math.max(1, cap)));
+      for (let i = 0; i < baked.bushCount; i += stride) {
         bushPositions.push({ x: baked.bushPositions[i * 2], y: baked.bushPositions[i * 2 + 1] });
       }
     }

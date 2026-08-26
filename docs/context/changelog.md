@@ -1392,3 +1392,12 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
   There are ~3,000 bushes per tile against ~600 trees, and a 1 m shrub at 100 m is a couple of
   pixels — as alpha-tested cards that is thousands of fragment-shaded quads contributing nothing.
   This is what made the street go heavy the moment bushes came on.
+- **`MAX_BUSHES_PER_TILE: 1200`**, decimated from the baked 3,000 by a stride on the frontend.
+  `_ddVegCount()` on Gran Via showed **30,303 bush instances against 24,866 trees** — five times as
+  many bushes as trees per tile, affordable as untextured blobs and not as textured cards each
+  carrying a matrix and a colour in a BatchedMesh data texture. A stride, not a head-slice: the baked
+  list is generated in order along roads, so slicing would strip whole streets bare.
+- **NOTE for the frame investigation:** adaptRes reported *"dropping to 1.12 changed the frame by
+  −3.6% — resolution is NOT the constraint"*. The frame is **not fill-bound**, so the earlier
+  reasoning that alpha-tested bush cards were costing fill was wrong. The bush LOD band (45–90 m) is
+  still correct, but it was not the cause. Next step is an F9 drive report for section attribution.

@@ -151,6 +151,20 @@ export const CONFIG = {
    *  ⚠ v3 P1-17: gates the LIVE path (vegetationRenderer's bush seam + meshMaterializer's bush
    *  branch), NOT the deleted GLB bushRenderer.js. meshMaterializer tests `!== false`. */
   ENABLE_BUSHES: true,
+
+  /**
+   * Bushes kept per tile, decimated from the baked 3,000.
+   *
+   * Measured with `_ddVegCount()` on Gran Via: 30,303 bush instances resident against 24,866 trees.
+   * A tile carries FIVE times as many bushes as trees, which was affordable when a bush was an
+   * untextured 100-tri blob and is not once each one is a textured card with its own instance
+   * matrix and colour in a BatchedMesh data texture.
+   *
+   * Decimated on the FRONTEND (a stride over the baked list) rather than at the bake, so this is a
+   * reload to change instead of a 10-minute re-bake. The bake keeps all 3,000 — raise this and they
+   * come straight back.
+   */
+  MAX_BUSHES_PER_TILE: 1200,
   /** Grass instances per tile. 0 = off. ⚠ v3 P1-17: the RENDER path is deleted, but
    *  vegetationWorker reads `config.MAX_GRASS_PER_TILE ?? 50000` — so deleting this flag would
    *  make the worker collect 50k grass points per tile. Keep it pinned at 0. */
