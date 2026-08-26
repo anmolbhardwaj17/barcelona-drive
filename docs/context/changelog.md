@@ -1617,3 +1617,14 @@ upload, not two.
 
 **Open on this task:** the 8 GROUND-array shopfront layers, KTX2 encode (PNG for now), and wiring
 `?facadearray=1` off placeholder layers onto these.
+- **Window mask reworked, and honestly it is 6/8.** The first heuristic ("dark and desaturated")
+  returned 0.7% and 0.2% on two plates whose glazing sits behind pale curtains. It now measures
+  distance from the plaster's own modal colour — taking the **lightest** significant cluster, not the
+  largest, because on a curtain-wall office the glazing IS the biggest cluster and the mode picked
+  the glass (source L\* read 24.3 and the mask came back 0.0%). Three signals: dark with a real
+  margin (bare "darker" flagged the old-town facade's exposed STONE), not warmer than the render
+  (separates glass from masonry when both are dark), and filled rather than linear (mortar joints lit
+  up the whole brick warehouse).
+  **Still poor on `residential_grey` (4.4%) and `residential_oldtown` (1.9%)** — both have bright
+  glazing, and no luminance-based test can find a window lighter than the wall around it. The robust
+  fix is structural: windows sit in a regular grid detectable from row/column profiles. Not attempted.

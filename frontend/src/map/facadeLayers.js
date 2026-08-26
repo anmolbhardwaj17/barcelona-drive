@@ -34,7 +34,8 @@ export default {
         "normalBandPass": true,
         "grainMM": 140.6,
         "grainBandPass": false,
-        "windowFrac": 9.7,
+        "windowFrac": 20.7,
+        "notPlasterFrac": 22.0,
         "rallyClipPct": 0.0
       }
     },
@@ -57,17 +58,18 @@ export default {
           1165
         ],
         "tileVerifyPass": true,
-        "LStar": 74.0,
-        "CStar": 12.1,
+        "LStar": 74.1,
+        "CStar": 12.2,
         "nearestAnchor": "P2_ochre_sand",
-        "deltaE2000": 5.17,
+        "deltaE2000": 5.11,
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true,
-        "grainMM": 109.4,
+        "grainMM": 140.6,
         "grainBandPass": false,
-        "windowFrac": 0.7,
-        "rallyClipPct": 0.0
+        "windowFrac": 20.3,
+        "notPlasterFrac": 31.4,
+        "rallyClipPct": 0.388
       }
     },
     {
@@ -89,17 +91,18 @@ export default {
           140
         ],
         "tileVerifyPass": true,
-        "LStar": 74.0,
-        "CStar": 12.0,
+        "LStar": 73.9,
+        "CStar": 12.2,
         "nearestAnchor": "P3_modernisme_rose",
-        "deltaE2000": 10.88,
+        "deltaE2000": 11.33,
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true,
-        "grainMM": 187.5,
+        "grainMM": 171.9,
         "grainBandPass": false,
-        "windowFrac": 5.6,
-        "rallyClipPct": 0.75
+        "windowFrac": 15.3,
+        "notPlasterFrac": 40.2,
+        "rallyClipPct": 3.375
       }
     },
     {
@@ -128,10 +131,11 @@ export default {
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true,
-        "grainMM": 93.8,
+        "grainMM": 78.1,
         "grainBandPass": false,
-        "windowFrac": 3.1,
-        "rallyClipPct": 0.02
+        "windowFrac": 4.7,
+        "notPlasterFrac": 7.0,
+        "rallyClipPct": 0.084
       }
     },
     {
@@ -156,14 +160,15 @@ export default {
         "LStar": 74.0,
         "CStar": 12.1,
         "nearestAnchor": "P2_ochre_sand",
-        "deltaE2000": 5.04,
+        "deltaE2000": 5.03,
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true,
         "grainMM": 187.5,
         "grainBandPass": false,
-        "windowFrac": 0.2,
-        "rallyClipPct": 0.626
+        "windowFrac": 2.0,
+        "notPlasterFrac": 6.0,
+        "rallyClipPct": 0.06
       }
     },
     {
@@ -194,8 +199,9 @@ export default {
         "normalBandPass": true,
         "grainMM": 62.5,
         "grainBandPass": false,
-        "windowFrac": 39.3,
-        "rallyClipPct": 0.237
+        "windowFrac": 38.2,
+        "notPlasterFrac": 39.7,
+        "rallyClipPct": 0.397
       }
     },
     {
@@ -218,16 +224,17 @@ export default {
         ],
         "tileVerifyPass": true,
         "LStar": 74.0,
-        "CStar": 11.9,
+        "CStar": 12.0,
         "nearestAnchor": "P6_panot_grey",
-        "deltaE2000": 5.12,
+        "deltaE2000": 5.14,
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true,
         "grainMM": 31.2,
         "grainBandPass": false,
-        "windowFrac": 39.3,
-        "rallyClipPct": 0.758
+        "windowFrac": 40.2,
+        "notPlasterFrac": 39.6,
+        "rallyClipPct": 0.898
       }
     },
     {
@@ -252,14 +259,15 @@ export default {
         "LStar": 45.0,
         "CStar": 22.6,
         "nearestAnchor": "P5_poblenou_brick",
-        "deltaE2000": 6.53,
+        "deltaE2000": 6.52,
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true,
         "grainMM": 125.0,
         "grainBandPass": true,
-        "windowFrac": 24.8,
-        "rallyClipPct": 0.038
+        "windowFrac": 3.5,
+        "notPlasterFrac": 50.9,
+        "rallyClipPct": 0.187
       }
     }
   ]

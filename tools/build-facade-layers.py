@@ -45,24 +45,89 @@ LAYERS = [
 ]
 
 
-def window_mask(rgb):
+def plaster_mode(lab, bins=48):
     """
-    Glass mask, derived rather than authored — the plan lists a window mask as a third map, and it
-    does not need its own art: glazing is the dark, low-chroma, locally-flat region of a facade, and
-    all three of those are measurable. Shipped as the albedo's alpha channel so it costs no extra
-    texture unit and no extra upload.
+    The dominant RENDER colour, as the LIGHTEST significant cluster in (a*, b*).
+
+    Not simply the largest cluster. "A facade's biggest surface is its plaster" is false exactly
+    where it matters: a curtain-wall office is ~40% glazing in continuous bands, and on that plate
+    the modal colour IS the glass — measured, it put the source L* at 24.3 and returned a 0.0%
+    window mask, i.e. it decided the whole facade was window and the windows were wall.
+    
+    Render is lighter than glazing on every facade ever built, so among the clusters big enough to
+    be a real surface, take the brightest. That holds for the office and for the brick warehouse
+    (whose dark steel windows are also enormous) without special-casing either.
+    """
+    a, b = lab[..., 1].ravel(), lab[..., 2].ravel()
+    L = lab[..., 0].ravel()
+    Hh, ae, be = np.histogram2d(a, b, bins=bins, range=[[-40, 60], [-40, 70]])
+    total = Hh.sum()
+    best = None
+    for i in range(bins):
+        for j in range(bins):
+            if Hh[i, j] < total * 0.02:      # too small to be a surface
+                continue
+            ac, bc = (ae[i] + ae[i + 1]) / 2, (be[j] + be[j + 1]) / 2
+            sel = (np.abs(lab[..., 1] - ac) < 6) & (np.abs(lab[..., 2] - bc) < 6)
+            if not sel.any():
+                continue
+            Lc = float(lab[..., 0][sel].mean())
+            if best is None or Lc > best[0]:
+                best = (Lc, ac, bc)
+    if best is None:
+        return np.array([float(L.mean()), float(a.mean()), float(b.mean())])
+    return np.array(best)
+def facade_masks(rgb):
+    """
+    Two masks, because they answer two different questions.
+
+    NOT-PLASTER — everything that is not the render: glazing, frames, ironwork, stone surrounds.
+    This is what the normalize step needs, since the `facade` surface class describes render only.
+
+    WINDOW — glazing alone, for night emissive. Narrower: it must exclude the ironwork and stone that
+    not-plaster includes, or balcony railings light up at night.
+
+    The previous version tested "dark and desaturated" and MEASURED ITS OWN FAILURE — two plates came
+    back at 0.7% and 0.2% window area, because their glazing sits behind pale curtains and is neither
+    dark nor grey. Distance from the plaster's own modal colour does not care how bright the glass
+    is; it only cares that it is not the render.
     """
     lab = AN.rgb_to_lab(rgb)
-    L, C, _ = AN.lab_to_lch(lab)
-    dark = 1.0 - np.clip((L - 18.0) / 34.0, 0.0, 1.0)      # glass is dark
-    flat = 1.0 - np.clip(C / 22.0, 0.0, 1.0)               # and desaturated
-    m = np.clip(dark * flat, 0.0, 1.0)
-    # Clean up speckle: glazing comes in panes, not pixels.
-    m = np.asarray(Image.fromarray((m * 255).astype(np.uint8), 'L')
-                   .filter(ImageFilter.MedianFilter(5)), dtype=np.float64) / 255.0
-    return m
+    mode = plaster_mode(lab)
 
+    # Perceptual distance from the render. Chroma difference is weighted above lightness because
+    # plaster varies a lot in L* (weathering, streaking) and very little in hue.
+    dL = (lab[..., 0] - mode[0]) / 26.0
+    da = (lab[..., 1] - mode[1]) / 9.0
+    db = (lab[..., 2] - mode[2]) / 9.0
+    dist = np.sqrt(dL * dL + da * da + db * db)
+    not_plaster = np.clip((dist - 0.85) / 0.9, 0.0, 1.0)
 
+    # Windows are FILLED regions; railings and mouldings are thin. A median filter keeps the first
+    # and erases the second, which is the whole difference between the two masks.
+    def clean(m, k):
+        return np.asarray(Image.fromarray((m * 255).astype(np.uint8), 'L')
+                          .filter(ImageFilter.MedianFilter(k)), dtype=np.float64) / 255.0
+
+    not_plaster = clean(not_plaster, 5)
+    # ── WINDOW: three independent signals, because no one of them survives all eight plates ──
+    # Checked visually and each was added against a specific observed failure:
+    #
+    #  DARK, with a real margin. "Darker than plaster" alone flagged the old-town facade's exposed
+    #  STONE as window, because its plaster is near-white and the stone is merely mid-tone.
+    darker = np.clip((mode[0] - lab[..., 0] - 8.0) / 26.0, 0.0, 1.0)
+    #
+    #  NOT WARMER than the render. Stone, mortar and terracotta all sit on the warm side of the
+    #  plaster they abut; glazing is neutral or cool. This is what separates glass from masonry when
+    #  both are darker than the wall.
+    cool = np.clip(1.0 - (lab[..., 2] - mode[2]) / 26.0, 0.0, 1.0)
+    #
+    #  FILLED, not linear. Mortar joints are darker and roughly neutral too, and on the brick
+    #  warehouse they lit up the entire wall. A window is centimetres of glass across; a mortar joint
+    #  is one. A wide median keeps the first and erases the second.
+    window = clean(not_plaster * darker * cool, 9)
+    window = clean(window, 15)
+    return not_plaster, window
 def main():
     os.makedirs(OUT, exist_ok=True)
     manifest = {'layerWidthM': LAYER_W_M, 'layerHeightM': LAYER_H_M, 'size': SIZE,
@@ -86,7 +151,8 @@ def main():
         if rgb.shape[0] != SIZE:
             rgb = AN.resize_tiling(rgb, SIZE)   # wrap-aware, or the roll above is undone
 
-        mask = window_mask(rgb)
+        not_plaster, window = facade_masks(rgb)
+        mask = window
 
         # ── NORMALIZE THE PLASTER, NOT THE WINDOWS ────────────────────────────────────────────
         # A facade is not one surface. It is render PLUS glazing PLUS ironwork, and the `facade`
@@ -100,7 +166,7 @@ def main():
         # So the window mask does double duty: statistics are gathered over plaster only, and the
         # graded result is composited back over plaster only. Glass and ironwork keep the values the
         # plate gave them, which is correct — the surface class names the surface it governs.
-        plaster = 1.0 - mask
+        plaster = 1.0 - not_plaster
         graded, stats = AN.normalize_albedo(
             rgb, plaster, source_type='ai', surface_class=cls,
             anchor=[AN.ANCHORS[a] for a in anchors],
@@ -115,7 +181,8 @@ def main():
         grain_mm, grain_ok, grain_band = AN.check_grain(rgb, LAYER_W_M, cls)
 
         # Albedo carries the window mask in alpha — one upload, not two.
-        rgba = np.concatenate([rgb, mask[..., None]], axis=-1)
+        # Alpha carries the WINDOW mask (night emissive), not not-plaster — ironwork must not glow.
+        rgba = np.concatenate([rgb, window[..., None]], axis=-1)
         Image.fromarray((rgba * 255).astype(np.uint8), 'RGBA').save(f'{OUT}/{name}_albedo.png')
         Image.fromarray((nrm * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_normal.png')
 
@@ -130,7 +197,8 @@ def main():
                 'gate4Pass': bool(stats['gate4_pass']),
                 'normalMeanXY': round(float(n_after), 3), 'normalBandPass': bool(n_ok),
                 'grainMM': round(grain_mm, 1) if grain_mm else None, 'grainBandPass': bool(grain_ok),
-                'windowFrac': round(float((mask > 0.5).mean() * 100), 1),
+                'windowFrac': round(float((window > 0.5).mean() * 100), 1),
+                'notPlasterFrac': round(float((not_plaster > 0.5).mean() * 100), 1),
                 'rallyClipPct': round(stats['rally_clip_pct'], 3),
             },
         })
