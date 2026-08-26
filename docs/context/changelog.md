@@ -1510,3 +1510,18 @@ think about it. An authored albedo sits at its class L* instead (**0.108 linear*
   **L\* 62** while its P6 Panot Grey anchor sits at **L\* 71.9**, so the asset lands 10 L\* darker
   than the anchor it is named for and still passes gate 4 (ΔE 8.28). Worth resolving before more
   sidewalk-class assets are authored against it.
+
+## 2026-08-26 — street lamps were lighting the ground at noon
+
+- **`uLGEnabled` was never gated on night.** `armLightGrid()` set it to 1 for the session and nothing
+  ever turned it off, so every sodium lamp in Barcelona cast a warm pool on the pavement in full
+  daylight — visible as unexplained orange patches on the ground during the day.
+  `setLightGridNightMode()` now rides envToggle's material callbacks, which fire on the instant/init
+  path too, so the first frame is already right. It is a uniform: no cost, no recompile (G-53).
+  Defaults `_isNight = true` so a build that somehow never fires the callbacks keeps its night
+  lighting — `?nolightgrid` off is already the broken state, so lamps-on is the safe failure.
+- **Panot tile size verified, not changed.** The plate's grout lines measure at 0 / ~625 / ~1250 px
+  of 1254, i.e. exactly two tiles across, so the 0.40 m span renders 20 cm tiles — the real size of
+  Barcelona panot. (An autocorrelation peak at ~211 px suggested six repeats; that is the flower's
+  petal structure, not the tile.) `window._ddPanotSpan(m)` exposes it live, because "physically
+  correct" and "reads well from a camera three metres up" are different questions.

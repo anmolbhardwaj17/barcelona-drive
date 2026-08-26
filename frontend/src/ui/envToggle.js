@@ -14,6 +14,7 @@ import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetli
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setTreeCardNightMode } from '../map/treeCards.js';
 import { setBushCardNightMode } from '../map/bushCards.js';
+import { setLightGridNightMode } from '../map/lightGrid.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
 import { UI, iconButton, injectUITheme } from './theme.js';
@@ -159,6 +160,7 @@ export function createEnvToggle(refs) {
     setTreeBillboardNightMode(isNight);
     setTreeCardNightMode(isNight);   // lit cards need a LIFT at night; impostors need a tint
     setBushCardNightMode(isNight);   // undergrowth follows the canopy — same surface, same sky
+    setLightGridNightMode(isNight);  // street lamps light the ground only after dark
     setShopSignNightMode(isNight);
     setShopfrontNightMode(isNight);
     setStreetlightNightMode(isNight);

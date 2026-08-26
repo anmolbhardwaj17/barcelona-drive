@@ -53,6 +53,16 @@ let _indexData = null, _indexHiData = null, _lightData = null;
 let _lights = [];                  // {x,y,z,r, cr,cg,cb, i}
 let _originX = 0, _originZ = 0;    // world XZ of grid texel (0,0)
 let _enabled = false;
+// Street lamps light the ground only at NIGHT.
+//
+// This did not exist, and armLightGrid() simply set uLGEnabled = 1 for the session — so every
+// sodium lamp in Barcelona was casting a warm pool on the pavement at noon. It reads as unexplained
+// orange patches on the ground in broad daylight, which is exactly what it is.
+//
+// Defaults TRUE so that a build which somehow never fires the env callbacks keeps its night
+// lighting. `?nolightgrid` off is already the broken state (P2-06 deleted the fake-night stack in
+// exchange), so the safe failure here is lamps-on, not lamps-off.
+let _isNight = true;
 
 /** Shared uniforms — every patched material binds THESE OBJECTS, so one write updates all of them. */
 export const lightGridUniforms = {
@@ -72,6 +82,21 @@ export const lightGridUniforms = {
 let _slotDist = null;
 
 export function isLightGridEnabled() { return _enabled; }
+
+function _applyEnabled() {
+  lightGridUniforms.uLGEnabled.value = (_enabled && _isNight) ? 1 : 0;
+}
+
+/**
+ * Day/night gate. Called from envToggle's material callbacks, which fire on the instant/init path
+ * too — so the very first frame is already correct rather than correct-after-the-first-toggle.
+ *
+ * A UNIFORM, so this costs nothing and cannot recompile anything (G-53).
+ */
+export function setLightGridNightMode(isNight) {
+  _isNight = !!isNight;
+  _applyEnabled();
+}
 
 export function initLightGrid() {
   if (_indexTex) return;
@@ -95,7 +120,7 @@ export function initLightGrid() {
   lightGridUniforms.uLGIndexHi.value = _indexHiTex;
   lightGridUniforms.uLGData.value = _dataTex;
   _enabled = true;
-  lightGridUniforms.uLGEnabled.value = 1;
+  _applyEnabled();
 }
 
 /**

@@ -196,6 +196,21 @@ export function setRendererAnisotropy(v) {
 
 // ── Phase 3 Barcelona material cache ─────────────────────────────────────────
 let _panotMaterial = null;
+let _panotSpanUniform = null;
+
+// Live tuning knob — `window._ddPanotSpan(metres)` in the console.
+//
+// The default 0.40 m is MEASURED, not guessed: the plate's grout lines sit at 0, ~625 and ~1250 px
+// of 1254, so it is exactly two tiles across, and Barcelona panot is 20 cm. That is the real size.
+// It is exposed anyway because "correct" and "reads well from a car camera three metres up" are
+// different questions, and the second one is the user's to answer, not mine.
+if (typeof window !== 'undefined') {
+  window._ddPanotSpan = (m) => {
+    if (!_panotSpanUniform) return 'no panot material yet — drive first';
+    _panotSpanUniform.value = m;
+    return `panot span ${m} m  ->  tile ${(m / 2 * 100).toFixed(0)} cm (real panot is 20 cm)`;
+  };
+}
 let _curbMaterial = null;
 let _bikeLaneMaterial = null;
 let _bikePictogramMaterial = null;
@@ -232,6 +247,7 @@ function getPanotMaterial() {
   // the flower to 20 cm everywhere, and makes it continuous across tile seams for free.
   patchMaterial(_panotMaterial, (shader) => {
     shader.uniforms.uPanotSpan = { value: spanM };
+    _panotSpanUniform = shader.uniforms.uPanotSpan;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uPanotSpan;')
       .replace('#include <uv_vertex>', `#include <uv_vertex>
