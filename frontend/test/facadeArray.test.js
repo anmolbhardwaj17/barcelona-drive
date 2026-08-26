@@ -195,7 +195,11 @@ function generate() {
     // BOTH includes: the patch samples the array at <map_fragment> and rewrites diffuseColor after
     // <color_fragment>, because three applies the per-building vertex tint between the two. A stub
     // with only map_fragment silently skips half the patch and tests the wrong shader.
-    fragmentShader: '#include <common>\nvoid main(){ #include <map_fragment>\n#include <color_fragment> }',
+    // All three includes: the patch samples at <map_fragment>, drives night windows at
+    // <emissivemap_fragment>, and rewrites diffuseColor after <color_fragment>. A stub missing any
+    // of them silently skips part of the patch and tests a shader that does not ship.
+    fragmentShader: '#include <common>\nvoid main(){ #include <map_fragment>\n'
+      + '#include <color_fragment>\n#include <emissivemap_fragment> }',
   };
   const mat = { needsUpdate: false };
   patchFacadeArrayMaterial(mat, { body: 'B', ground: 'G' });
@@ -226,7 +230,8 @@ test('both array uniforms are bound and both branches sample', () => {
   // Sampling the array with the raw attribute stretched it by different factors on each axis, so
   // windows rendered landscape where every source plate draws them portrait.
   assert.deepEqual(Object.keys(s.uniforms).sort(),
-    ['uFacadeBody', 'uFacadeGround', 'uFacadeScale', 'uFacadeTintAmt', 'uFacadeTintMean']);
+    ['uFacadeBody', 'uFacadeGround', 'uFacadeScale', 'uFacadeTintAmt', 'uFacadeTintMean',
+     'uFacadeWindowGlow']);
   // The per-building vertex tint must NOT multiply an authored albedo — it did, and eight normalized
   // variants all rendered the same brown. Its luminance survives, its hue is discarded.
   assert.match(s.fragmentShader, /facadeTexel\.rgb \* facTint/, 'authored albedo is the base, not a multiplicand');
@@ -239,4 +244,17 @@ test('aLayer is declared as an attribute and forwarded', () => {
   const s = generate();
   assert.match(s.vertexShader, /attribute float aLayer/);
   assert.match(s.vertexShader, /vLayer\s*=\s*aLayer/);
+});
+
+test('night windows are driven by the facade mask, not a second window grid', () => {
+  // Buildings carry a separately GENERATED emissiveMap whose grid sits at the old FLOOR_HEIGHT
+  // pitch, while the facade array is at LAYER_W_M x BODY_LAYER_H_M. Two window systems at two
+  // pitches cannot agree — lit rectangles floated between and across the painted windows. The
+  // albedo's alpha IS the window mask, so driving emissive from it aligns them by construction.
+  const s = generate();
+  assert.match(s.fragmentShader, /totalEmissiveRadiance = uFacadeWindowGlow \* facadeTexel\.a/,
+    'night glow comes from the facade alpha');
+  // Per-window on/off must hash the window CELL, not the fragment: a per-fragment random would
+  // shimmer as the camera moves, and a constant would light every window in the city.
+  assert.match(s.fragmentShader, /floor\(vFacadeUv \* /, 'lit/unlit is per window cell');
 });

@@ -393,6 +393,21 @@ const _facadeScaleUniforms = [];
  * around 1.0 rather than darkening everything, which is the same correction uAsphaltGain needed.
  */
 const _facadeTint = { amt: 0.45, mean: 0.62 };
+
+/** Window cells across one layer — sets how finely the lit/unlit hash divides the facade. */
+const WINDOW_CELLS_PER_LAYER = 6.0;
+/** Fraction of windows lit at night. Not 1.0: a fully lit block reads as an office at 3am. */
+const LIT_WINDOW_FRACTION = 0.42;
+/**
+ * Window glow colour and strength.
+ *
+ * N3 Window Warm #FFDFA8 from the art bible's CLOSED set of six night emissives, scaled down hard.
+ * The value is the RADIANCE, not a tint: bloom multiplies it, so a value that looks merely bright
+ * in isolation blows to white once the post chain has it. That is what the blown-out white
+ * rectangles were.
+ */
+const _windowGlow = { x: 1.00 * 0.55, y: 0.874 * 0.55, z: 0.658 * 0.55 };
+const _windowGlowUniforms = [];
 const _facadeTintUniforms = [];
 
 /**
@@ -416,6 +431,19 @@ if (typeof window !== 'undefined') {
    * The tint's HUE is always discarded: it is the flat colour the vertex path assigned, and
    * multiplying it into a normalized photographic facade is what made all eight variants read brown.
    */
+  /**
+   * `_ddWindowGlow(strength, r, g, b)` — night window radiance.
+   *
+   * It is RADIANCE, not a tint: bloom multiplies it, so a value that looks merely bright in
+   * isolation blows to pure white after the post chain. Default is N3 Window Warm (#FFDFA8) from the
+   * art bible's closed set of six night emissives, at 0.55.
+   */
+  window._ddWindowGlow = (strength = 0.55, r = 1.0, g = 0.874, b = 0.658) => {
+    _windowGlow.x = r * strength; _windowGlow.y = g * strength; _windowGlow.z = b * strength;
+    for (const u of _windowGlowUniforms) u.value = _windowGlow;
+    return `window glow ${strength} x (${r}, ${g}, ${b})  — bloom multiplies this, so go low`;
+  };
+
   window._ddFacadeTint = (amt, mean) => {
     _facadeTint.amt = amt ?? _facadeTint.amt;
     _facadeTint.mean = mean ?? _facadeTint.mean;
@@ -456,6 +484,8 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // LAYER_W_M x BODY_LAYER_H_M.
     shader.uniforms.uFacadeScale = { value: _facadeScale };
     _facadeScaleUniforms.push(shader.uniforms.uFacadeScale);
+    shader.uniforms.uFacadeWindowGlow = { value: _windowGlow };
+    _windowGlowUniforms.push(shader.uniforms.uFacadeWindowGlow);
     shader.uniforms.uFacadeTintAmt = { value: _facadeTint.amt };
     // Mean luminance the per-building tints sit around. Dividing by it makes the tint modulate
     // AROUND 1.0 instead of darkening everything — the same correction uAsphaltGain needed.
@@ -486,6 +516,7 @@ export function patchFacadeArrayMaterial(material, arrays) {
         'uniform sampler2DArray uFacadeBody;\n' +
         'uniform sampler2DArray uFacadeGround;\n' +
         'uniform float uFacadeTintAmt;\nuniform float uFacadeTintMean;\n' +
+        'uniform vec3 uFacadeWindowGlow;\n' +
         'varying float vLayer;\nvarying vec2 vFacadeUv;')
       .replace('#include <map_fragment>',
         // Branch on the encoded band. Both sides sample, so there is no divergent-texture-fetch
@@ -505,6 +536,28 @@ export function patchFacadeArrayMaterial(material, arrays) {
       // The tint is still WANTED, though — a real street varies building to building. So it is kept
       // as BRIGHTNESS ONLY: its luminance modulates the authored albedo, its hue is discarded. Same
       // resolution as the bush cards.
+      // ── NIGHT WINDOWS COME FROM THE FACADE'S OWN MASK ──────────────────────────────────────
+      //
+      // Buildings carry a separately GENERATED emissiveMap whose window grid is drawn at the old
+      // FLOOR_HEIGHT pitch. The facade array is at LAYER_W_M x BODY_LAYER_H_M. Two window systems
+      // at two pitches cannot agree, and they did not: lit rectangles floated between and across the
+      // painted windows instead of inside them.
+      //
+      // The albedo's ALPHA IS the window mask — that is what it was derived for — so driving the
+      // emissive from it makes the lights land in the windows BY CONSTRUCTION rather than by tuning
+      // two pitches into agreement. `emissiveMap` stays bound (removing it would recompile every
+      // building material) and is simply overridden here.
+      .replace('#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\n' +
+        '{\n' +
+        // Per-window on/off. A city where every window is lit reads as an office block at 3am; a
+        // stable hash on the window CELL keeps each one's state fixed as the camera moves, which a
+        // per-fragment random would not.
+        '  vec2 wcell = floor(vFacadeUv * ' + WINDOW_CELLS_PER_LAYER.toFixed(1) + ');\n' +
+        '  float wr = fract(sin(dot(wcell, vec2(12.9898, 78.233)) + vLayer * 7.13) * 43758.5453);\n' +
+        '  float lit = step(' + (1.0 - LIT_WINDOW_FRACTION).toFixed(2) + ', wr);\n' +
+        '  totalEmissiveRadiance = uFacadeWindowGlow * facadeTexel.a * lit;\n' +
+        '}')
       .replace('#include <color_fragment>',
         '#include <color_fragment>\n' +
         'float facTint = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));\n' +
