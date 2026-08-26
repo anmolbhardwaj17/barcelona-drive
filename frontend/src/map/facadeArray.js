@@ -303,24 +303,27 @@ export function createFacadeArrays(THREE) {
   // which is why the placeholder disables mipmaps — but a KTX2 SHIPS ITS MIPS IN THE FILE, so the
   // chain is complete on arrival and LinearMipmapLinearFilter is not only safe but required (without
   // it every distant facade aliases). That line explicitly asked to be re-checked here.
-  loadFacadeBodyArray(THREE).then((tex) => {
-    if (!tex) return;
-    arrays.body = tex;
-    arrays.bodyIsAuthored = true;
-    const im = tex.image || {};
-    console.warn('[facadeArray] authored body array loaded: %sx%sx%s layers',
-      im.width, im.height, im.depth);
-  }).catch((e) => {
-    // REPORTED, not swallowed. The first version caught this silently, so a failed load looked
-    // exactly like a working placeholder — which is precisely the state it shipped in.
-    console.warn('[facadeArray] authored body array FAILED to load (%s) — placeholder stands', e?.message || e);
-  });
+  for (const [band, file] of [['body', 'facade_body_albedo'], ['ground', 'facade_ground_albedo']]) {
+    loadFacadeArray(THREE, file).then((tex) => {
+      if (!tex) return;
+      arrays[band] = tex;
+      arrays[`${band}IsAuthored`] = true;
+      const im = tex.image || {};
+      console.warn('[facadeArray] authored %s array loaded: %sx%sx%s layers',
+        band, im.width, im.height, im.depth);
+    }).catch((e) => {
+      // REPORTED, not swallowed. The first version caught this silently, so a failed load looked
+      // exactly like a working placeholder — which is precisely the state it shipped in.
+      console.warn('[facadeArray] authored %s array FAILED to load (%s) — placeholder stands',
+        band, e?.message || e);
+    });
+  }
 
   return arrays;
 }
 
-/** Load the authored 8-layer body array. Resolves null if the art is absent, keeping the placeholder. */
-async function loadFacadeBodyArray(THREE) {
+/** Load one authored 8-layer array. Resolves null if the art is absent, keeping the placeholder. */
+async function loadFacadeArray(THREE, file) {
   const { KTX2Loader } = await import('three/examples/jsm/loaders/KTX2Loader.js');
   // WAIT for the renderer rather than giving up on it. createFacadeArrays runs lazily on the first
   // tile build, which can land BEFORE boot hands the renderer over — and the first version simply
@@ -334,8 +337,11 @@ async function loadFacadeBodyArray(THREE) {
   const loader = new KTX2Loader()
     .setTranscoderPath('/basis/')
     .detectSupport(renderer);
-  const tex = await loader.loadAsync('/art/v1/facades/facade_body_albedo.ktx2');
+  const tex = await loader.loadAsync(`/art/v1/facades/${file}.ktx2`);
   tex.wrapS = THREE.RepeatWrapping;
+  // Repeat on BOTH axes even for the ground array. Its v never leaves 0..1 by construction (the
+  // ground band is addressed once), so the wrap mode is unreachable there — and setting it to
+  // ClampToEdge instead would be a second place that has to stay in agreement with the geometry.
   tex.wrapT = THREE.RepeatWrapping;                 // still the point: each layer wraps independently
   tex.minFilter = THREE.LinearMipmapLinearFilter;   // the KTX2 carries its own complete mip chain
   tex.magFilter = THREE.LinearFilter;
@@ -388,6 +394,19 @@ function waitForRenderer(timeoutMs = 20000) {
 const _facadeScale = {
   x: WALL_REPEAT_HORIZONTAL_M / LAYER_W_M,
   y: STOREY_H / BODY_LAYER_H_M,
+};
+
+// The GROUND band needs its own scale, and the difference is not cosmetic.
+//
+//   body    v arrives per STOREY and must be divided into layer space
+//   ground  v arrives already 0 -> 1 across the shopfront (see workerGeometry's ground band)
+//
+// One shared scale would squash every shopfront into a fraction of its own height. u is shared
+// deliberately — the suite asserts ground and body agree on it, so their vertical seam lines up
+// horizontally instead of stepping at every storey boundary.
+const _facadeGroundScale = {
+  x: WALL_REPEAT_HORIZONTAL_M / LAYER_W_M,
+  y: 1.0,
 };
 
 /**
@@ -496,6 +515,7 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // WALL_REPEAT_HORIZONTAL_M (12 m) and v in units of FLOOR_HEIGHT (10 m); the layers are
     // LAYER_W_M x BODY_LAYER_H_M.
     shader.uniforms.uFacadeScale = { value: _facadeScale };
+    shader.uniforms.uFacadeGroundScale = { value: _facadeGroundScale };
     shader.uniforms.uFacadeWindowGlow = { value: _windowGlow };
     shader.uniforms.uFacadeNight = { value: _facadeNightT };
     _facadeNightUniforms.push(shader.uniforms.uFacadeNight);
@@ -519,9 +539,14 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // makes the patch independent of which maps a given material happens to bind.
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
-        '#include <common>\nattribute float aLayer;\nvarying float vLayer;\nvarying vec2 vFacadeUv;\nuniform vec2 uFacadeScale;')
+        '#include <common>\nattribute float aLayer;\nvarying float vLayer;\nvarying vec2 vFacadeUv;\n'
+        + 'uniform vec2 uFacadeScale;\nuniform vec2 uFacadeGroundScale;')
+      // The band picks its own scale. Body v arrives per STOREY and needs dividing into layer
+      // space; ground v is already 0 -> 1 across the shopfront. Sharing one scale squashed every
+      // shopfront into a fraction of its own height.
       .replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLayer = aLayer;\nvFacadeUv = uv * uFacadeScale;');
+        '#include <begin_vertex>\nvLayer = aLayer;\n'
+        + 'vFacadeUv = uv * ((aLayer >= ' + GROUND_LAYER_BASE + '.0) ? uFacadeGroundScale : uFacadeScale);');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
         '#include <common>\n' +

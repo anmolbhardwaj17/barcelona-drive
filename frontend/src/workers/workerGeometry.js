@@ -156,7 +156,15 @@ export function extrudePolygonWallBands(footprintPoints, height, baseY, opts) {
   const bodyRepeats = bodyH > 0 ? Math.max(1, bodyH / storeyH) : 0;
 
   const bands = [];
-  if (groundH > 1e-4) bands.push({ kind: 'ground', y0: baseY, y1: baseY + groundH, v0: 0, v1: gFrac });
+  // v3 P3-05: under `windowOnlyTile` the GROUND array is addressed ONCE, v 0 -> 1, because a
+  // shopfront never tiles vertically — its bottom edge is the pavement and its top meets the body
+  // band's first row. `gFrac` is the LEGACY fraction (groundH / FLOOR_HEIGHT) that told the canvas
+  // painter which slice of a SHARED tile held the shopfront; against a dedicated ground layer it
+  // would squash the entire shopfront into the bottom third of itself.
+  if (groundH > 1e-4) {
+    bands.push({ kind: 'ground', y0: baseY, y1: baseY + groundH,
+                 v0: 0, v1: opts.windowOnlyTile ? 1 : gFrac });
+  }
   // ⚠ THE MID-AIR SHOPFRONT IS NOT FIXED BY GEOMETRY ALONE — measured here, 2026-08-25.
   // Against TODAY'S tile the shopfront occupies v 0..gFrac, so a body band spanning more than one
   // repeat crosses v=1.0, which wraps to the same rows and paints the shopfront again. Verified:

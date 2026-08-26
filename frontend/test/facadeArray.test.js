@@ -226,12 +226,15 @@ test('both array uniforms are bound and both branches sample', () => {
   // Sampling the array with the raw attribute stretched it by different factors on each axis, so
   // windows rendered landscape where every source plate draws them portrait.
   assert.deepEqual(Object.keys(s.uniforms).sort(),
-    ['uFacadeBody', 'uFacadeGround', 'uFacadeNight', 'uFacadeScale', 'uFacadeTintAmt',
-     'uFacadeTintMean', 'uFacadeWindowGlow']);
+    ['uFacadeBody', 'uFacadeGround', 'uFacadeGroundScale', 'uFacadeNight', 'uFacadeScale',
+     'uFacadeTintAmt', 'uFacadeTintMean', 'uFacadeWindowGlow']);
   // The per-building vertex tint must NOT multiply an authored albedo — it did, and eight normalized
   // variants all rendered the same brown. Its luminance survives, its hue is discarded.
   assert.match(s.fragmentShader, /facadeTexel\.rgb \* facTint/, 'authored albedo is the base, not a multiplicand');
-  assert.match(s.vertexShader, /vFacadeUv = uv \* uFacadeScale/, 'wall UV is converted, not raw');
+  // The BAND picks its scale. Body v arrives per STOREY; ground v is already 0 -> 1 across the
+  // shopfront, because it is addressed once and never tiles vertically. One shared scale squashed
+  // every shopfront into a fraction of its own height.
+  assert.match(s.vertexShader, /uFacadeGroundScale : uFacadeScale/, 'ground and body scale separately');
   assert.match(s.fragmentShader, /texture\(uFacadeGround, vec3\(vFacadeUv/);
   assert.match(s.fragmentShader, /texture\(uFacadeBody, vec3\(vFacadeUv/);
 });

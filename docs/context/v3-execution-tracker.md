@@ -862,7 +862,7 @@ small value once this lands.**
   flag stays opt-in until then.
 - **Done when:** _(mid-air shopfronts = 0, measured; texel density in the 85–150 band; VRAM banked once)_
 
-### `[~]` P3-05 · 6.0d · risk medium — **ART DONE 2026-08-26; GROUND ARRAY + KTX2 + WIRING OPEN**
+### `[x]` P3-05 · 6.0d · risk medium — **DONE 2026-08-26 · 8 BODY + 8 GROUND LAYERS, KTX2, WIRED**
 **Author the 8 facade layers** to the band UV spec at **128 texels/m** (`1024² over 8.0 m × 8.0 m = 2 storeys of 4.0 m`): 5 residential variants + 1 commercial + 1 office/institutional + 1 industrial-brick. Albedo (weathering baked in), normal, window mask. Ground-floor module rect and body module rect on the same layer.
 
 - **Files:** new `frontend/public/art/v1/facades/*.ktx2`
@@ -1025,7 +1025,7 @@ before anything is painted.**
 - **Subsystem:** road
 - **Done when:** _(road frame cost at or below `?roadv2=0`, measured — plus no shimmer at grazing angles)_
 
-### `[~]` P3-08 · 2.5d · risk medium — **PARTIAL: asphalt + panot authored and wired; kerb done as P3-09; detail normal still P3-07c**
+### `[x]` P3-08 · 2.5d · risk medium — **DONE 2026-08-26 · asphalt + panot authored and wired; kerb landed as P3-09; detail normal as P3-07c**
 **Road asset set** — `asphalt_worn_1k` (ambientCG CC0, normalized), `asphalt_detail_512` (normal only, AI tiling or high-pass), `panot_1k` (baked offline from the existing `makePanotCanvas` generator upgraded 256→1024 under node-canvas, Sobel normal, **AD-12 20×20 grid over 4.0 m**, and the AD-4 v-flip fix at `roadRenderer.js:1690-1694` lands with it), `concrete_kerb_512`. Ship `.ktx2`, keep the generator as the authoring tool.
 
 - **Files:** `frontend/public/art/v1/road/*`, `map/generate-road-atlas.js:14-71`

@@ -179,16 +179,26 @@ def step2_delight(lab, mask, source_type, tiling=False):
     return out
 
 
-def step3_rescale(lab, mask, surface_class):
-    """STEP 3 — rescale L* and C* into the surface class's pre-grade target distribution."""
+def step3_rescale(lab, mask, surface_class, rescale_L=True, rescale_C=True):
+    """
+    STEP 3 — rescale L* and C* into the surface class's pre-grade target distribution.
+
+    `rescale_L=False` for surfaces whose VALUE is their identity rather than a property of their
+    material. A shopfront is dark joinery, dark glass and a stone plinth; forcing it to the facade
+    class's plaster L* 74 lifted a dark green bar by 51 points and rendered it pale mint. The class
+    targets describe a WALL, and the ground floor is not one.
+
+    `rescale_C=False` where real object colour lives in the plate — a greengrocer's produce is not
+    a material sample and greying it to a wall's chroma target is not normalisation, it is damage.
+    """
     Lt, Ls, Ct = CLASS_TARGETS[surface_class]
     L, C, h = lab_to_lch(lab)
     mL, sL = L[mask].mean(), L[mask].std()
     mC, sC = C[mask].mean(), C[mask].std()
-    L2 = Lt + (L - mL) * (Ls / max(sL, 1e-6))
+    L2 = Lt + (L - mL) * (Ls / max(sL, 1e-6)) if rescale_L else L
     # Only the C* MEAN is specified; scaling spread by the same ratio as its mean keeps the
     # relative chroma structure of the plate (a flower still reads brighter than a leaf).
-    C2 = C * (Ct / max(mC, 1e-6))
+    C2 = C * (Ct / max(mC, 1e-6)) if rescale_C else C
     return lch_to_lab(np.clip(L2, 0, 100), np.clip(C2, 0, None), h), (mL, sL, mC)
 
 
@@ -275,7 +285,7 @@ def rally_clip_check(lab, mask):
 
 
 def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_snap,
-                     alpha_threshold=0.02, tiling=False):
+                     alpha_threshold=0.02, tiling=False, rescale_L=True, rescale_C=True):
     """
     Run STEPS 2 -> 3 -> 5 -> 6 on an RGBA plate. Statistics are computed over OPAQUE pixels only:
     including the transparent margin would drag every mean toward the background and silently
@@ -284,7 +294,7 @@ def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_sn
     mask = alpha > alpha_threshold
     lab = rgb_to_lab(rgb)
     lab = step2_delight(lab, mask, source_type, tiling=tiling)
-    lab, before = step3_rescale(lab, mask, surface_class)
+    lab, before = step3_rescale(lab, mask, surface_class, rescale_L=rescale_L, rescale_C=rescale_C)
     lab = step5_palette_snap(lab, mask, anchor, alpha_snap)
     lab = step6_pre_grade(lab)
     anchor_name, dE, mean_lab = gate4_delta_e(lab, mask)
@@ -297,13 +307,17 @@ def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_sn
     }
 
 
-def step1_tile_verify(rgb, drift_ref=None):
+def step1_tile_verify(rgb, drift_ref=None, axes='both'):
     """
     STEP 1 — TILE VERIFY. "Fail = fix or reject, never ship." A cutout card does not tile so the card
     pipeline skips this; a rock or kerb surface does, and a seam repeating every metre across a
     hillside is the most obvious tell there is.
 
     Returns (passed, coherence, coherence).
+
+    `axes` — 'both', 'u' or 'v'. A shopfront tiles ALONG a street and never vertically: its bottom
+    edge is the pavement and its top edge meets the floor above, so judging its v seam would fail a
+    texture that is correct. Only ask about the axis that has to wrap.
 
     `drift_ref` — measure the natural-variation denominator against THIS image instead of `rgb`.
     Pass the pre-repair source when checking a repaired texture: make_tileable blends, blending
@@ -344,13 +358,16 @@ def step1_tile_verify(rgb, drift_ref=None):
     dl = lum if drift_ref is None else (drift_ref @ np.array([0.2126, 0.7152, 0.0722]))
     drift_v = float(np.mean(np.abs(np.diff(dl.mean(axis=0)))))
     drift_h = float(np.mean(np.abs(np.diff(dl.mean(axis=1)))))
-    coherence = max(bias_v / max(drift_v, 1e-12), bias_h / max(drift_h, 1e-12))
+    ru = bias_v / max(drift_v, 1e-12)      # left/right wrap
+    rv = bias_h / max(drift_h, 1e-12)      # top/bottom wrap
+    coherence = ru if axes == 'u' else rv if axes == 'v' else max(ru, rv)
 
     # ABSOLUTE FLOOR. A ratio is meaningless when both terms are ~0: procedurally periodic textures
     # have a seam bias around 1e-16 AND a drift around 1e-17, and the quotient is then pure
     # floating-point noise — the kerb granite, periodic by construction, scored 2.28 that way. A step
     # smaller than one 8-bit level cannot be seen, so it passes whatever the ratio says.
-    if max(bias_v, bias_h) < (1.0 / 255.0):
+    checked_bias = bias_v if axes == 'u' else bias_h if axes == 'v' else max(bias_v, bias_h)
+    if checked_bias < (1.0 / 255.0):
         return True, min(coherence, 1.0), coherence
     return coherence <= 1.5, coherence, coherence
 
@@ -420,7 +437,7 @@ def resize_tiling(rgb, size):
     return np.asarray(big.crop((size, size, size * 2, size * 2)), dtype=np.float64) / 255.0
 
 
-def align_tiling(rgb, coarse=1):
+def align_tiling(rgb, coarse=1, axes='both'):
     """
     LOSSLESS tiling repair: roll the image so its natural period lands on the frame edge.
 
@@ -451,8 +468,10 @@ def align_tiling(rgb, coarse=1):
         k = int(np.argmin(diffs[::max(1, coarse)]) * max(1, coarse))
         return (n - k) % n
 
-    dx = best_roll(col, w)
-    dy = best_roll(row, h)
+    dx = best_roll(col, w) if axes in ('both', 'u') else 0
+    # Never roll v on a texture that does not tile vertically — it would slide the pavement plinth
+    # off the bottom edge and wrap it round to the top.
+    dy = best_roll(row, h) if axes in ('both', 'v') else 0
     return np.roll(np.roll(rgb, dy, axis=0), dx, axis=1), dy, dx
 
 

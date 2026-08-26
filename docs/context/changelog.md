@@ -1795,3 +1795,31 @@ now understood.
   different lamps. All three are from the art bible's §4.2 closed set: **N1 Sodium Amber** for the
   orange end, a yellow between it and N3, and **N2 Warm LED** for the coolest.
 - `_ddWindowGlow` removed — bloom signed off at 0.85.
+
+## 2026-08-26 — v3 P3-05 COMPLETE: the 8 ground-array shopfronts
+
+8 × 896×512 at **128 texels/m on both axes** over 7.0 m × 4.0 m. The plan allowed 64 across on a
+512 square; a 1.75:1 page hits the body layers' density in *both* directions for the same memory,
+and a square page would have stretched every shopfront 1.75× horizontally.
+
+**The ground layer is not the body layer, and three things follow from it:**
+- **Tile check and repair are u-ONLY.** A shopfront tiles along a street and never vertically —
+  bottom edge is pavement, top meets the body band. Judging the v seam would fail a correct texture,
+  and rolling v would slide the pavement plinth off the bottom and wrap it to the top. All 8 pass at
+  **0.00** horizontally after alignment (worst raw: 8.54).
+- **The ground band's `v` now maps 0 → 1**, not `0 → groundH/FLOOR_HEIGHT`. That `gFrac` is the
+  LEGACY fraction telling the canvas painter which slice of a *shared* tile held the shopfront;
+  against a dedicated ground layer it squashed the whole shopfront into the bottom third of itself.
+- **The shader picks a scale per band.** Body `v` arrives per-STOREY and needs dividing into layer
+  space; ground `v` is already 0→1. `u` stays shared — the suite asserts it, so the vertical seam
+  lines up horizontally.
+
+**No L\* or C\* rescale on shopfronts.** A shopfront's VALUE is its identity — dark green joinery,
+dark glass, a pale stone plinth — and the `facade` class describes a WALL at L\* 74. Applying it
+lifted the green bar **22.8 → 73.8** (51 points) and rendered it pale mint; every plate came out
+bleached. Chroma is left alone for the same reason: a greengrocer's produce is real object colour,
+not a material sample. De-light, palette snap and the pre-grade divide all still run — those are what
+normalize is actually for here. `rescale_L` / `rescale_C` are now options on `normalize_albedo`.
+
+All 8 pass gate 4 (ΔE 3.24–10.25). Arrays: albedo **0.39 MB** (ETC1S), normal 4.20 MB (UASTC).
+**P3-05 and P3-08 both closed — 63 done, 1 partial, 20 open. P3 is complete.**
