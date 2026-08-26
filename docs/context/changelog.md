@@ -1895,3 +1895,24 @@ User-reported from a drive ("too fake"). Three independent causes, all in `shopS
   atlas is mipmapped + anisotropic — unmipped text on a 3 m board seen from a moving car crawls.
 
 `frontend/test/shopSigns.test.js` pins all six.
+
+## 2026-08-27 — Both open art gates closed (jacaranda ΔE, washingtonia clip)
+
+- **Gate 4 — added P11 jacaranda violet `#8E7FAB` to §4.1, restricted to `foliage_leaf`.** The ten
+  existing anchors sit at hues 38–121° plus one at 251°, because §4.1 was derived from Barcelona's
+  *built* environment; that leaves a 147° gap where violet lives. A jacaranda in flower (hue ~305°)
+  had **P7 bordillo granite, a neutral grey, as its nearest anchor at ΔE 21** — so 17.01 was already
+  the best achievable and the gate was reporting a hole in the PALETTE as a defect in the ASSET.
+  Now **11.49**. `gate4_delta_e` takes a `surface_class` and defaults to the unrestricted ten, so a
+  violet facade still can't pass on P11. **The P10-for-foliage amendment is withdrawn** — P10 was
+  only admitted as the sole cool anchor, and §4.1 assigns it to water/haze.
+- **Gate 6 — fixed in the grade, not the asset.** `gl_FragColor` floored at 0 but never ceilinged, so
+  channels over 1.0 were clamped *independently*, changing the ratio between them — and the ratio is
+  the hue. A sunlit washingtonia frond lost its green channel while red and blue survived, flattening
+  to lime. `colorGradePass.js` now scales the whole triplet by one factor above a 0.85 knee, so hue
+  survives exactly and highlights desaturate toward white like film. General fix, every asset gains.
+- `tools/build-ktx2-library.py` is now **self-cleaning** — it deletes the PNG it just encoded and any
+  contact sheet beside it. Leaving intermediates behind after every atlas rebuild is exactly how
+  `public/` grew to 183 MB. It also resolves the two `art-src/legacy/` masters that have no build tool.
+- New `frontend/test/colorGrade.test.js` proves the rolloff is hue-preserving by reimplementing the
+  shader maths and asserting channel ratios survive, versus a 48% R:G skew under per-channel clamping.

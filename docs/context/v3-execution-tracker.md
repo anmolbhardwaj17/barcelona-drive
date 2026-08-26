@@ -15,7 +15,7 @@
 | **Next task** | **THE P3 EXIT DRIVE — one drive, four caps.** Everything measurable without a drive now passes; see the gate table below. What is left needs the car moving at night in dense Eixample: **p95 night GPU ≤ 15.0 ms**, **draws ≤ 450**, **triangles ≤ 2.6 M**, **time-to-drive regression < 1.5 s**. Press **F9** at the end and hand back the report. All four should have MOVED — boot uploads shrank ~4× — so the P0 baseline comparison is the point of the run, not a formality. |
 | **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). Two art gates stay OPEN BY DECISION, not oversight: jacaranda ΔE **17.01** vs 15 (the bible's own note calls the threshold tunable to 18 after the first 10 assets — not silently widened) and washingtonia **8.3%** rally-saturation clip (rally mode only; the other five are 0–2.9%). ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
+| **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). The two art gates are now CLOSED: jacaranda **17.01 → 11.49** on the new P11 violet anchor (restricted to foliage, so a violet facade still fails), and washingtonia's clip is absorbed by a hue-preserving highlight rolloff in `colorGradePass.js` rather than by dulling the asset. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
 ### ▶ DO THIS FIRST — the P3 exit drive. It is the only thing between here and P4.
 
@@ -686,7 +686,7 @@ small value once this lands.**
 | Texture VRAM resident | ≤ 200 MiB | **~84 MiB** (world 34.7 + facade arrays 15.3 + render targets 34.0) | ✅ |
 | Art library over the wire | ≤ 24.0 MB | **17.09 MB** (world 15.28 + facade 1.81) | ✅ |
 | Building detail coverage | ≥ 95% | fair-budget water-filling, 7 tests | ✅ |
-| Every asset passes §2.7 | 14 gates | 2 open BY DECISION — see RESUME | ⚠ |
+| Every asset passes §2.7 | 14 gates | **both closed 2026-08-27** — P11 violet anchor; hue-preserving grade rolloff | ✅ |
 | p95 night GPU | ≤ 15.0 ms | **needs the drive** | ⏳ |
 | Draws / triangles | ≤ 450 / ≤ 2.6 M | **needs the drive** | ⏳ |
 | Time-to-drive regression | < 1.5 s | **needs the drive** | ⏳ |

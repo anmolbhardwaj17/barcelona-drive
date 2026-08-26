@@ -22,13 +22,17 @@ TWO THINGS THIS TOOL GETS RIGHT THAT A PLAIN `basisu` CALL DOES NOT:
 Also emits the `.half` variant that QUALITY.textureVariant expects on the LOW tier. Nothing ever
 emitted those, so LOW-tier devices were requesting `name.half.ktx2` and getting a 404.
 """
-import os, sys, subprocess
+import os, sys, glob, subprocess
 from PIL import Image, ImageOps
 
 sys.path.insert(0, os.path.dirname(__file__))
 from encodeKtx2 import encode
 
-ROOT = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'public', 'textures')
+ROOT   = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'public', 'textures')
+LEGACY = os.path.join(os.path.dirname(__file__), '..', 'art-src', 'legacy')
+
+# Where a '@legacy/x' entry's OUTPUT goes — the master is outside public/, the encode is not.
+LEGACY_OUT = {'railway_01.png': 'railway', 'wall_01.jpg': 'wall'}
 TMP  = os.environ.get('TMPDIR', '/tmp')
 
 # (relative path, codec, is_normal_map, why)
@@ -49,8 +53,10 @@ LIBRARY = [
     ('road/kerb_granite_normal.png',      'uastc', True,  'normal'),
     ('sky/sky_clouds_day.png',            'uastc', False, 'alpha is the cloud MASK — banding is visible on sky'),
     ('sky/sky_clouds_night.png',          'uastc', False, 'alpha is the cloud MASK'),
-    ('railway/railway_01.png',            'etc1s', False, 'opaque'),
-    ('wall/wall_01.jpg',                  'etc1s', False, 'opaque'),
+    # These two have no build tool, so their masters were moved to art-src/legacy/ when public/ was
+    # cleaned; they are addressed there rather than in the output tree. LEGACY_ROOT resolves them.
+    ('@legacy/railway_01.png',            'etc1s', False, 'opaque'),
+    ('@legacy/wall_01.jpg',               'etc1s', False, 'opaque'),
 ]
 
 BPT = {'uastc': 1.0, 'etc1s': 0.5}   # bytes/texel after transcode (BC7 / BC1)
@@ -71,10 +77,17 @@ def main():
     vram_before = vram_after = 0
     print(f'{"asset":42s} {"disk":>16s}  {"VRAM":>16s}')
     for rel, codec, is_nrm, _why in LIBRARY:
-        src = os.path.join(ROOT, rel)
+        if rel.startswith('@legacy/'):
+            base = rel.split('/', 1)[1]
+            src = os.path.join(LEGACY, base)
+            out_dir = os.path.join(ROOT, LEGACY_OUT[base])
+            os.makedirs(out_dir, exist_ok=True)
+            out = os.path.join(out_dir, os.path.splitext(base)[0] + '.ktx2')
+        else:
+            src = os.path.join(ROOT, rel)
+            out = os.path.splitext(src)[0] + '.ktx2'
         if not os.path.exists(src):
             print(f'  MISSING {rel}'); continue
-        out = os.path.splitext(src)[0] + '.ktx2'
 
         tmp = os.path.join(TMP, 'ktx_' + os.path.basename(rel).replace('.jpg', '.png'))
         w, h = prep(src, tmp)
@@ -94,6 +107,13 @@ def main():
         print(f'  {rel:40s} {png_bytes/1048576:6.1f}->{ktx_bytes/1048576:5.1f} MB  '
               f'{vb:6.1f}->{va:5.1f} MiB  {codec}')
         os.remove(tmp); os.remove(tmp_h)
+        # public/ holds ONLY what the runtime loads. The source is an intermediate — the master is in
+        # art-src/ (or the asset is procedural) — and leaving it behind after every atlas rebuild is
+        # exactly how public/ grew to 183 MB. Contact sheets go with it: QA artefact, not payload.
+        if src.startswith(ROOT):
+            os.remove(src)
+            for sheet in glob.glob(os.path.join(os.path.dirname(src), '*contact_sheet.png')):
+                os.remove(sheet)
 
     print(f'\n  {"TOTAL":40s} {png_total/1048576:6.1f}->{ktx_total/1048576:5.1f} MB  '
           f'{vram_before:6.1f}->{vram_after:5.1f} MiB')

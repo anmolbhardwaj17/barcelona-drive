@@ -84,7 +84,33 @@ const ColorGradeShader = {
       float vignette = 1.0 - smoothstep(0.36, 0.82, dist) * (mix(0.15, 0.05, uRally) + uNight * 0.14) * s;
       c *= vignette;
 
-      gl_FragColor = vec4(max(c, 0.0), col.a);
+      // 7. Hue-preserving highlight rolloff.
+      //
+      // Everything above writes to an LDR target, so any channel over 1.0 is clamped INDEPENDENTLY
+      // of the others — which changes the RATIO between them, and the ratio is the hue. A saturated
+      // yellow-green washingtonia frond in full sun has its green channel clipped while red and blue
+      // survive: the frond flattens to lime and loses every bit of highlight texture. Measured at the
+      // rally saturation of 1.52, that hit 8.3% of the palm's opaque pixels against 0-2.9% for every
+      // other tree species — and step 1 above is what pushes it there, since mix(luma, c, satAmt)
+      // with satAmt > 1 EXTRAPOLATES away from luma.
+      //
+      // Scaling the whole triplet by ONE factor keeps the ratios exactly, so a blown highlight
+      // desaturates toward white the way film does instead of skewing hue. The knee is high on
+      // purpose: only the range that was going to be destroyed anyway gets compressed, and ordinary
+      // midtones pass through untouched.
+      //
+      // This is the general fix. The alternative was to pre-darken the one palm species so it had
+      // headroom at 1.52 — which would have dulled it in the mode you actually drive in, to fix a
+      // mode you rarely use, and left every future asset with the same trap.
+      c = max(c, 0.0);
+      const float KNEE = 0.85;
+      float peak = max(max(c.r, c.g), c.b);
+      float over = max(peak - KNEE, 0.0);
+      float t = over / (1.0 - KNEE);
+      float rolled = peak - over + (1.0 - KNEE) * (t / (1.0 + t));   // asymptotic to 1.0, never clips
+      c *= (peak > 1e-5) ? rolled / peak : 1.0;
+
+      gl_FragColor = vec4(c, col.a);
     }
   `,
 };

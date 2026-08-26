@@ -56,12 +56,15 @@ NORMALIZE_VERSION = 2
 SOURCE_TYPE   = 'ai'
 SURFACE_CLASS = 'foliage_leaf'
 # Two anchors are allowed for foliage cards, and each pixel snaps toward whichever it is nearer.
-# P9 is the foliage anchor and carries all five green species. P10 is admitted for ONE reason: a
-# violet-flowering street tree has no green-anchor-legal representation, and forcing it at P9 rotates
-# it through red into pink — further from the Barcelona palette than where it started. P10 is the
-# only cool anchor in the ten. NOTE: §4.1 assigns P10 to water/haze, so this is a proposed amendment
-# to the bible's allowed-set for foliage, not something it already sanctions.
-PALETTE_ANCHOR = [AN.ANCHORS['P9_platanus_green'], AN.ANCHORS['P10_mediterrani_blue']]
+# P9 is the foliage anchor and carries all five green species. The second used to be P10 mediterrani
+# blue, admitted purely because it was the only COOL anchor in the ten and a violet-flowering street
+# tree had no green-anchor-legal representation — forcing it at P9 rotates it through red into pink.
+# That was a workaround for a hole in the palette, and it left the jacaranda at gate-4 dE 17.01.
+#
+# P11 jacaranda violet (added to §4.1 on 2026-08-27, restricted to foliage) closes the hole properly,
+# so the P10-for-foliage amendment is WITHDRAWN: §4.1 assigns P10 to water/haze and foliage no longer
+# needs to borrow it. Snapping now moves the blossom toward violet, which is where it already was.
+PALETTE_ANCHOR = [AN.ANCHORS['P9_platanus_green'], AN.ANCHORS['P11_jacaranda_violet']]
 SNAP_ALPHA    = AN.SNAP_ALPHA['prop']
 NORMAL_BAND   = 'foliage'
 

@@ -27,7 +27,27 @@ ANCHORS = {
     'P5_poblenou_brick':   '#9E5A3E', 'P6_panot_grey':      '#B4B0A6',
     'P7_bordillo_granite': '#7C7A76', 'P8_carriageway_grey':'#4F4E4C',
     'P9_platanus_green':   '#6E7A55', 'P10_mediterrani_blue':'#2F5C77',
+    # P11 — jacaranda violet. AMENDMENT to §4.1, 2026-08-27.
+    #
+    # The other ten anchors sit at hues 38, 48, 62, 89, 90, 90, 91, 94, 121 and 251 degrees, because
+    # §4.1 was derived from Barcelona's BUILT environment: stone, stucco, clay tile, sea. That leaves
+    # a 147-degree hole exactly where violet lives, and a jacaranda in flower (hue ~305) has no legal
+    # representation in it — its nearest anchor was P7 bordillo granite, a neutral GREY, at dE 21.
+    # Gate 4 was therefore reporting a hole in the PALETTE as a defect in the ASSET.
+    #
+    # The alternatives were worse. Widening the threshold to 18 weakens the gate for every asset to
+    # accommodate one. Desaturating the blossom until it passes makes a jacaranda not a jacaranda,
+    # which is the same mistake that bleached the shopfront plates to the `facade` class.
+    #
+    # It is a real Barcelona colour: the city's jacarandas flower across May and June.
+    # 21.1 dE from its nearest existing anchor, so it is a new anchor and not a near-duplicate.
+    'P11_jacaranda_violet': '#8E7FAB',
 }
+
+# Anchors admissible ONLY for specific surface classes. Without this, adding a violet anchor to the
+# global set would let ANY asset claim it — a violet facade would pass gate 4 on P11. The restriction
+# is the reason the amendment is safe.
+RESTRICTED_ANCHORS = {'P11_jacaranda_violet': {'foliage_leaf'}}
 
 # ── §4.4 STEP 3 surface-class targets (pre-grade) ─────────────────────────────────────────────
 CLASS_TARGETS = {           # L* mean, L* sigma, C* mean
@@ -255,11 +275,20 @@ def step4_calibrate_normal(nrm_rgb, band='foliage'):
     return (out + 1.0) / 2.0, mean_mag, after, (lo <= after <= hi)
 
 
-def gate4_delta_e(lab, mask):
-    """Gate 4 — mean colour must sit within ΔE2000 <= 15 of at least one §4.1 anchor."""
+def gate4_delta_e(lab, mask, surface_class=None):
+    """
+    Gate 4 — mean colour must sit within ΔE2000 <= 15 of at least one §4.1 anchor.
+
+    `surface_class` gates the RESTRICTED anchors (see RESTRICTED_ANCHORS). Passing None — the
+    default — checks against the unrestricted ten only, so a caller that does not declare what it is
+    measuring cannot accidentally borrow a class-specific anchor to pass.
+    """
     mean_lab = np.array([lab[..., i][mask].mean() for i in range(3)])
     best, best_d = None, 1e9
     for name, hx in ANCHORS.items():
+        allowed = RESTRICTED_ANCHORS.get(name)
+        if allowed is not None and surface_class not in allowed:
+            continue
         d = float(delta_e_2000(mean_lab, hex_to_lab(hx)))
         if d < best_d:
             best, best_d = name, d
@@ -297,7 +326,8 @@ def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_sn
     lab, before = step3_rescale(lab, mask, surface_class, rescale_L=rescale_L, rescale_C=rescale_C)
     lab = step5_palette_snap(lab, mask, anchor, alpha_snap)
     lab = step6_pre_grade(lab)
-    anchor_name, dE, mean_lab = gate4_delta_e(lab, mask)
+    # pass the declared class through, so a foliage plate may reach a foliage-restricted anchor
+    anchor_name, dE, mean_lab = gate4_delta_e(lab, mask, surface_class)
     clip_frac, out_rgb = rally_clip_check(lab, mask)
     return out_rgb, {
         'src_L_mean': before[0], 'src_L_std': before[1], 'src_C_mean': before[2],

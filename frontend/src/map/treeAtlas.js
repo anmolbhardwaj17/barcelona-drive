@@ -36,13 +36,13 @@ export default {
         "surfaceClass": "foliage_leaf",
         "anchor": [
           "#6E7A55",
-          "#2F5C77"
+          "#8E7FAB"
         ],
         "snapAlpha": 0.35,
         "LStar": 45.0,
-        "CStar": 20.5,
+        "CStar": 20.4,
         "nearestAnchor": "P9_platanus_green",
-        "deltaE2000": 6.0,
+        "deltaE2000": 6.03,
         "gate4Pass": true,
         "normalMeanXY": 0.275,
         "normalBandPass": true,
@@ -79,13 +79,13 @@ export default {
         "surfaceClass": "foliage_leaf",
         "anchor": [
           "#6E7A55",
-          "#2F5C77"
+          "#8E7FAB"
         ],
         "snapAlpha": 0.35,
         "LStar": 45.0,
-        "CStar": 20.5,
+        "CStar": 20.3,
         "nearestAnchor": "P9_platanus_green",
-        "deltaE2000": 6.78,
+        "deltaE2000": 6.84,
         "gate4Pass": true,
         "normalMeanXY": 0.275,
         "normalBandPass": true,
@@ -122,17 +122,17 @@ export default {
         "surfaceClass": "foliage_leaf",
         "anchor": [
           "#6E7A55",
-          "#2F5C77"
+          "#8E7FAB"
         ],
         "snapAlpha": 0.35,
         "LStar": 45.0,
-        "CStar": 20.6,
+        "CStar": 20.5,
         "nearestAnchor": "P9_platanus_green",
-        "deltaE2000": 4.9,
+        "deltaE2000": 4.92,
         "gate4Pass": true,
         "normalMeanXY": 0.275,
         "normalBandPass": true,
-        "rallyClipPct": 1.484
+        "rallyClipPct": 1.487
       }
     },
     {
@@ -165,17 +165,17 @@ export default {
         "surfaceClass": "foliage_leaf",
         "anchor": [
           "#6E7A55",
-          "#2F5C77"
+          "#8E7FAB"
         ],
         "snapAlpha": 0.35,
         "LStar": 45.0,
-        "CStar": 20.1,
+        "CStar": 19.9,
         "nearestAnchor": "P9_platanus_green",
-        "deltaE2000": 7.14,
+        "deltaE2000": 7.2,
         "gate4Pass": true,
         "normalMeanXY": 0.275,
         "normalBandPass": true,
-        "rallyClipPct": 8.297
+        "rallyClipPct": 8.303
       }
     },
     {
@@ -208,17 +208,17 @@ export default {
         "surfaceClass": "foliage_leaf",
         "anchor": [
           "#6E7A55",
-          "#2F5C77"
+          "#8E7FAB"
         ],
         "snapAlpha": 0.35,
         "LStar": 45.0,
-        "CStar": 20.5,
-        "nearestAnchor": "P10_mediterrani_blue",
-        "deltaE2000": 17.01,
-        "gate4Pass": false,
+        "CStar": 20.6,
+        "nearestAnchor": "P11_jacaranda_violet",
+        "deltaE2000": 11.49,
+        "gate4Pass": true,
         "normalMeanXY": 0.275,
         "normalBandPass": true,
-        "rallyClipPct": 0.032
+        "rallyClipPct": 0.006
       }
     },
     {
@@ -251,17 +251,17 @@ export default {
         "surfaceClass": "foliage_leaf",
         "anchor": [
           "#6E7A55",
-          "#2F5C77"
+          "#8E7FAB"
         ],
         "snapAlpha": 0.35,
         "LStar": 45.0,
-        "CStar": 20.5,
+        "CStar": 20.4,
         "nearestAnchor": "P9_platanus_green",
-        "deltaE2000": 4.9,
+        "deltaE2000": 4.91,
         "gate4Pass": true,
         "normalMeanXY": 0.275,
         "normalBandPass": true,
-        "rallyClipPct": 2.382
+        "rallyClipPct": 2.383
       }
     }
   ]

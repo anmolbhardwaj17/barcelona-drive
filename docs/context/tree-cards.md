@@ -73,12 +73,44 @@ Two anchors are allowed for foliage because a violet-flowering street tree has n
 representation. **§4.1 assigns P10 to water/haze, so this is a proposed amendment to the bible's
 allowed-set for foliage, not something it already sanctions.**
 
-### Open gate items
+### Gate items — BOTH CLOSED 2026-08-27
 
 | Gate | Status |
 |---|---|
-| 4 — mean colour ΔE2000 ≤ 15 of an anchor | **jacaranda 17.01** vs P10. Five species pass (4.9–7.1). The bible's own note calls the threshold tunable to 18 after the first 10 assets; not silently widened. |
-| 6 — no channel clips at rally saturation ×1.52 | **washingtonia 8.3%** of opaque pixels. Rally-mode only; the other five are 0–2.9%. |
+| 4 — mean colour ΔE2000 ≤ 15 of an anchor | ✅ **jacaranda 17.01 → 11.49** vs the new **P11 jacaranda violet**. All six species pass (4.9–11.5). |
+| 6 — no channel clips at rally saturation ×1.52 | ✅ Closed in the GRADE, not the asset. Washingtonia still measures 8.3% — that is a property of a sunlit palm frond — but those pixels are now compressed by a hue-preserving shoulder instead of being clipped per-channel. |
+
+**Gate 4 — the palette had a hole, and the gate was reporting it as an asset defect.** The ten §4.1
+anchors sit at hues 38, 48, 62, 89, 90, 90, 91, 94, 121 and 251°, because §4.1 was derived from
+Barcelona's *built* environment: stone, stucco, clay tile, sea. That leaves a 147° gap exactly where
+violet lives. A jacaranda in flower measures hue ~305°, and its nearest anchor was **P7 bordillo
+granite — a neutral grey — at ΔE 21**. 17.01 was already the best achievable.
+
+Fixed by adding **P11 jacaranda violet `#8E7FAB`** to §4.1, **restricted to `foliage_leaf`** via
+`RESTRICTED_ANCHORS`. The restriction is what makes the amendment safe: without it a violet *facade*
+would pass gate 4 on P11. `gate4_delta_e` now takes a `surface_class`, and defaults to the
+unrestricted ten, so a caller that doesn't declare what it's measuring can't borrow the anchor.
+
+The two alternatives were both worse. Widening the threshold to 18 weakens the gate for **every**
+asset to accommodate one. Desaturating the blossom until it passes makes a jacaranda not a jacaranda
+— the same mistake that bleached the shopfront plates to the `facade` class L\* 74.
+
+> **The P10-for-foliage amendment is WITHDRAWN.** P10 mediterrani blue was only ever admitted to the
+> foliage anchor set because it was the single *cool* anchor available; §4.1 assigns it to
+> water/haze. With P11 in place foliage no longer needs to borrow it, so `PALETTE_ANCHOR` is now
+> `[P9, P11]` and the disputed amendment goes away rather than becoming permanent.
+
+**Gate 6 — fixed in the grade, because the asset was never the problem.** `gl_FragColor` floored at
+zero but never ceilinged, so any channel over 1.0 was clamped **independently of the others** at the
+LDR write — and the ratio between channels *is* the hue. A sunlit palm frond had its green channel
+clipped while red and blue survived: the frond flattened to lime and lost all highlight texture.
+Grade step 1 is what pushes it there, since `mix(luma, c, satAmt)` with `satAmt > 1` *extrapolates*.
+
+`colorGradePass.js` now scales the whole triplet by **one** factor above a knee of 0.85, so the
+ratios survive exactly and a blown highlight desaturates toward white the way film does. It is a
+general fix: every asset benefits, not one palm. Pre-darkening washingtonia instead would have
+dulled it in the mode you actually drive in, to fix a mode you rarely use, and left the next
+saturated asset with the same trap.
 
 ---
 
