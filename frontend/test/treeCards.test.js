@@ -11,7 +11,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { CONFIG } from '../src/config.js';
 import MANIFEST from '../src/map/treeAtlas.js';
-import { buildTreeCardGeometries, TREE_CARD_SPECIES, TREE_CARD_COUNT, _cardInternals } from '../src/map/treeCards.js';
+import { buildTreeCardGeometries, TREE_CARD_SPECIES, TREE_CARD_COUNT, _cardInternals,
+  patchCardFaceDirection } from '../src/map/treeCards.js';
 import { buildProceduralTreeGeometries } from '../src/map/vegetationRenderer.js';
 import * as rendererMod from '../src/map/vegetationRenderer.js';
 
@@ -89,15 +90,41 @@ test('normals form an outward dome, never pointing back into the canopy', () => 
   }
 });
 
-test('the double-sided flip that treeCards cancels still exists in the installed three', () => {
-  // treeCards rewrites this exact line so both faces of a card shade alike. If a three upgrade
-  // changes it the material logs a warning at compile time — but that only shows up in a browser,
-  // and a card path that silently blackens from behind is exactly the sort of regression that
-  // survives to a release. Fail here instead.
-  const chunk = fs.readFileSync(
-    'node_modules/three/src/renderers/shaders/ShaderChunk/normal_fragment_begin.glsl.js', 'utf8');
-  assert.ok(chunk.includes(_cardInternals().FACE_DIRECTION_SRC),
-    'three ShaderChunk changed — update FACE_DIRECTION_SRC in treeCards.js');
+test('the double-sided flip is actually cancelled in the shader three will compile', () => {
+  // THIS TEST SHIPPED BROKEN ONCE AND MUST NOT AGAIN.
+  //
+  // The original version read node_modules/three/src/.../normal_fragment_begin.glsl.js and asserted
+  // the string existed. It passed, the build passed, the shader compiled — and every card in the
+  // city still darkened from behind, because `onBeforeCompile` hands you the shader with its
+  // `#include <...>` directives UNRESOLVED. The chunk's text is simply not there yet, so the
+  // replace no-opped. The test was asserting against a file the bundle does not even load.
+  //
+  // So drive the real function against a realistic pre-include shader and check the OUTPUT.
+  const shader = { fragmentShader: 'void main() {\n#include <normal_fragment_begin>\n}' };
+  assert.equal(patchCardFaceDirection(shader), true, 'patch reports success');
+  assert.ok(shader.fragmentShader.includes('float faceDirection = 1.0;'), 'flip is cancelled');
+  assert.ok(!shader.fragmentShader.includes('gl_FrontFacing'), 'no flip survives');
+  assert.ok(!shader.fragmentShader.includes('#include <normal_fragment_begin>'), 'chunk expanded');
+  // The rest of the chunk must survive — replacing the include with ONLY our line would delete the
+  // normal calculation itself and every card would render with a garbage normal.
+  assert.ok(shader.fragmentShader.includes('vec3 normal'), 'the rest of the chunk is intact');
+
+  // And a material that does NOT contain the include must be reported as unpatchable, not silently
+  // pass — that is the three-upgrade alarm.
+  const bad = { fragmentShader: 'void main() {}' };
+  assert.equal(patchCardFaceDirection(bad), false, 'missing include is reported, not swallowed');
+});
+
+test('night lift is modulated by the albedo, not flat', () => {
+  // A constant emissive lifts every texel equally, so the canopy's own light and shade cancel and
+  // the trees go flat pale mint — brighter than the facades behind them. Measured in-game.
+  const src = fs.readFileSync('src/map/treeCards.js', 'utf8');
+  assert.ok(/emissiveMap:\s*albedo/.test(src), 'night lift modulates by the canopy texture');
+  // It must be declared at construction: adding emissiveMap later flips USE_EMISSIVEMAP and
+  // recompiles every tree shader mid-drive, which G-53 forbids.
+  const ctor = src.slice(src.indexOf('new THREE.MeshLambertMaterial'));
+  assert.ok(ctor.slice(0, ctor.indexOf('});')).includes('emissiveMap'),
+    'emissiveMap is set in the constructor, not assigned afterwards');
 });
 
 test('cards are alpha-tested cutouts, never blended', () => {
@@ -165,6 +192,10 @@ test('night lift uses emissive, and stays below the lit facades behind it', () =
   }
   const src = fs.readFileSync('src/map/treeCards.js', 'utf8');
   assert.ok(/setTreeCardNightMode/.test(src), 'night switch is exported');
-  // G-53: emissive is a plain MeshLambert uniform, so this must NOT touch a map/define.
-  assert.ok(!/emissiveMap/.test(src), 'no emissiveMap — that would add a define and recompile');
+  // G-53: the day/night SWITCH itself must only move a uniform. emissiveMap is allowed because it
+  // is declared in the constructor (asserted separately) — the define is baked before the warm-up,
+  // so toggling night never recompiles.
+  const fn = src.slice(src.indexOf('function _applyCardNight'));
+  assert.ok(!/emissiveMap|needsUpdate|defines/.test(fn.slice(0, fn.indexOf('\n}'))),
+    'the night switch only sets a uniform');
 });

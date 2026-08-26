@@ -145,6 +145,37 @@ export let CARD_UNLIT_BACK = false;
 export function _resetCardBackFlagForTest() { CARD_UNLIT_BACK = false; }
 
 const FACE_DIRECTION_SRC = 'float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;';
+const NORMAL_CHUNK_INCLUDE = '#include <normal_fragment_begin>';
+
+/**
+ * Cancel the double-sided normal flip in a material's fragment shader.
+ *
+ * Foliage is not a solid surface: both faces of a card are the same leaves and must shade the same
+ * way. Without this the dome normal inverts on back faces and the tree is black from behind.
+ *
+ * THE TRAP, which this already fell into once. `onBeforeCompile` hands you the shader with its
+ * `#include <...>` directives STILL UNRESOLVED — three expands chunks afterwards, inside
+ * WebGLProgram. So searching shader.fragmentShader for the chunk's TEXT can never match, the
+ * replace silently no-ops, and every card in the city darkens from behind while the build, the
+ * tests and the shader compile all stay green. The include directive is what is actually present,
+ * so the chunk must be expanded here by hand and substituted for the directive.
+ *
+ * Exported so the test can drive the real code path rather than assert against a source file that
+ * the bundle does not even use — which is exactly how this shipped broken the first time.
+ */
+export function patchCardFaceDirection(shader) {
+  const chunk = THREE.ShaderChunk.normal_fragment_begin;
+  if (!shader.fragmentShader.includes(NORMAL_CHUNK_INCLUDE) || !chunk || !chunk.includes(FACE_DIRECTION_SRC)) {
+    console.warn('[treeCards] normal_fragment_begin not patchable — cards will darken from behind (three upgrade?)');
+    return false;
+  }
+  shader.fragmentShader = shader.fragmentShader.replace(
+    NORMAL_CHUNK_INCLUDE,
+    chunk.replace(FACE_DIRECTION_SRC,
+      'float faceDirection = 1.0;   // treeCards: foliage shades alike on both faces'),
+  );
+  return true;
+}
 
 export function getTreeCardMaterial() {
   if (_material) return _material;
@@ -153,6 +184,11 @@ export function getTreeCardMaterial() {
   _material = new THREE.MeshLambertMaterial({
     map: albedo,
     normalMap: normal,
+    // Same texture as the albedo — see CARD_NIGHT_EMISSIVE for why the night lift must be
+    // modulated rather than flat. Declared at CREATION so the USE_EMISSIVEMAP define is baked in
+    // before the boot warm-up compiles this material; adding it later would recompile every tree
+    // shader mid-drive, which is exactly what G-53 forbids.
+    emissiveMap: albedo,
     alphaTest: CARD_ALPHA_TEST,
     transparent: false,        // see (3) in the file header — never blend these
     side: THREE.DoubleSide,
@@ -166,17 +202,7 @@ export function getTreeCardMaterial() {
   patchMaterial(_material, (shader) => {
     injectTreeWind(shader);
 
-    // Cancel the double-sided normal flip. Foliage is not a solid surface: both faces of a card
-    // are the same leaves and must shade the same way. Without this the dome normal inverts on
-    // back faces and the tree is black from behind.
-    if (shader.fragmentShader.includes(FACE_DIRECTION_SRC)) {
-      shader.fragmentShader = shader.fragmentShader.replace(
-        FACE_DIRECTION_SRC, 'float faceDirection = 1.0;   // treeCards: foliage shades alike on both faces'
-      );
-      CARD_UNLIT_BACK = true;
-    } else {
-      console.warn('[treeCards] faceDirection chunk not found — cards will darken from behind (three upgrade?)');
-    }
+    if (patchCardFaceDirection(shader)) CARD_UNLIT_BACK = true;
   }, 'vegTreeCard');
 
   return _material;
@@ -193,15 +219,40 @@ export function getTreeCardMaterial() {
 // brighter number is still zero. Emissive adds light independent of the rig, which is also the
 // honest physical story: a city canopy at night is lit by skyglow, not by the lamps under it.
 //
-// Deliberately low. This is meant to read as "foliage silhouette you can still see", not as a
-// glowing tree, and it must not lift the canopy above the lit facades behind it.
-const CARD_NIGHT_EMISSIVE = [0.050, 0.064, 0.055];   // faint, very slightly cool-green
+// A FLAT emissive is not enough on its own, and the first attempt proved it: 0.05 constant across
+// the card lifted every texel by the same amount, so the canopy's own light and shade cancelled out
+// and the trees went pale, flat and MINT — brighter than the facades behind them, which is worse
+// than the black they replaced. The bible's §4.4 note lists this exact overshoot three times in
+// this repo's history.
+//
+// So the lift is MODULATED BY THE ALBEDO: `emissiveMap = map`. Emissive then scales with each
+// texel's own colour, dark leaves stay dark, gaps stay gaps, and the canopy keeps its structure.
+// Because the map is multiplied in, the scalar has to be larger than an unmodulated one would be —
+// mean foliage albedo is ~0.25 linear, so the net lift is roughly a quarter of the number below.
+const CARD_NIGHT_EMISSIVE = [0.115, 0.135, 0.120];
 
 let _cardNight = false;
 function _applyCardNight(m) {
   if (!m) return;
   if (_cardNight) m.emissive.setRGB(...CARD_NIGHT_EMISSIVE);
   else m.emissive.setRGB(0, 0, 0);
+}
+
+/**
+ * Live tuning knob — `window._ddTreeNight(scale)` in the console while driving at night.
+ *
+ * Night foliage brightness cannot be judged from a screenshot or a contact sheet; it has to be
+ * seen against lit facades, street lamps and headlights, at speed. Rebuilding between guesses puts
+ * that judgement a full round-trip away, so this exposes it directly: dial it, then tell me the
+ * number and it becomes the default. Dev convenience only — it changes one uniform, nothing else.
+ */
+if (typeof window !== 'undefined') {
+  window._ddTreeNight = (scale = 1) => {
+    if (!_material) return 'no card material yet — drive first';
+    const e = CARD_NIGHT_EMISSIVE.map((c) => c * scale);
+    _material.emissive.setRGB(...e);
+    return `emissive ${e.map((c) => c.toFixed(4)).join(', ')}  (scale ${scale})`;
+  };
 }
 
 /**
@@ -216,5 +267,5 @@ export function setTreeCardNightMode(isNight) {
 
 /** Test/debug seam. */
 export function _cardInternals() {
-  return { CARD_ALPHA_TEST, CANOPY_CENTRE_Y, DOME_UP_BIAS, FACE_DIRECTION_SRC, CARD_NIGHT_EMISSIVE };
+  return { CARD_ALPHA_TEST, CANOPY_CENTRE_Y, DOME_UP_BIAS, FACE_DIRECTION_SRC, NORMAL_CHUNK_INCLUDE, CARD_NIGHT_EMISSIVE };
 }

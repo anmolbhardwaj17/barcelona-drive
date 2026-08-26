@@ -1258,3 +1258,18 @@ State at time of analysis:
   on Collserola. New `hill` set (celtis/tipuana/plane). Species table shared between the worker and
   the cluster renderer so the two cannot drift.
 - Tests 164 → 168.
+
+## 2026-08-26 — P3-10 fixes: faceDirection patch, night lift modulated
+
+- **The double-sided flip was never actually cancelled.** `onBeforeCompile` hands you the shader
+  with `#include <...>` UNRESOLVED — three expands chunks later, inside WebGLProgram — so searching
+  `shader.fragmentShader` for the chunk's text could never match and the replace silently no-opped.
+  Every card darkened from behind while build, tests and shader compile all stayed green. Now
+  expands `THREE.ShaderChunk.normal_fragment_begin` by hand and substitutes it for the directive.
+  The test was asserting against `node_modules/three/src/...`, a file the bundle does not load; it
+  now drives `patchCardFaceDirection()` against a realistic pre-include shader and checks the output.
+- **Night lift was flat and overshot** — a constant emissive lifts every texel equally, so the
+  canopy's own light and shade cancelled and the trees went pale, flat and mint, brighter than the
+  facades. Now modulated by the albedo (`emissiveMap = map`, declared in the constructor so the
+  define is baked before the boot warm-up). `window._ddTreeNight(scale)` tunes it live at night.
+- Tests 168 → 169.
