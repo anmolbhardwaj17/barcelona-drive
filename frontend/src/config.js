@@ -139,11 +139,18 @@ export const CONFIG = {
   ENABLE_SHADOWS: true,
   SHADOW_MAP_SIZE: 1024,
 
-  /** Procedural roadside/tree-base bush tufts. OFF — they scattered clumps over streets and
-   *  crosswalks. ⚠ v3 P1-17: this gates the LIVE procedural path (vegetationRenderer's
-   *  getBushGeometry + meshMaterializer's bush branch), NOT the deleted GLB bushRenderer.js.
-   *  meshMaterializer tests `!== false`, so DELETING this flag switches bushes back ON. */
-  ENABLE_BUSHES: false,
+  /** Roadside/tree-base bush tufts. ON as of 2026-08-26 (v3 P3-10 follow-on).
+   *
+   *  It was OFF with the note "they scattered clumps over streets and crosswalks". That was a
+   *  PLACEMENT fault, not a look fault: every bush push site was guarded by the vegetation mask,
+   *  which is a road-EDGE test, but bushes never got `isOnGroundRoad` — the road-SURFACE check
+   *  trees have. So a bush could land on a crosswalk where a tree could not. That guard is now in
+   *  (`collectBushPositions`), which is what makes turning this back on defensible rather than
+   *  hopeful. If tufts reappear on crosswalks, this is the flag and that is the function.
+   *
+   *  ⚠ v3 P1-17: gates the LIVE path (vegetationRenderer's bush seam + meshMaterializer's bush
+   *  branch), NOT the deleted GLB bushRenderer.js. meshMaterializer tests `!== false`. */
+  ENABLE_BUSHES: true,
   /** Grass instances per tile. 0 = off. ⚠ v3 P1-17: the RENDER path is deleted, but
    *  vegetationWorker reads `config.MAX_GRASS_PER_TILE ?? 50000` — so deleting this flag would
    *  make the worker collect 50k grass points per tile. Keep it pinned at 0. */

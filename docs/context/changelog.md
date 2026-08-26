@@ -1374,3 +1374,8 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
 - **Spawn back to Gran Via** `{41.3866, 2.1640}`. Use `?spawn=41.4180,2.1150` for Collserola instead
   of moving the default — the URL override does the same job without making every later drive report
   incomparable to the earlier ones.
+- **`ENABLE_BUSHES` back ON.** It was off with the note "they scattered clumps over streets and
+  crosswalks" — a PLACEMENT fault, not a look fault. Bush push sites were guarded by the vegetation
+  mask (a road-EDGE test) but never got `isOnGroundRoad`, the road-SURFACE check trees have, so a
+  bush could land on a crosswalk where a tree could not. That guard is now in `collectBushPositions`,
+  which is what makes re-enabling defensible rather than hopeful.

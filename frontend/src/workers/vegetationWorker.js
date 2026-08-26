@@ -1209,13 +1209,24 @@ function sortPositionsByDistance(positions, cx, cz) {
 // Bush position collection (from vegetationRenderer.js)
 // ============================================================================
 
+/**
+ * Roadside and tree-base bush tufts.
+ *
+ * BUSHES WERE OFF BECAUSE OF THIS FUNCTION, not because of how they looked: `ENABLE_BUSHES` was
+ * disabled with the note "they scattered clumps over streets and crosswalks". Every push site was
+ * already guarded by isVegetationAllowed(margin 3), but that mask is a road-EDGE test — it does not
+ * know about the road SURFACE the way trees do. Trees gained `isOnGroundRoad` for exactly this and
+ * bushes never did, which is why a bush could sit on a crosswalk while a tree could not.
+ */
 function collectBushPositions(treePositions, tileData, tileKey, vegMask) {
+  const bushGroundGrid = buildGroundRoadGrid(tileData.roads || []);
   const roads = tileData.roads || [];
   const buildings = tileData.buildings || [];
   const bushes = [];
 
   function isValid(x, z) {
     return isVegetationAllowed(vegMask, x, z, 3) &&
+           !isOnGroundRoad(bushGroundGrid, x, z) &&   // the check trees had and bushes did not
            !isInsideOrNearBuilding(x, z, buildings);
   }
 
