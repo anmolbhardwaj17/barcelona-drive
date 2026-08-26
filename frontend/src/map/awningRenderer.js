@@ -12,28 +12,37 @@
  */
 import * as THREE from 'three';
 import { worldToLatLon } from '../projection.js';
-import { shopSegSkipped, shopGroundY } from './shopfrontRenderer.js';
+import { shopSegSkipped, shopGroundY, SHOP_ROW } from './shopfrontRenderer.js';
 
 const AWN_TOP_Y      = 2.9;    // back edge height on the building face (below the ~3.15 m sign fascia)
 const AWN_PROJECT    = 1.35;   // how far it reaches out over the sidewalk (metres)
 const AWN_FRONT_DROP = 0.34;   // front edge lower than the back → the slope
 const AWN_FLAP       = 0.34;   // vertical front valance drop
-const SEG_LEN        = 3.4;    // one awning ≈ one shopfront
-const SEG_GAP        = 0.4;    // gap between neighbouring awnings
-const EDGE_MARGIN    = 0.5;    // keep awnings off the building corners
-const MIN_EDGE       = 6;      // skip buildings whose longest edge is shorter than this
-const SEG_CAP        = 260;    // per-tile segment budget (perf guard)
+// Row layout is IMPORTED, not copied — an awning that doesn't sit over a storefront is a canopy
+// floating on blank wall, and two hand-synced copies of these numbers is how that happens.
+const { SEG_LEN, SEG_GAP, EDGE_MARGIN, MIN_EDGE, SEG_CAP, MAX_SEGS_PER_BUILDING } = SHOP_ROW;
 
-// Classic toldo palette — deep saturated fabrics + a couple of pale ones.
+/**
+ * Toldo palette, normalized to the art bible's `fabric` surface class (L* 60 +/- 15, C* 30) and
+ * pre-graded (step 6, C* / 1.15) so it is authored for the POST-grade look.
+ *
+ * The previous list was raw saturated hex picked by eye and sat at L* 21-32 — a whole band BELOW
+ * the class floor of 45. Under the graded lighting those read as near-black slabs rather than
+ * fabric, which is half the reason the awnings didn't register as awnings at all.
+ *
+ * Teal is gone: at L* 45 / C* 21 its nearest palette anchor is mediterrani_blue at dE 16.98, over
+ * the gate-4 threshold of 15 — there is no cyan-green anchor in the Barcelona palette. Sage takes
+ * its slot at dE 6.67. Every entry below passes gate 4.
+ */
 const COLORS = [
-  0x8a2620, // burgundy
-  0x1f4e33, // bottle green
-  0x1c3557, // navy
-  0xb5842a, // mustard/ochre
-  0x5a1f2a, // maroon
-  0xdccba6, // cream
-  0x2f6d6a, // teal
-  0x7a3410, // terracotta
+  0x9D574D, // burgundy      dE 6.61  poblenou_brick
+  0x4B735A, // bottle green  dE 10.73 platanus_green
+  0x5A6B8C, // navy          dE 11.08 mediterrani_blue
+  0xA98754, // mustard/ochre dE 11.10 modernisme_rose
+  0x945A61, // maroon        dE 10.70 teula_clay
+  0xC6B798, // cream         dE 4.24  ochre_sand
+  0x7E8A6E, // sage          dE 6.67  platanus_green
+  0x965C40, // terracotta    dE 1.63  poblenou_brick
 ];
 
 /**
@@ -124,7 +133,7 @@ export function buildAwningMesh(buildings, opts = {}) {
     if (usable < SEG_LEN * 0.6) continue;
     const stride = SEG_LEN + SEG_GAP;
     // capped + sparsified IDENTICALLY to shopfrontRenderer — every awning must sit over a storefront
-    const n = Math.min(4, Math.max(1, Math.floor((usable + SEG_GAP) / stride)));
+    const n = Math.min(MAX_SEGS_PER_BUILDING, Math.max(1, Math.floor((usable + SEG_GAP) / stride)));
     // centre the row of awnings on the edge
     const rowLen = n * SEG_LEN + (n - 1) * SEG_GAP;
     let t = EDGE_MARGIN + (usable - rowLen) / 2;

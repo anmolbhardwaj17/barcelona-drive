@@ -1211,7 +1211,10 @@ export function renderTileBuildings(tileData, options) {
   const BALCONY_VERT_CAP = 20000;
 
   // Commercial 3D detail geometry
-  const awningGeoms = [];       // shop awning canopies
+  // NOTE: no awningGeoms. The Delhi-era awning here was a flat slate slab spanning the WHOLE
+  // edge at floorH-0.3 (~2.7 m) projecting 1.2 m — it occupied almost exactly the volume of the
+  // real toldos in map/awningRenderer.js (2.9 m back, 1.35 m projection), so on every commercial
+  // building the two overlapped and the dark slab won. Awnings are awningRenderer's alone now.
   const acUnitGeoms = [];       // AC outdoor unit boxes
   const acFanGeoms = [];        // AC fan circles (dark disc on front face)
   const parapetGeoms = [];      // parapet wall on roof edge
@@ -1681,19 +1684,7 @@ export function renderTileBuildings(tileData, options) {
           }
         }
 
-        // ── Shop awnings above ground floor (~3m height, on select edges) ──
-        if ((edgeHash % 100) < 65 && edgeLen >= 3) {
-          const AWNING_DEPTH = 1.2;
-          const AWNING_THICK = 0.06;
-          const awningY = baseY + floorH - 0.3;
-          // Flat slab awning over shopfront
-          awningGeoms.push(makeBoxGeom(
-            p0.x + edx * 0.05, p0.y + edz * 0.05,
-            p0.x + edx * 0.95, p0.y + edz * 0.95,
-            nx, nz, AWNING_DEPTH, awningY, AWNING_THICK
-          ));
-          commercialVerts += 8;
-        }
+        // Shop awnings live in map/awningRenderer.js — see the note at `awningGeoms`.
 
         // ── Signboard panel above awning (colored rectangle backing) ──
         if ((edgeHash % 100) < 50 && edgeLen >= 4) {
@@ -2394,7 +2385,6 @@ export function renderTileBuildings(tileData, options) {
   {
     const miscGroups = [
       { geoms: acUnitGeoms,    color: 0xD8D4CE },
-      { geoms: awningGeoms,    color: 0x3A5060 },
       { geoms: signboardGeoms, color: 0x2A5070 },
     ].filter(g => g.geoms.length > 0);
     const m = mergeColoredGroups(miscGroups, shadowsOn, false);

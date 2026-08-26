@@ -17,12 +17,22 @@ const KICK_TOP   = 0.42;   // top of the stallriser (bottom solid band)
 const GLASS_TOP  = 2.55;   // top of the display glass (below the ~2.9 m awning back)
 const LINTEL_TOP = 2.80;   // top of the header band
 const FRAME      = 0.13;   // mullion / frame bar width
-const SEG_LEN    = 3.4;    // one storefront ≈ one shop (matches the awning segmentation)
-const SEG_GAP    = 0.4;
-const EDGE_MARGIN = 0.5;
-const MIN_EDGE   = 6;
-const SEG_CAP    = 260;
-const MAX_SEGS_PER_BUILDING = 4;   // long facades don't become an unbroken shop wall
+// ── The shop-row layout. EXPORTED because awningRenderer lays its toldos over these exact bays;
+//    every awning must sit on a storefront, so the two must not be able to drift apart. ──
+export const SHOP_ROW = {
+  SEG_LEN:     3.4,   // one storefront ≈ one shop
+  SEG_GAP:     0.4,
+  EDGE_MARGIN: 0.5,   // keep the row off the building corners
+  MIN_EDGE:    6,
+  // Per-tile budget. Was 260, which a dense Eixample tile exhausted on whatever buildings happened
+  // to come first in the array — the rest of the tile got no shops at all, biased by array order.
+  SEG_CAP:     650,
+  // Was 4: a 4-bay row is 14.8 m, so a 25 m parcel frontage got one short island of shops in the
+  // middle and blank wall either side. 8 lets the frontage decide; the cap only exists to stop a
+  // single very long edge becoming an unbroken shop wall.
+  MAX_SEGS_PER_BUILDING: 8,
+};
+const { SEG_LEN, SEG_GAP, EDGE_MARGIN, MIN_EDGE, SEG_CAP, MAX_SEGS_PER_BUILDING } = SHOP_ROW;
 
 // Deterministic per-segment skip (~35%) so shop rows breathe. MUST stay IDENTICAL to
 // awningRenderer's copy — both renderers segment the same edge with the same indices, and a
@@ -43,14 +53,41 @@ const GLASS_DAY   = 0x16242c;
 const GLASS_NIGHT = 0xb0813f; // dimmer warm amber — 0xffcf87 was so bright it bloomed into a wall of glow at night
 
 let _glassMat = null;
+let _frameMat = null;
 let _glassNight = false;
+
+/**
+ * NIGHT ONLY. The 3D shopfront predates P3-05, which bakes a full shopfront — joinery, glazing bars,
+ * produce, signage — into the facade's GROUND array layer. In daylight the two stack, and the 3D one
+ * wins because its glass is an unlit MeshBasic at 0x16242c: a flat dark-navy slab parked in front of
+ * the artwork. At night the roles invert — the texture has no interior light, and the glass pane
+ * glowing warm amber is exactly what makes a shop read as open. So the texture owns the day and the
+ * geometry owns the night.
+ *
+ * The switch is on the MATERIAL, not the mesh: `mesh.visible` is already owned by the per-tile
+ * distance LOD in tileManager (~:3041), which rewrites it every time the viewer moves, so a
+ * mesh-level toggle here would survive about one frame.
+ */
 export function setShopfrontNightMode(isNight) {
   _glassNight = isNight;
-  if (_glassMat) _glassMat.color.setHex(isNight ? GLASS_NIGHT : GLASS_DAY);
+  if (_glassMat) { _glassMat.color.setHex(isNight ? GLASS_NIGHT : GLASS_DAY); _glassMat.visible = isNight; }
+  if (_frameMat) _frameMat.visible = isNight;
 }
 function getGlassMaterial() {
-  if (!_glassMat) _glassMat = new THREE.MeshBasicMaterial({ color: _glassNight ? GLASS_NIGHT : GLASS_DAY, fog: true, side: THREE.DoubleSide });
+  if (!_glassMat) {
+    _glassMat = new THREE.MeshBasicMaterial({ color: _glassNight ? GLASS_NIGHT : GLASS_DAY, fog: true, side: THREE.DoubleSide });
+    _glassMat.visible = _glassNight;
+  }
   return _glassMat;
+}
+// Shared singleton like the glass: no per-tile state (vertex colours carry the frame/kick split), so
+// a per-tile copy was an allocation per tile AND left the night toggle with nothing to switch.
+function getFrameMaterial() {
+  if (!_frameMat) {
+    _frameMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    _frameMat.visible = _glassNight;
+  }
+  return _frameMat;
 }
 
 /**
@@ -150,8 +187,9 @@ export function buildShopfrontMeshes(buildings, opts = {}) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(fPos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(fCol, 3));
     g.setIndex(fIdx); g.computeVertexNormals();
-    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
-    m.castShadow = false; m.receiveShadow = false; m.userData = { type: 'shopfrontFrame' };
+    const m = new THREE.Mesh(g, getFrameMaterial());
+    m.castShadow = false; m.receiveShadow = false;
+    m.userData = { type: 'shopfrontFrame', sharedMaterial: true };  // frame mat is a singleton too
     meshes.push(m);
   }
   if (gPos.length) {

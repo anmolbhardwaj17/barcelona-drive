@@ -1823,3 +1823,45 @@ normalize is actually for here. `rescale_L` / `rescale_C` are now options on `no
 
 All 8 pass gate 4 (ΔE 3.24–10.25). Arrays: albedo **0.39 MB** (ETC1S), normal 4.20 MB (UASTC).
 **P3-05 and P3-08 both closed — 63 done, 1 partial, 20 open. P3 is complete.**
+
+## 2026-08-27 — Awnings: remove the competing legacy slab, normalize the toldo palette, unshare the row layout
+
+- **Two awning systems were live.** `map/awningRenderer.js` builds the real Barcelona toldos (sloped
+  canopy + front valance, 2.9 m back, 1.35 m projection). `map/buildingRenderer.js` also emitted a
+  Delhi-era flat slate slab (`0x3A5060`) at `floorH-0.3` (~2.7 m) projecting 1.2 m, spanning the
+  WHOLE edge rather than segmented per shop. On every `commercial` building the two occupied almost
+  the same volume and the dark full-length slab won, which is why toldos "weren't there". The legacy
+  slab and its `awningGeoms` group are deleted; awnings are `awningRenderer`'s alone.
+- **Toldo palette normalized** to the art bible `fabric` class (L\* 60±15, C\* 30) + step-6 pre-grade.
+  The old list was eyeballed hex at **L\* 21–32 — a full band below the class floor of 45**, so it
+  read as near-black slabs, not fabric. Teal dropped: nearest anchor `mediterrani_blue` at ΔE 16.98,
+  over the gate-4 threshold of 15 (no cyan-green anchor exists in the palette); sage replaces it at
+  ΔE 6.67. All eight entries now pass gate 4.
+- **Row layout is now shared, not copied.** `SHOP_ROW` is exported from `shopfrontRenderer.js` and
+  imported by `awningRenderer.js`. Two files previously held hand-synced copies under a "MUST stay
+  IDENTICAL" comment; drift there produces canopies floating on blank wall and throws nothing.
+- **Density raised.** `MAX_SEGS_PER_BUILDING` 4 → 8 (a 4-bay row is 14.8 m, so a 25 m parcel got one
+  short island of shops mid-frontage with blank wall either side) and `SEG_CAP` 260 → 650. The old
+  cap was binding: on a dense tile it ran out around parcel 100, so the last third of the tile got
+  no shops at all, biased purely by array order. Measured on a synthetic 150-parcel tile: 626 toldos
+  (was capped at 260), 3,756 verts / 2,504 tris, and shopfronts 12,520 verts — **draw-call count
+  unchanged**, since the caps only enlarge the three already-merged meshes.
+- New `frontend/test/awnings.test.js` pins bay alignment, outward projection, the palette band, the
+  per-building cap, and the absence of the legacy slab.
+
+## 2026-08-27 — 3D shopfront becomes night-only (P3-05's texture owns daylight)
+
+- The 3D `shopfrontRenderer` predates P3-05, which bakes a complete shopfront (joinery, glazing bars,
+  produce, signage) into the facade GROUND array layer. Both were drawing. In daylight the 3D one
+  wins and looks worse: its glass is an unlit `MeshBasic` at `0x16242c`, so it reads as a flat
+  dark-navy slab parked in front of the artwork. User-reported from a drive.
+- At night the roles invert — the texture has no interior light, and the amber glass (`GLASS_NIGHT`)
+  is what makes a shop read as open. So: **texture owns the day, geometry owns the night.**
+- **The switch is on `material.visible`, not `mesh.visible`.** `tileManager` (~:3041) already owns
+  `mesh.visible` for the per-tile distance LOD and rewrites it whenever the viewer moves, so a
+  mesh-level toggle would survive roughly one frame.
+- The frame material is now a shared singleton like the glass (it has no per-tile state — the
+  frame/kick split rides on vertex colours). Saves a material allocation per tile, and gives the
+  night toggle something to switch. Tagged `sharedMaterial: true` so tile unload doesn't dispose it.
+- `frontend/test/awnings.test.js` gains a test pinning day-hidden / night-visible, the
+  material-not-mesh rule, and the shared-material tagging.
