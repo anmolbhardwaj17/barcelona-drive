@@ -282,7 +282,14 @@ export function createFacadeArrays(THREE) {
     if (!tex) return;
     arrays.body = tex;
     arrays.bodyIsAuthored = true;
-  }).catch(() => { /* placeholder stands */ });
+    const im = tex.image || {};
+    console.warn('[facadeArray] authored body array loaded: %sx%sx%s layers',
+      im.width, im.height, im.depth);
+  }).catch((e) => {
+    // REPORTED, not swallowed. The first version caught this silently, so a failed load looked
+    // exactly like a working placeholder — which is precisely the state it shipped in.
+    console.warn('[facadeArray] authored body array FAILED to load (%s) — placeholder stands', e?.message || e);
+  });
 
   return arrays;
 }
@@ -290,8 +297,15 @@ export function createFacadeArrays(THREE) {
 /** Load the authored 8-layer body array. Resolves null if the art is absent, keeping the placeholder. */
 async function loadFacadeBodyArray(THREE) {
   const { KTX2Loader } = await import('three/examples/jsm/loaders/KTX2Loader.js');
-  const renderer = getSharedRenderer();
-  if (!renderer) return null;                       // transcoder needs the GPU caps to pick a format
+  // WAIT for the renderer rather than giving up on it. createFacadeArrays runs lazily on the first
+  // tile build, which can land BEFORE boot hands the renderer over — and the first version simply
+  // returned null there, permanently. The symptom was the placeholder rendering forever with no
+  // explanation: flat tint, black window rectangles, and a swallowed error.
+  const renderer = await waitForRenderer();
+  if (!renderer) {
+    console.warn('[facadeArray] no renderer after 20s — authored facades NOT loaded, placeholder stands');
+    return null;
+  }
   const loader = new KTX2Loader()
     .setTranscoderPath('/basis/')
     .detectSupport(renderer);
@@ -309,8 +323,18 @@ async function loadFacadeBodyArray(THREE) {
 // The KTX2 transcoder needs the renderer's capabilities to choose a target format, and this module is
 // constructed before one is passed anywhere. main.js hands it over at boot.
 let _sharedRenderer = null;
-export function setFacadeArrayRenderer(r) { _sharedRenderer = r; }
-function getSharedRenderer() { return _sharedRenderer; }
+const _rendererWaiters = [];
+export function setFacadeArrayRenderer(r) {
+  _sharedRenderer = r;
+  while (_rendererWaiters.length) _rendererWaiters.pop()(r);
+}
+function waitForRenderer(timeoutMs = 20000) {
+  if (_sharedRenderer) return Promise.resolve(_sharedRenderer);
+  return new Promise((resolve) => {
+    _rendererWaiters.push(resolve);
+    setTimeout(() => resolve(_sharedRenderer), timeoutMs);
+  });
+}
 
 /**
  * Swap a built-in material's `map` sample for an array-texture sample keyed on `aLayer`.

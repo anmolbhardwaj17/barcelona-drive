@@ -1655,3 +1655,9 @@ under-counted. It now has **145 MiB spare**.
 - The placeholder's "no mipmaps or the texture samples BLACK" warning does **not** apply to the real
   path and explicitly asked to be re-checked here: a KTX2 ships its mip chain in the file, so the
   chain is complete on arrival and `LinearMipmapLinearFilter` is required, not merely safe.
+- **Facade array load: wait for the renderer, and REPORT failure.** First version returned `null`
+  immediately if the renderer was absent and swallowed every error in a bare `catch` — so a failed
+  load looked exactly like a working placeholder (flat tint, black window rectangles) with no clue
+  why. `createFacadeArrays` runs lazily on the first tile build, which can precede the boot warm-up,
+  so the renderer genuinely was absent. The renderer is now handed over the moment it is constructed
+  in `scene.js`, the loader awaits it rather than giving up, and both success and failure log.

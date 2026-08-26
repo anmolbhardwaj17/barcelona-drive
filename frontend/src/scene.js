@@ -2,6 +2,7 @@
  * Create Three.js scene, camera, renderer, lights, and cannon-es ground.
  */
 import * as THREE from 'three';
+import { setFacadeArrayRenderer } from './map/facadeArray.js';   // v3 P3-05
 import { patchMaterial } from './map/materialRegistry.js';   // v3 P1-03
 import { QUALITY } from './quality.js';   // v3 P1-08
 import * as CANNON from 'cannon-es';
@@ -542,6 +543,10 @@ export function createScene(container) {
   // antialias:false — the scene renders into the EffectComposer's non-MSAA HalfFloat targets, so the
   // MSAA backbuffer AA never applied anyway; asking for it just wasted a VRAM/bandwidth backbuffer.
   const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
+  // Hand it to the facade array loader IMMEDIATELY. KTX2 transcoding needs the GPU's capabilities to
+  // pick a target format, and createFacadeArrays runs lazily on the first tile build — which can
+  // easily precede the boot warm-up. Passing it here removes the race rather than widening it.
+  try { setFacadeArrayRenderer(renderer); } catch { /* facadeArray not loaded in this context */ }
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap: DPR 2 = 4× the fragments everywhere
   renderer.outputColorSpace = THREE.SRGBColorSpace;
