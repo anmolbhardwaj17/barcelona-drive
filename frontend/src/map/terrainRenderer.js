@@ -114,7 +114,15 @@ function minDistSqToRoads(roads, x, z) {
   return best;
 }
 
-/** One-time log of which terrain path is live (useBaked = pre-baked mesh vs runtime fallback). */
+/**
+ * One-time log of the terrain path.
+ *
+ * v3 P4-01: there is only ONE path now. `bakedTerrain` is generated per tile from the elevation grid
+ * in `tileParserWorker` (see `map/terrainGrid.js`), so the name is historical — it is the shape the
+ * renderer consumes, not a claim that the mesh came off disk. The runtime fallback mesh, and the
+ * separate water dip it applied, were deleted together: two mesh generators disagreeing about
+ * water depth is the double-apply landmine P4-03 warns about.
+ */
 let _loggedTerrainPath = false;
 export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, waterPolygons, yieldFn, bakedTerrain, aoGrid, beaches) {
   if (!elevation || !elevation.elevations || !Array.isArray(elevation.elevations)) {
@@ -171,174 +179,21 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   } else {
-  // ── Fallback: compute terrain mesh at runtime ─────────────────────────
-  // If tunnel carving produced negative elevations, lower the floor so they aren't clamped
-  let minElev = 0;
-  for (let i = 0; i < elevations.length; i++) {
-    const v = elevations[i];
-    if (v != null && Number.isFinite(v) && v < minElev) minElev = v;
+    // v3 P4-01: THE RUNTIME FALLBACK MESH IS GONE, and its water dip with it.
+    //
+    // It existed because `useBaked` could be false (bakedTerrain.gridSize !== TERRAIN_MAX_GRID).
+    // Terrain is now GENERATED from the elevation grid in tileParserWorker for every tile, so the
+    // only way to reach here is a tile with no readable grid AND no bake — which the guard at the
+    // top of this function already turns into a null mesh.
+    //
+    // ⚠ THE WATER DIP HAD TO GO IN THE SAME COMMIT. This path pushed water vertices to
+    // `seaLevelNorm + depthTarget` while the baker does not dip at all. Keeping a second mesh
+    // generator with its own water treatment is precisely the double-apply landmine P4-03 warns
+    // about: once P4-03 bakes the sea sink INTO the grid, a surviving runtime dip would subtract a
+    // second time. The sea sink is P4-03's job, in the grid, once.
+    console.warn('[terrain] no usable elevation grid or baked mesh for %s — skipping tile terrain', tileKey);
+    return { mesh: null, getElevationAt: () => 0 };
   }
-  const seaLevelNorm = minElev < 0 ? (minElev - offset) * vertExag : SEA_LEVEL - offset * vertExag;
-
-  // --- Optimized world-coordinate computation ---
-  // x is exactly linear in longitude (Mercator x = R * lonRad).
-  // z is nonlinear in latitude — precompute one per row (128 trig calls instead of 16,384).
-  const { x: xWest, z: zWest } = latLonToWorld(south, west);
-  const { x: xEast } = latLonToWorld(south, east);
-  const xStep = cols > 1 ? (xEast - xWest) / (cols - 1) : 0;
-  const zPerRow = new Float64Array(rows);
-  for (let r = 0; r < rows; r++) {
-    const lat = south + (north - south) * (rows <= 1 ? 0.5 : r / (rows - 1));
-    zPerRow[r] = latLonToWorld(lat, west).z;
-  }
-
-  totalVerts = rows * cols;
-  positions = new Float32Array(totalVerts * 3);
-  const uvs = new Float32Array(totalVerts * 2);
-  const ROW_BATCH = 16; // yield every 16 rows
-  for (let r = 0; r < rows; r++) {
-    const z = zPerRow[r];
-    for (let c = 0; c < cols; c++) {
-      const x = xWest + c * xStep;
-      const vi = (r * cols + c);
-      // Map downsampled grid (rows×cols) back to source grid (gridRows×gridCols)
-      const srcR = rows >= gridRows ? r : Math.min(gridRows - 1, Math.round(r / (rows - 1) * (gridRows - 1)));
-      const srcC = cols >= gridCols ? c : Math.min(gridCols - 1, Math.round(c / (cols - 1) * (gridCols - 1)));
-      const idx = srcR * gridCols + srcC;
-      let y = elevations[idx] != null && Number.isFinite(elevations[idx]) ? elevations[idx] : 0;
-      y = (y - offset) * vertExag;
-      y = Math.max(y, seaLevelNorm);
-      // Depress terrain under water bodies with smooth edge falloff
-      if (waterPolys.length > 0) {
-        for (const area of waterPolys) {
-          // Fast bounding box rejection
-          if (x < area.minX || x > area.maxX || z < area.minZ || z > area.maxZ) continue;
-          if (pointInWaterPolygon(x, z, area.polygon)) {
-            // Find distance to nearest polygon edge for smooth falloff
-            const poly = area.polygon;
-            let minEdgeDist = Infinity;
-            for (let pi = 0, pj = poly.length - 1; pi < poly.length; pj = pi++) {
-              const ax = poly[pi].x, az = poly[pi].y;
-              const bx = poly[pj].x, bz = poly[pj].y;
-              const dx = bx - ax, dz = bz - az;
-              const lenSq = dx * dx + dz * dz;
-              let t = lenSq > 0 ? ((x - ax) * dx + (z - az) * dz) / lenSq : 0;
-              t = Math.max(0, Math.min(1, t));
-              const px = ax + t * dx, pz = az + t * dz;
-              const d = Math.hypot(x - px, z - pz);
-              if (d < minEdgeDist) minEdgeDist = d;
-            }
-            // Single smooth curve from edge to full depth — avoids grid staircase artifacts
-            const MAX_DEPTH = -2.0;
-            const DEPTH_ZONE = 20; // full depth reached 20m from edge — wide enough to hide grid steps
-            const t = Math.min(1, minEdgeDist / DEPTH_ZONE);
-            const smooth = t * t * (3 - 2 * t); // smoothstep
-            const depthTarget = MAX_DEPTH * smooth;
-            // Relative to the NORMALIZED sea level, NOT absolute. The old `y = depthTarget` forced water
-            // vertices to ~-2 absolute while land sat at (grid-offset)≈-60 → ~72m up-cones (El Raval).
-            // seaLevelNorm = (0-offset)*vertExag, so water dips just below normalized sea, flush with coast.
-            y = seaLevelNorm + depthTarget;
-            break;
-          }
-        }
-      }
-      positions[vi * 3] = x;
-      positions[vi * 3 + 1] = y;
-      positions[vi * 3 + 2] = z;
-      uvs[vi * 2] = cols <= 1 ? 0.5 : c / (cols - 1);
-      uvs[vi * 2 + 1] = rows <= 1 ? 0.5 : 1 - r / (rows - 1);
-    }
-    if (yieldFn && (r + 1) % ROW_BATCH === 0) await yieldFn();
-  }
-
-  // FALLBACK PATH (runtime mesh). Exercised ONLY when useBaked is false (bakedTerrain.gridSize !==
-  // CONFIG.TERRAIN_MAX_GRID). With TERRAIN_MAX_GRID=64 matching the bake's gridSize, useBaked is now
-  // TRUE and this path is bypassed (the pre-baked mesh renders). Historically this path WAS live
-  // (gridSize 64 ≠ TERRAIN_MAX_GRID 32) and its absolute water-depth (see below, ~line 246) produced
-  // the El Raval water cones. Terrain hole-punching is baked in terrainBaker.js for the useBaked path.
-  // Keep this path correct (water depth is offset-relative) so it is not a latent landmine if re-enabled.
-  //
-  // Punch terrain holes at TRUE portal transition points only — where a surface approach road
-  // descends into the tunnel. Using tunnel road endpoints caused holes at EVERY mid-tunnel
-  // segment junction (the Ronda Litoral has ~15 segments = ~30 scattered holes).
-  //
-  // Hole radius: halfW + PORTAL_WING + HOLE_OVERLAP to match portal frame geometry.
-  // Constants must stay in sync with tunnelRenderer.js (PORTAL_WING=3, WALL_EXTRA_WIDTH=1).
-  const PORTAL_WING  = 3;    // sync: tunnelRenderer.js PORTAL_WING
-  const WALL_EXTRA   = 1;    // sync: tunnelRenderer.js WALL_EXTRA_WIDTH
-  const HOLE_OVERLAP = 0.5;
-  const tunnelMouths = [];
-
-  // approachRoads is passed via the tunnelRoads param (tileManager passes combined list)
-  // but we only want holes at approach road deep endpoints — derive from combined list:
-  if (tunnelRoads && tunnelRoads.length > 0) {
-    for (const road of tunnelRoads) {
-      const pts = road.points;
-      if (!pts || pts.length < 2) continue;
-      const hw = (road.width || 4) / 2 + WALL_EXTRA;
-      const r  = hw + PORTAL_WING + HOLE_OVERLAP;
-      const eFirst = pts[0].elevation ?? -6;
-      const eLast  = pts[pts.length - 1].elevation ?? -6;
-      // Approach roads have one end near surface (≥-0.5m) and one end deep (<-2m).
-      // The deep end is the portal mouth — punch hole there.
-      // Pure mid-tunnel roads have BOTH ends at -6m → skip (no surface hole needed).
-      const hasShallowEnd = eFirst >= -0.5 || eLast >= -0.5;
-      if (!hasShallowEnd) continue; // pure mid-tunnel segment — no portal hole
-      // Punch hole at the deep end (portal transition into enclosed tunnel)
-      if (eFirst < -1.5) tunnelMouths.push({ x: pts[0].x, z: pts[0].y, r });
-      if (eLast  < -1.5) tunnelMouths.push({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].y, r });
-    }
-  }
-  function inTunnelZone(wx, wz) {
-    for (const m of tunnelMouths) {
-      if (Math.hypot(wx - m.x, wz - m.z) < m.r) return true;
-    }
-    return false;
-  }
-
-  const indices = [];
-  const DEGEN_EPS = 1e-10;
-  const hasTunnels = tunnelMouths.length > 0;
-  for (let r = 0; r < rows - 1; r++) {
-    for (let c = 0; c < cols - 1; c++) {
-      const a = r * cols + c;
-      const b = a + 1;
-      const c1 = (r + 1) * cols + c;
-      const d = c1 + 1;
-      const triArea = (i0, i1, i2) => {
-        const ax = positions[i0 * 3] - positions[i1 * 3], az = positions[i0 * 3 + 2] - positions[i1 * 3 + 2];
-        const bx = positions[i2 * 3] - positions[i1 * 3], bz = positions[i2 * 3 + 2] - positions[i1 * 3 + 2];
-        return Math.abs(ax * bz - az * bx) * 0.5;
-      };
-      if (triArea(a, c1, b) > DEGEN_EPS) {
-        if (hasTunnels) {
-          const cx1 = (positions[a*3] + positions[c1*3] + positions[b*3]) / 3;
-          const cz1 = (positions[a*3+2] + positions[c1*3+2] + positions[b*3+2]) / 3;
-          if (!inTunnelZone(cx1, cz1)) indices.push(a, c1, b);
-        } else {
-          indices.push(a, c1, b);
-        }
-      }
-      if (triArea(b, c1, d) > DEGEN_EPS) {
-        if (hasTunnels) {
-          const cx2 = (positions[b*3] + positions[c1*3] + positions[d*3]) / 3;
-          const cz2 = (positions[b*3+2] + positions[c1*3+2] + positions[d*3+2]) / 3;
-          if (!inTunnelZone(cx2, cz2)) indices.push(b, c1, d);
-        } else {
-          indices.push(b, c1, d);
-        }
-      }
-    }
-  }
-
-  if (yieldFn) await yieldFn();
-
-  geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  } // end fallback
 
   if (yieldFn) await yieldFn();
 
@@ -678,8 +533,10 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
     // ── Coast override: sea / beach sand / bare shoreline (see block above the loop) ──
     if (coastEnabled) {
-      // Raw DEM metres: baked positions carry raw Y; the fallback path already applied offset+exag.
-      const raw = useBaked ? y : (y / vertExag + offset);
+      // Raw DEM metres. Generated and baked positions both carry raw Y — vertExag and the offset
+      // are folded into the mesh transform below, never into the vertices (v3 P4-01: the fallback
+      // path that pre-applied them is gone, so this no longer branches).
+      const raw = y;
       const dSea = distRC ? distRC(vx, vz) : 255;
       const inBeach = inBeachPoly(vx, vz);
       const cs = seaTileGate ? coastSample(vx, vz) : null;
@@ -898,11 +755,7 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     const off = assertElevationOffsetResolved('terrainRenderer.buildTerrainMesh(useBaked)');
     mesh.scale.y = vertExag;
     mesh.position.y = -off * vertExag;
-    if (!_loggedTerrainPath) { _loggedTerrainPath = true; console.log(`[Terrain] useBaked=TRUE — rendering pre-baked mesh (gridSize=${bakedTerrain.gridSize}, offset=${off.toFixed(1)})`); }
-  } else {
-    // Fallback (runtime-computed) path already bakes (raw-offset)*vertExag into positions — keep at origin.
-    mesh.position.set(0, 0, 0);
-    if (!_loggedTerrainPath) { _loggedTerrainPath = true; console.warn(`[Terrain] useBaked=FALSE — runtime FALLBACK mesh (bakedTerrain.gridSize=${bakedTerrain?.gridSize} ≠ maxGrid=${maxGrid}); water cones possible.`); }
+    if (!_loggedTerrainPath) { _loggedTerrainPath = true; console.log(`[Terrain] gridSize=${bakedTerrain.gridSize}, offset=${off.toFixed(1)} — mesh generated from the elevation grid (v3 P4-01)`); }
   }
   mesh.castShadow = false;
   mesh.receiveShadow = !!CONFIG.ENABLE_SHADOWS;

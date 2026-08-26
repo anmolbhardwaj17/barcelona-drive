@@ -1944,3 +1944,25 @@ verts/tile), so the 163.4 MB of Uint32 indices would halve if kept at all.
 P4-01 risk drops from **high to low-medium**. The "delete" half is unchanged and still needs care:
 the second runtime water dip (`terrainRenderer.js:225-260`) must go in the SAME commit or it
 double-applies.
+
+## 2026-08-27 — P4-01 complete (code): terrain is generated at load, both baked sections dropped
+
+- `frontend/src/map/terrainGrid.js` generates the mesh from the elevation grid; `tileParserWorker`
+  calls it per tile and hands the renderer the same shape `readBakedTerrain` used to, so the
+  renderer's consuming path is unchanged. Indices are **Uint16** (max vertex index across all 444
+  tiles is 16 383, measured). A tile with an unreadable grid still falls back to its bake.
+- **The runtime fallback mesh (169 lines) and its water dip are deleted together.** That path pushed
+  water vertices to `seaLevelNorm + depthTarget` while the baker does not dip at all. Two mesh
+  generators disagreeing about water depth is exactly the double-apply landmine P4-03 warns about:
+  once P4-03 bakes the sea sink into the grid, a surviving runtime dip would subtract a second time.
+  The sea sink is P4-03's job, in the grid, once.
+- `buildRegion.js` no longer bakes **either** terrain section:
+  - `bakedTerrain` **384.6 MB** (68.4% of a 565.9 MB store) — proven redundant, 442/444 bit-equal.
+  - `bakedPhysicsTerrain` **15.0 MB** — zero consumers since v3 P0-12 deleted its parse; terrain
+    physics is a Heightfield from the grid, never a Trimesh. Pure freight.
+  - Together **399.6 MB, ~71% of the tile store.**
+- `terrainBaker.js` is deliberately kept: the proof harness runs the real function, so it stays the
+  reference the frontend generator is tested against.
+- ⚠ **The re-bake has NOT been run.** The saving only lands when tiles are rewritten; the runtime
+  ignores the sections either way, so nothing is broken by waiting. Deferred so the terrain render
+  is confirmed on one drive first — otherwise a fault means two 10–30 min bakes instead of one.

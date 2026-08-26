@@ -1568,10 +1568,27 @@ async function main() {
     // The old mouth-circle punching + corridor triangle-culling on top of that punched
     // see-through HOLES in the already-trenched mesh (sky visible through terrain at
     // portals). No tunnel/approach data is passed — the baker just meshes the grid.
-    const bakedTerrain = bakeTerrainMesh(payload.elevation, [], null, [], null);
-    if (bakedTerrain) payload.bakedTerrain = bakedTerrain;
-    const bakedPhysicsTerrain = bakePhysicsTerrain(payload.elevation, [], [], null);
-    if (bakedPhysicsTerrain) payload.bakedPhysicsTerrain = bakedPhysicsTerrain;
+    // v3 P4-01: NEITHER TERRAIN SECTION IS BAKED ANY MORE.
+    //
+    // `bakedTerrain` was 384.6 MB — 68.4% of a 565.9 MB tile store — and every byte of it was
+    // derived from the 55.5 MB elevation grid shipping beside it. `backend/tools/terrainRegenProof.mjs`
+    // re-ran this very function against each tile's own stored grid and reproduced 442 of 444 tiles
+    // bit-for-bit. (The 2 that differed were baked at gridSize 64 against a 128 grid and already
+    // failed the renderer's useBaked gate, so they were taking a runtime path in production.)
+    // `frontend/src/map/terrainGrid.js` now generates the mesh in the parser worker, and
+    // `frontend/test/terrainGrid.test.js` runs both implementations over real tiles to keep them
+    // bit-equal.
+    //
+    // `bakedPhysicsTerrain` was a further 15.0 MB and has had ZERO consumers since v3 P0-12 deleted
+    // its parse — terrain physics is a Heightfield built from the grid, never a Trimesh. It was
+    // pure freight.
+    //
+    // Together: 399.6 MB of 565.9 MB, ~71% of the tile store.
+    //
+    // bakeTerrainMesh/bakePhysicsTerrain are kept in terrainBaker.js deliberately — the proof
+    // harness runs the real function, so it must stay importable and must stay the reference the
+    // frontend generator is tested against.
+    void bakeTerrainMesh; void bakePhysicsTerrain;
 
     // ── Pre-bake vegetation positions ────────────────────────────────────
     if (!roadOnlyDebugMode) {

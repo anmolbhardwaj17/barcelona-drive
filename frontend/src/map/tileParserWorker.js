@@ -19,6 +19,8 @@
 // MERCATOR_UNSTRETCH (ORIGIN_LAT = 41.350). Vertical (elevation) is never scaled.
 const MERCATOR_UNSTRETCH = Math.cos((41.350 * Math.PI) / 180);
 
+import { buildTerrainFromGrid } from './terrainGrid.js';   // v3 P4-01 — see the note at bakedTerrain
+
 const textDecoder = new TextDecoder();
 
 // Pack an array of features' point rings into two transferable typed arrays: `coords` = interleaved x,y
@@ -184,8 +186,23 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
     ? readShops(header.shops, header.shopPositions, header.shopCategories, buffer, binOffset)
     : [];
 
-  let bakedTerrain = null;
-  if (header.bakedTerrain) {
+  // v3 P4-01: GENERATE the terrain mesh from the elevation grid instead of reading the baked one.
+  //
+  // The bake shipped positions/normals/uvs/indices per tile — 384.6 MB, 68.4% of the tile store —
+  // all of it derived from the 55.5 MB elevation grid sitting beside it. `terrainRegenProof.mjs`
+  // reproduced 442 of 444 tiles bit-for-bit from that grid alone, so the payload was pure
+  // redundancy. Generating here costs a per-tile mesh build in the worker (off the main thread,
+  // where the tile is already being parsed) and saves the download and the parse of four arrays.
+  //
+  // The two tiles that did NOT reproduce were baked at gridSize 64 against a 128 grid and already
+  // failed the renderer's `useBaked` gate, so they were taking a runtime path in production anyway;
+  // generating fixes them rather than changing them.
+  //
+  // Shape matches `readBakedTerrain` exactly so the renderer's baked path consumes it unchanged —
+  // except indices are Uint16 (max vertex index across all 444 tiles is 16 383, measured).
+  let bakedTerrain = elevation ? buildTerrainFromGrid(elevation) : null;
+  if (!bakedTerrain && header.bakedTerrain) {
+    // Belt and braces: a tile whose grid is missing or unreadable still renders from its bake.
     bakedTerrain = readBakedTerrain(header.bakedTerrain, buffer, binOffset);
   }
 
