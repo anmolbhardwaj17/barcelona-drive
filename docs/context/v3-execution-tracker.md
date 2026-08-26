@@ -12,16 +12,15 @@
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P3 — all 11 tasks ticked, EXIT GATE UNRUN AND ONE ITEM FAILS.** Do not open P4 until the gate is run. |
-| **Next task** | **P3-GATE-01 · encode the remaining art to KTX2 · ~1.0 d · risk low.** Measured 2026-08-27: `public/textures/**` still ships **200.9 MiB of PNG/JPG** (vegetation 113.1, road 38.1, sky 21.3, terrain 16.0, railway 5.3, decals 4.3, water 1.3, wall 1.3) — RGBA8 + mips, zero GPU compression. Add the ~55 MiB of KTX2 facades and 34 MiB of render targets and resident VRAM is **~290 MiB against the 200 MiB cap, ~45% over**. Only the facade layers were ever encoded. `tools/encodeKtx2.py` already exists and is proven on the facade arrays, so this is a re-run plus loader path changes, not new work. Expect ~200.9 → ~50 MiB. **This is a P3 exit-gate item and blocks P4.** |
+| **Next task** | **THE P3 EXIT DRIVE — one drive, four caps.** Everything measurable without a drive now passes; see the gate table below. What is left needs the car moving at night in dense Eixample: **p95 night GPU ≤ 15.0 ms**, **draws ≤ 450**, **triangles ≤ 2.6 M**, **time-to-drive regression < 1.5 s**. Press **F9** at the end and hand back the report. All four should have MOVED — boot uploads shrank ~4× — so the P0 baseline comparison is the point of the run, not a formality. |
 | **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **P4 is blocked on the P3 exit gate** (see Next task). The four caps that need a bench drive — p95 night GPU, draws, triangles, time-to-drive — are still unmeasured since P3 landed. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
+| **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). Two art gates stay OPEN BY DECISION, not oversight: jacaranda ΔE **17.01** vs 15 (the bible's own note calls the threshold tunable to 18 after the first 10 assets — not silently widened) and washingtonia **8.3%** rally-saturation clip (rally mode only; the other five are 0–2.9%). ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
-### ▶ DO THIS FIRST — run the P3 exit gate. Start with the VRAM failure above.
+### ▶ DO THIS FIRST — the P3 exit drive. It is the only thing between here and P4.
 
-**P3's 11 tasks are all ticked and the gate has never been run.** One item is already known to fail
-by measurement (texture VRAM, see Next task); four more need a single bench drive. Ticking boxes is
-not the gate — this is exactly the case the phase-gate rule exists for.
+**Everything measurable from the repo now passes.** Four caps need the car moving; see the gate
+table in the P3 section. Ticking boxes is not the gate.
 
 **P2 is done.** P2-04 signed off (console + visual, light grid now ON by default); P2-08 code-complete
 with 12 invariant tests. `staticPools` stays deferred per D-19b.
@@ -680,10 +679,21 @@ small value once this lands.**
 ## P3 — THE FIRST ART WAVE · 29 days · 11 tasks
 **Goal.** Spend the headroom on the surfaces that cover the most pixels per day of work: ground, facades, roofs, sky, and Barcelona's real tree species.
 
-**Progress:** 11 / 11 tasks ticked — ⚠ **THE EXIT GATE HAS NEVER BEEN RUN, AND ONE ITEM FAILS.**
-See the RESUME block: texture VRAM measures **~290 MiB against a 200 MiB cap**, because only the
-facades were ever KTX2-encoded — vegetation, road, sky and terrain still ship as PNG and decode to
-full RGBA8. A phase is not done because its boxes are ticked.
+**Progress:** 11 / 11 tasks + P3-GATE-01. **Gate status as measured 2026-08-27:**
+
+| gate item | cap | measured | |
+|---|---|---|---|
+| Texture VRAM resident | ≤ 200 MiB | **~84 MiB** (world 34.7 + facade arrays 15.3 + render targets 34.0) | ✅ |
+| Art library over the wire | ≤ 24.0 MB | **17.09 MB** (world 15.28 + facade 1.81) | ✅ |
+| Building detail coverage | ≥ 95% | fair-budget water-filling, 7 tests | ✅ |
+| Every asset passes §2.7 | 14 gates | 2 open BY DECISION — see RESUME | ⚠ |
+| p95 night GPU | ≤ 15.0 ms | **needs the drive** | ⏳ |
+| Draws / triangles | ≤ 450 / ≤ 2.6 M | **needs the drive** | ⏳ |
+| Time-to-drive regression | < 1.5 s | **needs the drive** | ⏳ |
+
+P3-GATE-01 (2026-08-27) took the world texture library from **153.3 MiB of PNG to 34.7 MiB** of
+BC1/BC7, and the `public/` deploy from 183 MB to 35 MB. A phase is not done because its boxes are
+ticked — four caps still need the car moving.
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
