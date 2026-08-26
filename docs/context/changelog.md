@@ -1371,3 +1371,6 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
 - **Forest polygons were planted from the `park` set** (20% jacaranda), so Collserola came out dotted
   with flowering ornamentals. Greens now carry their OSM type into the classifier via
   `ZONE_TREE_CTX`: forest/scrub/grass plant the wild set, park/garden the ornamental one.
+- **Spawn back to Gran Via** `{41.3866, 2.1640}`. Use `?spawn=41.4180,2.1150` for Collserola instead
+  of moving the default — the URL override does the same job without making every later drive report
+  incomparable to the earlier ones.

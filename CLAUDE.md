@@ -50,7 +50,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 
 ## Current Dev State (as of 2026-05-29)
 - **Region**: Barcelona (Delhi tiles preserved as fallback)
-- **Spawn**: **Collserola, Carretera de les Aigües** — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.4180, lon:2.1150}`. Set 2026-08-26 to check P3-10 hillside vegetation (the `hill` species set only has anything to show on non-urban ground with real elevation). **⚠ Move this back to Gran Via `{lat:41.3866, lon:2.1640}` before any perf work** — that is the v3 benchmark (P0-05) and the start of `bench/benchRoute.js`, and frame lag is a p95 problem that lives there. Drive reports taken on Collserola are not comparable to earlier ones.
+- **Spawn**: **Gran Via at Plaça Universitat — dense Eixample** — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.3866, lon:2.1640}`. Deliberately the same place as the v3 performance benchmark (P0-05) and the start of `bench/benchRoute.js`: the densest thing the renderer has to survive. **Frame lag is a p95 problem and p95 lives here** — measuring stream-in anywhere quieter measures the wrong thing. For hillside vegetation use `?spawn=41.4180,2.1150` (Collserola) rather than moving the default.
 - **Mode**: default `ENABLE_CAR: false` (fly/free camera). **Override per-load via URL** — see toggles below.
 - **Fog**: ON — `ENABLE_FOG: true` (the pre-ship re-enable already happened)
 - **Tile format**: v9 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`)
