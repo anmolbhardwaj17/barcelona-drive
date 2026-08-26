@@ -11,8 +11,8 @@
 | | |
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
-| **Current phase** | **P3 — all 11 tasks ticked, EXIT GATE UNRUN AND ONE ITEM FAILS.** Do not open P4 until the gate is run. |
-| **Next task** | **THE P3 EXIT DRIVE — one drive, four caps.** Everything measurable without a drive now passes; see the gate table below. What is left needs the car moving at night in dense Eixample: **p95 night GPU ≤ 15.0 ms**, **draws ≤ 450**, **triangles ≤ 2.6 M**, **time-to-drive regression < 1.5 s**. Press **F9** at the end and hand back the report. All four should have MOVED — boot uploads shrank ~4× — so the P0 baseline comparison is the point of the run, not a formality. |
+| **Current phase** | **P3 CLOSED 2026-08-27** on a user visual sign-off after a drive ("i have driven its all good"). **P4 IS OPEN.** See the gate table for what was and was not measured. |
+| **Next task** | **P4-01 · the DELETE half of the terrain bake · risk low-medium** (steps 1-2 proven 2026-08-27, see P4-01 below). Move generation into `tileParserWorker`, Uint16 indices, repoint `getElevationAt` at the grid, and delete the second runtime water dip **in the same commit**. Land the runtime change against EXISTING tiles first — it simply ignores `bakedTerrain`, and the proof says the result is bit-equal — then re-bake to drop the 384.6 MB. |
 | **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). The two art gates are now CLOSED: jacaranda **17.01 → 11.49** on the new P11 violet anchor (restricted to foliage, so a violet facade still fails), and washingtonia's clip is absorbed by a hue-preserving highlight rolloff in `colorGradePass.js` rather than by dulling the asset. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
@@ -687,9 +687,22 @@ small value once this lands.**
 | Art library over the wire | ≤ 24.0 MB | **17.09 MB** (world 15.28 + facade 1.81) | ✅ |
 | Building detail coverage | ≥ 95% | fair-budget water-filling, 7 tests | ✅ |
 | Every asset passes §2.7 | 14 gates | **both closed 2026-08-27** — P11 violet anchor; hue-preserving grade rolloff | ✅ |
-| p95 night GPU | ≤ 15.0 ms | **needs the drive** | ⏳ |
-| Draws / triangles | ≤ 450 / ≤ 2.6 M | **needs the drive** | ⏳ |
-| Time-to-drive regression | < 1.5 s | **needs the drive** | ⏳ |
+| p95 night GPU | ≤ 15.0 ms | ⚠ **NOT MEASURED** — visual sign-off only | ◐ |
+| Draws / triangles | ≤ 450 / ≤ 2.6 M | ⚠ **NOT MEASURED** — visual sign-off only | ◐ |
+| Time-to-drive regression | < 1.5 s | ⚠ **NOT MEASURED** — visual sign-off only | ◐ |
+
+> **How P3 actually closed.** The user drove on 2026-08-27 and signed off on the LOOK — toldos,
+> night-only shopfronts, the reworked shop signs, and no untextured surfaces after the KTX2 swap.
+> That is a real result and it is what closed the phase. **The four numeric caps above were never
+> measured**: no F9 report was written for that drive (newest in `backend/debug-reports/` predates
+> the whole KTX2 / awning / sign session). They are carried forward as unknown rather than assumed
+> passing, because the **performance ledger is load-bearing for P4 budgeting** — P4 adds furniture,
+> signage, vehicles and terrain against a draws cap of 450, and budgeting against a number nobody
+> took is how the double-count strikes in §3 happened.
+>
+> **Cheapest way to close them: press F9 on ANY future drive.** It costs nothing and writes the
+> report to `backend/debug-reports/`. Until then, treat the ledger's p95/draws/triangle rows as
+> stale-since-P1, not as P3-verified.
 
 P3-GATE-01 (2026-08-27) took the world texture library from **153.3 MiB of PNG to 34.7 MiB** of
 BC1/BC7, and the `public/` deploy from 183 MB to 35 MB. A phase is not done because its boxes are
