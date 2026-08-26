@@ -208,7 +208,7 @@ function joinWaysIntoRings(waySegments) {
 /**
  * Build closed rings (outer/inner) from relation members using wayRefsMap.
  */
-function assembleRings(members, wayRefsMap, role) {
+export function assembleRings(members, wayRefsMap, role) {
   const segments = [];
   for (const m of members) {
     if (m.role !== role) continue;
@@ -220,7 +220,7 @@ function assembleRings(members, wayRefsMap, role) {
   return joinWaysIntoRings(segments);
 }
 
-function refsToMercator(refs, nodes) {
+export function refsToMercator(refs, nodes) {
   const pts = [];
   for (const ref of refs) {
     const n = nodes.get(ref);

@@ -200,7 +200,8 @@ const MAX_CLUSTERS_PER_TILE = 340;
 // no greens means WILD, and wild means wooded. This is generated, not surveyed, and it is meant to
 // be — the alternative on offer is an empty green dome.
 const WILD_MAX_CLUSTERS = 620;   // vs 340 urban: a hillside is denser than a verge
-const WILD_ROAD_LIMIT = 8;       // more named roads than this and it is not open country
+const OPEN_RADIUS = 32;          // metres of clear ground that makes a spot "open country"
+const OPEN_RING_SAMPLES = 8;
 
 /** Value noise in [0,1] — clumps woodland into stands and clearings instead of an even scatter. */
 function _hash2(ix, iz) {
@@ -218,13 +219,29 @@ function standDensity(x, z, scale) {
 }
 
 /**
- * Is this tile open country? Judged on what the map DOES contain, so it degrades safely: a tile
- * with buildings or a street network is town and keeps the urban dressing, whatever else is missing.
+ * Is THIS SPOT open country?
+ *
+ * This was originally a per-TILE test — no buildings, no greens, few roads — and it was useless
+ * exactly where it mattered. A zoom-16 tile is 500x500 m, and on the city edge where Vallvidrera
+ * housing runs up into Collserola every tile holds a few blocks, so one building disqualified half
+ * a square kilometre of hillside. Openness is a property of a PLACE, not of a tile.
+ *
+ * Cheap by construction: the vegetation mask is already a rasterised grid of everything roads and
+ * buildings occupy, so "is there clear ground for 32 m around" is a ring of 8 lookups plus the
+ * centre. A true margin test would be exact but the mask is 0.5 m per cell, which makes a 32 m
+ * margin ~20,000 cell reads per candidate — thousands of candidates per tile makes that unaffordable.
+ * The ring can miss a thin spur poking into the circle; the per-item checks downstream catch those.
  */
-function isWildTile(tileData) {
-  if ((tileData.buildings || []).length > 0) return false;
-  if ((tileData.greens || []).length > 0) return false;
-  return (tileData.roads || []).length <= WILD_ROAD_LIMIT;
+function isOpenGround(vegMask, x, z) {
+  if (!vegMask) return true;
+  if (!isVegetationAllowed(vegMask, x, z, 6)) return false;
+  for (let i = 0; i < OPEN_RING_SAMPLES; i++) {
+    const a = (i / OPEN_RING_SAMPLES) * Math.PI * 2;
+    if (!isVegetationAllowed(vegMask, x + Math.cos(a) * OPEN_RADIUS, z + Math.sin(a) * OPEN_RADIUS, 0)) {
+      return false;
+    }
+  }
+  return true;
 }
 const GATE_CLUSTER_OFFSET = 6;  // metres from gate centre to place flanking clusters
 
@@ -289,8 +306,9 @@ function findClusterCenters(tileData, tileKey, vegMask) {
   const tileW = bbox.mxX - bbox.mnX;
   const tileH = bbox.mxZ - bbox.mnZ;
   const tileArea = tileW * tileH;
-  const wild = isWildTile(tileData);
-  const cap = wild ? WILD_MAX_CLUSTERS : MAX_CLUSTERS_PER_TILE;
+  // Headroom for a tile that turns out to be mostly open. Dense tiles never reach it: the mask
+  // blocks their roads and buildings, so candidates fail placement long before the cap.
+  const cap = (buildings.length <= 30) ? WILD_MAX_CLUSTERS : MAX_CLUSTERS_PER_TILE;
   const maxClusters = Math.min(Math.floor(tileArea / (CLUSTER_SPACING * CLUSTER_SPACING)), cap);
   let attempts = maxClusters * 10;
 
@@ -302,10 +320,11 @@ function findClusterCenters(tileData, tileKey, vegMask) {
     if (!isVegetationAllowed(vegMask, x, z, 6)) continue;
     if (isInsideOrNearBuilding(x, z, buildings, 6)) continue;
 
-    // Wild ground clumps: two noise octaves gate acceptance, so the slope grows dense stands with
+    // Open ground clumps: two noise octaves gate acceptance, so a slope grows dense stands with
     // clearings between them. A flat probability would carpet the hill evenly, which reads as a
     // texture rather than a forest — the clearings are what make the stands look placed.
-    if (wild) {
+    const open = isOpenGround(vegMask, x, z);
+    if (open) {
       const d = standDensity(x, z, 140) * 0.7 + standDensity(x, z, 45) * 0.3;
       if (seeded(idx, globalSeed + 3) > d * 1.25) continue;
     }
@@ -320,9 +339,10 @@ function findClusterCenters(tileData, tileKey, vegMask) {
     }
     if (tooClose) continue;
 
-    // Wild ground draws only from the WOODLAND templates; town keeps the roadside dressing.
-    const lo = wild ? WOODLAND_FIRST : 0;
-    const n = wild ? CLUSTER_TEMPLATES.length - WOODLAND_FIRST : WOODLAND_FIRST;
+    // Open ground draws only from the WOODLAND templates; anywhere near a road or building keeps
+    // the urban roadside dressing. Decided per SPOT, so one hillside tile can carry both.
+    const lo = open ? WOODLAND_FIRST : 0;
+    const n = open ? CLUSTER_TEMPLATES.length - WOODLAND_FIRST : WOODLAND_FIRST;
     const templateIdx = lo + (Math.floor(seeded(idx, globalSeed + 2) * n) % n);
     centers.push({ x, z, templateIdx });
   }

@@ -8,7 +8,8 @@
 import * as THREE from 'three';
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { injectTreeWind, updateTreeWind } from './treeWind.js';
-import { buildTreeCardGeometries, getTreeCardMaterial, getTreeCardAtlas, TREE_CARD_SPECIES } from './treeCards.js';
+import { buildTreeCardGeometries, getTreeCardMaterial, getTreeCardAtlas, TREE_CARD_SPECIES,
+  CARD_NIGHT_TINT, NIGHT_LIGHT_FRACTION, onCardNightTint } from './treeCards.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
@@ -824,16 +825,28 @@ let _bbNight = false;   // persisted so billboards created after a night toggle 
 // palette; night look predates that deepening).
 // (the ×1.55 restore was folded in here too and overshot — billboards read pale mint against the
 //  dark 3-D trees; deepened + de-blued to sit in the same night band as the near canopy)
-// The 0.22/0.28/0.40 tint was tuned against the hand-drawn ellipse atlas, which derived from the
-// day-DEEPENED foliage palette and so arrived far too bright. The card atlas is already normalized
-// to L* 45 and is not pre-brightened, so the same tint crushes it to black — and the near cards are
-// now LIFTED at night (see setTreeCardNightMode), which the impostors have to meet or trees darken
-// abruptly as they cross the LOD band. Cards therefore get their own, much gentler tint.
+// THE LOD NIGHT MISMATCH, and why this is derived rather than picked.
+//
+// Impostors are UNLIT (MeshBasic): what you see is albedo x tint. The near cards are LIT
+// (MeshLambert): albedo x tint x whatever the night rig delivers, plus an emissive floor. Two
+// different equations. Hand-picking a tint for each guarantees they disagree, and a tree that
+// changes brightness as it crosses the LOD band is exactly what that disagreement looks like —
+// the impostor tint below was ~2x too bright for precisely this reason.
+//
+// So the card-path impostor tint is the CARD tint scaled by how much light a canopy actually gets
+// at night. One number governs both sides, and _ddTreeNight moves them together.
+//
+// The ellipse tint is untouched: it was tuned against the hand-drawn atlas, which derived from the
+// day-DEEPENED palette and arrived pre-brightened, so it needs a much harder pull-down.
 const BB_NIGHT_ELLIPSE = [0.22, 0.28, 0.40];
-const BB_NIGHT_CARDS   = [0.42, 0.48, 0.50];
+let _bbNightCards = CARD_NIGHT_TINT.map((c) => c * NIGHT_LIGHT_FRACTION);
+onCardNightTint((tint) => {
+  _bbNightCards = tint.map((c) => c * NIGHT_LIGHT_FRACTION);
+  for (const m of _bbMaterials) { if (m) _applyBbNight(m); }
+});
 function _applyBbNight(m) {
   if (!_bbNight) { m.color.setRGB(1, 1, 1); return; }
-  const t = CONFIG.TREE_CARDS ? BB_NIGHT_CARDS : BB_NIGHT_ELLIPSE;
+  const t = CONFIG.TREE_CARDS ? _bbNightCards : BB_NIGHT_ELLIPSE;
   m.color.setRGB(t[0], t[1], t[2]);
 }
 export function setTreeBillboardNightMode(isNight) {

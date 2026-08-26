@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { CONFIG } from '../src/config.js';
 import MANIFEST from '../src/map/treeAtlas.js';
 import { buildTreeCardGeometries, TREE_CARD_SPECIES, TREE_CARD_COUNT, _cardInternals,
-  patchCardFaceDirection } from '../src/map/treeCards.js';
+  patchCardFaceDirection, NIGHT_LIGHT_FRACTION } from '../src/map/treeCards.js';
 import { buildProceduralTreeGeometries } from '../src/map/vegetationRenderer.js';
 import * as rendererMod from '../src/map/vegetationRenderer.js';
 
@@ -205,4 +205,17 @@ test('night lift uses emissive, and stays below the lit facades behind it', () =
   const fn = src.slice(src.indexOf('function _applyCardNight'));
   assert.ok(!/emissiveMap|needsUpdate|defines/.test(fn.slice(0, fn.indexOf('\n}'))),
     'the night switch only sets a uniform');
+});
+
+test('LOD impostor night tint is DERIVED from the card tint, never picked separately', () => {
+  // Impostors are unlit (albedo x tint); near cards are lit (albedo x tint x night light + floor).
+  // Two equations, so two hand-picked tints cannot agree — and a tree that changes brightness as it
+  // crosses the LOD band is what that disagreement looks like on screen.
+  const src = fs.readFileSync('src/map/vegetationRenderer.js', 'utf8');
+  assert.ok(/CARD_NIGHT_TINT\.map\(\(c\) => c \* NIGHT_LIGHT_FRACTION\)/.test(src),
+    'impostor tint is derived from the card tint');
+  assert.ok(!/BB_NIGHT_CARDS\s*=\s*\[/.test(src), 'no independently hand-picked card impostor tint');
+  const f = _cardInternals().NIGHT_LIGHT_FRACTION ?? null;
+  assert.ok(NIGHT_LIGHT_FRACTION > 0 && NIGHT_LIGHT_FRACTION < 1,
+    'night light fraction darkens the unlit impostor toward the lit card');
 });

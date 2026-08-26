@@ -1315,3 +1315,21 @@ Degrades safely — anything with buildings or a street network stays town and k
 
 **Perf note:** cards are 4 tris but each is an alpha-tested fragment, and a hillside puts many on
 screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs frames.
+
+## 2026-08-26 — openness per spot, greens relations, LOD night match
+
+- **Wild detection was per TILE and disqualified on one building.** A zoom-16 tile is 500×500 m, and
+  on the city edge where Vallvidrera housing runs into Collserola every tile holds a few blocks — so
+  half a square kilometre of hillside stayed bare. Openness is now a property of a PLACE:
+  `isOpenGround()` ring-samples the vegetation mask at 32 m. One tile can now carry forest on the
+  open slope and roadside dressing near the houses. (Ring of 8, not a true margin test — the mask is
+  0.5 m/cell, so a 32 m margin is ~20,000 reads per candidate.)
+- **`pbfGreens.js` now parses multipolygon relations** (3-pass, mirroring `pbfBuildings`; its
+  `assembleRings`/`refsToMercator` are now exported and shared rather than copied). Measured on
+  Collserola: **forest 10 → 57, scrub 12 → 52** — and those were whole-city counts before.
+  **Needs a re-bake to take effect.**
+- **LOD impostor night tint is now DERIVED from the card tint** (`× NIGHT_LIGHT_FRACTION`), not
+  hand-picked. Impostors are unlit (albedo × tint), near cards are lit (albedo × tint × night light
+  + emissive floor) — two different equations, so two independent tints could never agree, and the
+  impostor was ~2× too bright. `_ddTreeNight` now moves both together.
+- Tests 169 → 170.

@@ -236,7 +236,24 @@ const CARD_NIGHT_EMISSIVE = [0.042, 0.050, 0.044];
 // materially brighter at exactly the moment the lift landed — the two changes compounded and the
 // trees read as daylit foliage in a night scene. This tint pulls the lit response back down; the
 // emissive above then sets the floor so they do not go black.
-const CARD_NIGHT_TINT = [0.55, 0.62, 0.56];
+export const CARD_NIGHT_TINT = [0.55, 0.62, 0.56];
+
+/**
+ * How much light a canopy actually receives at night, as a fraction of full albedo.
+ *
+ * The LOD impostors are UNLIT (MeshBasic): what you see is albedo x tint, full stop. The near cards
+ * are LIT (MeshLambert): albedo x tint x whatever the night rig delivers, plus the emissive floor.
+ * Those are two different equations, so giving each its own hand-picked night tint guarantees they
+ * disagree — which is exactly what a tree changing brightness as it crosses the LOD band looks like.
+ *
+ * So the impostor tint is DERIVED from the card tint by this factor rather than guessed separately.
+ * One number to move, and the two sides cannot drift apart.
+ */
+export const NIGHT_LIGHT_FRACTION = 0.38;
+
+// The impostor material registers here so the live knob moves both sides together.
+const _nightTintListeners = [];
+export function onCardNightTint(fn) { _nightTintListeners.push(fn); }
 
 let _cardNight = false;
 function _applyCardNight(m) {
@@ -265,8 +282,11 @@ if (typeof window !== 'undefined') {
     const t = CARD_NIGHT_TINT.map((c) => Math.min(1, c * tintScale));
     _material.emissive.setRGB(...e);
     _material.color.setRGB(...t);
+    // Move the LOD impostors with the near cards, or tuning one just breaks the match again.
+    _nightTintListeners.forEach((fn) => fn(t));
     return `emissive ${e.map((c) => c.toFixed(4)).join(', ')} (x${emissiveScale})  ·  ` +
-           `tint ${t.map((c) => c.toFixed(3)).join(', ')} (x${tintScale})`;
+           `tint ${t.map((c) => c.toFixed(3)).join(', ')} (x${tintScale})  ·  ` +
+           `impostors ${t.map((c) => (c * NIGHT_LIGHT_FRACTION).toFixed(3)).join(', ')}`;
   };
 }
 
