@@ -1448,3 +1448,25 @@ triangles that low with the GPU that idle cannot be a rendering cost — it is t
 - **Repair only runs when the tile check FAILS.** `make_tileable` blends, and blending a texture that
   already wraps cleanly makes it worse — this plate went 1.28 → 2.82 under an unconditional repair.
   "Fix or reject" means fix what is broken, not everything that arrives. Applied to the rock tool too.
+
+## 2026-08-26 — road textures built (not yet wired), and a lossless tiling repair
+
+- **`artNormalize.make_tiling()` — a repair LADDER**, cheapest and least destructive first:
+  already tiles → ship untouched · framed off-grid → **roll into alignment (lossless)** · genuinely
+  discontinuous → blend (lossy, and only then). The middle rung is new and it is the important one:
+  a structured texture usually tiles perfectly and is simply FRAMED wrong. The panot plate scored
+  **31.93 as delivered and 0.02 after a roll of (496, 536)** — nothing was wrong with the pixels.
+  Blending would have smeared the grout joints, the one thing a grid cannot survive. Both asphalt
+  plates also cleared losslessly (2.46 → 0.05, 1.76 → 0.02).
+- **Three road surfaces built and gated** (`tools/build-road-textures.py`): `asphalt_worn`,
+  `asphalt_fresh` (1024², span 4.0 m, P8 Carriageway Grey, ΔE 4.44 / 4.78) and `panot` (1024²,
+  span **0.40 m** — a 2×2 of 20 cm tiles, P6 Panot Grey, ΔE 7.98). **Not yet wired into
+  roadRenderer.**
+- **Kerb texture span 1.0 m → 0.35 m.** The plate's speckle is ~1 cm across, so at a 1 m span it WAS
+  1 cm of stone when granite grain is 1–3 mm — five times too coarse reads as gravel, and on a
+  0.12 m kerb face seen edge-on it aliases into noise. Span is a physical statement about what a
+  surface IS, not an art preference.
+- Normals here are **luminance-derived**, which AD-1a names as a compromise: only a photoscan ships
+  a true normal, and a derived one reads a dark aggregate stone as a pit. Still far better than none
+  (asphalt with no normal turns to grey mush at bumper distance); the upgrade is an ambientCG CC0
+  scan, which is what P3-08 actually specifies.

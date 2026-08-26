@@ -250,7 +250,15 @@ function getCurbMaterial() {
   _curbMaterial.normalScale = new THREE.Vector2(1.0, 1.0);
 
   patchMaterial(_curbMaterial, (shader) => {
-    shader.uniforms.uKerbSpan = { value: 1.0 };   // texture covers 1 real metre — kerbTexture.spanM
+    // How much real-world surface one texture repeat covers.
+    //
+    // 0.35 m, not 1 m. The plate's speckle is roughly 1 cm across; at a 1 m span that IS 1 cm of
+    // stone, and granite grain is 1-3 mm. Five times too coarse stops reading as stone and starts
+    // reading as gravel — and on a 0.12 m kerb face seen nearly edge-on, high-contrast speckle that
+    // size just aliases into noise. Shrinking the span shrinks the grain to ~3.5 mm, which is right,
+    // and incidentally puts ~3 repeats across the face so the anisotropic filter has something to
+    // work with.
+    shader.uniforms.uKerbSpan = { value: 0.35 };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uKerbSpan;')
       .replace('#include <uv_vertex>', `#include <uv_vertex>
