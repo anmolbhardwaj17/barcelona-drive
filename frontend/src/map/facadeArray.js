@@ -52,16 +52,22 @@
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, STOREY_H } from '../buildingConstants.js';
 
 /** Metres one layer spans horizontally. Both arrays share it so u repeats stay consistent. */
-export const LAYER_W_M = 8.0;
+export const LAYER_W_M = 12.0;
 /**
- * Metres a BODY layer spans vertically — 2 storeys, so the tile is not obviously periodic.
+ * Metres a BODY layer spans vertically.
  *
- * DERIVED FROM STOREY_H, not written as a literal. It was hardcoded 8.0 ("2 storeys of 4.0 m") while
- * the bake's actual storey is 3.5 m, so every window row drifted against the floor it belongs to and
- * the whole layer sampled ~14% too small. Tying it to STOREY_H means the art cannot silently
- * disagree with the geometry again — and if the modular-storey rebuild moves STOREY_H, this follows.
+ * 12.0, CHOSEN ON THE DRIVE, not derived. The history is worth keeping because the derivation was
+ * wrong twice: the plan said "2 storeys of 4.0 m" and the constant read 8.0, while the bake's actual
+ * storey is STOREY_H = 3.5 — so rows drifted against floors. Deriving it as 2 x STOREY_H = 7.0 fixed
+ * the drift and still read too small and too busy, because the PLATES draw their two storeys smaller
+ * within the tile than a real 7 m of building.
+ *
+ * 12 x 12 was judged on screen against real streets. The layer no longer claims to be exactly two
+ * storeys — it is a facade patch whose apparent storey (~6 m) is larger than the bake's, which reads
+ * correctly because the plate's own windows sit well inside its 2-storey band. `_ddFacadeSpan(w, h)`
+ * re-tunes it live.
  */
-export const BODY_LAYER_H_M = 2 * STOREY_H;   // 7.0 m
+export const BODY_LAYER_H_M = 12.0;
 /** Metres a GROUND layer spans vertically — one shopfront module. */
 export const GROUND_LAYER_H_M = 4.0;
 
@@ -376,6 +382,20 @@ const _facadeScale = {
 const _facadeScaleUniforms = [];
 
 /**
+ * How much of the per-building vertex tint survives on the authored-facade path, and what it is
+ * normalised against.
+ *
+ * `amt` 0 = the authored albedo alone, every building of a variant identical. 1 = full per-building
+ * brightness variation. The default keeps a real street's variety without letting the old flat
+ * colours fight eight carefully normalized palettes.
+ *
+ * `mean` is the luminance the building tints cluster around; dividing by it makes the tint modulate
+ * around 1.0 rather than darkening everything, which is the same correction uAsphaltGain needed.
+ */
+const _facadeTint = { amt: 0.45, mean: 0.62 };
+const _facadeTintUniforms = [];
+
+/**
  * Live knob — `window._ddFacadeSpan(widthM, heightM)`.
  *
  * Window SIZE on screen is entirely a function of how many real metres a layer claims to span:
@@ -388,6 +408,24 @@ const _facadeScaleUniforms = [];
  *   _ddFacadeSpan(10, 8)   bigger everything
  */
 if (typeof window !== 'undefined') {
+  /**
+   * `_ddFacadeTint(amount)` — how much per-building colour variation survives, as BRIGHTNESS.
+   *   0    authored albedo only; every building of a variant looks identical
+   *   0.45 default
+   *   1    full variation
+   * The tint's HUE is always discarded: it is the flat colour the vertex path assigned, and
+   * multiplying it into a normalized photographic facade is what made all eight variants read brown.
+   */
+  window._ddFacadeTint = (amt, mean) => {
+    _facadeTint.amt = amt ?? _facadeTint.amt;
+    _facadeTint.mean = mean ?? _facadeTint.mean;
+    for (const u of _facadeTintUniforms) {
+      u.uFacadeTintAmt.value = _facadeTint.amt;
+      u.uFacadeTintMean.value = _facadeTint.mean;
+    }
+    return `facade tint ${_facadeTint.amt} (brightness only, hue discarded) around mean ${_facadeTint.mean}`;
+  };
+
   window._ddFacadeSpan = (wM, hM) => {
     _facadeScale.x = WALL_REPEAT_HORIZONTAL_M / wM;
     _facadeScale.y = FLOOR_HEIGHT / hM;
@@ -418,6 +456,11 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // LAYER_W_M x BODY_LAYER_H_M.
     shader.uniforms.uFacadeScale = { value: _facadeScale };
     _facadeScaleUniforms.push(shader.uniforms.uFacadeScale);
+    shader.uniforms.uFacadeTintAmt = { value: _facadeTint.amt };
+    // Mean luminance the per-building tints sit around. Dividing by it makes the tint modulate
+    // AROUND 1.0 instead of darkening everything — the same correction uAsphaltGain needed.
+    shader.uniforms.uFacadeTintMean = { value: _facadeTint.mean };
+    _facadeTintUniforms.push(shader.uniforms);
     shader.uniforms.uFacadeBody = { value: arrays.body };
     shader.uniforms.uFacadeGround = { value: arrays.ground };
     // ⚠ CARRY OUR OWN UV VARYING — do NOT use three's `vMapUv`.
@@ -442,6 +485,7 @@ export function patchFacadeArrayMaterial(material, arrays) {
         'precision highp sampler2DArray;\n' +
         'uniform sampler2DArray uFacadeBody;\n' +
         'uniform sampler2DArray uFacadeGround;\n' +
+        'uniform float uFacadeTintAmt;\nuniform float uFacadeTintMean;\n' +
         'varying float vLayer;\nvarying vec2 vFacadeUv;')
       .replace('#include <map_fragment>',
         // Branch on the encoded band. Both sides sample, so there is no divergent-texture-fetch
@@ -449,8 +493,23 @@ export function patchFacadeArrayMaterial(material, arrays) {
         'float lyr = vLayer;\n' +
         'vec4 facadeTexel = lyr >= ' + GROUND_LAYER_BASE + '.0\n' +
         '  ? texture(uFacadeGround, vec3(vFacadeUv, lyr - ' + GROUND_LAYER_BASE + '.0))\n' +
-        '  : texture(uFacadeBody, vec3(vFacadeUv, lyr));\n' +
-        'diffuseColor *= facadeTexel;');
+        '  : texture(uFacadeBody, vec3(vFacadeUv, lyr));')
+      // ── THE PER-BUILDING TINT MUST NOT MULTIPLY AN AUTHORED ALBEDO ──────────────────────────
+      //
+      // This used to be `diffuseColor *= facadeTexel` at <map_fragment>, and three applies the
+      // vertex colour immediately afterwards at <color_fragment>. So every authored facade was
+      // multiplied by the flat per-building colour the vertex-colour path assigns — which is why
+      // eight normalized variants (cream, ochre, rose, grey, brick...) all rendered the same brown.
+      // Exactly the mistake the asphalt plate made: an albedo used where a modulation was expected.
+      //
+      // The tint is still WANTED, though — a real street varies building to building. So it is kept
+      // as BRIGHTNESS ONLY: its luminance modulates the authored albedo, its hue is discarded. Same
+      // resolution as the bush cards.
+      .replace('#include <color_fragment>',
+        '#include <color_fragment>\n' +
+        'float facTint = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));\n' +
+        'facTint = mix(1.0, facTint / max(uFacadeTintMean, 1e-4), uFacadeTintAmt);\n' +
+        'diffuseColor = vec4(facadeTexel.rgb * facTint, facadeTexel.a * diffuseColor.a);');
   };
   material.customProgramCacheKey = () => 'facadeArray-v1';
   material.needsUpdate = true;

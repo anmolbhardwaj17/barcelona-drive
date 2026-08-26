@@ -31,12 +31,19 @@ test('texel density hits the art bible band (85-150 texels/m)', () => {
   assert.ok(texelDensity(512, GROUND_LAYER_H_M) >= 85, 'ground vertical density stays in band');
 });
 
-test('a body layer spans TWO REAL storeys, not the plan\'s assumed 4.0 m', () => {
-  // The plan said "2 storeys of 4.0 m" and this was hardcoded 8.0 — while the bake's actual storey
-  // is STOREY_H = 3.5. Every window row therefore drifted against the floor it belongs to and the
-  // layer sampled ~14% too small. Deriving it means the art cannot silently disagree with the
-  // geometry again, and if the modular-storey rebuild moves STOREY_H this follows automatically.
-  assert.equal(BODY_LAYER_H_M, 2 * STOREY_H, 'body layer must be derived from the bake storey height');
+test('the body layer span is a JUDGED value, and the derivation history is why', () => {
+  // Three values, in order, and each was wrong for a different reason:
+  //   8.0  the plan's "2 storeys of 4.0 m" — but the bake's storey is STOREY_H 3.5, so window rows
+  //        drifted against the floors they belong to.
+  //   7.0  2 x STOREY_H — the drift was fixed and it still read too small and too busy, because the
+  //        PLATES draw their two storeys smaller within the tile than a real 7 m of building.
+  //   12.0 judged on screen against real streets.
+  // The lesson is that the correct span is a property of the ART, not of the geometry: the layer is
+  // a facade patch, not a literal two storeys. Asserted as a range so a re-tune does not fail the
+  // suite, but a typo or a silent revert to a derived value does.
+  assert.ok(BODY_LAYER_H_M >= 9 && BODY_LAYER_H_M <= 16,
+    `body span ${BODY_LAYER_H_M} outside the judged range — re-check on screen before changing`);
+  assert.ok(BODY_LAYER_H_M > 2 * STOREY_H, 'the plate needs more metres than its nominal 2 storeys');
   assert.ok(BODY_LAYER_H_M > GROUND_LAYER_H_M, 'a body tile must cover more than one ground module');
 });
 
@@ -185,7 +192,10 @@ function generate() {
   const shader = {
     uniforms: {},
     vertexShader: '#include <common>\nvoid main(){ #include <begin_vertex> }',
-    fragmentShader: '#include <common>\nvoid main(){ #include <map_fragment> }',
+    // BOTH includes: the patch samples the array at <map_fragment> and rewrites diffuseColor after
+    // <color_fragment>, because three applies the per-building vertex tint between the two. A stub
+    // with only map_fragment silently skips half the patch and tests the wrong shader.
+    fragmentShader: '#include <common>\nvoid main(){ #include <map_fragment>\n#include <color_fragment> }',
   };
   const mat = { needsUpdate: false };
   patchFacadeArrayMaterial(mat, { body: 'B', ground: 'G' });
@@ -215,7 +225,11 @@ test('both array uniforms are bound and both branches sample', () => {
   // WALL_REPEAT_HORIZONTAL_M (12 m) and v in FLOOR_HEIGHT (10 m), while the layers are 8 x 7.
   // Sampling the array with the raw attribute stretched it by different factors on each axis, so
   // windows rendered landscape where every source plate draws them portrait.
-  assert.deepEqual(Object.keys(s.uniforms).sort(), ['uFacadeBody', 'uFacadeGround', 'uFacadeScale']);
+  assert.deepEqual(Object.keys(s.uniforms).sort(),
+    ['uFacadeBody', 'uFacadeGround', 'uFacadeScale', 'uFacadeTintAmt', 'uFacadeTintMean']);
+  // The per-building vertex tint must NOT multiply an authored albedo — it did, and eight normalized
+  // variants all rendered the same brown. Its luminance survives, its hue is discarded.
+  assert.match(s.fragmentShader, /facadeTexel\.rgb \* facTint/, 'authored albedo is the base, not a multiplicand');
   assert.match(s.vertexShader, /vFacadeUv = uv \* uFacadeScale/, 'wall UV is converted, not raw');
   assert.match(s.fragmentShader, /texture\(uFacadeGround, vec3\(vFacadeUv/);
   assert.match(s.fragmentShader, /texture\(uFacadeBody, vec3\(vFacadeUv/);
