@@ -1552,3 +1552,23 @@ guess, and both times a human looking at a screenshot caught what is a one-line 
   survive as blue-charcoal masses, not voids"), so the trade gets exposed for judgement instead of
   overwritten. The road ALBEDO is not the problem — base `#4a4a4a` (L\* 31.5) against the P8
   Carriageway Grey anchor `#4F4E4C` (L\* 33.2) is within 1.7 L\*.
+
+## 2026-08-26 — v3 P3-07c: road detail normal (the 8× term)
+
+Two normal samples — base repeat plus 8× — whiteout-blended, with the 8× term faded out between 8
+and 25 m (a detail frequency that survives to the horizon only aliases, and no mip chain saves a
+term whose job is to be under-sampled). `window._ddRoadDetail(0)` gives the "before" picture.
+
+All three blockers the tracker listed resolved differently than expected:
+- **Tangents were not needed.** A frame built per fragment from screen-space derivatives of view
+  position against the road's own metric UV is exactly what three falls back to without
+  `USE_TANGENT`. Built against the road UV, not the screen, so the detail stays locked to the
+  carriageway instead of swimming as the camera turns.
+- **The separate injection point was the real crux.** three orders `<normal_fragment_begin>` AFTER
+  `<color_fragment>`, so at the tone block's injection point the identifier `normal` does not exist —
+  writing it there is the same undeclared-identifier failure that once made the whole road vanish.
+- **D-32 does not apply.** Every lit material declares a normal, unlike roughness, so this term is
+  safe in the shared `patchRoadAO` where the roughness term was not.
+
+Self-disables when no authored normal exists, so the procedural fallback never samples a null map.
+Tests 176 → 177.

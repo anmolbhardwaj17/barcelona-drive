@@ -961,7 +961,7 @@ small value once this lands.**
   ⚠ **One visual sign-off is still owed: judge the wheel ruts at street level.** They are analytic and
   fade above 8 m half-width; if they read as sprayed stripes anywhere, reopen this.
 
-### `[ ]` P3-07c · 1.5d · risk medium · **ROAD DETAIL NORMAL — the 8× term (c), carved out of P3-07)**
+### `[x]` P3-07c · 1.5d · risk medium — **DONE 2026-08-26 · ROAD DETAIL NORMAL (the 8× term)**
 **The close-range repeat killer.** A second normal sample at 8× the base frequency, breaking up the
 4 m tile where the road fills the screen. Split out of P3-07 on 2026-08-26 because it is not a
 loose end of that task — it needs its own decisions:
@@ -970,7 +970,17 @@ loose end of that task — it needs its own decisions:
   bolting a normal-map path into it is exactly the **D-32** trap.
 - **Depends:** P3-08 (the asset set supplies the detail normal) — so this cannot land before the art.
 - **Files:** `map/roadMaterial.js`; `roadRenderer.js` (tangent generation)
-- **Done when:** the 4 m repeat is not visible at street level from a stationary car.
+- **Done when:** ✅ **CODE DONE 2026-08-26, visual sign-off owed.** Two normal samples (base + 8×),
+  whiteout-blended, faded out 8→25 m. **`window._ddRoadDetail(0)`** is the A/B — that is the "before"
+  picture, so the done-when can be judged directly rather than remembered.
+  - Its three stated blockers resolved differently than expected: **tangents were not needed** (a
+    frame from screen-space derivatives of view position against the road's metric UV is what three
+    itself falls back to without `USE_TANGENT`); the **separate injection point is real and was the
+    crux** — three orders `<normal_fragment_begin>` AFTER `<color_fragment>`, so the tone block
+    cannot touch `normal` at all; and **D-32 does not apply** — every lit material declares a normal,
+    unlike roughness, so the term is safe in the shared patch.
+  - Repeat is now **2 m**, not 4 (P3-08 measured the span), which makes the 8× term matter more: a
+    stationary car sees the same stones twice inside its own length.
 
 ### `[x]` P3-07b · 2.0d · risk low — **DONE 2026-08-26 · AUTHORED ROAD TEXTURES**
 **Decided 2026-08-26 on measurement: textures are BOTH cheaper and better-looking than procedural

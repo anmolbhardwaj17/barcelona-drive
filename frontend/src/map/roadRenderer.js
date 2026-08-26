@@ -25,7 +25,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CURB_HEIGHT } from './groundLayers.js';
-import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, createAsphaltTexture } from './roadMaterial.js';   // v3 P3-07
+import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, ROAD_V2_NORMAL_PARS, ROAD_V2_NORMAL_APPLY, createAsphaltTexture } from './roadMaterial.js';   // v3 P3-07 / P3-07c
 import { getRoadSurface } from './roadTexturePack.js';   // v3 P3-07b / P3-08 — authored surfaces
 import { createRoadTextures } from './generate-road-atlas.js';
 
@@ -43,6 +43,18 @@ const ROAD_OFFSET = 0.05;
 let _asphaltTex = null;   // v3 P3-07 — asphalt grain plate, resolved once per session
 let _asphaltGain = null;  // vec3(1/meanR, 1/meanG, 1/meanB) — see uAsphaltGain in roadMaterial.js
 let _asphaltRepeatM = 0;  // metres per repeat, taken from the plate's DECLARED (measured) span
+let _asphaltNrm = null;   // v3 P3-07c detail normal; null on the procedural fallback
+let _roadDetailUniform = null;
+
+// Live knob — `window._ddRoadDetail(amount)`. 0 disables the detail normal entirely, which is the
+// honest A/B for "is the 2 m repeat still visible from a stationary car" (P3-07c's done-when).
+if (typeof window !== 'undefined') {
+  window._ddRoadDetail = (v) => {
+    if (!_roadDetailUniform) return 'no road material yet — drive first';
+    _roadDetailUniform.value = v;
+    return `road detail normal ${v}` + (v === 0 ? '  (OFF — this is the before picture)' : '');
+  };
+}
 let _asphaltRepeatUniform = null;
 
 // Live knob — `window._ddAsphaltSpan(metres)`. The default is measured, not chosen: the bake reports
@@ -449,13 +461,18 @@ function patchRoadAO(mat, opts = {}) {
         // assumed and 11.7 mm at the 2 m the bake now declares. Real asphalt aggregate is 5-15 mm,
         // and at 23 mm the carriageway read as gravel.
         _asphaltRepeatM = pack.spanM;
+        _asphaltNrm = pack.normal;
       } catch {
         _asphaltTex = createAsphaltTexture(THREE);
         _asphaltGain = new THREE.Vector3(1, 1, 1);   // generator already centred — see uAsphaltGain
         _asphaltRepeatM = ROAD_V2_UNIFORMS.uAsphaltRepeatM;
+        _asphaltNrm = null;   // procedural fallback ships no normal — the detail term self-disables
       }
     }
     shader.uniforms.uAsphalt = { value: _asphaltTex };
+    shader.uniforms.uAsphaltNormal = { value: _asphaltNrm };
+    shader.uniforms.uRoadDetailAmt = { value: ROAD_V2_UNIFORMS.uRoadDetailAmt };
+    _roadDetailUniform = shader.uniforms.uRoadDetailAmt;
     shader.uniforms.uAsphaltGain = { value: _asphaltGain || new THREE.Vector3(1, 1, 1) };
     shader.uniforms.uAsphaltRepeatM = { value: _asphaltRepeatM || ROAD_V2_UNIFORMS.uAsphaltRepeatM };
     _asphaltRepeatUniform = shader.uniforms.uAsphaltRepeatM;
@@ -466,12 +483,30 @@ function patchRoadAO(mat, opts = {}) {
         + '\nattribute float halfWidth;\nvarying float vHalfW;\nvarying vec2 vRoadUv;')
       .replace('#include <begin_vertex>',
         '#include <begin_vertex>\nvAoDark = aAO;\nvHalfW = halfWidth;\nvRoadUv = uv;');
+    // v3 P3-07c: the detail normal only exists when an authored plate supplied one. The procedural
+    // fallback ships no normal map, so the term self-disables rather than sampling a null texture.
+    const wantDetail = !!_asphaltNrm;
+
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
-        '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;' + ROAD_V2_PARS)
+        '#include <common>\nuniform float uAoScale;\nvarying float vAoDark;'
+        + ROAD_V2_PARS + (wantDetail ? ROAD_V2_NORMAL_PARS : ''))
       // AFTER color_fragment so it MODULATES the vertex-colour asphalt instead of replacing it —
       // road colour lives in the vertex colour, same as buildings (D-31).
       .replace('#include <color_fragment>', `#include <color_fragment>\n${AO_FRAG_APPLY}\n${ROAD_V2_APPLY}`);
+
+    if (wantDetail) {
+      // A SECOND, LATER injection point. `normal` is declared by <normal_fragment_begin>, which
+      // three orders AFTER <color_fragment> — so the tone block above cannot touch it, and writing
+      // it there is the same undeclared-identifier failure that once made the whole road vanish.
+      // The Lambert surfaces that share patchRoadAO never reach here — they pass roadV2:false and
+      // return above. Even if they did, this would be safe: unlike roughness (D-32), every lit
+      // material declares a normal, which is precisely why this term can live in the shared patch
+      // and the roughness term could not.
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <normal_fragment_begin>',
+          `#include <normal_fragment_begin>\n${ROAD_V2_NORMAL_APPLY}`);
+    }
   }, 'roadAO');
 }
 

@@ -338,3 +338,27 @@ test('every road surface declares a span, and the spans are physically sane', ()
     assert.equal(a.spanM, 2.0, 'asphalt span is the measured 2.0 m');
   }
 });
+
+test('P3-07c: the detail normal is injected where `normal` actually exists', () => {
+  const rr = fs.readFileSync('src/map/roadRenderer.js', 'utf8');
+  const rm = fs.readFileSync('src/map/roadMaterial.js', 'utf8');
+
+  // THE WHOLE POINT OF THE TASK. three orders <normal_fragment_begin> AFTER <color_fragment>, so
+  // the tone block cannot touch `normal` — writing it there is an undeclared identifier and the
+  // shader fails to compile, which once made the entire road disappear.
+  assert.ok(/#include <normal_fragment_begin>/.test(rr), 'detail normal has its own injection point');
+  const tone = rm.slice(rm.indexOf('export const ROAD_V2_APPLY'));
+  assert.ok(!/\bnormal\s*=/.test(tone.slice(0, tone.indexOf('`;'))),
+    'the tone block never assigns `normal` — it runs before the identifier exists');
+
+  // Tangent frame from derivatives: the tracker assumed this needed a tangent ATTRIBUTE the ribbon
+  // does not carry. It does not — and it must be built against the road UV, not the screen, or the
+  // detail swims as the camera turns.
+  const nrm = rm.slice(rm.indexOf('export const ROAD_V2_NORMAL_APPLY'));
+  assert.ok(/dFdx\(rdP\)/.test(nrm) && /dFdx\(rdUv\)/.test(nrm), 'TBN from derivatives of pos AND uv');
+  assert.ok(/rdUv \* 8\.0/.test(nrm), 'the 8x term exists — it is what breaks the repeat');
+  assert.ok(/smoothstep\(8\.0, 25\.0/.test(nrm), 'detail fades out before it can alias');
+
+  // It must self-disable when no authored normal exists, or the procedural fallback samples nothing.
+  assert.ok(/const wantDetail = !!_asphaltNrm;/.test(rr), 'term self-disables without a plate');
+});

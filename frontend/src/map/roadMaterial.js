@@ -48,6 +48,64 @@ varying vec2 vRoadUv;
 `;
 
 /**
+ * v3 P3-07c — ROAD DETAIL NORMAL. The close-range repeat killer.
+ *
+ * WHY IT IS A SEPARATE INJECTION. ROAD_V2_APPLY goes in after the <color_fragment> include,
+ * and three's fragment order puts the <normal_fragment_begin> include AFTER that — so at the
+ * tone injection point the identifier 'normal' does not exist yet. Writing it there is the same
+ * undeclared-identifier failure that already made the road vanish once (see the roughness note).
+ *
+ * NO TANGENT ATTRIBUTE IS NEEDED. The tracker assumed normal mapping required tangents the ribbon
+ * does not carry. It does not: a tangent frame can be built per fragment from screen-space
+ * derivatives of view position against the road's own metric UV, which is what three itself falls
+ * back to when USE_TANGENT is absent. The frame is derived from the SAME along/across UV the grain
+ * samples, so the micro-normal stays locked to the carriageway rather than to the screen.
+ *
+ * THE 8x TERM. Two samples: one at the base repeat, one at 8x, whiteout-blended. The base sample
+ * gives the aggregate its shape; the 8x sample is what breaks up the tile when the road fills the
+ * screen, because at 2 m per repeat a stationary car sees the same stones twice in its own length.
+ * The 8x term FADES OUT past ~25 m — a detail frequency that survives to the horizon is just
+ * aliasing, and the mip chain cannot help a term whose whole purpose is to be under-sampled.
+ */
+export const ROAD_V2_NORMAL_PARS = `
+uniform sampler2D uAsphaltNormal;
+uniform float uRoadDetailAmt;
+`;
+
+export const ROAD_V2_NORMAL_APPLY = `
+{
+  float rdAcross = (vRoadUv.y - 0.5) * 2.0 * vHalfW;
+  float rdAlong  = vRoadUv.x * 4.0;
+  vec2  rdUv     = vec2(rdAlong, rdAcross) / uAsphaltRepeatM;
+
+  // Detail fades with distance: past ~25 m it is below a pixel and only aliases.
+  float rdDist  = length(vViewPosition);
+  float rdNear  = 1.0 - smoothstep(8.0, 25.0, rdDist);
+
+  vec3 rdN1 = texture2D(uAsphaltNormal, rdUv).xyz * 2.0 - 1.0;
+  vec3 rdN2 = texture2D(uAsphaltNormal, rdUv * 8.0).xyz * 2.0 - 1.0;
+  // Whiteout blend — add the XY slopes, multiply the Z. Cheaper than reorienting and correct enough
+  // for two samples of the same surface at different frequencies.
+  vec3 rdN = normalize(vec3(rdN1.xy + rdN2.xy * rdNear, rdN1.z * rdN2.z));
+  rdN.xy *= uRoadDetailAmt;
+  rdN = normalize(rdN);
+
+  // Tangent frame from derivatives — no vertex attribute required. Built against the road's metric
+  // UV so the detail is locked to the carriageway, not to the camera.
+  vec3 rdP  = -vViewPosition;
+  vec3 rdQ0 = dFdx(rdP), rdQ1 = dFdy(rdP);
+  vec2 rdS0 = dFdx(rdUv), rdS1 = dFdy(rdUv);
+  vec3 rdNg = normalize(normal);
+  vec3 rdT  = rdQ0 * rdS1.y - rdQ1 * rdS0.y;
+  if (dot(rdT, rdT) > 1e-12) {
+    rdT = normalize(rdT);
+    vec3 rdB = -normalize(cross(rdNg, rdT));
+    normal = normalize(mat3(rdT, rdB, rdNg) * rdN);
+  }
+}
+`;
+
+/**
  * The fragment body. Applied AFTER BACKTICK_PLACEHOLDER<color_fragment>BACKTICK_PLACEHOLDER so it modulates the vertex-colour asphalt
  * rather than replacing it — road colour lives in the vertex colour, same as buildings (D-31).
  */
@@ -121,6 +179,8 @@ export const ROAD_V2_UNIFORMS = {
   uAsphaltGain: [1, 1, 1],  // overridden from the plate's per-channel means; (1,1,1) = procedural fallback
   /** Rut strength. Small on purpose: past ~0.15 they read as painted stripes. */
   uRoadRut: 0.10,
+  /** Detail-normal strength. Asphalt micro-relief is millimetres — this is a texture, not terrain. */
+  uRoadDetailAmt: 0.55,
 };
 
 /**
