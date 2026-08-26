@@ -1440,3 +1440,11 @@ triangles that low with the GPU that idle cannot be a rendering cost — it is t
   **0.00**, the three seamed AI rock plates score **2.7–4.2**. Enforced on raw input, reported after
   repair (the threshold is not calibrated for blended output).
 - Tests 172 → 174.
+- **Kerb granite is now the AI plate, not the procedural one.** Measured side by side on the same
+  gates: **ΔE2000 1.67 vs 5.48**, and it tiles at **1.28 raw — a pass, no repair**. Real mineral
+  variation beats statistically uniform speckle on a surface that runs the length of every street,
+  where uniformity reads as plastic. The procedural generator stays in the tool as the fallback
+  (`SOURCE = None`).
+- **Repair only runs when the tile check FAILS.** `make_tileable` blends, and blending a texture that
+  already wraps cleanly makes it worse — this plate went 1.28 → 2.82 under an unconditional repair.
+  "Fix or reject" means fix what is broken, not everything that arrives. Applied to the rock tool too.

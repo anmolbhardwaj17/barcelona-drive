@@ -5,18 +5,19 @@ export default {
   "spanM": 1.0,
   "normalize": {
     "version": 2,
-    "sourceType": "flat",
+    "sourceType": "ai",
+    "source": "granite_b",
     "surfaceClass": "kerb",
     "anchor": "#7C7A76",
-    "tileRatio": 1.0,
+    "tileRatio": 1.284,
     "tileVerifyPass": true,
     "LStar": 51.0,
-    "CStar": 4.3,
+    "CStar": 2.9,
     "nearestAnchor": "P7_bordillo_granite",
-    "deltaE2000": 5.48,
+    "deltaE2000": 1.67,
     "gate4Pass": true,
     "normalMeanXY": 0.25,
     "normalBandPass": true,
-    "rallyClipPct": 0.2
+    "rallyClipPct": 0.0
   }
 };

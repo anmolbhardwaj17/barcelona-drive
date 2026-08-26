@@ -71,12 +71,14 @@ def main():
         # produced four different verdicts on the same images, which is not a calibrated gate. The
         # The metric is now calibrated at both ends (see step1_tile_verify) and enforced again: a
         # plate that still seams after repair raises rather than shipping quietly.
-        _, ratio_before, _ = AN.step1_tile_verify(rgb)
+        tile_ok, ratio_before, _ = AN.step1_tile_verify(rgb)
+        tile_ratio = ratio_before
         src_for_drift = rgb
-        rgb = AN.make_tileable(rgb)
+        if not tile_ok:
+            rgb = AN.make_tileable(rgb)
         # Denominator from the SOURCE — the repair blends, and a flattened interior would inflate
         # the ratio for a wrap that is now correct. See step1_tile_verify's drift_ref.
-        tile_ok, tile_ratio, _ = AN.step1_tile_verify(rgb, drift_ref=src_for_drift)
+            tile_ok, tile_ratio, _ = AN.step1_tile_verify(rgb, drift_ref=src_for_drift)
         # The threshold is calibrated on RAW input (periodic ground truth 0.0, seamed plates 2.7-4.2)
         # and NOT on repaired output: make_tileable leaves a residual 4-5 level step where the raw
         # plates had 6-10, which the contact sheet shows as no visible seam but which still scores

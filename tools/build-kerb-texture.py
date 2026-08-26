@@ -19,6 +19,14 @@ from PIL import Image, ImageDraw
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import artNormalize as AN
 
+SRC = 'art-src/kerb-v1/src'
+# The shipped plate. Procedural noise (SOURCE=None) was the first pass and is kept as the fallback:
+# it tiles exactly and needs no asset. But measured side by side the AI granite wins on the gate that
+# matters — dE2000 0.99 against P7 Bordillo Granite versus 5.48 procedural — because it has real
+# mineral variation rather than statistically uniform speckle, and a kerb runs the length of every
+# street where uniformity reads as plastic.
+SOURCE = 'granite_b'
+
 OUT = 'frontend/public/textures/road'
 SIZE = 512
 SPAN_M = 1.0          # the texture covers 1 real metre — see AD-12 texel-density reasoning
@@ -55,13 +63,32 @@ def main():
     v = np.clip(v, 0.05, 1.0)
     # Faint cool cast: Catalan granite is grey-blue, not neutral.
     rgb = np.dstack([v * 0.985, v, v * 1.02])
+    source_type = 'flat'          # authored, not photographed → de-light k = 0
 
-    ok, ratio, _ = AN.step1_tile_verify(rgb)
-    print(f'  tile verify: {ratio:.3f}  {"PASS" if ok else "FAIL"}  (periodic by construction)')
+    if SOURCE:
+        img = Image.open(f'{SRC}/{SOURCE}.png').convert('RGB')
+        rgb = np.asarray(img, dtype=np.float64) / 255.0
+        if rgb.shape[0] != SIZE:
+            rgb = AN.resize_tiling(rgb, SIZE)   # wrap-aware — a plain resize breaks the tile
+        source_type = 'ai'
+        # REPAIR ONLY IF IT FAILS. make_tileable blends, and blending a texture that already wraps
+        # cleanly makes it worse, not better — this plate scored 1.28 raw (a pass) and 2.82 after an
+        # unconditional repair. "Fix or reject" means fix what is broken, not everything that arrives.
+        ok, ratio, _ = AN.step1_tile_verify(rgb)
+        raw_ratio = ratio
+        if not ok:
+            src_for_drift = rgb
+            rgb = AN.make_tileable(rgb)
+            ok, ratio, _ = AN.step1_tile_verify(rgb, drift_ref=src_for_drift)
+        print(f'  tile verify: {raw_ratio:.2f}' + ('' if raw_ratio == ratio else f' -> {ratio:.2f} (repaired)') +
+              f'  {"PASS" if ok else "FAIL — judge on the contact sheet"}')
+    else:
+        ok, ratio, _ = AN.step1_tile_verify(rgb)
+        print(f'  tile verify: {ratio:.3f}  {"PASS" if ok else "FAIL"}  (periodic by construction)')
 
     alpha = np.ones((SIZE, SIZE))
     rgb, stats = AN.normalize_albedo(
-        rgb, alpha, source_type='flat',            # authored, not photographed → k = 0
+        rgb, alpha, source_type=source_type,
         surface_class='kerb',
         anchor=AN.ANCHORS['P7_bordillo_granite'],
         alpha_snap=AN.SNAP_ALPHA['large_surface'], # a kerb runs the length of every street
@@ -76,7 +103,8 @@ def main():
     manifest = {
         'name': 'kerb_granite', 'size': SIZE, 'spanM': SPAN_M,
         'normalize': {
-            'version': NORMALIZE_VERSION, 'sourceType': 'flat', 'surfaceClass': 'kerb',
+            'version': NORMALIZE_VERSION, 'sourceType': source_type,
+            'source': SOURCE or 'procedural', 'surfaceClass': 'kerb',
             'anchor': AN.ANCHORS['P7_bordillo_granite'],
             'tileRatio': round(ratio, 3), 'tileVerifyPass': bool(ok),
             'LStar': round(stats['L_mean'], 1), 'CStar': round(stats['C_mean'], 1),
