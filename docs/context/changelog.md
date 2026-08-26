@@ -1572,3 +1572,24 @@ All three blockers the tracker listed resolved differently than expected:
 
 Self-disables when no authored normal exists, so the procedural fallback never samples a null map.
 Tests 176 → 177.
+
+## 2026-08-26 — v3 P3-11: sky dome, 2 keys
+
+2048×1024 equirect **cloud layers** (day + night, **1.51 MiB** against a 2.67 MiB budget), cross-faded
+by the env transition lerp so the sky crosses over with the lights instead of snapping.
+
+- **Procedural, and here that is the stronger tool.** An equirect sky must wrap exactly and converge
+  at the poles; an image model has no notion of either and a wrong projection is not a hue you can
+  grade. Measured seam **0.00018** (0 = exact).
+- **Clouds live on a flat deck at 1200 m** and each texel's view ray is intersected with it, so
+  horizon compression comes out right for free. Sampling noise in equirect UV is the classic mistake.
+- **Coverage is set from the noise's own distribution**, not a guessed threshold — the first attempt
+  asked for 42% and drew 0.1%, because fBm concentrates around its mean and both the threshold and
+  the ramp width were absolute numbers against an unknown spread.
+- **Clouds composite OVER the analytic gradient**, never replacing it, so the gradient stays the
+  authority on the colour of the air and dawn/dusk keeps working.
+- **Night sky un-hidden** — `skyVisible:false` + flat `bgColor 0x0a1224` → `true` + `null`. That
+  needed a night key for the gradient (`NIGHT_SKY_*`): the dome carried day colours only, which is
+  precisely why it was hidden. `sky.renderOrder = -2` is the line that makes it possible — stars are
+  renderOrder −1 with `depthWrite:false`, so an opaque dome at the default 0 paints over them.
+- Tests 177 → 178.

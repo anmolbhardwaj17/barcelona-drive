@@ -1073,14 +1073,27 @@ before anything is painted.**
     it tunable to 18 — not silently widened); washingtonia **8.3%** rally-saturation clip.
   - **Full write-up:** `docs/context/tree-cards.md`
 
-### `[ ]` P3-11 · 1.5d · risk medium
+### `[x]` P3-11 · 1.5d · risk medium — **DONE 2026-08-26 · SKY DOME, 2 KEYS**
 **Sky dome texture — 2 keys.** 2048×1024 equirect ETC1S per key (day/night), **2.67 MiB total**, cross-faded by the normalized sun-elevation scalar, with the existing analytic gradient retained underneath as the fallback tint and carrying dawn/dusk. Sourced by cropping **CC0 Poly Haven sky HDRIs** — real photographic cloud structure, and the same source the cloud atlas already prefers. **Un-hides the night sky** (`envToggle.js:63-64` `skyVisible:false` + flat `bgColor 0x0a1224`) and unblocks NIGHT-10 / BLK-9.
 
 - **Files:** `scene.js:552-598`; `envToggle.js:63-64,134-144`
 - **Depends:** P1 pipeline
 - **Subsystem:** sky
 - **Full spec:** master plan §4 → P3
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **DONE 2026-08-26.** 2048×1024 equirect **cloud layers** (day + night keys,
+  **1.51 MiB total** vs the 2.67 MiB budget), cross-faded by the env transition lerp, compositing
+  **over** the analytic gradient — which stays the authority on the colour of the air, so dawn/dusk
+  keeps working through a texture that knows nothing about it. **Night sky un-hidden**
+  (`skyVisible:false` + flat `bgColor 0x0a1224` → `true` + `null`), which needed a NIGHT KEY for the
+  gradient (`NIGHT_SKY_*`) because the dome carried day colours only — that is *why* it was hidden.
+  - **Sourced procedurally, not from Poly Haven.** For equirect this is the stronger tool, not a
+    fallback: the projection has to be exact at the seam and at the poles, and generating it means
+    computing the projection rather than hoping. Measured seam **0.00018** (0 = exact).
+  - Clouds sit on a **flat deck at 1200 m** and each texel's ray is intersected with it, so horizon
+    compression is correct for free. Sampling noise in equirect UV instead is the classic mistake
+    and smears at the poles.
+  - **`sky.renderOrder = -2`** is what makes un-hiding possible at all: stars are renderOrder −1 with
+    `depthWrite:false`, so an opaque dome at the default 0 paints straight over them.
 
 ## P4 — THE COMPLETION WAVE · 51 days · 18 tasks
 **Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.

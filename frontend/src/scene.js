@@ -18,6 +18,15 @@ export const SKY_HORIZON = new THREE.Color(0xBFD7EE); // #BFD7EE — warm haze n
 export const SKY_MID     = new THREE.Color(0x94C2E6); // #94C2E6 — mid-sky blue
 export const SKY_ZENITH  = new THREE.Color(0x6FAEDB); // #6FAEDB — deep zenith blue
 
+// v3 P3-11 — the NIGHT key for the same dome. These did not exist: the dome carried day colours
+// only, which is exactly why night hid it (`skyVisible:false`) behind a flat `bgColor`. A hidden
+// dome cannot hold clouds, cannot carry dawn/dusk, and cannot receive a horizon glow — so the night
+// sky was a solid navy rectangle. Values sit under the night ambient so the sky does not out-read
+// the city lit beneath it.
+export const NIGHT_SKY_HORIZON = new THREE.Color(0x1a2338); // slightly lifted at the horizon — city skyglow
+export const NIGHT_SKY_MID     = new THREE.Color(0x111a2e);
+export const NIGHT_SKY_ZENITH  = new THREE.Color(0x080e1e); // near the old flat 0x0a1224, now the TOP of a gradient
+
 // ---------------------------------------------------------------------------
 // Stylized cloud system — soft billboarded blob sprites grouped into fluffy clouds
 // ---------------------------------------------------------------------------
@@ -373,6 +382,15 @@ function addStars(scene) {
   scene.add(_starsMesh);
 }
 
+/**
+ * v3 P3-11 — drive the sky dome's day/night key. `t` is 0..1 and envToggle passes its transition
+ * lerp straight through, so the sky crosses over with everything else instead of snapping.
+ */
+let _skyMat = null;
+export function setSkyNightMode(t) {
+  if (_skyMat) _skyMat.uniforms.uNight.value = Math.max(0, Math.min(1, t));
+}
+
 /** Show/hide stars for day/night toggle. */
 export function setStarsNightMode(isNight) {
   if (_starsMesh) { _starsMesh.material.opacity = isNight ? 0.8 : 0; _starsMesh.visible = isNight; }
@@ -562,6 +580,14 @@ export function createScene(container) {
       uSunDir:  { value: new THREE.Vector3(0, 0.5, 1) },
       uSunGlow: { value: new THREE.Color(0xffcf9e)    },
       uRally:   { value: 1.0 },   // v3 P1-09: rally is THE look; kept as a uniform so the shader is untouched
+      // v3 P3-11 — night key + equirect cloud layers.
+      uHorizonN: { value: new THREE.Color(NIGHT_SKY_HORIZON) },
+      uMidN:     { value: new THREE.Color(NIGHT_SKY_MID)     },
+      uZenithN:  { value: new THREE.Color(NIGHT_SKY_ZENITH)  },
+      uNight:    { value: 0.0 },   // 0 = day, 1 = night; envToggle lerps it through the transition
+      uCloudDay:   { value: null },
+      uCloudNight: { value: null },
+      uCloudAmt:   { value: 1.0 },
     },
     vertexShader: `
       varying vec3 vWorldPosition;
@@ -578,6 +604,13 @@ export function createScene(container) {
       uniform vec3 uSunDir;
       uniform vec3 uSunGlow;
       uniform float uRally;
+      uniform vec3 uHorizonN;
+      uniform vec3 uMidN;
+      uniform vec3 uZenithN;
+      uniform float uNight;
+      uniform sampler2D uCloudDay;
+      uniform sampler2D uCloudNight;
+      uniform float uCloudAmt;
       varying vec3 vWorldPosition;
       void main() {
         vec3 dir = normalize(vWorldPosition);
@@ -585,20 +618,60 @@ export function createScene(container) {
         // Smooth gradient: horizon band extends below eye level for seamless ground blend
         float t = smoothstep(-0.05, 0.45, h);
         // Two-stage blend: horizon→mid then mid→zenith
-        vec3 color = mix(uHorizon, uMid, smoothstep(0.0, 0.3, t));
-        color = mix(color, uZenith, smoothstep(0.25, 1.0, t));
+        // Day and night keys of the SAME gradient, cross-faded. The gradient stays the authority on
+        // the colour of the air — the cloud layer composites on top of it and never replaces it,
+        // which is what lets dawn/dusk keep working through a texture that knows nothing about them.
+        vec3 hz = mix(uHorizon, uHorizonN, uNight);
+        vec3 md = mix(uMid,     uMidN,     uNight);
+        vec3 zn = mix(uZenith,  uZenithN,  uNight);
+        vec3 color = mix(hz, md, smoothstep(0.0, 0.3, t));
+        color = mix(color, zn, smoothstep(0.25, 1.0, t));
         // Art-of-rally warm sun scatter: a tight glow around the sun + a broad wash along the horizon
         // near the sun azimuth. Fades out above the horizon so the zenith stays clean blue.
         float sun = max(dot(dir, normalize(uSunDir)), 0.0);
         float horizonFade = 1.0 - smoothstep(0.0, 0.5, h);
         vec3 glow = uSunGlow * (pow(sun, 9.0) * 0.55 + pow(sun, 2.5) * 0.22 * horizonFade) * uRally;
-        gl_FragColor = vec4(color + glow, 1.0);
+        color += glow;
+
+        // ── Clouds ────────────────────────────────────────────────────────────────────────────
+        // Equirect lookup from the view direction. atan(z, x) is periodic, so the seam is exact
+        // rather than merely small, and asin(y) maps elevation without pinching at the zenith.
+        vec2 sph = vec2(atan(dir.z, dir.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(dir.y, -1.0, 1.0)) / 3.1415927);
+        vec4 cd = texture2D(uCloudDay, sph);
+        vec4 cn = texture2D(uCloudNight, sph);
+        vec4 cl = mix(cd, cn, uNight);
+        color = mix(color, cl.rgb, cl.a * uCloudAmt);
+
+        gl_FragColor = vec4(color, 1.0);
       }
     `,
     side: THREE.BackSide,
     depthWrite: false,
   });
+  _skyMat = skyMat;
   const sky = new THREE.Mesh(skyGeo, skyMat);
+  // BEFORE the stars. Stars are renderOrder -1 with depthWrite off, and the dome is opaque with
+  // depthWrite off too — at the default 0 the dome would paint straight over them the moment night
+  // stopped hiding it. This is the line that lets the night sky be un-hidden at all.
+  sky.renderOrder = -2;
+
+  // Cloud layers, loaded async and assigned now: three fills the image in later and re-uploads,
+  // and the sampler slots already exist, so nothing recompiles (G-53).
+  {
+    const ld = new THREE.TextureLoader();
+    for (const [key, file] of [['uCloudDay', 'sky_clouds_day'], ['uCloudNight', 'sky_clouds_night']]) {
+      const t = ld.load(`/textures/sky/${file}.png`);
+      t.colorSpace = THREE.SRGBColorSpace;
+      // Longitude WRAPS, latitude must CLAMP. Repeat on T would fold the zenith round to the nadir.
+      t.wrapS = THREE.RepeatWrapping;
+      t.wrapT = THREE.ClampToEdgeWrapping;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.generateMipmaps = true;
+      t.anisotropy = 4;
+      skyMat.uniforms[key].value = t;
+    }
+  }
   // v3 P0-13b: draw the dome LAST among opaques. It is a 40 km sphere with depthWrite:false, so
   // with no renderOrder three could sort it early (painterSortStable orders by material.id before
   // z) and fill every pixel before the world overdraws it. Drawn last, the depth test rejects it

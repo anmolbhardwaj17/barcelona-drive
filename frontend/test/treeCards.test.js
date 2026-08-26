@@ -362,3 +362,27 @@ test('P3-07c: the detail normal is injected where `normal` actually exists', () 
   // It must self-disable when no authored normal exists, or the procedural fallback samples nothing.
   assert.ok(/const wantDetail = !!_asphaltNrm;/.test(rr), 'term self-disables without a plate');
 });
+
+test('P3-11: the sky dome has a night key and draws before the stars', () => {
+  const sc = fs.readFileSync('src/scene.js', 'utf8');
+  const et = fs.readFileSync('src/ui/envToggle.js', 'utf8');
+
+  // The dome carried DAY colours only, which is why night hid it behind a flat bgColor — and a
+  // hidden dome can hold no clouds, no dawn/dusk and no horizon glow.
+  assert.ok(/NIGHT_SKY_HORIZON/.test(sc) && /uNight/.test(sc), 'the dome has a night key');
+  assert.ok(/skyVisible:\s*true,\s*\n\s*bgColor:\s*null/.test(et.slice(et.indexOf('const NIGHT'))),
+    'night no longer hides the sky behind a flat colour');
+
+  // Stars are renderOrder -1 with depthWrite off; an opaque dome at the default 0 paints over them.
+  // This single line is what makes un-hiding the night sky possible at all.
+  assert.ok(/sky\.renderOrder = -2;/.test(sc), 'the dome draws before the stars');
+
+  // Equirect lookup must be periodic in longitude and clamped in latitude — RepeatWrapping on T
+  // would fold the zenith around to the nadir.
+  assert.ok(/atan\(dir\.z, dir\.x\)/.test(sc), 'longitude from atan — periodic, so the seam is exact');
+  assert.ok(/wrapT = THREE\.ClampToEdgeWrapping/.test(sc), 'latitude clamps rather than wrapping');
+
+  // The gradient must remain the authority on the colour of the air, or dawn/dusk stops working.
+  assert.ok(/color = mix\(color, cl\.rgb, cl\.a \* uCloudAmt\)/.test(sc),
+    'clouds composite OVER the gradient rather than replacing it');
+});

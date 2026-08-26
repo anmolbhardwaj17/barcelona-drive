@@ -15,6 +15,7 @@ import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setTreeCardNightMode } from '../map/treeCards.js';
 import { setBushCardNightMode } from '../map/bushCards.js';
 import { setLightGridNightMode } from '../map/lightGrid.js';
+import { setSkyNightMode } from '../scene.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
 import { UI, iconButton, injectUITheme } from './theme.js';
@@ -58,8 +59,13 @@ const NIGHT = {
   dirColor:         0x8fa6d8,  // cool moonlight
   fogColor:         0x101a2e,  // deep navy haze
   fogDensity:       0.0045,    // thin night haze so the distance keeps depth, not grey murk
-  skyVisible:       false,
-  bgColor:          0x0a1224,  // deep navy sky
+  // v3 P3-11: the dome is VISIBLE at night now. It was hidden behind a flat bgColor because it
+  // carried day colours only — and a hidden dome cannot hold clouds, cannot carry dawn/dusk and
+  // cannot take a horizon glow, so the night sky was a solid navy rectangle. It has a night key now
+  // (NIGHT_SKY_* in scene.js), so bgColor is no longer needed: the gradient's zenith 0x080e1e sits
+  // where the flat 0x0a1224 was, as the TOP of a gradient rather than the whole sky.
+  skyVisible:       true,
+  bgColor:          null,
   toneMappingExposure: 1.5,    // 1.75 read as day; darkness now comes from the blue rig + grade, not exposure
   lampEmissive:     9.0,       // hotter streetlamp glow → warm pops punch through the deep blue
   bloomStrength:    0.55,      // soft halo only — 1.0 turned every window into a fuzzy ball
@@ -142,6 +148,10 @@ export function createEnvToggle(refs) {
 
   function applyLerp(t) {
     const from = _transFrom, to = _transTo;
+
+    // v3 P3-11: the sky dome crosses over WITH everything else. Passing the transition lerp through
+    // rather than flipping on `isNight` is what stops the sky snapping while the lights fade.
+    setSkyNightMode(lerpNum(from === NIGHT ? 1 : 0, to === NIGHT ? 1 : 0, t));
 
     if (ambientLight) {
       ambientLight.color.copy(lerpColor(from.ambientColor, to.ambientColor, t));
