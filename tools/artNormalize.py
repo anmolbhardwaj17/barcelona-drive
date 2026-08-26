@@ -420,33 +420,39 @@ def resize_tiling(rgb, size):
     return np.asarray(big.crop((size, size, size * 2, size * 2)), dtype=np.float64) / 255.0
 
 
-def align_tiling(rgb, coarse=8):
+def align_tiling(rgb, coarse=1):
     """
     LOSSLESS tiling repair: roll the image so its natural period lands on the frame edge.
 
-    A structured texture — panot paving, brick, tiles — usually tiles perfectly and is simply FRAMED
-    wrong: the generator cropped mid-tile, so the frame edge cuts through a flower instead of landing
-    on a grout joint. Measured: a panot plate scored 31.93 as delivered and 0.02 after a roll of
-    (496, 536). Nothing was wrong with the pixels.
+    A structured texture — panot paving, brick, a building facade — usually tiles perfectly and is
+    simply FRAMED wrong: the generator cropped mid-tile, so the frame edge cuts through a flower, or
+    through a window row. Measured: a panot plate scored 31.93 as delivered and 0.02 after a roll.
+    Nothing was wrong with the pixels.
 
-    This is tried BEFORE make_tileable, and the order matters: a roll moves pixels, a blend destroys
-    them. Blending a grid texture smears the joints, which is the one thing a grid cannot survive.
+    Tried BEFORE make_tileable, and the order matters: a roll moves pixels, a blend destroys them.
+    Blending a facade ghosts every window; blending a grid smears its joints.
 
-    Returns (rolled, dy, dx).
+    SEPARABLE, which is why this is fast enough to run at full resolution. The horizontal seam
+    depends only on the COLUMN roll and the vertical seam only on the ROW roll, so the two axes are
+    independent and each is a 1-D search. Brute-forcing the 2-D product instead is O(w*h) evaluations
+    of an O(w) statistic — on a 1254 px facade that did not finish in two minutes, and it also
+    settles for a coarse grid rather than the true optimum.
     """
     lum = rgb @ np.array([0.2126, 0.7152, 0.0722])
     h, w = lum.shape
-    best = (np.inf, 0, 0)
-    for oy in range(0, h, coarse):
-        r = np.roll(lum, oy, axis=0)
-        bh = abs(float(np.mean(r[0, :] - r[h - 1, :])))
-        for ox in range(0, w, coarse):
-            rr = np.roll(r, ox, axis=1)
-            bv = abs(float(np.mean(rr[:, 0] - rr[:, w - 1])))
-            score = max(bv, bh)
-            if score < best[0]:
-                best = (score, oy, ox)
-    _, dy, dx = best
+    col = lum.mean(axis=0)          # column means -> drives the vertical (u) seam
+    row = lum.mean(axis=1)          # row means    -> drives the horizontal (v) seam
+
+    def best_roll(profile, n):
+        # |profile[k] - profile[k-1]| for every candidate wrap point k; the smallest is the roll that
+        # puts the frame edge where the texture already changes least — between storeys, on a grout
+        # line, in blank render.
+        diffs = np.abs(profile - np.roll(profile, 1))
+        k = int(np.argmin(diffs[::max(1, coarse)]) * max(1, coarse))
+        return (n - k) % n
+
+    dx = best_roll(col, w)
+    dy = best_roll(row, h)
     return np.roll(np.roll(rgb, dy, axis=0), dx, axis=1), dy, dx
 
 

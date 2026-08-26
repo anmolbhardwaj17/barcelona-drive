@@ -862,7 +862,7 @@ small value once this lands.**
   flag stays opt-in until then.
 - **Done when:** _(mid-air shopfronts = 0, measured; texel density in the 85–150 band; VRAM banked once)_
 
-### `[ ]` P3-05 · 6.0d · risk medium
+### `[~]` P3-05 · 6.0d · risk medium — **ART DONE 2026-08-26; GROUND ARRAY + KTX2 + WIRING OPEN**
 **Author the 8 facade layers** to the band UV spec at **128 texels/m** (`1024² over 8.0 m × 8.0 m = 2 storeys of 4.0 m`): 5 residential variants + 1 commercial + 1 office/institutional + 1 industrial-brick. Albedo (weathering baked in), normal, window mask. Ground-floor module rect and body module rect on the same layer.
 
 - **Files:** new `frontend/public/art/v1/facades/*.ktx2`

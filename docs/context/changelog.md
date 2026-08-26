@@ -1593,3 +1593,27 @@ by the env transition lerp so the sky crosses over with the lights instead of sn
   precisely why it was hidden. `sky.renderOrder = -2` is the line that makes it possible — stars are
   renderOrder −1 with `depthWrite:false`, so an opaque dome at the default 0 paints over them.
 - Tests 177 → 178.
+
+## 2026-08-26 — v3 P3-05 (part): the 8 facade BODY layers
+
+8 × 1024² at exactly **128 texels/m** over 8.0 m × 8.0 m (2 storeys of 4.0 m), authored to
+`facadeArray.js`'s UV spec. Window mask derived and shipped in the albedo's **alpha channel** — one
+upload, not two.
+
+- **All eight tile at 0.00 in both axes.** They arrived framed off-grid (worst: `commercial` at
+  **46.04**) and `align_tiling` fixed every one losslessly, because the wrap point where a facade
+  changes least IS the blank render between storeys — which is exactly the seam the spec names as
+  "the single most visible authoring error". **The blend rung is disabled for facades**: a blended
+  facade ghosts every window, so a plate that will not roll into alignment is rejected, not smeared.
+- **`align_tiling` is now SEPARABLE.** The u-seam depends only on the column roll and the v-seam only
+  on the row roll, so the axes are independent 1-D searches. The old 2-D brute force did not finish
+  in two minutes on a 1254 px facade and only ever found a coarse-grid answer.
+- **Normalize the plaster, NOT the windows.** A facade is render *plus* glazing *plus* ironwork, and
+  the `facade` class (L\* 74 / C\* 14) describes only the first. Grading the whole image turned the
+  office glazing **mint green** — the rescale lifted it toward plaster lightness and the palette snap
+  rotated its near-neutral hue onto an anchor. Statistics are now gathered over plaster only and the
+  graded result composited back over plaster only. Measured effect: office plaster reads L\* 75.3
+  instead of 54.9, because the glass was dragging it down 20 points.
+
+**Open on this task:** the 8 GROUND-array shopfront layers, KTX2 encode (PNG for now), and wiring
+`?facadearray=1` off placeholder layers onto these.
