@@ -41,6 +41,7 @@ export const LANE_W_M = 3.5;
 export const ROAD_V2_PARS = `
 uniform sampler2D uAsphalt;
 uniform float uAsphaltRepeatM;
+uniform float uAsphaltGain;
 uniform float uRoadRut;
 varying float vHalfW;
 varying vec2 vRoadUv;
@@ -78,7 +79,18 @@ export const ROAD_V2_APPLY = `
   // repeat is 4 m on a service street and on a trunk road. And unlike procedural noise it has a MIP
   // CHAIN, so it resolves instead of shimmering at the grazing angles road is mostly viewed at —
   // which is the failure procedural noise cannot fix at any cost.
-  vec3 grain = texture2D(uAsphalt, vec2(along, across) / uAsphaltRepeatM).rgb;
+  //
+  // uAsphaltGain = 1 / mean linear luminance of the plate. THE TEXTURE IS A MULTIPLIER, NOT A BASE
+  // ALBEDO — see the diffuseColor multiply at the end of this block. The procedural generator
+  // it replaced produced a modulation field centred near 1.0, so multiplying was free. An AUTHORED
+  // albedo sits at its surface-class L* instead (0.108 linear for asphalt), and multiplying by that
+  // darkens the road ~9x on a base that is already dark — and multiplies the plate's slight warm
+  // cast in as well, which is why the carriageway came out brown rather than grey.
+  //
+  // Dividing by the mean makes the plate modulate around 1.0: the base palette colour, the vertex
+  // colours and the baked AO all survive, and the photograph contributes its RELATIVE grain on top,
+  // which is the only part of it that was ever wanted here.
+  vec3 grain = texture2D(uAsphalt, vec2(along, across) / uAsphaltRepeatM).rgb * uAsphaltGain;
 
 
   // (e) WHEEL RUTS — two polished bands per lane. 'laneLocal' is the distance from the nearest lane
@@ -102,6 +114,7 @@ export const ROAD_V2_APPLY = `
 export const ROAD_V2_UNIFORMS = {
   /** Metres per asphalt texture repeat. Real-world size, via the world-metric UV. */
   uAsphaltRepeatM: 4.0,
+  uAsphaltGain: 1.0,        // overridden from the plate's measured meanLuma; 1.0 = procedural fallback
   /** Rut strength. Small on purpose: past ~0.15 they read as painted stripes. */
   uRoadRut: 0.10,
 };

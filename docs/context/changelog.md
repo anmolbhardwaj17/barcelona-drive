@@ -1486,3 +1486,19 @@ triangles that low with the GPU that idle cannot be a rendering cost — it is t
   atlases — road is drawn on frame 1 of every drive, so its upload would land squarely in it.
 - Tests 174 → 176, including a guard that every surface declares a physically sane span (panot
   exactly 0.40 m = two 20 cm tiles; asphalt 4.0 m matching the shader).
+
+## 2026-08-26 — the authored asphalt plate is a MULTIPLIER, not a base albedo
+
+Two visible faults, one root. `ROAD_V2_APPLY` ends in `diffuseColor.rgb *= grain`, and the generator
+it replaced produced a modulation field centred near 1.0 — so multiplying was free and nobody had to
+think about it. An authored albedo sits at its class L* instead (**0.108 linear** for asphalt).
+
+- **The carriageway went brown and dark.** Multiplying by the plate darkened it **~9.3×** and
+  multiplied the plate's warm cast in as well. Fixed with `uAsphaltGain = 1 / meanLuma` (emitted by
+  the bake), so the plate modulates around 1.0: base palette colour, vertex colours and baked AO all
+  survive and the photograph contributes only its RELATIVE grain, which is all that was ever wanted.
+- **The sidewalk went brown too** — `patchRoadAO()` applies asphalt v2 to EVERY material it wraps,
+  and both sidewalk materials use it. A pavement was sampling the road texture, invisible while the
+  grain was near-1.0 and obvious the moment it carried the asphalt's own hue. `patchRoadAO` now takes
+  `{ roadV2: false }` for non-carriageway surfaces; they keep the baked AO and drop the grain and
+  wheel ruts they should never have had.

@@ -66,8 +66,19 @@ def main():
         Image.fromarray((rgb * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_albedo.png')
         Image.fromarray((nrm * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_normal.png')
 
+        # MEAN LUMINANCE — needed because ROAD_V2 uses this texture as a MULTIPLIER
+        # (`diffuseColor.rgb *= grain`), not as a base albedo. The generator it replaces produced a
+        # modulation field centred near 1.0; an authored albedo sits at its class L* (0.10 linear for
+        # asphalt), so multiplying by it darkens the road by 10x on top of a base that is already
+        # dark. The renderer divides by this so the plate modulates around 1.0 — keeping the base
+        # palette colour, the vertex colours and the baked AO, and adding real photographic grain on
+        # top rather than replacing all three.
+        lin = AN.srgb_to_linear(rgb)
+        mean_luma = float((lin @ np.array([0.2126, 0.7152, 0.0722])).mean())
+
         manifest['surfaces'].append({
             'name': name, 'size': size, 'spanM': span, 'note': note,
+            'meanLuma': round(mean_luma, 5),
             'normalize': {
                 'version': NORMALIZE_VERSION, 'sourceType': 'ai', 'surfaceClass': cls,
                 'anchor': AN.ANCHORS[anchor], 'tileRaw': round(raw_ratio, 2),

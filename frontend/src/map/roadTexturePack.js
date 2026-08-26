@@ -40,6 +40,9 @@ export function getRoadSurface(name) {
     albedo: load(`${BASE}/${name}_albedo.png`, true),
     normal: load(`${BASE}/${name}_normal.png`, false),
     spanM: spec.spanM,
+    // Mean linear luminance. Needed wherever the plate is used as a MULTIPLIER rather than a base
+    // albedo — divide by it and the texture modulates around 1.0 instead of darkening by ~9x.
+    meanLuma: spec.meanLuma ?? 1.0,
   };
   _cache.set(name, pack);
   return pack;

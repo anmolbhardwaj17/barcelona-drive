@@ -40,7 +40,8 @@ const ROAD_OFFSET = 0.05;
 // v3 P2-08: ROAD_VISUAL_ABOVE_TERRAIN now lives in groundLayers.js so roadInfraRenderer can apply
 // it too — it could not before, being module-local here, and silently didn't, which is what left
 // lane arrows 1 cm above the road instead of 6 cm. The tuning history is preserved there.
-let _asphaltTex = null;   // v3 P3-07 — baked asphalt grain, generated once per session
+let _asphaltTex = null;   // v3 P3-07 — asphalt grain plate, resolved once per session
+let _asphaltGain = 1.0;   // 1 / plate mean luminance — see uAsphaltGain in roadMaterial.js
 
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
@@ -217,9 +218,11 @@ function getPanotMaterial() {
   map.anisotropy = _maxAnisotropy;
   if (normalMap) normalMap.anisotropy = _maxAnisotropy;
 
+  // roadV2:false — panot is pavement, not carriageway. It keeps the baked AO and skips the asphalt
+  // grain and wheel ruts, which it should never have been getting.
   _panotMaterial = patchRoadAO(new THREE.MeshLambertMaterial({
     map, normalMap: normalMap || undefined, color: 0xffffff,
-  }));
+  }), { roadV2: false });
   // AD-5: calibrated at bake into the §3.7 masonry band, so 1.0 is correct.
   if (normalMap) _panotMaterial.normalScale = new THREE.Vector2(1.0, 1.0);
 
@@ -381,7 +384,17 @@ export function setRoadDecalNightMode(isNight) {
  * Chains `onBeforeCompile` instead of assigning it, so it composes with anything that patches
  * these materials later — the light grid does (see gotcha H9: three's CSM hard-assigns).
  */
-function patchRoadAO(mat) {
+/**
+ * Baked-AO patch for ground surfaces, plus asphalt v2 for those that are actually ASPHALT.
+ *
+ * `opts.roadV2 = false` for surfaces that are not carriageway. This mattered the moment the grain
+ * stopped being procedural: the generator's field was centred near 1.0, so multiplying a panot
+ * pavement by "asphalt grain" was invisible and nobody noticed it was happening. An authored plate
+ * carries the asphalt's own LUMINANCE AND HUE, so the same multiply turned the sidewalk dark brown.
+ * A pavement should never have been sampling the road texture in the first place.
+ */
+function patchRoadAO(mat, opts = {}) {
+  const wantRoadV2 = opts.roadV2 !== false;
   // v3 P1-03: the hand-rolled chain from P0-07 now goes through the registry, which also feeds the
   // patch tag into customProgramCacheKey — without that, two materials differing only in patches
   // hash to the same compiled program and one silently renders with the other's shader.
@@ -391,6 +404,7 @@ function patchRoadAO(mat) {
     // `halfWidth` attribute the ribbon already carries, which is what makes uv convert to METRES.
     // Declares its OWN uv varying rather than three's `vMapUv` (D-30: that one exists only under
     // #ifdef USE_MAP, and the road material binds no map).
+    if (!wantRoadV2) return;       // not a carriageway — see the note above
     if (!CONFIG.ROAD_V2) return;   // ?roadv2=0 — attribution switch, see CONFIG.ROAD_V2
     // Baked once, shared by every road material. Lazy so a headless/test import never touches a canvas.
     // v3 P3-07b: the authored plate replaces createAsphaltTexture's LCG grain field. The shader
@@ -398,10 +412,17 @@ function patchRoadAO(mat) {
     // was built to that exact 4 m span, which is why the swap is a texture and not a rewrite.
     // createAsphaltTexture stays as the fallback if the plate fails to load.
     if (!_asphaltTex) {
-      try { _asphaltTex = getRoadSurface('asphalt_worn').albedo; }
-      catch { _asphaltTex = createAsphaltTexture(THREE); }
+      try {
+        const pack = getRoadSurface('asphalt_worn');
+        _asphaltTex = pack.albedo;
+        _asphaltGain = 1 / Math.max(1e-4, pack.meanLuma);
+      } catch {
+        _asphaltTex = createAsphaltTexture(THREE);
+        _asphaltGain = 1.0;   // the generator is already centred near 1.0 — see uAsphaltGain
+      }
     }
     shader.uniforms.uAsphalt = { value: _asphaltTex };
+    shader.uniforms.uAsphaltGain = { value: _asphaltGain };
     shader.uniforms.uAsphaltRepeatM = { value: ROAD_V2_UNIFORMS.uAsphaltRepeatM };
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader
@@ -499,10 +520,13 @@ function applyRoadVertexColors(geometry) {
 /** Flat beige sidewalk material (stylized mode — no textures). */
 function getSidewalkMaterial() {
   if (sidewalkMaterial) return sidewalkMaterial;
+  // roadV2:false — pavement, not carriageway. Same reason as the panot material above: with an
+  // authored plate the asphalt grain carries the road's own hue, and a beige sidewalk multiplied by
+  // it goes brown.
   sidewalkMaterial = patchRoadAO(new THREE.MeshLambertMaterial({
     color: 0xb8bab5,
     depthWrite: true,
-  }));
+  }), { roadV2: false });
   return markShared(sidewalkMaterial);
 }
 
