@@ -1750,3 +1750,12 @@ sections lit blinding white. Knowing the number and shipping it anyway is the er
   UASTC's ~4:1); the normal stays UASTC, which ETC1S would band into facets.
 - `not_plaster` is still computed and still used — for normalize statistics, which is the job a
   colour-derived mask is genuinely good at.
+- **The lit boxes glowed in daylight.** Writing `totalEmissiveRadiance` directly **bypasses**
+  `emissiveIntensity`, which is exactly the mechanism the day path uses to switch window glow off
+  (`meshMaterializer` sets it to 0 by day). Now gated on an explicit `uFacadeNight` — a **float**, so
+  it rides envToggle's transition lerp and crosses over with the rest of the rig instead of popping.
+- **Window glow 0.55 → 1.35, and warmer at both ends.** Bloom keys off values **above 1**, so at 0.55
+  nothing ever reached the threshold: the windows were lit but inert and the city read grey. The tone
+  carries the colour and the glow carries the ENERGY — the two were being confused. Tone shifted
+  warmer at both ends (its cool end is now warmer than the old warm end), since a city lit by neutral
+  windows reads grey however bright it is.

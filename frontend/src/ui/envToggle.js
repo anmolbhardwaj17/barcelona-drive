@@ -129,7 +129,11 @@ export function createEnvToggle(refs) {
 
     // v3 P3-11: the sky dome crosses over WITH everything else. Passing the transition lerp through
     // rather than flipping on `isNight` is what stops the sky snapping while the lights fade.
-    setSkyNightMode(lerpNum(from === NIGHT ? 1 : 0, to === NIGHT ? 1 : 0, t));
+    const nightT = lerpNum(from === NIGHT ? 1 : 0, to === NIGHT ? 1 : 0, t);
+    setSkyNightMode(nightT);
+    // The facade window grid gates on this. It writes totalEmissiveRadiance directly, which bypasses
+    // the emissiveIntensity the day path zeroes — so without an explicit gate the boxes glow at noon.
+    setFacadeArrayNightMode(nightT);
 
     if (ambientLight) {
       ambientLight.color.copy(lerpColor(from.ambientColor, to.ambientColor, t));

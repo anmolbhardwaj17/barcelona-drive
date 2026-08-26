@@ -424,8 +424,20 @@ const WINDOW_MIN_BRIGHT = 0.30;
  * in isolation blows to white once the post chain has it. That is what the blown-out white
  * rectangles were.
  */
-const _windowGlow = { x: 1.00 * 0.55, y: 0.874 * 0.55, z: 0.658 * 0.55 };
+// 1.35, not 0.55. It is RADIANCE and bloom keys off values ABOVE 1 — at 0.55 nothing ever reached
+// the threshold, so the windows were lit but inert and the city read grey. The tone above carries
+// the colour; this carries the energy, and the two were being confused.
+const _windowGlow = { x: 1.35, y: 1.35, z: 1.35 };
 const _windowGlowUniforms = [];
+
+// Day/night for the window grid. A float, not a bool, so it crosses over with the env transition
+// instead of popping — envToggle passes its lerp straight through.
+let _facadeNightT = 0;
+const _facadeNightUniforms = [];
+export function setFacadeArrayNightMode(t) {
+  _facadeNightT = Math.max(0, Math.min(1, t));
+  for (const u of _facadeNightUniforms) u.value = _facadeNightT;
+}
 const _facadeTintUniforms = [];
 
 if (typeof window !== 'undefined') {
@@ -485,6 +497,8 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // LAYER_W_M x BODY_LAYER_H_M.
     shader.uniforms.uFacadeScale = { value: _facadeScale };
     shader.uniforms.uFacadeWindowGlow = { value: _windowGlow };
+    shader.uniforms.uFacadeNight = { value: _facadeNightT };
+    _facadeNightUniforms.push(shader.uniforms.uFacadeNight);
     _windowGlowUniforms.push(shader.uniforms.uFacadeWindowGlow);
     shader.uniforms.uFacadeTintAmt = { value: _facadeTint.amt };
     // Mean luminance the per-building tints sit around. Dividing by it makes the tint modulate
@@ -516,7 +530,7 @@ export function patchFacadeArrayMaterial(material, arrays) {
         'uniform sampler2DArray uFacadeBody;\n' +
         'uniform sampler2DArray uFacadeGround;\n' +
         'uniform float uFacadeTintAmt;\nuniform float uFacadeTintMean;\n' +
-        'uniform vec3 uFacadeWindowGlow;\n' +
+        'uniform vec3 uFacadeWindowGlow;\nuniform float uFacadeNight;\n' +
         'varying float vLayer;\nvarying vec2 vFacadeUv;')
       .replace('#include <map_fragment>',
         // Branch on the encoded band. Both sides sample, so there is no divergent-texture-fetch
@@ -565,9 +579,15 @@ export function patchFacadeArrayMaterial(material, arrays) {
         '  float box = step(wd.x, ' + (WINDOW_W / 2).toFixed(3) + ') * step(wd.y, ' + (WINDOW_H / 2).toFixed(3) + ');\n' +
         '  float lit = step(' + (1.0 - LIT_WINDOW_FRACTION).toFixed(2) + ', r1);\n' +
         // Warm amber to warm white — inside the art bible's N3 Window Warm family, never cool.
-        '  vec3 tone = mix(vec3(1.0, 0.78, 0.48), vec3(1.0, 0.95, 0.86), r2);\n' +
+        // Warmer at BOTH ends than the first pass. A city lit by neutral windows reads grey, and
+        // real interior light is tungsten/warm-LED — the art bible's N3 Window Warm family, never
+        // toward white. The cool end here is still warmer than the old warm end.
+        '  vec3 tone = mix(vec3(1.0, 0.66, 0.30), vec3(1.0, 0.84, 0.56), r2);\n' +
         '  float bright = ' + WINDOW_MIN_BRIGHT.toFixed(2) + ' + ' + (1.0 - WINDOW_MIN_BRIGHT).toFixed(2) + ' * r3;\n' +
-        '  totalEmissiveRadiance = uFacadeWindowGlow * tone * (box * lit * bright * wIsBody);\n' +
+        // ⚠ GATED ON NIGHT EXPLICITLY. Writing totalEmissiveRadiance here BYPASSES
+        // `emissiveIntensity`, which is what the day path sets to 0 — so without this the lit boxes
+        // glow at noon, and they did: pale rectangles all over the daytime facade.
+        '  totalEmissiveRadiance = uFacadeWindowGlow * tone * (box * lit * bright * wIsBody * uFacadeNight);\n' +
         '}')
       .replace('#include <color_fragment>',
         '#include <color_fragment>\n' +

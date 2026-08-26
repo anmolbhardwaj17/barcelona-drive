@@ -226,8 +226,8 @@ test('both array uniforms are bound and both branches sample', () => {
   // Sampling the array with the raw attribute stretched it by different factors on each axis, so
   // windows rendered landscape where every source plate draws them portrait.
   assert.deepEqual(Object.keys(s.uniforms).sort(),
-    ['uFacadeBody', 'uFacadeGround', 'uFacadeScale', 'uFacadeTintAmt', 'uFacadeTintMean',
-     'uFacadeWindowGlow']);
+    ['uFacadeBody', 'uFacadeGround', 'uFacadeNight', 'uFacadeScale', 'uFacadeTintAmt',
+     'uFacadeTintMean', 'uFacadeWindowGlow']);
   // The per-building vertex tint must NOT multiply an authored albedo — it did, and eight normalized
   // variants all rendered the same brown. Its luminance survives, its hue is discarded.
   assert.match(s.fragmentShader, /facadeTexel\.rgb \* facTint/, 'authored albedo is the base, not a multiplicand');
@@ -279,4 +279,15 @@ test('a square layer maps to a SQUARE patch of wall — the 2.9x stretch', () =>
   assert.equal(s.uniforms.uFacadeScale.value.y, STOREY_H / BODY_LAYER_H_M,
     'v scale must use STOREY_H — windowOnlyTile makes v per-storey');
   assert.equal(s.uniforms.uFacadeScale.value.x, WALL_REPEAT_HORIZONTAL_M / LAYER_W_M);
+});
+
+test('the window grid is gated on night EXPLICITLY', () => {
+  // Writing totalEmissiveRadiance directly BYPASSES `emissiveIntensity`, which is the mechanism the
+  // day path uses to switch window glow off (meshMaterializer sets it to 0 by day). Without an
+  // explicit gate the lit boxes glow at noon — pale rectangles all over the daytime facade.
+  const s = generate();
+  assert.match(s.fragmentShader, /\* uFacadeNight\)/, 'window glow multiplies by the night gate');
+  // A float, not a bool: it rides envToggle's transition lerp so the windows cross over with the
+  // rest of the rig instead of popping on.
+  assert.equal(typeof s.uniforms.uFacadeNight.value, 'number');
 });
