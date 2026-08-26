@@ -1661,3 +1661,12 @@ under-counted. It now has **145 MiB spare**.
   why. `createFacadeArrays` runs lazily on the first tile build, which can precede the boot warm-up,
   so the renderer genuinely was absent. The renderer is now handed over the moment it is constructed
   in `scene.js`, the loader awaits it rather than giving up, and both success and failure log.
+- **Facade windows were stretched: the facade UV is NOT the wall UV.** The wall attribute is the
+  legacy convention — u repeats every `WALL_REPEAT_HORIZONTAL_M` (**12 m**) and v every
+  `FLOOR_HEIGHT` (**10 m**), both chosen for the old painted-canvas facades. The authored layers are
+  **8 m × 8 m**. Sampling the array with the raw attribute stretched every layer 12/8 across and 10/8
+  up — **different factors**, so windows rendered landscape where the plate drew them portrait.
+  The vertex patch now converts into layer space. Done in the shader rather than by changing
+  `FLOOR_HEIGHT`, because the vertex-colour path still depends on those constants and
+  `?facadearray=0` has to keep working. (`buildingConstants.js` already warned "⚠ P3 WILL CHANGE
+  THESE".) Note `bandUV()` computes exactly these repeats and **has no callers** — dead since P3-04.

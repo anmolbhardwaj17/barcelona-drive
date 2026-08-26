@@ -49,6 +49,8 @@
  *                 is the pavement and the top edge meets the body band's first row.
  */
 
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';
+
 /** Metres one layer spans horizontally. Both arrays share it so u repeats stay consistent. */
 export const LAYER_W_M = 8.0;
 /** Metres a BODY layer spans vertically — 2 storeys, so the tile is not obviously periodic. */
@@ -108,6 +110,18 @@ export function groundLayerFor(category, buildingId) {
  * ⚠ The BODY repeat is in units of BODY_LAYER_H_M (2 storeys), NOT one storey. Authoring a
  * single-storey tile and repeating it per storey is the obvious mistake and reads as an unnaturally
  * regular grid — the 2-storey period exists to break that up.
+ */
+/**
+ * ⚠ THE FACADE UV IS NOT THE WALL UV. The wall attribute is in the LEGACY convention — u repeats
+ * every WALL_REPEAT_HORIZONTAL_M (12 m) and v every FLOOR_HEIGHT (10 m), both chosen for the old
+ * painted-canvas facades. The authored layers are 8 m x 8 m. Sampling the array with the raw
+ * attribute therefore stretched every layer 12/8 across and 10/8 up — DIFFERENT factors, so windows
+ * came out landscape where the plate drew them portrait.
+ *
+ * The vertex patch converts: uv * (WALL_REPEAT_HORIZONTAL_M / LAYER_W_M, FLOOR_HEIGHT /
+ * BODY_LAYER_H_M) turns "units of 12 m and 10 m" into "units of 8 m and 8 m". Done in the shader
+ * rather than by changing FLOOR_HEIGHT, because the vertex-colour path still depends on those
+ * constants and `?facadearray=0` has to keep working.
  */
 export function bandUV(bandKind, wallLengthM, bandHeightM) {
   const u = wallLengthM / LAYER_W_M;
@@ -379,7 +393,9 @@ export function patchFacadeArrayMaterial(material, arrays) {
       .replace('#include <common>',
         '#include <common>\nattribute float aLayer;\nvarying float vLayer;\nvarying vec2 vFacadeUv;')
       .replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLayer = aLayer;\nvFacadeUv = uv;');
+        '#include <begin_vertex>\nvLayer = aLayer;\nvFacadeUv = uv * vec2('
+        + (WALL_REPEAT_HORIZONTAL_M / LAYER_W_M).toFixed(6) + ', '
+        + (FLOOR_HEIGHT / BODY_LAYER_H_M).toFixed(6) + ');');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
         '#include <common>\n' +
