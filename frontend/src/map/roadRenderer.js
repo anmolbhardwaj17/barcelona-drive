@@ -26,6 +26,7 @@ import { SEA_LEVEL } from './waterRenderer.js';
 import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CURB_HEIGHT } from './groundLayers.js';
 import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, createAsphaltTexture } from './roadMaterial.js';   // v3 P3-07
+import { getRoadSurface } from './roadTexturePack.js';   // v3 P3-07b / P3-08 — authored surfaces
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -201,12 +202,42 @@ let _bikePictogramMaterial = null;
 /** MeshStandardMaterial with panot texture + world-space UVs (Phase 3 sidewalks). */
 function getPanotMaterial() {
   if (_panotMaterial) return _panotMaterial;
-  const { panotTexture } = createRoadTextures();
-  panotTexture.anisotropy = _maxAnisotropy;
+
+  // v3 P3-08: the photographic Flor de Barcelona plate replaces makePanotCanvas's drawn geometry.
+  // The generator stays as the fallback AND as the authoring tool — for exact repeating geometry it
+  // is still the better source, and the plate only ships because it measured well (it arrived framed
+  // off-grid at 31.93 and tiles at 0.02 after a lossless roll; see artNormalize.make_tiling).
+  let map = null, normalMap = null, spanM = 0.4;
+  try {
+    const pack = getRoadSurface('panot');
+    map = pack.albedo; normalMap = pack.normal; spanM = pack.spanM;
+  } catch {
+    map = createRoadTextures().panotTexture;
+  }
+  map.anisotropy = _maxAnisotropy;
+  if (normalMap) normalMap.anisotropy = _maxAnisotropy;
+
   _panotMaterial = patchRoadAO(new THREE.MeshLambertMaterial({
-    map: panotTexture,
-    color: 0xffffff,
+    map, normalMap: normalMap || undefined, color: 0xffffff,
   }));
+  // AD-5: calibrated at bake into the §3.7 masonry band, so 1.0 is correct.
+  if (normalMap) _panotMaterial.normalScale = new THREE.Vector2(1.0, 1.0);
+
+  // WORLD-METRIC UV. The baked v8/v9 sidewalk blobs do carry a uv attribute, but it is not in real
+  // metres — so a 20 cm panot tile would come out whatever size the bake happened to choose, on the
+  // one surface in Barcelona whose size everybody can check by eye. Deriving UV from world XZ pins
+  // the flower to 20 cm everywhere, and makes it continuous across tile seams for free.
+  patchMaterial(_panotMaterial, (shader) => {
+    shader.uniforms.uPanotSpan = { value: spanM };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uPanotSpan;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        vMapUv = (modelMatrix * vec4(position, 1.0)).xz / uPanotSpan;
+        #ifdef USE_NORMALMAP
+          vNormalMapUv = vMapUv;
+        #endif`);
+  }, 'panotWorldUv');
+
   applyGroundLayer(_panotMaterial, 'sidewalk');
   return markShared(_panotMaterial);
 }
@@ -362,7 +393,14 @@ function patchRoadAO(mat) {
     // #ifdef USE_MAP, and the road material binds no map).
     if (!CONFIG.ROAD_V2) return;   // ?roadv2=0 — attribution switch, see CONFIG.ROAD_V2
     // Baked once, shared by every road material. Lazy so a headless/test import never touches a canvas.
-    if (!_asphaltTex) _asphaltTex = createAsphaltTexture(THREE);
+    // v3 P3-07b: the authored plate replaces createAsphaltTexture's LCG grain field. The shader
+    // needed no change — asphalt v2 already samples world-metric at uAsphaltRepeatM, and the plate
+    // was built to that exact 4 m span, which is why the swap is a texture and not a rewrite.
+    // createAsphaltTexture stays as the fallback if the plate fails to load.
+    if (!_asphaltTex) {
+      try { _asphaltTex = getRoadSurface('asphalt_worn').albedo; }
+      catch { _asphaltTex = createAsphaltTexture(THREE); }
+    }
     shader.uniforms.uAsphalt = { value: _asphaltTex };
     shader.uniforms.uAsphaltRepeatM = { value: ROAD_V2_UNIFORMS.uAsphaltRepeatM };
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };

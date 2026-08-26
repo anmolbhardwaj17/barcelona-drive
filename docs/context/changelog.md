@@ -1470,3 +1470,19 @@ triangles that low with the GPU that idle cannot be a rendering cost — it is t
   a true normal, and a derived one reads a dark aggregate stone as a pit. Still far better than none
   (asphalt with no normal turns to grey mush at bumper distance); the upgrade is an ambientCG CC0
   scan, which is what P3-08 actually specifies.
+
+## 2026-08-26 — P3-07b / P3-08 (part): authored road surfaces wired
+
+- **Asphalt**: `asphalt_worn` replaces `createAsphaltTexture`'s LCG grain field. **The shader needed
+  no change** — asphalt v2 already samples world-metric at `uAsphaltRepeatM`, and the plate was built
+  to that exact 4 m span, so the swap is a texture rather than a rewrite. The generator stays as the
+  fallback.
+- **Panot**: the photographic Flor de Barcelona plate replaces `makePanotCanvas`, with **world-metric
+  UV**. The baked v8/v9 sidewalk blobs *do* carry a `uv` attribute but it is not in real metres, so a
+  20 cm tile would render at whatever size the bake picked — on the one surface in the city whose
+  size anyone can check by eye. World XZ pins the flower to 20 cm everywhere and makes it continuous
+  across tile seams for free. Generator kept as fallback and as the authoring tool.
+- **Road textures preload at boot** (`preloadRoadTextures`), same reasoning as the vegetation
+  atlases — road is drawn on frame 1 of every drive, so its upload would land squarely in it.
+- Tests 174 → 176, including a guard that every surface declares a physically sane span (panot
+  exactly 0.40 m = two 20 cm tiles; asphalt 4.0 m matching the shader).

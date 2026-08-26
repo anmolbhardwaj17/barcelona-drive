@@ -53,6 +53,7 @@ import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } 
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { preloadCardAtlases } from './map/cardMesh.js';
+import { preloadRoadTextures } from './map/roadTexturePack.js';
 import { renderVegetation, preloadTreeModels, updateTreeWind, getTreeMaterial, getTreeBillboardMaterial, getBushCardsMaterial } from './map/vegetationRenderer.js';
 import { createSpatialIndex, queryNearestRoadSegment } from './map/spatialIndex.js';
 import { createStreetDisplay } from './ui/streetDisplay.js';
@@ -947,6 +948,7 @@ spawnTileReady.finally(() => {
           // See preloadCardAtlases — this is a 100-200 ms mid-drive stall moved into boot, where a
           // stall is already expected and already measured by time-to-drive.
           try { preloadCardAtlases(renderer); } catch {}
+          try { preloadRoadTextures(renderer); } catch {}   // road is drawn on frame 1 of every drive
 
           const _p = compileForComposer();
           // ⚠ The warm group MUST come back out, on every path. three's own readiness poll can die

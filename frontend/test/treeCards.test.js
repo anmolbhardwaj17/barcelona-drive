@@ -295,3 +295,39 @@ test('P3-09: kerb granite passed its bake gates', () => {
   assert.equal(m.normalize.normalBandPass, true, 'normal strength inside the §3.7 masonry band');
   assert.ok(/bordillo_granite/.test(m.normalize.nearestAnchor), 'snapped to P7, the kerb anchor');
 });
+
+test('P3-07b/P3-08: authored road surfaces are wired with declared spans', () => {
+  const src = fs.readFileSync('src/map/roadRenderer.js', 'utf8');
+
+  // Asphalt: the authored plate replaces the procedural grain, with the generator kept as fallback.
+  assert.ok(/getRoadSurface\('asphalt_worn'\)/.test(src), 'asphalt uses the authored plate');
+  assert.ok(/createAsphaltTexture\(THREE\)/.test(src), 'procedural asphalt survives as fallback');
+
+  // Panot: world-metric UV. The baked sidewalk uv attribute is NOT in real metres, so without this
+  // a 20 cm tile renders at whatever size the bake picked — on the one surface in Barcelona whose
+  // size anyone can check by eye.
+  const panot = src.slice(src.indexOf('function getPanotMaterial'));
+  const body = panot.slice(0, panot.indexOf('return markShared'));
+  assert.ok(/uPanotSpan/.test(body), 'panot UV is scaled by a declared real-world span');
+  assert.ok(/modelMatrix \* vec4\(position/.test(body), 'panot UV comes from world position');
+  assert.ok(/createRoadTextures\(\)\.panotTexture/.test(body), 'panot generator survives as fallback');
+});
+
+test('every road surface declares a span, and the spans are physically sane', () => {
+  // Span is a claim about what a surface IS, not an art preference: the kerb granite shipped at a
+  // 1 m span and read as gravel because the plate's ~1 cm speckle then WAS 1 cm of stone.
+  const m = JSON.parse(fs.readFileSync('src/map/roadTextures.js', 'utf8')
+    .replace(/^\/\/.*$/gm, '').replace('export default', '').trim().replace(/;$/, ''));
+  for (const s of m.surfaces) {
+    assert.ok(s.spanM > 0, `${s.name}: declares a span`);
+    assert.equal(s.normalize.tileVerifyPass, true, `${s.name}: tiles`);
+    assert.equal(s.normalize.gate4Pass, true, `${s.name}: within ΔE2000 15 of an anchor`);
+    assert.equal(s.normalize.normalBandPass, true, `${s.name}: normal in its §3.7 band`);
+  }
+  const panot = m.surfaces.find((s) => s.name === 'panot');
+  // A 2x2 of 20 cm tiles. If this drifts, the flower is the wrong size on every pavement.
+  assert.ok(Math.abs(panot.spanM - 0.4) < 1e-6, 'panot spans exactly two 20 cm tiles');
+  for (const a of m.surfaces.filter((s) => s.name.startsWith('asphalt'))) {
+    assert.equal(a.spanM, 4.0, 'asphalt span matches the shader uAsphaltRepeatM');
+  }
+});

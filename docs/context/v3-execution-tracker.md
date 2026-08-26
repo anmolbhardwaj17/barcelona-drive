@@ -972,7 +972,7 @@ loose end of that task — it needs its own decisions:
 - **Files:** `map/roadMaterial.js`; `roadRenderer.js` (tangent generation)
 - **Done when:** the 4 m repeat is not visible at street level from a stationary car.
 
-### `[ ]` P3-07b · 2.0d · risk low · **AUTHORED ROAD TEXTURES — replaces the procedural wear**
+### `[x]` P3-07b · 2.0d · risk low — **DONE 2026-08-26 · AUTHORED ROAD TEXTURES**
 **Decided 2026-08-26 on measurement: textures are BOTH cheaper and better-looking than procedural
 noise here.** `?roadv2=0` measurably outperformed `?roadv2=1` on the user's machine, which settled it.
 
@@ -1015,7 +1015,7 @@ before anything is painted.**
 - **Subsystem:** road
 - **Done when:** _(road frame cost at or below `?roadv2=0`, measured — plus no shimmer at grazing angles)_
 
-### `[ ]` P3-08 · 2.5d · risk medium
+### `[~]` P3-08 · 2.5d · risk medium — **PARTIAL: asphalt + panot authored and wired; kerb done as P3-09; detail normal still P3-07c**
 **Road asset set** — `asphalt_worn_1k` (ambientCG CC0, normalized), `asphalt_detail_512` (normal only, AI tiling or high-pass), `panot_1k` (baked offline from the existing `makePanotCanvas` generator upgraded 256→1024 under node-canvas, Sobel normal, **AD-12 20×20 grid over 4.0 m**, and the AD-4 v-flip fix at `roadRenderer.js:1690-1694` lands with it), `concrete_kerb_512`. Ship `.ktx2`, keep the generator as the authoring tool.
 
 - **Files:** `frontend/public/art/v1/road/*`, `map/generate-road-atlas.js:14-71`
