@@ -1502,3 +1502,11 @@ think about it. An authored albedo sits at its class L* instead (**0.108 linear*
   grain was near-1.0 and obvious the moment it carried the asphalt's own hue. `patchRoadAO` now takes
   `{ roadV2: false }` for non-carriageway surfaces; they keep the baked AO and drop the grain and
   wheel ruts they should never have had.
+- **The gain must be PER CHANNEL.** Dividing by luminance mean left `asphalt_worn` at
+  (1.11, 0.985, 0.81) — red 37% above blue — and multiplying that into every carriageway and
+  pavement turned the city beige. Each channel is now divided by its own mean, so the grain averages
+  to neutral (1,1,1) and modulates texture without touching hue. `meanRGB` is emitted by the bake.
+- **Noted, not fixed:** the bible's own numbers disagree for panot — surface class `sidewalk` targets
+  **L\* 62** while its P6 Panot Grey anchor sits at **L\* 71.9**, so the asset lands 10 L\* darker
+  than the anchor it is named for and still passes gate 4 (ΔE 8.28). Worth resolving before more
+  sidewalk-class assets are authored against it.

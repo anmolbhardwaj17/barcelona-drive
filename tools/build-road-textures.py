@@ -73,12 +73,20 @@ def main():
         # dark. The renderer divides by this so the plate modulates around 1.0 — keeping the base
         # palette colour, the vertex colours and the baked AO, and adding real photographic grain on
         # top rather than replacing all three.
+        # PER CHANNEL, not luminance. A single scalar cannot neutralise a plate whose channels are
+        # unbalanced: asphalt_worn measures R 0.1188 / G 0.1051 / B 0.0864, so dividing all three by
+        # the luma mean leaves (1.11, 0.985, 0.81) — red 37% above blue — and multiplying THAT into
+        # the road tints every carriageway and pavement in the city warm. It came out beige.
+        # Dividing each channel by its own mean makes the grain average to neutral (1,1,1), so it
+        # modulates texture without touching hue, which is the whole job of a multiplier.
         lin = AN.srgb_to_linear(rgb)
+        mean_rgb = lin.reshape(-1, 3).mean(axis=0)
         mean_luma = float((lin @ np.array([0.2126, 0.7152, 0.0722])).mean())
 
         manifest['surfaces'].append({
             'name': name, 'size': size, 'spanM': span, 'note': note,
             'meanLuma': round(mean_luma, 5),
+            'meanRGB': [round(float(c), 5) for c in mean_rgb],
             'normalize': {
                 'version': NORMALIZE_VERSION, 'sourceType': 'ai', 'surfaceClass': cls,
                 'anchor': AN.ANCHORS[anchor], 'tileRaw': round(raw_ratio, 2),

@@ -41,7 +41,7 @@ const ROAD_OFFSET = 0.05;
 // it too — it could not before, being module-local here, and silently didn't, which is what left
 // lane arrows 1 cm above the road instead of 6 cm. The tuning history is preserved there.
 let _asphaltTex = null;   // v3 P3-07 — asphalt grain plate, resolved once per session
-let _asphaltGain = 1.0;   // 1 / plate mean luminance — see uAsphaltGain in roadMaterial.js
+let _asphaltGain = null;  // vec3(1/meanR, 1/meanG, 1/meanB) — see uAsphaltGain in roadMaterial.js
 
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
@@ -415,14 +415,14 @@ function patchRoadAO(mat, opts = {}) {
       try {
         const pack = getRoadSurface('asphalt_worn');
         _asphaltTex = pack.albedo;
-        _asphaltGain = 1 / Math.max(1e-4, pack.meanLuma);
+        _asphaltGain = new THREE.Vector3(...pack.meanRGB.map((c) => 1 / Math.max(1e-4, c)));
       } catch {
         _asphaltTex = createAsphaltTexture(THREE);
-        _asphaltGain = 1.0;   // the generator is already centred near 1.0 — see uAsphaltGain
+        _asphaltGain = new THREE.Vector3(1, 1, 1);   // generator already centred — see uAsphaltGain
       }
     }
     shader.uniforms.uAsphalt = { value: _asphaltTex };
-    shader.uniforms.uAsphaltGain = { value: _asphaltGain };
+    shader.uniforms.uAsphaltGain = { value: _asphaltGain || new THREE.Vector3(1, 1, 1) };
     shader.uniforms.uAsphaltRepeatM = { value: ROAD_V2_UNIFORMS.uAsphaltRepeatM };
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader

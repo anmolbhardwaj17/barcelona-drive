@@ -8,6 +8,11 @@ export default {
       "spanM": 4.0,
       "note": "Worn carriageway - exposed aggregate, patching, tyre polish",
       "meanLuma": 0.10787,
+      "meanRGB": [
+        0.12009,
+        0.10629,
+        0.08748
+      ],
       "normalize": {
         "version": 2,
         "sourceType": "ai",
@@ -34,6 +39,11 @@ export default {
       "spanM": 4.0,
       "note": "Recently laid - tight aggregate still coated in binder",
       "meanLuma": 0.10756,
+      "meanRGB": [
+        0.12287,
+        0.10399,
+        0.09785
+      ],
       "normalize": {
         "version": 2,
         "sourceType": "ai",
@@ -60,6 +70,11 @@ export default {
       "spanM": 0.4,
       "note": "Flor de Barcelona panot - 2x2 of 20 cm tiles",
       "meanLuma": 0.31577,
+      "meanRGB": [
+        0.34106,
+        0.31405,
+        0.25836
+      ],
       "normalize": {
         "version": 2,
         "sourceType": "ai",

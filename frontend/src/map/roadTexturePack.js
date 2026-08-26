@@ -43,6 +43,9 @@ export function getRoadSurface(name) {
     // Mean linear luminance. Needed wherever the plate is used as a MULTIPLIER rather than a base
     // albedo — divide by it and the texture modulates around 1.0 instead of darkening by ~9x.
     meanLuma: spec.meanLuma ?? 1.0,
+    // Per-channel means. A scalar luma divisor leaves an unbalanced plate tinting whatever it
+    // multiplies — asphalt_worn is red-heavy enough to turn the whole carriageway beige.
+    meanRGB: spec.meanRGB ?? [1, 1, 1],
   };
   _cache.set(name, pack);
   return pack;

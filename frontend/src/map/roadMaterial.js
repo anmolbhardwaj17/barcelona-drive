@@ -41,7 +41,7 @@ export const LANE_W_M = 3.5;
 export const ROAD_V2_PARS = `
 uniform sampler2D uAsphalt;
 uniform float uAsphaltRepeatM;
-uniform float uAsphaltGain;
+uniform vec3 uAsphaltGain;
 uniform float uRoadRut;
 varying float vHalfW;
 varying vec2 vRoadUv;
@@ -80,16 +80,20 @@ export const ROAD_V2_APPLY = `
   // CHAIN, so it resolves instead of shimmering at the grazing angles road is mostly viewed at —
   // which is the failure procedural noise cannot fix at any cost.
   //
-  // uAsphaltGain = 1 / mean linear luminance of the plate. THE TEXTURE IS A MULTIPLIER, NOT A BASE
+  // uAsphaltGain = 1 / the plate's PER-CHANNEL linear mean. THE TEXTURE IS A MULTIPLIER, NOT A BASE
   // ALBEDO — see the diffuseColor multiply at the end of this block. The procedural generator
   // it replaced produced a modulation field centred near 1.0, so multiplying was free. An AUTHORED
   // albedo sits at its surface-class L* instead (0.108 linear for asphalt), and multiplying by that
   // darkens the road ~9x on a base that is already dark — and multiplies the plate's slight warm
   // cast in as well, which is why the carriageway came out brown rather than grey.
   //
-  // Dividing by the mean makes the plate modulate around 1.0: the base palette colour, the vertex
-  // colours and the baked AO all survive, and the photograph contributes its RELATIVE grain on top,
-  // which is the only part of it that was ever wanted here.
+  // Dividing makes the plate modulate around 1.0: the base palette colour, the vertex colours and
+  // the baked AO all survive, and the photograph contributes its RELATIVE grain on top, which is the
+  // only part of it that was ever wanted here.
+  //
+  // PER CHANNEL, not by luminance. A scalar cannot neutralise an unbalanced plate: asphalt_worn
+  // measures R 0.120 / G 0.106 / B 0.087, so one luma divisor leaves (1.11, 0.985, 0.81) — red 37%
+  // above blue — and multiplying that into the road turned every carriageway and pavement beige.
   vec3 grain = texture2D(uAsphalt, vec2(along, across) / uAsphaltRepeatM).rgb * uAsphaltGain;
 
 
@@ -114,7 +118,7 @@ export const ROAD_V2_APPLY = `
 export const ROAD_V2_UNIFORMS = {
   /** Metres per asphalt texture repeat. Real-world size, via the world-metric UV. */
   uAsphaltRepeatM: 4.0,
-  uAsphaltGain: 1.0,        // overridden from the plate's measured meanLuma; 1.0 = procedural fallback
+  uAsphaltGain: [1, 1, 1],  // overridden from the plate's per-channel means; (1,1,1) = procedural fallback
   /** Rut strength. Small on purpose: past ~0.15 they read as painted stripes. */
   uRoadRut: 0.10,
 };
