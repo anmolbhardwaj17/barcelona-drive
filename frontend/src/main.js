@@ -54,6 +54,7 @@ import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/en
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { preloadCardAtlases } from './map/cardMesh.js';
 import { preloadRoadTextures } from './map/roadTexturePack.js';
+import { setFacadeArrayRenderer } from './map/facadeArray.js';   // v3 P3-05
 import { renderVegetation, preloadTreeModels, updateTreeWind, getTreeMaterial, getTreeBillboardMaterial, getBushCardsMaterial } from './map/vegetationRenderer.js';
 import { createSpatialIndex, queryNearestRoadSegment } from './map/spatialIndex.js';
 import { createStreetDisplay } from './ui/streetDisplay.js';
@@ -947,6 +948,10 @@ spawnTileReady.finally(() => {
           // Force every vegetation atlas onto the GPU here, not on the frame that first draws it.
           // See preloadCardAtlases — this is a 100-200 ms mid-drive stall moved into boot, where a
           // stall is already expected and already measured by time-to-drive.
+          // KTX2 transcoding picks its target format from the GPU's capabilities, so the facade
+          // array loader needs the renderer before it can decode anything. Handed over here rather
+          // than threaded through meshMaterializer, which constructs the arrays lazily per tile.
+          try { setFacadeArrayRenderer(renderer); } catch {}
           try { preloadCardAtlases(renderer); } catch {}
           try { preloadRoadTextures(renderer); } catch {}   // road is drawn on frame 1 of every drive
 

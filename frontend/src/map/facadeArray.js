@@ -257,12 +257,60 @@ export function createFacadeArrays(THREE) {
     tex.needsUpdate = true;
     return tex;
   };
-  return {
+  const arrays = {
     body: mkArray(PLACEHOLDER_BODY_PX, PLACEHOLDER_BODY_PX, (c, w, _h, t) => paintBodyLayer(c, w, t)),
     ground: mkArray(PLACEHOLDER_GROUND_PX, Math.round(PLACEHOLDER_GROUND_PX * (GROUND_LAYER_H_M / LAYER_W_M)),
                     (c, w, h, t) => paintGroundLayer(c, w, h, t)),
   };
+
+  // ── v3 P3-05: swap the BODY placeholder for the authored art, in place ─────────────────────────
+  //
+  // The array arrives as ONE layered KTX2, not eight files. That is not tidiness: eight files loaded
+  // into a DataArrayTexture would decompress to RGBA8 on upload and cost 85 MiB where the layered,
+  // still-compressed array costs 21. The file has to arrive already layered AND already compressed.
+  //
+  // Swapped ASYNCHRONOUSLY into the existing object rather than awaited, so nothing downstream has to
+  // become async: materials already hold `arrays.body`, and assigning a new texture to that property
+  // is picked up on the next frame. The placeholder is what renders until it lands — which is also
+  // the fallback if the file is missing.
+  //
+  // ⚠ The mip-chain warning above does NOT apply here. It says an incomplete mip chain samples BLACK,
+  // which is why the placeholder disables mipmaps — but a KTX2 SHIPS ITS MIPS IN THE FILE, so the
+  // chain is complete on arrival and LinearMipmapLinearFilter is not only safe but required (without
+  // it every distant facade aliases). That line explicitly asked to be re-checked here.
+  loadFacadeBodyArray(THREE).then((tex) => {
+    if (!tex) return;
+    arrays.body = tex;
+    arrays.bodyIsAuthored = true;
+  }).catch(() => { /* placeholder stands */ });
+
+  return arrays;
 }
+
+/** Load the authored 8-layer body array. Resolves null if the art is absent, keeping the placeholder. */
+async function loadFacadeBodyArray(THREE) {
+  const { KTX2Loader } = await import('three/examples/jsm/loaders/KTX2Loader.js');
+  const renderer = getSharedRenderer();
+  if (!renderer) return null;                       // transcoder needs the GPU caps to pick a format
+  const loader = new KTX2Loader()
+    .setTranscoderPath('/basis/')
+    .detectSupport(renderer);
+  const tex = await loader.loadAsync('/art/v1/facades/facade_body_albedo.ktx2');
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;                 // still the point: each layer wraps independently
+  tex.minFilter = THREE.LinearMipmapLinearFilter;   // the KTX2 carries its own complete mip chain
+  tex.magFilter = THREE.LinearFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  loader.dispose();
+  return tex;
+}
+
+// The KTX2 transcoder needs the renderer's capabilities to choose a target format, and this module is
+// constructed before one is passed anywhere. main.js hands it over at boot.
+let _sharedRenderer = null;
+export function setFacadeArrayRenderer(r) { _sharedRenderer = r; }
+function getSharedRenderer() { return _sharedRenderer; }
 
 /**
  * Swap a built-in material's `map` sample for an array-texture sample keyed on `aLayer`.

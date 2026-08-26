@@ -101,8 +101,19 @@ export const CONFIG = {
     try { return new URLSearchParams(location.search).get('debug') === 'init'; } catch { return false; }
   })(),
 
+  /**
+   * v3 P3-04/P3-05 — array-texture facade path. ON by default as of 2026-08-26.
+   *
+   * It was opt-in (`?facadearray=1`) because P3-04 shipped the SHADER PATH against PLACEHOLDER
+   * layers — flat tinted rectangles that proved the plumbing and looked worse than the vertex-colour
+   * facades they replaced. P3-05 supplies the real art: 8 authored 1024² body layers at 128
+   * texels/m, shipped as one KTX2 array so they stay GPU-compressed (21 MiB rather than 85).
+   *
+   * `?facadearray=0` reverts to the vertex-colour path — an ATTRIBUTION switch like ROAD_V2, since
+   * facades are the largest vertical surface in the game and this adds an array sample per fragment.
+   */
   FACADE_ARRAY: (() => {
-    try { return new URLSearchParams(location.search).get('facadearray') === '1'; } catch { return false; }
+    try { return new URLSearchParams(location.search).get('facadearray') !== '0'; } catch { return true; }
   })(),
 
   /** Road-only debug: when true, render only roads (no buildings, trees, grass, greens). Set false when tiles include buildings and greens. */

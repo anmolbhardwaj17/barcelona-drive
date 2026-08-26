@@ -270,5 +270,23 @@ export default {
         "rallyClipPct": 0.187
       }
     }
-  ]
+  ],
+  "arrays": {
+    "albedo": "facade_body_albedo.ktx2",
+    "normal": "facade_body_normal.ktx2",
+    "layerOrder": [
+      "residential_cream",
+      "residential_ochre",
+      "residential_rose",
+      "residential_grey",
+      "residential_oldtown",
+      "commercial",
+      "office",
+      "industrial_brick"
+    ]
+  },
+  "vram": {
+    "uncompressedMiB": 85.3,
+    "bc7MiB": 21.3
+  }
 };

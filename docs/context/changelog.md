@@ -1628,3 +1628,30 @@ upload, not two.
   **Still poor on `residential_grey` (4.4%) and `residential_oldtown` (1.9%)** — both have bright
   glazing, and no luminance-based test can find a window lighter than the wall around it. The robust
   fix is structural: windows sit in a regular grid detectable from row/column profiles. Not attempted.
+
+## 2026-08-26 — KTX2 encoding: the library was over budget, now it has 145 MiB spare
+
+`basisu` installed (Homebrew has no `ktx` formula; `basis_universal` provides the encoder).
+`tools/encodeKtx2.py` is shared by every art tool.
+
+| | RGBA8 | compressed |
+|---|---|---|
+| trees / bushes / rocks / road / kerb / sky | 146.7 MiB | 33.8 MiB |
+| facades | 85.3 MiB | 21.3 MiB |
+| **total** | **231.9 MiB** | **55.2 MiB** |
+
+**The library was 32 MiB OVER the 200 MiB budget uncompressed** — an earlier estimate of 196 MiB
+under-counted. It now has **145 MiB spare**.
+
+- **Codec choice is not a preference.** UASTC for anything whose ALPHA CARRIES DATA (the facade
+  window mask, the tree/bush cutouts, sky cloud coverage) and for every NORMAL map — ETC1S quantises
+  to a small palette, which bands a mask's edges and turns a normal map into facets. ETC1S for opaque
+  photographic colour, where its ~6:1 beats UASTC's ~4:1 and its artefacts hide in the detail.
+- **Facades ship as ONE layered KTX2 array, not 8 files.** Eight files loaded into a
+  `DataArrayTexture` would decompress to RGBA8 on upload and cost 85 MiB where the layered compressed
+  array costs 21 — the file has to arrive already layered *and* already compressed.
+- **`FACADE_ARRAY` now defaults ON** (`?facadearray=0` reverts). It was opt-in because P3-04 shipped
+  the shader path against placeholder layers that looked worse than what they replaced.
+- The placeholder's "no mipmaps or the texture samples BLACK" warning does **not** apply to the real
+  path and explicitly asked to be re-checked here: a KTX2 ships its mip chain in the file, so the
+  chain is complete on arrival and `LinearMipmapLinearFilter` is required, not merely safe.
