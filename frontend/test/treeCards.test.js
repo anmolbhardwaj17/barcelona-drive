@@ -15,6 +15,8 @@ import { buildTreeCardGeometries, TREE_CARD_SPECIES, TREE_CARD_COUNT, _cardInter
   patchCardFaceDirection, NIGHT_LIGHT_FRACTION } from '../src/map/treeCards.js';
 import { buildProceduralTreeGeometries } from '../src/map/vegetationRenderer.js';
 import * as rendererMod from '../src/map/vegetationRenderer.js';
+import * as bushMod from '../src/map/bushCards.js';
+import * as setsMod from '../src/map/treeSpeciesSets.js';
 
 test('variant count matches the geometry the renderer actually has — both switch positions', () => {
   // Cards on (the default under node: no location, so the URL switch falls through to true).
@@ -218,4 +220,51 @@ test('LOD impostor night tint is DERIVED from the card tint, never picked separa
   const f = _cardInternals().NIGHT_LIGHT_FRACTION ?? null;
   assert.ok(NIGHT_LIGHT_FRACTION > 0 && NIGHT_LIGHT_FRACTION < 1,
     'night light fraction darkens the unlit impostor toward the lit card');
+});
+
+test('bush cards: every species is a real card at its real size', () => {
+  const { buildBushCardGeometries, BUSH_CARD_SPECIES, BUSH_CARD_COUNT } = bushMod;
+  const geos = buildBushCardGeometries();
+  assert.equal(geos.length, BUSH_CARD_COUNT);
+  for (let i = 0; i < geos.length; i++) {
+    const sp = BUSH_CARD_SPECIES[i];
+    const pos = geos[i].getAttribute('position');
+    assert.equal(pos.count, 8, `${sp.name}: crossed quads`);
+    let minY = Infinity, maxY = -Infinity;
+    for (let v = 0; v < pos.count; v++) {
+      minY = Math.min(minY, pos.getY(v)); maxY = Math.max(maxY, pos.getY(v));
+    }
+    assert.equal(minY, 0, `${sp.name}: stands on the ground`);
+    assert.ok(Math.abs(maxY - sp.heightM) < 1e-4, `${sp.name}: real height`);
+    // A bush must not be tree-sized — if the manifest ever picks up tree metres this catches it.
+    assert.ok(sp.heightM <= 2.0, `${sp.name}: bush-scale, not tree-scale`);
+  }
+});
+
+test('bushes are planted by context, not at random', () => {
+  // A clipped box hedge up Collserola is the same class of error as a seafront palm on a mountain.
+  const { classifyBush, BUSH_SETS } = setsMod;
+  const NB = bushMod.BUSH_CARD_COUNT;
+  const names = bushMod.BUSH_CARD_SPECIES.map((s) => s.name);
+  const tally = (kind) => {
+    const c = new Map();
+    for (let i = 0; i < 3000; i++) {
+      const n = names[classifyBush(i * 3.7, i * 1.9, kind, NB)];
+      c.set(n, (c.get(n) || 0) + 1);
+    }
+    return c;
+  };
+  const wild = tally('wild');
+  assert.ok(!wild.has('box_hedge'), 'no clipped hedges on a hillside');
+  assert.ok(!wild.has('pittosporum'), 'no street shrubs on a hillside');
+  const urban = tally('urban');
+  assert.ok(!urban.has('kermes_oak'), 'no wild scrub in a plaza');
+  assert.ok(!urban.has('rosemary'), 'no wild scrub in a plaza');
+  assert.ok(urban.get('pittosporum') / 3000 > 0.3, 'streets are mostly pittosporum');
+
+  // Position-seeded, so a bush keeps its species whatever order instances materialise in.
+  assert.equal(classifyBush(123.4, 56.7, 'wild', NB), classifyBush(123.4, 56.7, 'wild', NB));
+  // And the blob path always collapses to the single geometry it has.
+  assert.equal(classifyBush(123.4, 56.7, 'wild', 1), 0);
+  assert.ok(Object.keys(BUSH_SETS).length >= 2);
 });

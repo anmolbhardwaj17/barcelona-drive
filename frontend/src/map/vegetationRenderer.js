@@ -10,6 +10,7 @@ import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { injectTreeWind, updateTreeWind } from './treeWind.js';
 import { buildTreeCardGeometries, getTreeCardMaterial, getTreeCardAtlas, TREE_CARD_SPECIES,
   CARD_NIGHT_TINT, NIGHT_LIGHT_FRACTION, onCardNightTint } from './treeCards.js';
+import { buildBushCardGeometries, getBushCardMaterial, BUSH_CARD_COUNT } from './bushCards.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
@@ -200,6 +201,28 @@ export function getTreeGeometries() {
 
 export function getTreeMaterial() {
   return CONFIG.TREE_CARDS ? getTreeCardMaterial() : getProceduralMaterial();
+}
+
+/**
+ * ── THE BUSH SEAM ───────────────────────────────────────────────────────────────────────────────
+ * Same contract as the tree seam above, and the same hazard: the pool hands BatchedMesh a geometry
+ * LIST and one material, and per-instance geoIndex indexes that list. Mixing card geometry with the
+ * blob material does not throw, it draws garbage.
+ *
+ * Rides the SAME switch as the trees. Photographic canopy over dodecahedron undergrowth is a worse
+ * scene than either done consistently, so there is deliberately no separate `?bushcards` flag.
+ */
+export function getBushGeometries() {
+  return CONFIG.TREE_CARDS ? buildBushCardGeometries() : [getBushGeometry()];
+}
+
+export function getBushCardsMaterial() {
+  return CONFIG.TREE_CARDS ? getBushCardMaterial() : getBushMaterial();
+}
+
+/** How many bush variants the pool has geometry for. */
+export function getBushVariantCount() {
+  return CONFIG.TREE_CARDS ? BUSH_CARD_COUNT : 1;
 }
 
 /**

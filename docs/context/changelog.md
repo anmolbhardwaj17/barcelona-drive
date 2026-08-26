@@ -1333,3 +1333,23 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
   + emissive floor) — two different equations, so two independent tints could never agree, and the
   impostor was ~2× too bright. `_ddTreeNight` now moves both together.
 - Tests 169 → 170.
+
+## 2026-08-26 — bush cards and stone rocks wired
+
+- **Bushes are cards now.** 6 Barcelona species; the 3-lobe dodecahedron blob is gone behind the
+  same `TREE_CARDS` switch (deliberately no separate flag — photographic canopy over blob
+  undergrowth is a worse scene than either done consistently).
+- **Bush species by context.** Worker bushes (roads, barriers, buildings) draw the `urban` set
+  (pittosporum / box / lentisc); cluster bushes (hillside scatter) draw `wild` (lentisc / kermes oak
+  / rosemary / dwarf fan palm). Position-seeded, so a bush keeps its species whatever order
+  instances materialise in. The pool takes one flat instance list, so the split happens in
+  `meshMaterializer.splitBushesBySpecies` — no worker or tile-format change.
+- **Rocks are textured stone.** Three Barcelona stones in ONE 1024 page, cell chosen per instance
+  via an `aRockCell` instanced attribute — one material, one draw call. Three materials would have
+  tripled rock draw calls across 9–18 resident tiles, the opposite of what P3-10(c) just did.
+- **Rock atlas 2048 → 1024.** VRAM is uncompressed RGBA + mips: 2048 costs **42.7 MiB** across
+  albedo and normal, 1024 costs **10.7 MiB**, and 512-px cells still give ~256 texels per real metre
+  on a 2 m boulder. (For reference the tree atlas is 64 MiB — worth revisiting separately.)
+- **`cardMesh.js`** now holds the crossed-quad geometry, dome normals and atlas loading, shared by
+  trees and bushes; `treeCards` was rewritten onto it with tests green throughout.
+- Tests 170 → 172.

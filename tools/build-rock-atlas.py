@@ -24,7 +24,11 @@ import artNormalize as AN
 SRC = 'art-src/rocks-v1/src'
 OUT = 'frontend/public/textures/vegetation'
 MANIFEST = 'frontend/src/map/rockAtlas.js'
-CELL = 1024
+# 512, not 1024. VRAM is uncompressed RGBA plus mips, so a 2048 page costs 42.7 MiB across albedo
+# and normal — tree-atlas money for background boulders you drive past at 60 km/h. At 512 cells the
+# page is 1024 and the pair costs 10.7 MiB. The texture spans 2 real metres on a ~2 m rock, so 512
+# is ~256 texels per metre: far above the art-bible density any of these is ever viewed at.
+CELL = 512
 COLS, ROWS = 2, 2
 
 NORMALIZE_VERSION = 2

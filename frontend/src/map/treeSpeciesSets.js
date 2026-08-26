@@ -77,3 +77,38 @@ export function classifySpecies(ctx, i, seed, variantCount, fallbackIndex) {
   const set = SPECIES_SETS[ctx] || SPECIES_SETS.street;
   return pickWeighted(set, seededRand(i, seed + 4242));
 }
+
+// ── Bushes ────────────────────────────────────────────────────────────────────────────────────
+// Indices MUST match the atlas cell order in bushAtlas.js.
+export const BSH_LENTISC = 0, BSH_ROSEMARY = 1, BSH_KERMES = 2,
+             BSH_PITTOSPORUM = 3, BSH_BOX = 4, BSH_CHAMAEROPS = 5;
+
+/**
+ * Bush sets by where the instance came from.
+ *
+ * The two sources are genuinely different plantings and must not share a table: the vegetation
+ * worker's bushes are placed against roads, barriers and buildings — municipal shrubs someone
+ * planted and trims. environmentClusterRenderer's are hillside scatter — wild scrub nobody planted.
+ * A clipped box hedge on Collserola is the same category of error as a Washingtonia palm up a
+ * mountain, which is the bug this whole table exists to prevent.
+ */
+export const BUSH_SETS = {
+  // Street, plaza, building forecourt — clipped and glossy.
+  urban: [[BSH_PITTOSPORUM, 5], [BSH_BOX, 4], [BSH_LENTISC, 2]],
+  // Hillside and open ground — Mediterranean scrub.
+  wild:  [[BSH_LENTISC, 5], [BSH_KERMES, 4], [BSH_ROSEMARY, 3], [BSH_CHAMAEROPS, 1]],
+};
+
+/**
+ * Species for one bush, chosen from its WORLD POSITION rather than its index.
+ *
+ * Position-seeded so a given bush keeps its species no matter what order the tile happens to
+ * materialise its instances in — an index-seeded pick would reshuffle the whole verge whenever the
+ * instance ordering changed, which it does whenever LOD sorting runs.
+ */
+export function classifyBush(worldX, worldZ, kind, variantCount) {
+  if (variantCount <= 1) return 0;          // blob path: one geometry, nothing to choose
+  const set = BUSH_SETS[kind] || BUSH_SETS.urban;
+  const r = seededRand(Math.round(worldX * 7.3), Math.round(worldZ * 3.1));
+  return pickWeighted(set, r) % variantCount;
+}

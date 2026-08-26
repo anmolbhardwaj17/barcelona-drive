@@ -16,11 +16,13 @@ import { CONFIG } from '../config.js';
 import {
   getTreeGeometries,
   getTreeMaterial,
-  getBushGeometry,
-  getBushMaterial,
   getTreeBillboardMaterial,
   getTreeBillboardGeometry,
+  getBushGeometries,
+  getBushCardsMaterial,
+  getBushVariantCount,
 } from '../map/vegetationRenderer.js';
+import { classifyBush } from '../map/treeSpeciesSets.js';
 import { createVegPoolSet } from '../map/vegPools.js';
 import { bindAoScaleUniform, AO_FRAG_APPLY } from '../map/aoSampler.js';
 import { getNightEmissiveTexture, NIGHT_EMISSIVE_INTENSITY, HERO_EMISSIVE_INTENSITY } from '../map/buildingRenderer.js';
@@ -1069,7 +1071,7 @@ export function getVegPools(parentGroup) {
       capacity: 16384, castShadow: false, receiveShadow: false, renderOrder: -1,
     }, parentGroup),
     bushes: createVegPoolSet({
-      name: 'bushes', geometries: [getBushGeometry()], material: getBushMaterial(),
+      name: 'bushes', geometries: getBushGeometries(), material: getBushCardsMaterial(),
       capacity: 16384, castShadow: false, receiveShadow: true,
     }, parentGroup),
     // Billboard impostors — one pool set per variant (each has its own atlas-offset material).
@@ -1215,15 +1217,52 @@ export async function materializeVegetationMeshes(workerResult, yieldFn, pools =
     shadowMesh.userData.maxInstanceCount = count;
   }
 
-  // ── Bush mesh ─────────────────────────────────────────────────────────────
+  /**
+ * Bucket a flat bush instance list into one group per species.
+ *
+ * Returns the pool's group format. On the blob path getBushVariantCount() is 1 and this collapses
+ * to the single group it always was, so nothing changes behind `?treecards=0`.
+ */
+function splitBushesBySpecies(b, kind) {
+  const n = getBushVariantCount();
+  if (n <= 1) return [{ geoIndex: 0, count: b.count, matrices: b.matrices, colors: b.colors }];
+
+  const mats = b.matrices instanceof Float32Array ? b.matrices : new Float32Array(b.matrices);
+  const cols = b.colors ? (b.colors instanceof Float32Array ? b.colors : new Float32Array(b.colors)) : null;
+  const idx = Array.from({ length: n }, () => []);
+  for (let i = 0; i < b.count; i++) {
+    const o = i * 16;
+    idx[classifyBush(mats[o + 12], mats[o + 14], kind, n)].push(i);
+  }
+
+  const groups = [];
+  for (let v = 0; v < n; v++) {
+    const list = idx[v];
+    if (list.length === 0) continue;
+    const m = new Float32Array(list.length * 16);
+    const c = cols ? new Float32Array(list.length * 3) : null;
+    for (let k = 0; k < list.length; k++) {
+      m.set(mats.subarray(list[k] * 16, list[k] * 16 + 16), k * 16);
+      if (c) c.set(cols.subarray(list[k] * 3, list[k] * 3 + 3), k * 3);
+    }
+    groups.push({ geoIndex: v, count: list.length, matrices: m, colors: c });
+  }
+  return groups;
+}
+
+// ── Bush mesh ─────────────────────────────────────────────────────────────
   let bushMesh = null;
   if (pools && CONFIG.ENABLE_BUSHES !== false && workerResult.bushInstances && workerResult.bushInstances.count > 0) {
     const b = workerResult.bushInstances;
-    const h = await pools.bushes.add([{ geoIndex: 0, count: b.count, matrices: b.matrices, colors: b.colors }], yieldFn);
+    // Split into per-species groups. The worker emits one flat instance list, but the pool selects
+    // geometry per instance via geoIndex — so the species choice happens here, from each bush's own
+    // world position (columns 12/14 of its matrix). These are the WORKER's bushes: placed against
+    // roads, barriers and buildings, i.e. municipal planting, so they draw from the 'urban' set.
+    const h = await pools.bushes.add(splitBushesBySpecies(b, 'urban'), yieldFn);
     if (h) { h.kind = 'bush'; poolHandles.push(h); }
   } else if (CONFIG.ENABLE_BUSHES !== false && workerResult.bushInstances && workerResult.bushInstances.count > 0) {
     const { matrices, colors, count } = workerResult.bushInstances;
-    bushMesh = new THREE.InstancedMesh(getBushGeometry(), getBushMaterial(), count);
+    bushMesh = new THREE.InstancedMesh(getBushGeometries()[0], getBushCardsMaterial(), count);
     bushMesh.instanceMatrix = new THREE.InstancedBufferAttribute(
       matrices instanceof Float32Array ? matrices : new Float32Array(matrices), 16
     );

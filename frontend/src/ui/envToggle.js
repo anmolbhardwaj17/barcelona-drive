@@ -13,6 +13,7 @@ import { setFuelStationNightMode } from '../map/urbanFeatureRenderer.js';
 import { setBridgePoleNightMode, setStreetlightNightMode } from '../map/streetlightRenderer.js';
 import { setTreeBillboardNightMode } from '../map/vegetationRenderer.js';
 import { setTreeCardNightMode } from '../map/treeCards.js';
+import { setBushCardNightMode } from '../map/bushCards.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
 import { UI, iconButton, injectUITheme } from './theme.js';
@@ -157,6 +158,7 @@ export function createEnvToggle(refs) {
     setRoadMarkingNightMode(isNight);
     setTreeBillboardNightMode(isNight);
     setTreeCardNightMode(isNight);   // lit cards need a LIFT at night; impostors need a tint
+    setBushCardNightMode(isNight);   // undergrowth follows the canopy — same surface, same sky
     setShopSignNightMode(isNight);
     setShopfrontNightMode(isNight);
     setStreetlightNightMode(isNight);

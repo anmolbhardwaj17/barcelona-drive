@@ -8,8 +8,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CONFIG } from '../config.js';
 import { worldToLatLon, latLonToWorld } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
-import { getTreeGeometries, getTreeMaterial, getBushGeometry, getBushMaterial } from './vegetationRenderer.js';
-import { classifySpecies as classifyTreeSpecies } from './treeSpeciesSets.js';
+import { getTreeGeometries, getTreeMaterial, getBushGeometries, getBushCardsMaterial, getBushVariantCount } from './vegetationRenderer.js';
+import { classifySpecies as classifyTreeSpecies, classifyBush, seededRand } from './treeSpeciesSets.js';
+import { loadCardAtlas } from './cardMesh.js';
+import { patchMaterial } from './materialRegistry.js';
+import ROCK_ATLAS from './rockAtlas.js';
 
 // ---------------------------------------------------------------------------
 // Deterministic PRNG (same as vegetationRenderer)
@@ -39,10 +42,53 @@ function getRockGeometry() {
   return _rockGeo;
 }
 
+/**
+ * Stone material — three real Barcelona stones in one 1024 page.
+ *
+ * ONE MATERIAL, ONE DRAW CALL. The cell is picked PER INSTANCE via an instanced attribute rather
+ * than by giving each stone its own material: rocks scatter across every wild tile, and three
+ * materials would have tripled their draw calls across 9-18 resident tiles. That is the opposite of
+ * what P3-10(c) just did to the tree impostors.
+ *
+ * The page is 1024, not 2048. VRAM is uncompressed RGBA plus mips, so 2048 costs 42.7 MiB across
+ * albedo and normal — tree-atlas money for background boulders. 1024 costs 10.7 MiB and still gives
+ * ~256 texels per real metre on a 2 m rock.
+ */
 function getRockMaterial() {
   if (_rockMat) return _rockMat;
-  _rockMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const { albedo, normal } = loadCardAtlas(
+    '/textures/vegetation/rock_atlas_albedo.png',
+    '/textures/vegetation/rock_atlas_normal.png');
+  _rockMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: albedo, normalMap: normal });
+  // AD-5: the normal map is calibrated at bake into the §3.7 masonry band, so 1.0 is correct.
+  _rockMat.normalScale = new THREE.Vector2(1.0, 1.0);
+
+  patchMaterial(_rockMat, (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec2 aRockCell;')
+      // The icosahedron's own spherical UVs are kept and simply squeezed into the instance's atlas
+      // cell, so each boulder wears one stone rather than a slice of all three.
+      .replace('#include <uv_vertex>',
+        `#include <uv_vertex>
+        vMapUv = aRockCell + fract(vMapUv) * vec2(${(1 / ROCK_ATLAS.cols).toFixed(6)}, ${(1 / ROCK_ATLAS.rows).toFixed(6)});
+        vNormalMapUv = vMapUv;`);
+  }, 'envRock');
   return _rockMat;
+}
+
+/** Per-instance atlas-cell origins, as an instanced attribute the shader reads. */
+function buildRockCellAttribute(instances) {
+  const n = ROCK_ATLAS.stones.length;
+  const arr = new Float32Array(instances.length * 2);
+  for (let i = 0; i < instances.length; i++) {
+    const r = instances[i];
+    // Position-seeded, like the bushes: a boulder keeps its stone whatever order it materialises in.
+    const pick = ROCK_ATLAS.stones[
+      Math.floor(seededRand(Math.round(r.x * 5.1), Math.round(r.z * 2.7)) * n) % n];
+    arr[i * 2] = pick.uv[0];
+    arr[i * 2 + 1] = pick.uv[1];
+  }
+  return new THREE.InstancedBufferAttribute(arr, 2);
 }
 
 /**
@@ -530,6 +576,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
     const mat = getRockMaterial();
     const mesh = new THREE.InstancedMesh(geo, mat, rockInstances.length);
     mesh.count = rockInstances.length;
+    mesh.geometry = geo.clone();          // per-tile attribute, shared vertex data
+    mesh.geometry.setAttribute('aRockCell', buildRockCellAttribute(rockInstances));
     mesh.frustumCulled = false; // InstancedMesh bounding sphere = one base item at origin → getting close
                                 // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
     mesh.castShadow = false;
@@ -564,18 +612,16 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
     meshes.push(mesh);
   }
 
-  // Bush InstancedMesh — reuse main vegetation bush geometry/material
+  // Bush InstancedMeshes — one per species. These are HILLSIDE scatter, not municipal planting, so
+  // they draw from the 'wild' set: lentisc, kermes oak, rosemary, dwarf fan palm. A clipped box
+  // hedge up Collserola is the same class of error as a seafront palm on a mountain.
   if (bushInstances.length > 0) {
-    const geo = getBushGeometry();
-    const mat = getBushMaterial();
-    const mesh = new THREE.InstancedMesh(geo, mat, bushInstances.length);
-    mesh.count = bushInstances.length;
-    mesh.frustumCulled = false; // InstancedMesh bounding sphere = one base item at origin → getting close
-                                // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    mesh.userData.sharedGeometry = true;
-    mesh.userData.sharedMaterial = true;
+    const bushGeos = getBushGeometries();
+    const bushMat = getBushCardsMaterial();
+    const nBush = getBushVariantCount();
+
+    const bushBuckets = Array.from({ length: nBush }, () => []);
+    for (const b of bushInstances) bushBuckets[classifyBush(b.x, b.z, 'wild', nBush)].push(b);
 
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
@@ -583,21 +629,37 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
     const s = new THREE.Vector3();
     const col = new THREE.Color();
 
-    for (let i = 0; i < bushInstances.length; i++) {
-      const b = bushInstances[i];
-      p.set(b.x, b.y, b.z);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rotY);
-      const sy = b.scale * (0.7 + seeded(i, 70) * 0.3);
-      s.set(b.scale, sy, b.scale);
-      m.compose(p, q, s);
-      mesh.setMatrixAt(i, m);
-      const bright = 0.82 + seeded(i, 71) * 0.26;
-      col.copy(baseBushColor).multiplyScalar(bright);
-      mesh.setColorAt(i, col);
+    for (let v = 0; v < nBush; v++) {
+      const bucket = bushBuckets[v];
+      if (bucket.length === 0) continue;
+      const mesh = new THREE.InstancedMesh(bushGeos[v], bushMat, bucket.length);
+      mesh.count = bucket.length;
+      mesh.frustumCulled = false; // InstancedMesh bounding sphere = one base item at origin → getting close
+                                  // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.userData.sharedGeometry = true;
+      mesh.userData.sharedMaterial = true;
+
+      for (let i = 0; i < bucket.length; i++) {
+        const b = bucket[i];
+        p.set(b.x, b.y, b.z);
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rotY);
+        const sy = b.scale * (0.7 + seeded(i, 70) * 0.3);
+        s.set(b.scale, sy, b.scale);
+        m.compose(p, q, s);
+        mesh.setMatrixAt(i, m);
+        // Cards carry their own photographic colour; tinting them with the old flat bush green
+        // would drag six normalized species back onto one hue. Blobs still need the tint.
+        const bright = 0.82 + seeded(i, 71) * 0.26;
+        if (nBush > 1) col.setScalar(bright);
+        else col.copy(baseBushColor).multiplyScalar(bright);
+        mesh.setColorAt(i, col);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+      meshes.push(mesh);
     }
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.instanceColor.needsUpdate = true;
-    meshes.push(mesh);
   }
 
   // Tree InstancedMesh — reuse main procedural tree geometries (one mesh per variant)
