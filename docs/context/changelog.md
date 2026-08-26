@@ -1865,3 +1865,33 @@ All 8 pass gate 4 (ΔE 3.24–10.25). Arrays: albedo **0.39 MB** (ETC1S), normal
   night toggle something to switch. Tagged `sharedMaterial: true` so tile unload doesn't dispose it.
 - `frontend/test/awnings.test.js` gains a test pinning day-hidden / night-visible, the
   material-not-mesh rule, and the shared-material tagging.
+
+## 2026-08-27 — Shop-name boards: lit material, normalized palette, painted plate
+
+User-reported from a drive ("too fake"). Three independent causes, all in `shopSignRenderer.js`:
+
+- **`MeshBasicMaterial` — unlit.** The board was the same brightness at noon, at dusk and under an
+  awning, which is precisely what "pasted on" looks like. The night handling made it worse: it
+  swapped `color` to a flat grey (`0x6a6a78`), a hand-drawn substitute for the lighting the material
+  was opting out of. Now `MeshLambertMaterial` — same single InstancedMesh, no extra draw call — so
+  a sign under a street lamp is genuinely brighter than one between two. Night adds a warm emissive
+  **through the atlas as an `emissiveMap`**, so each board glows in its own colour rather than every
+  sign lifting to the same grey. `emissiveMap` is bound at construction (adding a map slot later
+  forces a mid-drive recompile, G-53).
+  - ⚠ **`vEmissiveMapUv` had to be set alongside `vMapUv`** in the instancing patch. three declares
+    one varying per map slot, so binding `emissiveMap` without it leaves every sign glowing cell 0
+    of the atlas while its albedo shows the right name.
+- **Palette never normalized.** Raw eyeballed hex; **six of eight failed gate 4**. The maroon in the
+  screenshot measured **C\* 53.1 at L\* 32** — nearly double the highest material class. Re-derived
+  with a chroma ceiling of 42 (above `fabric`'s 30, since signage is deliberately an accent; far
+  below the raw 53–60) and an L\* floor off black, every entry ≤ ΔE 15. **Not** snapped to a surface
+  class: there is no signage class, and a sign's colour is its identity — the same reasoning that
+  stopped the shopfront plates being bleached to `facade` L\* 74. Green and burgundy sit in palette
+  hue gaps and needed a ±6° nudge to reach an anchor; both keep full chroma.
+- **A flat `fillRect` plus a 2 px stroke is a vector rectangle.** New `paintBoard()` adds a vertical
+  shade ramp (a fascia hangs under an awning: occluded top, bounce-lit bottom — the biggest single
+  cue), a bevel so the plate has thickness, seeded grain and corner grime, and a drop shadow so the
+  letters sit on the board. Cell resolution 256×64 → 384×96 (128 texels/m on a 3 m fascia), and the
+  atlas is mipmapped + anisotropic — unmipped text on a 3 m board seen from a moving car crawls.
+
+`frontend/test/shopSigns.test.js` pins all six.
