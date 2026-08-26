@@ -1789,3 +1789,9 @@ now understood.
   on 1.4/1.0 m gaps**, real portrait openings — and derived from the layer span, so they stay 1.1×2.0
   whatever the span becomes. With the geometry right the level lands at **0.85** against the old
   path's 1.5, i.e. ~43% dimmer than before rather than brighter.
+- **Window colour is now THREE DISCRETE BULBS, not a blend.** A continuous mix between two warm
+  colours reads as one hue however wide the range — every window came out the same warm cream.
+  Picking between separate stops is what makes a street look like different households with
+  different lamps. All three are from the art bible's §4.2 closed set: **N1 Sodium Amber** for the
+  orange end, a yellow between it and N3, and **N2 Warm LED** for the coolest.
+- `_ddWindowGlow` removed — bloom signed off at 0.85.

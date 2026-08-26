@@ -440,9 +440,8 @@ const WINDOW_MIN_BRIGHT = 0.30;
 // 0.85. The path this replaced ran `emissive 0xffffff` at `NIGHT_EMISSIVE_INTENSITY = 1.5`, so 1.35
 // was already BELOW it and still blew the city white — because bloom responds to AREA as much as to
 // level, and the boxes were panel-sized. With real 1.1 x 2.0 m openings the area is right, so the
-// level comes down to match the restrained look the old system had. Tunable: `_ddWindowGlow(s)`.
+// level comes down to match the restrained look the old system had. Signed off on screen.
 const _windowGlow = { x: 0.85, y: 0.85, z: 0.85 };
-const _windowGlowUniforms = [];
 
 // Day/night for the window grid. A float, not a bool, so it crosses over with the env transition
 // instead of popping — envToggle passes its lerp straight through.
@@ -463,19 +462,6 @@ if (typeof window !== 'undefined') {
    * The tint's HUE is always discarded: it is the flat colour the vertex path assigned, and
    * multiplying it into a normalized photographic facade is what made all eight variants read brown.
    */
-  /**
-   * `_ddWindowGlow(strength, r, g, b)` — night window radiance.
-   *
-   * It is RADIANCE, not a tint: bloom multiplies it, so a value that looks merely bright in
-   * isolation blows to pure white after the post chain. Default is N3 Window Warm (#FFDFA8) from the
-   * art bible's closed set of six night emissives, at 0.55.
-   */
-  window._ddWindowGlow = (strength = 0.55, r = 1.0, g = 0.874, b = 0.658) => {
-    _windowGlow.x = r * strength; _windowGlow.y = g * strength; _windowGlow.z = b * strength;
-    for (const u of _windowGlowUniforms) u.value = _windowGlow;
-    return `window glow ${strength} x (${r}, ${g}, ${b})  — bloom multiplies this, so go low`;
-  };
-
   window._ddFacadeTint = (amt, mean) => {
     _facadeTint.amt = amt ?? _facadeTint.amt;
     _facadeTint.mean = mean ?? _facadeTint.mean;
@@ -513,7 +499,6 @@ export function patchFacadeArrayMaterial(material, arrays) {
     shader.uniforms.uFacadeWindowGlow = { value: _windowGlow };
     shader.uniforms.uFacadeNight = { value: _facadeNightT };
     _facadeNightUniforms.push(shader.uniforms.uFacadeNight);
-    _windowGlowUniforms.push(shader.uniforms.uFacadeWindowGlow);
     shader.uniforms.uFacadeTintAmt = { value: _facadeTint.amt };
     // Mean luminance the per-building tints sit around. Dividing by it makes the tint modulate
     // AROUND 1.0 instead of darkening everything — the same correction uAsphaltGain needed.
@@ -593,10 +578,14 @@ export function patchFacadeArrayMaterial(material, arrays) {
         '  float box = step(wd.x, ' + (WINDOW_W / 2).toFixed(3) + ') * step(wd.y, ' + (WINDOW_H / 2).toFixed(3) + ');\n' +
         '  float lit = step(' + (1.0 - LIT_WINDOW_FRACTION).toFixed(2) + ', r1);\n' +
         // Warm amber to warm white — inside the art bible's N3 Window Warm family, never cool.
-        // Warmer at BOTH ends than the first pass. A city lit by neutral windows reads grey, and
-        // real interior light is tungsten/warm-LED — the art bible's N3 Window Warm family, never
-        // toward white. The cool end here is still warmer than the old warm end.
-        '  vec3 tone = mix(vec3(1.0, 0.66, 0.30), vec3(1.0, 0.84, 0.56), r2);\n' +
+        // THREE DISCRETE BULBS, not a blend. A continuous mix between two warm colours reads as one
+        // hue however wide the range — every window looked the same warm cream. Picking between
+        // separate stops is what makes a street look like different households with different lamps.
+        // All three are the art bible's own night emissives (§4.2 closed set): N1 Sodium Amber for
+        // the orange end, a yellow between it and N3 Window Warm, and N2 Warm LED for the coolest.
+        '  vec3 tone = r2 < 0.34 ? vec3(0.98, 0.72, 0.34)\n' +
+        '            : r2 < 0.70 ? vec3(1.00, 0.87, 0.42)\n' +
+        '                        : vec3(1.00, 0.91, 0.74);\n' +
         '  float bright = ' + WINDOW_MIN_BRIGHT.toFixed(2) + ' + ' + (1.0 - WINDOW_MIN_BRIGHT).toFixed(2) + ' * r3;\n' +
         // ⚠ GATED ON NIGHT EXPLICITLY. Writing totalEmissiveRadiance here BYPASSES
         // `emissiveIntensity`, which is what the day path sets to 0 — so without this the lit boxes
