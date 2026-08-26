@@ -2836,8 +2836,19 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         const bbEnd = Math.min(treeMaxDist + 300, FOG_FULL_DIST);
         const bbFrac = (nearEdgeDist <= bbStart || nearEdgeDist >= bbEnd) ? 0
           : 1 - (nearEdgeDist - bbStart) / (bbEnd - bbStart);
+        // Bushes fade FAR nearer than trees. They rode the tree band (full to TREE_FULL_DISTANCE,
+        // gone by TREE_MAX_DISTANCE), which is right for a 12 m plane tree and pure waste for a 1 m
+        // shrub: at 100 m a bush is a couple of pixels tall, and there are ~3,000 of them per tile
+        // against ~600 trees. As alpha-tested cards that is thousands of fragment-shaded quads
+        // contributing nothing, which is what made the street go heavy the moment bushes came on.
+        const bushFull = Math.min(treeFullDist, 45);
+        const bushMax = Math.min(treeMaxDist, 90);
+        const bushFrac = nearEdgeDist <= bushFull ? 1
+          : nearEdgeDist >= bushMax ? 0
+          : 1 - (nearEdgeDist - bushFull) / Math.max(1, bushMax - bushFull);
+
         for (const h of entry.vegPoolHandles) {
-          const f = h.kind === 'billboard' ? bbFrac : frac;
+          const f = h.kind === 'billboard' ? bbFrac : h.kind === 'bush' ? bushFrac : frac;
           const target = f <= 0 ? 0 : f >= 1 ? h.count : Math.max(1, Math.floor(f * h.count));
           h.pool.setVisibleCount(h, target);
         }

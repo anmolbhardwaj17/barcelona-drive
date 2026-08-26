@@ -1379,3 +1379,16 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
   mask (a road-EDGE test) but never got `isOnGroundRoad`, the road-SURFACE check trees have, so a
   bush could land on a crosswalk where a tree could not. That guard is now in `collectBushPositions`,
   which is what makes re-enabling defensible rather than hopeful.
+
+## 2026-08-26 — bush cards: size, colour and the lag they caused
+
+- **Bushes were sized and tinted for the BLOB.** `buildBushInstances` applies scale 0.6–1.5 × 0.7–1.2
+  and multiplies by flat `BUSH_TINTS` green — correct for a 0.76 × 0.5 m untextured dodecahedron,
+  wrong twice over for a card that is already real-size and already carries its own photographic,
+  normalized colour. Hedges came out ~2 m tall and dragged six species onto one dark hue that no
+  longer matched the trees beside them. Cards now jitter around 1.0 and take a BRIGHTNESS-only tint.
+  Same fix, same reasoning, as the cluster bushes.
+- **Bushes now fade at 45–90 m**, not on the tree band (`TREE_FULL_DISTANCE` → `TREE_MAX_DISTANCE`).
+  There are ~3,000 bushes per tile against ~600 trees, and a 1 m shrub at 100 m is a couple of
+  pixels — as alpha-tested cards that is thousands of fragment-shaded quads contributing nothing.
+  This is what made the street go heavy the moment bushes came on.

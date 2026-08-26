@@ -1744,7 +1744,23 @@ function buildShadowInstances(positions, getElev, vertExag) {
 /**
  * Build bush instance matrices + colors.
  */
-function buildBushInstances(positions, getElev, vertExag) {
+/**
+ * Bush instance matrices + per-instance tint.
+ *
+ * SCALE AND TINT BOTH DEPEND ON WHICH BUSH IS BEING DRAWN, and getting that wrong is not subtle.
+ *
+ * The blob is a ~0.76 m x 0.5 m dodecahedron cluster with no texture, so it needs a wide scale
+ * range to look varied and a green tint to look like a plant at all. A CARD is already authored at
+ * its real size (a clipped box is 0.8 m tall) and already carries its own photographic colour.
+ * Feeding the blob's numbers to a card gives two visible faults at once: hedges come out ~2 m tall
+ * because 1.5 x 1.2 compounds on top of a size that was already correct, and the flat dark-green
+ * BUSH_TINTS multiplies the photograph, dragging six normalized species onto one dark hue that no
+ * longer matches the trees beside them — which is exactly how it looked.
+ *
+ * So cards get scale jitter around 1.0 and a BRIGHTNESS-only tint. Same reasoning already applied
+ * to the cluster bushes in environmentClusterRenderer.
+ */
+function buildBushInstances(positions, getElev, vertExag, cards = false) {
   const count = positions.length;
   const matrices = new Float32Array(count * 16);
   const colors = new Float32Array(count * 3);
@@ -1752,21 +1768,26 @@ function buildBushInstances(positions, getElev, vertExag) {
   for (let i = 0; i < count; i++) {
     const p = positions[i];
     let y = getElev(p.x, p.y) * vertExag;
-    let s = 0.6 + seeded(i, 40) * 0.9;
+    // Cards are real-size already — jitter around 1.0. Blobs need the wide range to read as varied.
+    let s = cards ? (0.85 + seeded(i, 40) * 0.30) : (0.6 + seeded(i, 40) * 0.9);
     if (!Number.isFinite(y)) { y = 0; s = 0; } // out-of-tile → cull
     const rotY = seeded(i, 41) * Math.PI * 2;
-    const sy = 0.7 + seeded(i, 42) * 0.5;
-    const sx = 0.85 + seeded(i, 44) * 0.3;
+    const sy = cards ? (0.90 + seeded(i, 42) * 0.22) : (0.7 + seeded(i, 42) * 0.5);
+    const sx = cards ? (0.94 + seeded(i, 44) * 0.12) : (0.85 + seeded(i, 44) * 0.3);
 
     composeMatrixYRot(matrices, i * 16, p.x, y, p.y, rotY, s * sx, s * sy, s);
 
-    // Per-instance color
-    const tintIdx = Math.floor(seeded(i, 43) * BUSH_TINTS.length) % BUSH_TINTS.length;
-    const tint = BUSH_TINTS[tintIdx];
     const bright = 0.80 + seeded(i, 45) * 0.30;
-    colors[i * 3]     = tint[0] * bright;
-    colors[i * 3 + 1] = tint[1] * bright;
-    colors[i * 3 + 2] = tint[2] * bright;
+    if (cards) {
+      // Brightness only: the card already carries its species' normalized colour.
+      colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = bright;
+    } else {
+      const tintIdx = Math.floor(seeded(i, 43) * BUSH_TINTS.length) % BUSH_TINTS.length;
+      const tint = BUSH_TINTS[tintIdx];
+      colors[i * 3]     = tint[0] * bright;
+      colors[i * 3 + 1] = tint[1] * bright;
+      colors[i * 3 + 2] = tint[2] * bright;
+    }
   }
 
   return { matrices, colors, count };
@@ -1827,7 +1848,7 @@ function buildZoneShadowInstances(positions, scales, getElev, vertExag) {
 /**
  * Build zone bush instance matrices + colors.
  */
-function buildZoneBushInstances(positions, getElev, vertExag) {
+function buildZoneBushInstances(positions, getElev, vertExag, cards = false) {
   const count = positions.length;
   const matrices = new Float32Array(count * 16);
   const colors = new Float32Array(count * 3);
@@ -1836,17 +1857,23 @@ function buildZoneBushInstances(positions, getElev, vertExag) {
   for (let i = 0; i < count; i++) {
     const p = positions[i];
     let y = getElev(p.x, p.y) * vertExag;
-    let s = 0.6 + seeded(i, 440) * 0.8;
+    // Cards are real-size and carry their own colour — see buildBushInstances for why the blob's
+    // numbers must not be reused here.
+    let s = cards ? (0.85 + seeded(i, 440) * 0.30) : (0.6 + seeded(i, 440) * 0.8);
     if (!Number.isFinite(y)) { y = 0; s = 0; } // out-of-tile → cull
     const rotY = seeded(i, 441) * Math.PI * 2;
-    const sy = 0.8 + seeded(i, 442) * 0.4;
+    const sy = cards ? (0.90 + seeded(i, 442) * 0.22) : (0.8 + seeded(i, 442) * 0.4);
 
     composeMatrixYRot(matrices, i * 16, p.x, y, p.y, rotY, s, s * sy, s);
 
     const bright = 0.82 + seeded(i, 443) * 0.26;
-    colors[i * 3]     = baseCol[0] * bright;
-    colors[i * 3 + 1] = baseCol[1] * bright;
-    colors[i * 3 + 2] = baseCol[2] * bright;
+    if (cards) {
+      colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = bright;
+    } else {
+      colors[i * 3]     = baseCol[0] * bright;
+      colors[i * 3 + 1] = baseCol[1] * bright;
+      colors[i * 3 + 2] = baseCol[2] * bright;
+    }
   }
 
   return { matrices, colors, count };
@@ -1915,6 +1942,8 @@ export function processVegetationInWorker(data, config) {
 
   NUM_TREE_VARIANTS = Number.isInteger(config.NUM_TREE_VARIANTS) && config.NUM_TREE_VARIANTS > 0
     ? config.NUM_TREE_VARIANTS : TREE_VARIANTS.length;
+  // Bushes ride the same switch as trees (there is deliberately no separate flag).
+  const bushCards = config.TREE_CARDS !== false && NUM_TREE_VARIANTS === 6;
 
   const vertExag = config.ELEVATION_VERTICAL_EXAGGERATION != null &&
     Number.isFinite(config.ELEVATION_VERTICAL_EXAGGERATION)
@@ -2056,7 +2085,7 @@ export function processVegetationInWorker(data, config) {
 
   // Bush instances
   const bushInstances = bushPositions.length > 0
-    ? buildBushInstances(bushPositions, getElev, vertExag)
+    ? buildBushInstances(bushPositions, getElev, vertExag, bushCards)
     : { matrices: new Float32Array(0), colors: new Float32Array(0), count: 0 };
 
   // Zone tree variants
@@ -2107,7 +2136,7 @@ export function processVegetationInWorker(data, config) {
 
   // Zone bushes
   const zoneBushInstances = zoneBushPosArr.length > 0
-    ? buildZoneBushInstances(zoneBushPosArr, getElev, vertExag)
+    ? buildZoneBushInstances(zoneBushPosArr, getElev, vertExag, bushCards)
     : { matrices: new Float32Array(0), colors: new Float32Array(0), count: 0 };
 
   return {
