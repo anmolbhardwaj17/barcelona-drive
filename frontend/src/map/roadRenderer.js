@@ -42,6 +42,18 @@ const ROAD_OFFSET = 0.05;
 // lane arrows 1 cm above the road instead of 6 cm. The tuning history is preserved there.
 let _asphaltTex = null;   // v3 P3-07 — asphalt grain plate, resolved once per session
 let _asphaltGain = null;  // vec3(1/meanR, 1/meanG, 1/meanB) — see uAsphaltGain in roadMaterial.js
+let _asphaltRepeatM = 0;  // metres per repeat, taken from the plate's DECLARED (measured) span
+let _asphaltRepeatUniform = null;
+
+// Live knob — `window._ddAsphaltSpan(metres)`. The default is measured, not chosen: the bake reports
+// the grain size the span implies and warns when it leaves the physical band for the surface class.
+if (typeof window !== 'undefined') {
+  window._ddAsphaltSpan = (m) => {
+    if (!_asphaltRepeatUniform) return 'no road material yet — drive first';
+    _asphaltRepeatUniform.value = m;
+    return `asphalt span ${m} m -> aggregate ~${(11.7 * m / 2).toFixed(1)} mm (real is 5-15 mm)`;
+  };
+}
 
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
@@ -432,14 +444,21 @@ function patchRoadAO(mat, opts = {}) {
         const pack = getRoadSurface('asphalt_worn');
         _asphaltTex = pack.albedo;
         _asphaltGain = new THREE.Vector3(...pack.meanRGB.map((c) => 1 / Math.max(1e-4, c)));
+        // Span comes from the PLATE, not from a constant. It is a measured property of the texture —
+        // this plate's aggregate is 6 px of 1024, which is a 23 mm stone at the 4 m originally
+        // assumed and 11.7 mm at the 2 m the bake now declares. Real asphalt aggregate is 5-15 mm,
+        // and at 23 mm the carriageway read as gravel.
+        _asphaltRepeatM = pack.spanM;
       } catch {
         _asphaltTex = createAsphaltTexture(THREE);
         _asphaltGain = new THREE.Vector3(1, 1, 1);   // generator already centred — see uAsphaltGain
+        _asphaltRepeatM = ROAD_V2_UNIFORMS.uAsphaltRepeatM;
       }
     }
     shader.uniforms.uAsphalt = { value: _asphaltTex };
     shader.uniforms.uAsphaltGain = { value: _asphaltGain || new THREE.Vector3(1, 1, 1) };
-    shader.uniforms.uAsphaltRepeatM = { value: ROAD_V2_UNIFORMS.uAsphaltRepeatM };
+    shader.uniforms.uAsphaltRepeatM = { value: _asphaltRepeatM || ROAD_V2_UNIFORMS.uAsphaltRepeatM };
+    _asphaltRepeatUniform = shader.uniforms.uAsphaltRepeatM;
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',

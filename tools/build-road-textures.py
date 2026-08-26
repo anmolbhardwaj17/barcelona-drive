@@ -27,9 +27,13 @@ NORMALIZE_VERSION = 2
 
 #  name            size  spanM  class       anchor                 normal band  strength  note
 SURFACES = [
-    ('asphalt_worn',  1024, 4.0, 'asphalt',  'P8_carriageway_grey', 'ground',  5.0,
+    # 2.0 m, not the 4.0 first guessed. MEASURED: the plate's aggregate is 6 px of 1024, which at a
+    # 4 m span is a 23 mm stone, and real asphalt aggregate is 5-15 mm. It read as gravel. At 2 m the
+    # stone is 11.7 mm, mid-band. The cost is a repeat every 2 m instead of 4, which the macro wear
+    # and wheel ruts already break up and P3-07c's detail normal will break up further.
+    ('asphalt_worn',  1024, 2.0, 'asphalt',  'P8_carriageway_grey', 'ground',  5.0,
      'Worn carriageway - exposed aggregate, patching, tyre polish'),
-    ('asphalt_fresh', 1024, 4.0, 'asphalt',  'P8_carriageway_grey', 'ground',  4.0,
+    ('asphalt_fresh', 1024, 2.0, 'asphalt',  'P8_carriageway_grey', 'ground',  4.0,
      'Recently laid - tight aggregate still coated in binder'),
     # 0.40 m because the plate is a 2x2 of 20 cm panot tiles. Anything else and the Flor de Barcelona
     # comes out the wrong size, which is the one surface in the city everyone can measure by eye.
@@ -99,10 +103,20 @@ def main():
                 'rallyClipPct': round(stats['rally_clip_pct'], 3),
             },
         })
+        # GRAIN GATE. Span is a physical claim, so it gets checked like one — see measure_grain_mm
+        # for why this exists (the same span mistake shipped twice before anyone measured it).
+        grain_mm, grain_ok, grain_band = AN.check_grain(rgb, span, cls)
+        manifest['surfaces'][-1]['normalize']['grainMM'] = round(grain_mm, 1) if grain_mm else None
+        manifest['surfaces'][-1]['normalize']['grainBandPass'] = bool(grain_ok)
+        if not grain_ok:
+            print(f'    WARNING {name}: grain {grain_mm:.1f} mm at span {span} m is outside '
+                  f'{grain_band} mm for class {cls} — the span is probably wrong, not the plate')
+
         gate = 'OK ' if stats['gate4_pass'] else 'FAIL'
         print(f'  {name:<14} span {span:>4.2f}m  tile {raw_ratio:5.2f}->{ratio:4.2f} ({how})  '
               f'L* {stats["src_L_mean"]:5.1f}->{stats["L_mean"]:5.1f}  '
               f'C* {stats["src_C_mean"]:5.1f}->{stats["C_mean"]:4.1f}  '
+              f'grain {grain_mm:5.1f}mm{"" if grain_ok else " OUT"}  '
               f'|N.xy| {n_before:.3f}->{n_after:.3f}{"" if n_ok else " OUT-OF-BAND"}  '
               f'dE {stats["deltaE"]:5.2f} vs {stats["anchor"]:<20} {gate}')
 

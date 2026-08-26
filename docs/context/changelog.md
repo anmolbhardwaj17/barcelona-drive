@@ -1525,3 +1525,23 @@ think about it. An authored albedo sits at its class L* instead (**0.108 linear*
   Barcelona panot. (An autocorrelation peak at ~211 px suggested six repeats; that is the flower's
   petal structure, not the tile.) `window._ddPanotSpan(m)` exposes it live, because "physically
   correct" and "reads well from a camera three metres up" are different questions.
+
+## 2026-08-26 — span is a measured property, and now it is gated
+
+The same mistake shipped twice: kerb granite at a 1 m span (grain ~8 mm where granite is 1–3) and
+asphalt at 4 m (23 mm where aggregate is 5–15). Both times the plate was fine and the SPAN was a
+guess, and both times a human looking at a screenshot caught what is a one-line measurement.
+
+- **`artNormalize.measure_grain_mm()` / `check_grain()`** — isolates grain from large-scale mottling
+  with a high-pass (the asphalt plate measures 164 px unfiltered, obviously not a stone, and 6 px
+  once the low frequencies are out), converts to real millimetres at the declared span, and checks it
+  against a physical band per surface class. The bake **warns and records** `grainMM` /
+  `grainBandPass`; a test asserts every shipped surface passes.
+- **Asphalt span 4.0 m → 2.0 m** — measured, not chosen. Aggregate 23.4 mm → **11.7 mm**, mid-band.
+  Costs a repeat every 2 m instead of 4, which the macro wear and wheel ruts already break up and
+  P3-07c's detail normal will break up further. The renderer now takes the span from the plate rather
+  than the `uAsphaltRepeatM` constant.
+- **Sidewalk grain band widened (1,4) → (1,6) on evidence, not to silence the warning.** The panot
+  measures 4.7 mm and its span is independently confirmed twice: grout lines at 0/625/1250 px of
+  1254 (exactly two 20 cm tiles), and signed off by eye in game. Concrete fines at ~5 mm are real.
+- `window._ddAsphaltSpan(m)` and `window._ddPanotSpan(m)` tune both live.

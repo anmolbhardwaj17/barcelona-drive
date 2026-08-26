@@ -5,7 +5,7 @@ export default {
     {
       "name": "asphalt_worn",
       "size": 1024,
-      "spanM": 4.0,
+      "spanM": 2.0,
       "note": "Worn carriageway - exposed aggregate, patching, tyre polish",
       "meanLuma": 0.10787,
       "meanRGB": [
@@ -30,13 +30,15 @@ export default {
         "normalMeanXY": 0.16,
         "normalBandPass": true,
         "normalSource": "luminance-derived (AD-1a: photoscan is the upgrade)",
-        "rallyClipPct": 0.0
+        "rallyClipPct": 0.0,
+        "grainMM": 11.7,
+        "grainBandPass": true
       }
     },
     {
       "name": "asphalt_fresh",
       "size": 1024,
-      "spanM": 4.0,
+      "spanM": 2.0,
       "note": "Recently laid - tight aggregate still coated in binder",
       "meanLuma": 0.10756,
       "meanRGB": [
@@ -61,7 +63,9 @@ export default {
         "normalMeanXY": 0.16,
         "normalBandPass": true,
         "normalSource": "luminance-derived (AD-1a: photoscan is the upgrade)",
-        "rallyClipPct": 0.0
+        "rallyClipPct": 0.0,
+        "grainMM": 11.7,
+        "grainBandPass": true
       }
     },
     {
@@ -92,7 +96,9 @@ export default {
         "normalMeanXY": 0.25,
         "normalBandPass": true,
         "normalSource": "luminance-derived (AD-1a: photoscan is the upgrade)",
-        "rallyClipPct": 0.005
+        "rallyClipPct": 0.005,
+        "grainMM": 4.7,
+        "grainBandPass": true
       }
     }
   ]

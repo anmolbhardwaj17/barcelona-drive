@@ -327,7 +327,14 @@ test('every road surface declares a span, and the spans are physically sane', ()
   const panot = m.surfaces.find((s) => s.name === 'panot');
   // A 2x2 of 20 cm tiles. If this drifts, the flower is the wrong size on every pavement.
   assert.ok(Math.abs(panot.spanM - 0.4) < 1e-6, 'panot spans exactly two 20 cm tiles');
+  // Span is MEASURED, not chosen: the bake reports the grain size each span implies and gates it
+  // against a physical band per surface class. Asphalt went 4.0 -> 2.0 m because at 4 m the plate's
+  // aggregate works out to a 23 mm stone and real asphalt aggregate is 5-15 mm — it read as gravel.
+  for (const s of m.surfaces) {
+    assert.equal(s.normalize.grainBandPass, true,
+      `${s.name}: grain ${s.normalize.grainMM} mm is physically sane at span ${s.spanM} m`);
+  }
   for (const a of m.surfaces.filter((s) => s.name.startsWith('asphalt'))) {
-    assert.equal(a.spanM, 4.0, 'asphalt span matches the shader uAsphaltRepeatM');
+    assert.equal(a.spanM, 2.0, 'asphalt span is the measured 2.0 m');
   }
 });

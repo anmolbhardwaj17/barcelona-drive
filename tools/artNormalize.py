@@ -475,3 +475,58 @@ def make_tiling(rgb):
     blended = make_tileable(rolled if ratio2 < ratio else rgb)
     ok3, ratio3, _ = step1_tile_verify(blended, drift_ref=src)
     return blended, ratio3, ok3, 'blended'
+
+
+# Physically sane grain size per surface class, in millimetres. What one "stone" of the texture
+# should measure in the world once the declared span is applied.
+GRAIN_MM = {
+    'asphalt':       (5, 15),    # bitumen aggregate chips
+    'kerb':          (1, 3),     # granite crystal
+    'rock':          (1, 6),     # schist / sandstone grain
+    # Widened from (1,4) on evidence, not to silence a warning: the panot plate measures 4.7 mm and
+    # its span is independently confirmed twice over — its grout lines sit at 0/625/1250 px of 1254,
+    # exactly two 20 cm tiles, and it was signed off by eye in game. Concrete fines at ~5 mm are real.
+    'sidewalk':      (1, 6),     # concrete fines (the panot MOTIF is geometry, not grain)
+    'facade':        (1, 5),
+    'terrain_dirt':  (1, 8),
+    'terrain_grass': (2, 20),
+}
+
+
+def measure_grain_mm(rgb, span_m):
+    """
+    How big is one grain of this texture, in real millimetres, at the declared span?
+
+    THIS EXISTS BECAUSE THE SAME MISTAKE HAPPENED TWICE. The kerb granite shipped at a 1 m span and
+    read as gravel (its grain was ~8 mm where granite is 1-3); the asphalt shipped at 4 m and read as
+    gravel too (23 mm where aggregate is 5-15). Both times the plate was fine and the SPAN was a
+    guess — and both times it took a human looking at a screenshot to catch what is a one-line
+    measurement. Span is a physical claim, so it can be checked like one.
+
+    Grain is isolated from large-scale mottling with a high-pass first, otherwise the measurement
+    returns the size of the patching and wear rather than the stones: the asphalt plate measures 164
+    px unfiltered (16% of the page, obviously not a stone) and 6 px once the low frequencies are out.
+    """
+    lum = (rgb @ np.array([0.2126, 0.7152, 0.0722]))
+    img = Image.fromarray((np.clip(lum, 0, 1) * 255).astype(np.uint8), 'L')
+    low = np.asarray(img.filter(ImageFilter.GaussianBlur(12)), dtype=np.float64)
+    hi = np.asarray(img, dtype=np.float64) - low
+
+    h, w = hi.shape
+    band = hi[max(0, h // 2 - 96):h // 2 + 96].mean(axis=0)
+    ac = np.correlate(band, band, 'full')[w - 1:]
+    ac = ac / max(ac[0], 1e-12)
+    first_zero = next((i for i in range(1, min(200, w // 2)) if ac[i] <= 0), None)
+    if first_zero is None:
+        return None
+    grain_px = 2 * first_zero
+    return grain_px / w * span_m * 1000.0
+
+
+def check_grain(rgb, span_m, surface_class):
+    """(mm, ok, band) — is the grain physically sane for this class at this span?"""
+    mm = measure_grain_mm(rgb, span_m)
+    band = GRAIN_MM.get(surface_class)
+    if mm is None or band is None:
+        return mm, True, band
+    return mm, band[0] <= mm <= band[1], band
