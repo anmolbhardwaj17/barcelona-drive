@@ -2,6 +2,7 @@
  * Create Three.js scene, camera, renderer, lights, and cannon-es ground.
  */
 import * as THREE from 'three';
+import { getKTX2TextureSync, initAssetRegistry } from './loaders.js';
 import { setFacadeArrayRenderer } from './map/facadeArray.js';   // v3 P3-05
 import { patchMaterial } from './map/materialRegistry.js';   // v3 P1-03
 import { QUALITY } from './quality.js';   // v3 P1-08
@@ -547,6 +548,11 @@ export function createScene(container) {
   // pick a target format, and createFacadeArrays runs lazily on the first tile build — which can
   // easily precede the boot warm-up. Passing it here removes the race rather than widening it.
   try { setFacadeArrayRenderer(renderer); } catch { /* facadeArray not loaded in this context */ }
+  // The asset registry MUST be initialised here, not by main.js after createScene returns: the sky
+  // dome below loads its cloud maps through getKTX2TextureSync, and KTX2Loader cannot choose a
+  // transcode target before detectSupport(renderer). main.js still calls this — it is idempotent
+  // (it early-returns once _renderer is set) — but by then createScene has already needed it.
+  try { initAssetRegistry(renderer); } catch { /* registry unavailable in this context */ }
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap: DPR 2 = 4× the fragments everywhere
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -663,18 +669,15 @@ export function createScene(container) {
   // Cloud layers, loaded async and assigned now: three fills the image in later and re-uploads,
   // and the sampler slots already exist, so nothing recompiles (G-53).
   {
-    const ld = new THREE.TextureLoader();
     for (const [key, file] of [['uCloudDay', 'sky_clouds_day'], ['uCloudNight', 'sky_clouds_night']]) {
-      const t = ld.load(`/textures/sky/${file}.png`);
-      t.colorSpace = THREE.SRGBColorSpace;
-      // Longitude WRAPS, latitude must CLAMP. Repeat on T would fold the zenith round to the nadir.
-      t.wrapS = THREE.RepeatWrapping;
-      t.wrapT = THREE.ClampToEdgeWrapping;
-      t.minFilter = THREE.LinearMipmapLinearFilter;
-      t.magFilter = THREE.LinearFilter;
-      t.generateMipmaps = true;
-      t.anisotropy = 4;
-      skyMat.uniforms[key].value = t;
+      // KTX2 (v3 P3-GATE-01): 21.3 MiB of RGBA8 sky became 5.4 MiB. UASTC, not ETC1S — the alpha
+      // here is the cloud MASK, and ETC1S's palette quantisation bands a mask visibly against a
+      // smooth sky gradient. Mips and filters arrive baked in the file.
+      // Longitude WRAPS, latitude must CLAMP — repeat on T folds the zenith round to the nadir.
+      skyMat.uniforms[key].value = getKTX2TextureSync(`/textures/sky/${file}.ktx2`, {
+        srgb: true, aniso: 4,
+        wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping,
+      });
     }
   }
   // v3 P0-13b: draw the dome LAST among opaques. It is a 40 km sphere with depthWrite:false, so

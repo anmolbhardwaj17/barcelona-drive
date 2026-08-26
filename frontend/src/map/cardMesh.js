@@ -9,6 +9,7 @@
  * (cardAtlas.py, assembleRings).
  */
 import * as THREE from 'three';
+import { getKTX2TextureSync } from '../loaders.js';
 
 // Where the canopy mass sits, as a fraction of card height — the origin of the dome normals.
 const CANOPY_CENTRE_Y = 0.62;
@@ -75,21 +76,15 @@ export function buildCardGeometry(species) {
 
 /** Load an atlas pair with the filtering every card atlas needs. */
 export function loadCardAtlas(albedoUrl, normalUrl) {
-  const loader = new THREE.TextureLoader();
-  // Loaded async, assigned NOW: three fills the image in later and simply re-uploads. It does not
-  // recompile the program, because the map/normalMap slots are already declared on the material —
-  // which is what keeps this clear of G-53 (no shader churn after the boot warm-up).
-  const albedo = loader.load(albedoUrl);
-  albedo.colorSpace = THREE.SRGBColorSpace;
-  const normal = loader.load(normalUrl);
-  normal.colorSpace = THREE.NoColorSpace;   // a normal map is data, not colour
-  for (const t of [albedo, normal]) {
-    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;   // an atlas must never wrap into its neighbour
-    t.generateMipmaps = true;
-    t.minFilter = THREE.LinearMipmapLinearFilter;
-    t.magFilter = THREE.LinearFilter;
-    t.anisotropy = 4;                                 // canopies are viewed at grazing angles
-  }
+  // KTX2 (v3 P3-GATE-01). Same synchronous shape as the TextureLoader this replaced — the handle is
+  // returned now and filled when the fetch lands — so the memoized getters that share these atlases
+  // (the card material AND the billboard impostors) are unchanged.
+  //
+  // Mip chain, filters and generateMipmaps are NOT set here any more: they arrive baked in the KTX2
+  // (`basisu -mipmap`), and asking three to generate mips for a compressed texture is a no-op at
+  // best. Sampler policy (colorSpace / wrap / anisotropy) is owned by applySamplerPolicy.
+  const albedo = getKTX2TextureSync(albedoUrl, { srgb: true,  tiling: false, aniso: 4 });
+  const normal = getKTX2TextureSync(normalUrl, { srgb: false, tiling: false, aniso: 4 });
   _allCardTextures.push(albedo, normal);
   return { albedo, normal };
 }

@@ -3,6 +3,7 @@
  * Shared material with railway_01 texture. Layer-based elevation. No shadows.
  */
 import * as THREE from 'three';
+import { getKTX2TextureSync } from '../loaders.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon } from '../projection.js';
@@ -148,39 +149,29 @@ export function createTramMeshes(railways, options) {
   return mesh;
 }
 
-const RAILWAY_TEXTURE_BASE = '/textures/railway/railway_01';
-const RAILWAY_EXTENSIONS = ['.png', '.jpg'];
-const railwayTextureLoader = new THREE.TextureLoader();
+const RAILWAY_TEXTURE = '/textures/railway/railway_01.ktx2';
 let sharedRailwayMaterial = null;
 
-/** Single shared railway material with texture. Tries .png then .jpg. */
+/**
+ * Single shared railway material. KTX2 (v3 P3-GATE-01): 5.3 MiB of RGBA8 became 0.7 MiB of BC1.
+ *
+ * The map is assigned AT CONSTRUCTION now, not inside a load callback. Adding `map` to a material
+ * that was built with `map: null` changes the shader defines and forces a recompile — mid-drive,
+ * which is exactly the stall G-53 is about. The handle exists immediately even though its data does
+ * not, so the define is right from the first compile.
+ *
+ * The old .png -> .jpg extension fallback is gone with it: there is one encoded file, and a missing
+ * one should be a console error from the loader rather than a silent second guess.
+ */
 function getRailwayMaterial() {
   if (sharedRailwayMaterial) return sharedRailwayMaterial;
   sharedRailwayMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    map: null,
+    map: getKTX2TextureSync(RAILWAY_TEXTURE, { srgb: true, tiling: true, aniso: 8 }),
     roughness: 0.7,
     metalness: 0.1,
     depthWrite: true,
   });
-  let tried = 0;
-  function tryLoad() {
-    if (tried >= RAILWAY_EXTENSIONS.length) return;
-    const path = RAILWAY_TEXTURE_BASE + RAILWAY_EXTENSIONS[tried++];
-    railwayTextureLoader.load(
-      path,
-      (t) => {
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.colorSpace = THREE.SRGBColorSpace;
-        sharedRailwayMaterial.map = t;
-        sharedRailwayMaterial.needsUpdate = true;
-
-      },
-      undefined,
-      () => tryLoad()
-    );
-  }
-  tryLoad();
   return sharedRailwayMaterial;
 }
 

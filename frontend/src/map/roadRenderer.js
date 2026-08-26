@@ -4,6 +4,7 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
+import { getKTX2TextureSync } from '../loaders.js';
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -280,18 +281,10 @@ function getPanotMaterial() {
  */
 function getCurbMaterial() {
   if (_curbMaterial) return _curbMaterial;
-  const loader = new THREE.TextureLoader();
-  const albedo = loader.load('/textures/road/kerb_granite_albedo.png');
-  const normal = loader.load('/textures/road/kerb_granite_normal.png');
-  albedo.colorSpace = THREE.SRGBColorSpace;
-  normal.colorSpace = THREE.NoColorSpace;
-  for (const t of [albedo, normal]) {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;   // tiling surface, unlike the atlases
-    t.generateMipmaps = true;
-    t.minFilter = THREE.LinearMipmapLinearFilter;
-    t.magFilter = THREE.LinearFilter;
-    t.anisotropy = 4;                           // a kerb is nearly always seen at a grazing angle
-  }
+  // KTX2 (v3 P3-GATE-01). Mips/filters arrive baked in the file; sampler policy is the registry's.
+  // aniso 4: a kerb is nearly always seen at a grazing angle.
+  const albedo = getKTX2TextureSync('/textures/road/kerb_granite_albedo.ktx2', { srgb: true,  tiling: true, aniso: 4 });
+  const normal = getKTX2TextureSync('/textures/road/kerb_granite_normal.ktx2', { srgb: false, tiling: true, aniso: 4 });
 
   _curbMaterial = new THREE.MeshLambertMaterial({ map: albedo, normalMap: normal });
   // AD-5: the normal is calibrated at bake into the §3.7 masonry band, so 1.0 is correct here.

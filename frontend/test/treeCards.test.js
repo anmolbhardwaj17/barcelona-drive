@@ -380,7 +380,9 @@ test('P3-11: the sky dome has a night key and draws before the stars', () => {
   // Equirect lookup must be periodic in longitude and clamped in latitude — RepeatWrapping on T
   // would fold the zenith around to the nadir.
   assert.ok(/atan\(dir\.z, dir\.x\)/.test(sc), 'longitude from atan — periodic, so the seam is exact');
-  assert.ok(/wrapT = THREE\.ClampToEdgeWrapping/.test(sc), 'latitude clamps rather than wrapping');
+  // Matches both `wrapT = THREE.ClampToEdgeWrapping` and the sampler-policy form
+  // `wrapT: THREE.ClampToEdgeWrapping` the KTX2 conversion moved it to (v3 P3-GATE-01).
+  assert.ok(/wrapT\s*[:=]\s*THREE\.ClampToEdgeWrapping/.test(sc), 'latitude clamps rather than wrapping');
 
   // The gradient must remain the authority on the colour of the air, or dawn/dusk stops working.
   assert.ok(/color = mix\(color, cl\.rgb, cl\.a \* uCloudAmt\)/.test(sc),

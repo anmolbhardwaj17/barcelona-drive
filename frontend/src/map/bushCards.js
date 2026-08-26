@@ -19,8 +19,8 @@ import { buildCardGeometry, loadCardAtlas } from './cardMesh.js';
 import { patchCardFaceDirection, onCardNightTint, CARD_NIGHT_TINT, NIGHT_LIGHT_FRACTION } from './treeCards.js';
 import MANIFEST from './bushAtlas.js';
 
-const ATLAS_ALBEDO = '/textures/vegetation/bush_atlas_albedo.png';
-const ATLAS_NORMAL = '/textures/vegetation/bush_atlas_normal.png';
+const ATLAS_ALBEDO = '/textures/vegetation/bush_atlas_albedo.ktx2';
+const ATLAS_NORMAL = '/textures/vegetation/bush_atlas_normal.ktx2';
 
 export const BUSH_CARD_SPECIES = MANIFEST.species;
 export const BUSH_CARD_COUNT = MANIFEST.species.length;

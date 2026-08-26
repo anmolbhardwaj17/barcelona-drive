@@ -108,14 +108,45 @@ export function getKTX2Texture(url, opts = {}) {
 }
 
 /** The ONE place sampler state is decided. Never set these at a call site. */
-export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso } = {}) {
+export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso, wrapS, wrapT } = {}) {
   if (!tex) return tex;
   tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  tex.wrapS = tex.wrapT = tiling ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  // `tiling` sets both axes; wrapS/wrapT override one axis each. The equirectangular sky needs the
+  // asymmetric case — longitude WRAPS, latitude must CLAMP, and repeating T folds the zenith round
+  // to the nadir. It belongs here rather than at the call site because getKTX2TextureSync copies
+  // the loaded texture over the returned handle, so anything set at a call site is clobbered.
+  const dflt = tiling ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  tex.wrapS = wrapS ?? dflt;
+  tex.wrapT = wrapT ?? dflt;
   tex.anisotropy = Math.min(aniso ?? 8, _maxAniso);
   // NOTE: flipY is deliberately NOT touched for compressed textures — WebGL ignores
   // UNPACK_FLIP_Y_WEBGL for them, so it must be handled at ENCODE time, not here.
   tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * KTX2 with the SYNCHRONOUS shape of `TextureLoader.load()` — returns a texture handle NOW and
+ * fills it when the fetch lands.
+ *
+ * WHY THIS AND NOT `await getKTX2Texture`. Every world-texture call site in this codebase assigns
+ * to a material field on the line it loads (`mat.map = load(...)`), because that is what
+ * TextureLoader has always allowed — it too returns an empty Texture and populates it later. Making
+ * those sites async would ripple through memoized module-level getters that several consumers share
+ * (the tree atlas is held by the card material AND the billboard impostors). This keeps the shape.
+ *
+ * `copy()` carries `source` across, so the populated handle shares the GPU upload with the cached
+ * texture rather than duplicating it — the whole point of the exercise is VRAM.
+ *
+ * Constructed as a CompressedTexture so `isCompressedTexture` is true from the start: three checks
+ * that flag to pick the upload path, and a plain Texture that later receives compressed mip data
+ * takes the wrong one.
+ */
+export function getKTX2TextureSync(url, opts = {}) {
+  const tex = new THREE.CompressedTexture();
+  getKTX2Texture(url, opts)
+    .then((loaded) => { tex.copy(loaded); tex.needsUpdate = true; })
+    .catch((e) => console.error('[assets] KTX2 load failed for %s', url, e));
   return tex;
 }
 

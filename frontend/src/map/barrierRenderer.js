@@ -18,6 +18,7 @@
  *   • Depth write enabled — decals placed at +0.01 offset will render cleanly on top.
  */
 import * as THREE from 'three';
+import { getKTX2TextureSync } from '../loaders.js';
 import * as CANNON from 'cannon-es';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -98,18 +99,10 @@ function getWallTexMat() {
   });
   _wallMat.userData.sharedMaterial = true;
 
-  new THREE.TextureLoader().load(
-    '/textures/wall/wall_01.jpg',
-    (tex) => {
-      tex.wrapS    = THREE.RepeatWrapping;
-      tex.wrapT    = THREE.RepeatWrapping;
-      tex.colorSpace = THREE.SRGBColorSpace;
-      _wallMat.map = tex;
-      _wallMat.needsUpdate = true;
-    },
-    undefined,
-    () => { /* file not present yet — fallback color stays */ },
-  );
+  // KTX2 (v3 P3-GATE-01). Assigned here rather than in a load callback: giving a material a `map`
+  // it was not built with changes the defines and forces a mid-drive recompile (G-53). The handle
+  // is valid immediately; only its pixels arrive later.
+  _wallMat.map = getKTX2TextureSync('/textures/wall/wall_01.ktx2', { srgb: true, tiling: true, aniso: 8 });
 
   return _wallMat;
 }

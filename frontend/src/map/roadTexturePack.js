@@ -14,19 +14,18 @@
  */
 import * as THREE from 'three';
 import MANIFEST from './roadTextures.js';
+import { getKTX2TextureSync } from '../loaders.js';
 
 const BASE = '/textures/road';
 const _cache = new Map();
 const _all = [];
 
 function load(url, srgb) {
-  const t = new THREE.TextureLoader().load(url);
-  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;   // tiling surfaces, unlike the cutout atlases
-  t.generateMipmaps = true;
-  t.minFilter = THREE.LinearMipmapLinearFilter;
-  t.magFilter = THREE.LinearFilter;
-  t.anisotropy = 8;   // roads are seen at the most grazing angle of anything in the game
+  // KTX2 (v3 P3-GATE-01): 31.8 MiB of road PNG became 6.0 MiB of BC1/BC7. Filters and mips arrive
+  // baked in the file; wrap/anisotropy/colorSpace stay with applySamplerPolicy. Anisotropy 8 is the
+  // ask, not the grant — roads are seen at the most grazing angle of anything in the game, and the
+  // registry clamps to the hardware maximum.
+  const t = getKTX2TextureSync(url, { srgb, tiling: true, aniso: 8 });
   _all.push(t);
   return t;
 }
@@ -37,8 +36,8 @@ export function getRoadSurface(name) {
   const spec = MANIFEST.surfaces.find((s) => s.name === name);
   if (!spec) throw new Error(`[roadTexturePack] unknown surface "${name}"`);
   const pack = {
-    albedo: load(`${BASE}/${name}_albedo.png`, true),
-    normal: load(`${BASE}/${name}_normal.png`, false),
+    albedo: load(`${BASE}/${name}_albedo.ktx2`, true),
+    normal: load(`${BASE}/${name}_normal.ktx2`, false),
     spanM: spec.spanM,
     // Mean linear luminance. Needed wherever the plate is used as a MULTIPLIER rather than a base
     // albedo — divide by it and the texture modulates around 1.0 instead of darkening by ~9x.

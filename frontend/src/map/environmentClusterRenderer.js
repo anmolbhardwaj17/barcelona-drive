@@ -57,8 +57,8 @@ function getRockGeometry() {
 function getRockMaterial() {
   if (_rockMat) return _rockMat;
   const { albedo, normal } = loadCardAtlas(
-    '/textures/vegetation/rock_atlas_albedo.png',
-    '/textures/vegetation/rock_atlas_normal.png');
+    '/textures/vegetation/rock_atlas_albedo.ktx2',
+    '/textures/vegetation/rock_atlas_normal.ktx2');
   _rockMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: albedo, normalMap: normal });
   // AD-5: the normal map is calibrated at bake into the §3.7 masonry band, so 1.0 is correct.
   _rockMat.normalScale = new THREE.Vector2(1.0, 1.0);

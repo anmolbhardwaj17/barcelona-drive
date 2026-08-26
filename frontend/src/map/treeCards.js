@@ -32,8 +32,8 @@ import { injectTreeWind } from './treeWind.js';
 import { buildCardGeometry, loadCardAtlas, CARD_GEOMETRY_CONSTANTS } from './cardMesh.js';
 import MANIFEST from './treeAtlas.js';
 
-const ATLAS_ALBEDO = '/textures/vegetation/tree_atlas_albedo.png';
-const ATLAS_NORMAL = '/textures/vegetation/tree_atlas_normal.png';
+const ATLAS_ALBEDO = '/textures/vegetation/tree_atlas_albedo.ktx2';
+const ATLAS_NORMAL = '/textures/vegetation/tree_atlas_normal.ktx2';
 
 /** The six species, in atlas cell order. Index === the variant index the worker buckets by. */
 export const TREE_CARD_SPECIES = MANIFEST.species;
