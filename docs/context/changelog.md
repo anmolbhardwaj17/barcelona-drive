@@ -1353,3 +1353,7 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
 - **`cardMesh.js`** now holds the crossed-quad geometry, dome normals and atlas loading, shared by
   trees and bushes; `treeCards` was rewritten onto it with tests green throughout.
 - Tests 170 → 172.
+- **Generated scatter no longer double-plants mapped forest.** Now that greens relations reach the
+  tiles, `collectZoneVegetation` plants them at their own per-type density (forest = 1/25 m², cap
+  600). The wild scatter exists to fill ground OSM says nothing about, so it now skips anything
+  inside a greens polygon — otherwise a mapped wood carried ~2,200 trees where it should carry 600.

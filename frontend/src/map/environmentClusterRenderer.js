@@ -278,6 +278,29 @@ function standDensity(x, z, scale) {
  * margin ~20,000 cell reads per candidate — thousands of candidates per tile makes that unaffordable.
  * The ring can miss a thin spur poking into the circle; the per-item checks downstream catch those.
  */
+/** Point-in-polygon with a bbox prefilter — greens are few per tile but can be large. */
+function insideAnyGreen(greens, x, z) {
+  for (let g = 0; g < greens.length; g++) {
+    const poly = greens[g].polygon;
+    if (!poly || poly.length < 3) continue;
+    let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const px = poly[i][0] ?? poly[i].x, pz = poly[i][1] ?? poly[i].y;
+      if (px < mnX) mnX = px; if (px > mxX) mxX = px;
+      if (pz < mnZ) mnZ = pz; if (pz > mxZ) mxZ = pz;
+    }
+    if (x < mnX || x > mxX || z < mnZ || z > mxZ) continue;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0] ?? poly[i].x, zi = poly[i][1] ?? poly[i].y;
+      const xj = poly[j][0] ?? poly[j].x, zj = poly[j][1] ?? poly[j].y;
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    if (inside) return true;
+  }
+  return false;
+}
+
 function isOpenGround(vegMask, x, z) {
   if (!vegMask) return true;
   if (!isVegetationAllowed(vegMask, x, z, 6)) return false;
@@ -346,6 +369,7 @@ function findClusterCenters(tileData, tileKey, vegMask) {
   if (!bbox) return [];
 
   const buildings = tileData.buildings || [];
+  const greens = tileData.greens || [];
   const centers = [];
   const globalSeed = ((tileKey || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0) * 17) + 41;
 
@@ -369,7 +393,12 @@ function findClusterCenters(tileData, tileKey, vegMask) {
     // Open ground clumps: two noise octaves gate acceptance, so a slope grows dense stands with
     // clearings between them. A flat probability would carpet the hill evenly, which reads as a
     // texture rather than a forest — the clearings are what make the stands look placed.
-    const open = isOpenGround(vegMask, x, z);
+    // Open ground the MAP already describes belongs to the zone system, not to this one.
+    // collectZoneVegetation plants greens polygons at their own per-type density (forest is
+    // 1/25 m², cap 600), so generating woodland there as well would double-plant every mapped
+    // wood — roughly 2,200 trees on a tile that should carry 600. The generated scatter exists to
+    // fill ground OSM says nothing about, which is exactly the ground outside those polygons.
+    const open = !insideAnyGreen(greens, x, z) && isOpenGround(vegMask, x, z);
     if (open) {
       const d = standDensity(x, z, 140) * 0.7 + standDensity(x, z, 45) * 0.3;
       if (seeded(idx, globalSeed + 3) > d * 1.25) continue;
