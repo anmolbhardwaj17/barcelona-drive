@@ -229,13 +229,25 @@ export function getTreeCardMaterial() {
 // texel's own colour, dark leaves stay dark, gaps stay gaps, and the canopy keeps its structure.
 // Because the map is multiplied in, the scalar has to be larger than an unmodulated one would be —
 // mean foliage albedo is ~0.25 linear, so the net lift is roughly a quarter of the number below.
-const CARD_NIGHT_EMISSIVE = [0.115, 0.135, 0.120];
+const CARD_NIGHT_EMISSIVE = [0.042, 0.050, 0.044];
+
+// Night also DARKENS the albedo. Cancelling the double-sided flip (patchCardFaceDirection) was
+// correct but it lit the back half of every canopy that used to fall dark, so the cards got
+// materially brighter at exactly the moment the lift landed — the two changes compounded and the
+// trees read as daylit foliage in a night scene. This tint pulls the lit response back down; the
+// emissive above then sets the floor so they do not go black.
+const CARD_NIGHT_TINT = [0.55, 0.62, 0.56];
 
 let _cardNight = false;
 function _applyCardNight(m) {
   if (!m) return;
-  if (_cardNight) m.emissive.setRGB(...CARD_NIGHT_EMISSIVE);
-  else m.emissive.setRGB(0, 0, 0);
+  if (_cardNight) {
+    m.emissive.setRGB(...CARD_NIGHT_EMISSIVE);
+    m.color.setRGB(...CARD_NIGHT_TINT);
+  } else {
+    m.emissive.setRGB(0, 0, 0);
+    m.color.setRGB(1, 1, 1);
+  }
 }
 
 /**
@@ -247,11 +259,14 @@ function _applyCardNight(m) {
  * number and it becomes the default. Dev convenience only — it changes one uniform, nothing else.
  */
 if (typeof window !== 'undefined') {
-  window._ddTreeNight = (scale = 1) => {
+  window._ddTreeNight = (emissiveScale = 1, tintScale = 1) => {
     if (!_material) return 'no card material yet — drive first';
-    const e = CARD_NIGHT_EMISSIVE.map((c) => c * scale);
+    const e = CARD_NIGHT_EMISSIVE.map((c) => c * emissiveScale);
+    const t = CARD_NIGHT_TINT.map((c) => Math.min(1, c * tintScale));
     _material.emissive.setRGB(...e);
-    return `emissive ${e.map((c) => c.toFixed(4)).join(', ')}  (scale ${scale})`;
+    _material.color.setRGB(...t);
+    return `emissive ${e.map((c) => c.toFixed(4)).join(', ')} (x${emissiveScale})  ·  ` +
+           `tint ${t.map((c) => c.toFixed(3)).join(', ')} (x${tintScale})`;
   };
 }
 
@@ -267,5 +282,5 @@ export function setTreeCardNightMode(isNight) {
 
 /** Test/debug seam. */
 export function _cardInternals() {
-  return { CARD_ALPHA_TEST, CANOPY_CENTRE_Y, DOME_UP_BIAS, FACE_DIRECTION_SRC, NORMAL_CHUNK_INCLUDE, CARD_NIGHT_EMISSIVE };
+  return { CARD_ALPHA_TEST, CANOPY_CENTRE_Y, DOME_UP_BIAS, FACE_DIRECTION_SRC, NORMAL_CHUNK_INCLUDE, CARD_NIGHT_EMISSIVE, CARD_NIGHT_TINT };
 }

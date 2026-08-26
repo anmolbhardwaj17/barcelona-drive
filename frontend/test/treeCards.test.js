@@ -190,6 +190,13 @@ test('night lift uses emissive, and stays below the lit facades behind it', () =
     assert.ok(c > 0, 'night emissive actually lifts');
     assert.ok(c < 0.15, 'night emissive stays a silhouette, not a light source');
   }
+  // The albedo tint is the second lever: cancelling the double-sided flip lit the back half of
+  // every canopy, so the cards got brighter at the same moment the lift landed. Tint pulls the lit
+  // response down, emissive sets the floor. Both must be < 1 or night is brighter than day.
+  const t = _cardInternals().CARD_NIGHT_TINT;
+  assert.equal(t.length, 3);
+  for (const c of t) assert.ok(c > 0 && c < 1, 'night tint darkens without crushing');
+
   const src = fs.readFileSync('src/map/treeCards.js', 'utf8');
   assert.ok(/setTreeCardNightMode/.test(src), 'night switch is exported');
   // G-53: the day/night SWITCH itself must only move a uniform. emissiveMap is allowed because it
