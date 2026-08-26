@@ -11,13 +11,17 @@
 | | |
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
-| **Current phase** | **P2 COMPLETE** (7/8; P2-01 `staticPools` deferred by D-19b, not outstanding work). **Start P3 — THE FIRST ART WAVE.** |
-| **Next task** | **P3-04 · array facade material · 4.0 d** (P3-03 ✅ FrontSide shipped). It also carries P3's "mid-air shopfronts: 0" gate, which P3-02 handed to it. ⚠ P3-03's fragment saving is unmeasured — a bench run would bank it. P2's last task (P2-08) is code-complete with 12 invariant tests; only its drive check is open and it does not block P3. `staticPools` stays deferred per D-19b — the frame is not GPU-bound at p50. |
-| **Tasks done** | **63 / 84** — **P0 ✅ · P1 ✅ · P2 ✅ COMPLETE.** In **P3**: 01/02/03/04/06/07 done; 05, 07b, 07c, 08, 09, 10, 11 open. (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
+| **Current phase** | **P3 — all 11 tasks ticked, EXIT GATE UNRUN AND ONE ITEM FAILS.** Do not open P4 until the gate is run. |
+| **Next task** | **P3-GATE-01 · encode the remaining art to KTX2 · ~1.0 d · risk low.** Measured 2026-08-27: `public/textures/**` still ships **200.9 MiB of PNG/JPG** (vegetation 113.1, road 38.1, sky 21.3, terrain 16.0, railway 5.3, decals 4.3, water 1.3, wall 1.3) — RGBA8 + mips, zero GPU compression. Add the ~55 MiB of KTX2 facades and 34 MiB of render targets and resident VRAM is **~290 MiB against the 200 MiB cap, ~45% over**. Only the facade layers were ever encoded. `tools/encodeKtx2.py` already exists and is proven on the facade arrays, so this is a re-run plus loader path changes, not new work. Expect ~200.9 → ~50 MiB. **This is a P3 exit-gate item and blocks P4.** |
+| **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **Nothing.** ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
+| **Blocked on** | **P4 is blocked on the P3 exit gate** (see Next task). The four caps that need a bench drive — p95 night GPU, draws, triangles, time-to-drive — are still unmeasured since P3 landed. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
 
-### ▶ DO THIS FIRST — start P3-01. The bug-chase thread is PARKED, not lost.
+### ▶ DO THIS FIRST — run the P3 exit gate. Start with the VRAM failure above.
+
+**P3's 11 tasks are all ticked and the gate has never been run.** One item is already known to fail
+by measurement (texture VRAM, see Next task); four more need a single bench drive. Ticking boxes is
+not the gate — this is exactly the case the phase-gate rule exists for.
 
 **P2 is done.** P2-04 signed off (console + visual, light grid now ON by default); P2-08 code-complete
 with 12 invariant tests. `staticPools` stays deferred per D-19b.
@@ -676,7 +680,10 @@ small value once this lands.**
 ## P3 — THE FIRST ART WAVE · 29 days · 11 tasks
 **Goal.** Spend the headroom on the surfaces that cover the most pixels per day of work: ground, facades, roofs, sky, and Barcelona's real tree species.
 
-**Progress:** 0 / 11
+**Progress:** 11 / 11 tasks ticked — ⚠ **THE EXIT GATE HAS NEVER BEEN RUN, AND ONE ITEM FAILS.**
+See the RESUME block: texture VRAM measures **~290 MiB against a 200 MiB cap**, because only the
+facades were ever KTX2-encoded — vegetation, road, sky and terrain still ship as PNG and decode to
+full RGBA8. A phase is not done because its boxes are ticked.
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
