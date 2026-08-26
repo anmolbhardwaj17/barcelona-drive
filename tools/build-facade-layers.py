@@ -198,7 +198,6 @@ def main():
                 'gate4Pass': bool(stats['gate4_pass']),
                 'normalMeanXY': round(float(n_after), 3), 'normalBandPass': bool(n_ok),
                 'grainMM': round(grain_mm, 1) if grain_mm else None, 'grainBandPass': bool(grain_ok),
-                'windowFrac': round(float((window > 0.5).mean() * 100), 1),
                 'notPlasterFrac': round(float((not_plaster > 0.5).mean() * 100), 1),
                 'rallyClipPct': round(stats['rally_clip_pct'], 3),
             },
@@ -207,7 +206,7 @@ def main():
         print(f'  {name:22s} tile {raw_ratio:6.2f}->{ratio:4.2f} roll({dy:4d},{dx:4d})  '
               f'L* {stats["src_L_mean"]:5.1f}->{stats["L_mean"]:5.1f}  '
               f'C* {stats["src_C_mean"]:5.1f}->{stats["C_mean"]:5.1f}  '
-              f'glass {manifest["layers"][-1]["normalize"]["windowFrac"]:5.1f}%  '
+              f'notPlaster {manifest["layers"][-1]["normalize"]["notPlasterFrac"]:5.1f}%  '
               f'|N.xy| {n_after:.3f}{"" if n_ok else " OUT"}  '
               f'dE {stats["deltaE"]:5.2f} vs {stats["anchor"]:<22} {gate}')
 
@@ -252,8 +251,11 @@ def main():
             im = Image.open(f'{OUT}/{n}_{kind}.png')
             im.transpose(Image.FLIP_TOP_BOTTOM).save(f'{flip_dir}/{n}_{kind}.png')
     for kind, is_nrm in (('albedo', False), ('normal', True)):
+        # ETC1S for the now-opaque albedo (its artefacts hide in photographic detail and it beats
+        # UASTC roughly 6:1 to 4:1); UASTC for the normal, which ETC1S would band into facets.
         out, sz = encode_array([f'{flip_dir}/{n}_{kind}.png' for n in names],
-                               f'{OUT}/facade_body_{kind}.ktx2', codec='uastc', normal_map=is_nrm)
+                               f'{OUT}/facade_body_{kind}.ktx2',
+                               codec='uastc' if is_nrm else 'etc1s', normal_map=is_nrm)
         print(f'    {os.path.basename(out):32s} {sz/1048576:5.2f} MB   ({len(names)} layers)')
     manifest['arrays'] = {'albedo': 'facade_body_albedo.ktx2', 'normal': 'facade_body_normal.ktx2',
                           'layerOrder': names}

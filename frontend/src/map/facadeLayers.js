@@ -34,7 +34,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 140.6,
         "grainBandPass": false,
-        "windowFrac": 20.7,
         "notPlasterFrac": 22.0,
         "rallyClipPct": 0.0
       }
@@ -67,7 +66,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 140.6,
         "grainBandPass": false,
-        "windowFrac": 20.3,
         "notPlasterFrac": 31.4,
         "rallyClipPct": 0.388
       }
@@ -100,7 +98,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 171.9,
         "grainBandPass": false,
-        "windowFrac": 15.3,
         "notPlasterFrac": 40.2,
         "rallyClipPct": 3.375
       }
@@ -133,7 +130,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 78.1,
         "grainBandPass": false,
-        "windowFrac": 4.7,
         "notPlasterFrac": 7.0,
         "rallyClipPct": 0.084
       }
@@ -166,7 +162,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 187.5,
         "grainBandPass": false,
-        "windowFrac": 2.0,
         "notPlasterFrac": 6.0,
         "rallyClipPct": 0.06
       }
@@ -199,7 +194,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 62.5,
         "grainBandPass": false,
-        "windowFrac": 38.2,
         "notPlasterFrac": 39.7,
         "rallyClipPct": 0.397
       }
@@ -232,7 +226,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 31.2,
         "grainBandPass": false,
-        "windowFrac": 40.2,
         "notPlasterFrac": 39.6,
         "rallyClipPct": 0.898
       }
@@ -265,7 +258,6 @@ export default {
         "normalBandPass": true,
         "grainMM": 125.0,
         "grainBandPass": true,
-        "windowFrac": 3.5,
         "notPlasterFrac": 50.9,
         "rallyClipPct": 0.187
       }

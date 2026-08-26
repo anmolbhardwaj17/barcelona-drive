@@ -1729,3 +1729,24 @@ A test now asserts the layer maps a square patch, and that the v scale uses `STO
 **Also fixed:** the dev-knob cleanup deleted `let _bikeLaneMaterial` / `_curbMaterial` /
 `_bikePictogramMaterial` along with a knob block — a runtime `ReferenceError` that `node --check`
 cannot see. Restored, and every cleanup-touched file scanned for the same class of loss.
+
+## 2026-08-26 — the window mask is gone; night windows are a generated grid
+
+**The mask was the wrong tool for emission and I shipped it anyway.** It is derived from COLOUR —
+distance from the plaster's modal hue — and I had measured it good on **six of eight** plates. Six of
+eight is fine for deciding which pixels to GRADE; it is useless for deciding which pixels EMIT,
+because every dirty patch becomes a glowing blob. On screen: whole balconies, mouldings and wall
+sections lit blinding white. Knowing the number and shipping it anyway is the error, not the mask.
+
+- **Night windows are now a generated grid** drawn in the SAME UV space as the facade, so it aligns
+  with the painted windows by construction — which was the original reason for abandoning the old
+  `emissiveMap`, and it holds here without depending on mask quality. Per-cell hashes give lit/unlit
+  (42%), colour temperature (amber → warm white, inside N3) and brightness, so a street reads as
+  occupied rather than switched on. Body band only: the ground band is a shopfront, not flats.
+- **The albedo ships OPAQUE.** Alpha carried the mask and the shader multiplied it into
+  `diffuseColor.a`, which punches holes at the windows in daylight on any material with transparency
+  or an alphaTest. With no consumer left, the channel goes.
+- **Facade albedo array 8.60 MB → 1.36 MB.** Opaque means ETC1S is now the right codec (~6:1 against
+  UASTC's ~4:1); the normal stays UASTC, which ETC1S would band into facets.
+- `not_plaster` is still computed and still used — for normalize statistics, which is the job a
+  colour-derived mask is genuinely good at.

@@ -403,10 +403,19 @@ const _facadeScale = {
  */
 const _facadeTint = { amt: 0.45, mean: 0.62 };
 
-/** Window cells across one layer — sets how finely the lit/unlit hash divides the facade. */
-const WINDOW_CELLS_PER_LAYER = 6.0;
-/** Fraction of windows lit at night. Not 1.0: a fully lit block reads as an office at 3am. */
+// ── Generated night-window grid ───────────────────────────────────────────────────────────────
+// Cells per LAYER. The plates draw 2 windows across and 2 storeys tall per layer, so matching that
+// puts a lit box where a painted window is — the grid inherits the facade's alignment for free.
+const WINDOW_COLS = 2.0;
+const WINDOW_ROWS = 2.0;
+/** Box size as a fraction of its cell, and how high it sits — a real opening is not cell-centred. */
+const WINDOW_W = 0.34;
+const WINDOW_H = 0.42;
+const WINDOW_CENTRE_Y = 0.54;
+/** Fraction lit. Not 1.0: a fully lit block reads as an office at 3am, not a street of homes. */
 const LIT_WINDOW_FRACTION = 0.42;
+/** Dimmest lit window as a fraction of the brightest — variety, so the grid is not a checkerboard. */
+const WINDOW_MIN_BRIGHT = 0.30;
 /**
  * Window glow colour and strength.
  *
@@ -527,33 +536,48 @@ export function patchFacadeArrayMaterial(material, arrays) {
       // The tint is still WANTED, though — a real street varies building to building. So it is kept
       // as BRIGHTNESS ONLY: its luminance modulates the authored albedo, its hue is discarded. Same
       // resolution as the bush cards.
-      // ── NIGHT WINDOWS COME FROM THE FACADE'S OWN MASK ──────────────────────────────────────
+      // ── NIGHT WINDOWS ARE A GENERATED GRID, NOT THE MASK ───────────────────────────────────
       //
-      // Buildings carry a separately GENERATED emissiveMap whose window grid is drawn at the old
-      // FLOOR_HEIGHT pitch. The facade array is at LAYER_W_M x BODY_LAYER_H_M. Two window systems
-      // at two pitches cannot agree, and they did not: lit rectangles floated between and across the
-      // painted windows instead of inside them.
+      // The mask was tried here and it was the wrong tool. It is derived from colour — distance
+      // from the plaster's modal hue — and measured good on six of eight plates. Six of eight is
+      // fine for deciding which pixels to GRADE; it is useless for deciding which pixels EMIT,
+      // because every dirty patch becomes a glowing blob. On screen: whole balconies, mouldings and
+      // wall sections lit blinding white.
       //
-      // The albedo's ALPHA IS the window mask — that is what it was derived for — so driving the
-      // emissive from it makes the lights land in the windows BY CONSTRUCTION rather than by tuning
-      // two pitches into agreement. `emissiveMap` stays bound (removing it would recompile every
-      // building material) and is simply overridden here.
+      // A generated grid has none of that. It is drawn in the SAME UV space as the facade, so it
+      // aligns with the painted windows by construction — which was the original reason for
+      // abandoning the old emissiveMap, and it holds here without depending on mask quality.
+      // Per-cell hashes give lit/unlit, colour temperature and brightness, so a street reads as
+      // occupied rather than switched on.
       .replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\n' +
         '{\n' +
-        // Per-window on/off. A city where every window is lit reads as an office block at 3am; a
-        // stable hash on the window CELL keeps each one's state fixed as the camera moves, which a
-        // per-fragment random would not.
-        '  vec2 wcell = floor(vFacadeUv * ' + WINDOW_CELLS_PER_LAYER.toFixed(1) + ');\n' +
-        '  float wr = fract(sin(dot(wcell, vec2(12.9898, 78.233)) + vLayer * 7.13) * 43758.5453);\n' +
-        '  float lit = step(' + (1.0 - LIT_WINDOW_FRACTION).toFixed(2) + ', wr);\n' +
-        '  totalEmissiveRadiance = uFacadeWindowGlow * facadeTexel.a * lit;\n' +
+        '  float wIsBody = step(lyr, ' + (GROUND_LAYER_BASE - 0.5).toFixed(1) + ');\n' +
+        '  vec2 wuv = vFacadeUv * vec2(' + WINDOW_COLS.toFixed(1) + ', ' + WINDOW_ROWS.toFixed(1) + ');\n' +
+        '  vec2 wcell = floor(wuv);\n' +
+        '  vec2 wf = fract(wuv);\n' +
+        '  vec3 wh = vec3(wcell, vLayer);\n' +
+        '  float r1 = fract(sin(dot(wh, vec3(12.9898, 78.233, 37.719))) * 43758.5453);\n' +
+        '  float r2 = fract(sin(dot(wh, vec3(39.346, 11.135, 83.155))) * 24634.6345);\n' +
+        '  float r3 = fract(sin(dot(wh, vec3(73.156, 52.235, 09.151))) * 13758.1234);\n' +
+        // A window-sized rectangle inside the cell, sitting slightly high like a real opening.
+        '  vec2 wd = abs(wf - vec2(0.5, ' + WINDOW_CENTRE_Y.toFixed(2) + '));\n' +
+        '  float box = step(wd.x, ' + (WINDOW_W / 2).toFixed(3) + ') * step(wd.y, ' + (WINDOW_H / 2).toFixed(3) + ');\n' +
+        '  float lit = step(' + (1.0 - LIT_WINDOW_FRACTION).toFixed(2) + ', r1);\n' +
+        // Warm amber to warm white — inside the art bible's N3 Window Warm family, never cool.
+        '  vec3 tone = mix(vec3(1.0, 0.78, 0.48), vec3(1.0, 0.95, 0.86), r2);\n' +
+        '  float bright = ' + WINDOW_MIN_BRIGHT.toFixed(2) + ' + ' + (1.0 - WINDOW_MIN_BRIGHT).toFixed(2) + ' * r3;\n' +
+        '  totalEmissiveRadiance = uFacadeWindowGlow * tone * (box * lit * bright * wIsBody);\n' +
         '}')
       .replace('#include <color_fragment>',
         '#include <color_fragment>\n' +
         'float facTint = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));\n' +
         'facTint = mix(1.0, facTint / max(uFacadeTintMean, 1e-4), uFacadeTintAmt);\n' +
-        'diffuseColor = vec4(facadeTexel.rgb * facTint, facadeTexel.a * diffuseColor.a);');
+        // ⚠ ALPHA IS NOT PROPAGATED. It used to carry the derived window mask and was multiplied
+        // into diffuseColor.a, which punches at the windows in daylight on any material with
+        // transparency or an alphaTest. The mask has no consumer now that night windows are a
+        // generated grid, so the albedo ships opaque and alpha is left alone.
+        'diffuseColor = vec4(facadeTexel.rgb * facTint, diffuseColor.a);');
   };
   material.customProgramCacheKey = () => 'facadeArray-v1';
   material.needsUpdate = true;

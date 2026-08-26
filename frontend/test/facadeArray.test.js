@@ -242,17 +242,21 @@ test('aLayer is declared as an attribute and forwarded', () => {
   assert.match(s.vertexShader, /vLayer\s*=\s*aLayer/);
 });
 
-test('night windows are driven by the facade mask, not a second window grid', () => {
+test('night windows are a generated grid in facade UV space', () => {
   // Buildings carry a separately GENERATED emissiveMap whose grid sits at the old FLOOR_HEIGHT
   // pitch, while the facade array is at LAYER_W_M x BODY_LAYER_H_M. Two window systems at two
   // pitches cannot agree — lit rectangles floated between and across the painted windows. The
   // albedo's alpha IS the window mask, so driving emissive from it aligns them by construction.
   const s = generate();
-  assert.match(s.fragmentShader, /totalEmissiveRadiance = uFacadeWindowGlow \* facadeTexel\.a/,
-    'night glow comes from the facade alpha');
-  // Per-window on/off must hash the window CELL, not the fragment: a per-fragment random would
-  // shimmer as the camera moves, and a constant would light every window in the city.
-  assert.match(s.fragmentShader, /floor\(vFacadeUv \* /, 'lit/unlit is per window cell');
+  // NOT from the mask. A mask derived from COLOUR was good on six of eight plates — fine for
+  // deciding what to GRADE, useless for deciding what EMITS, because every dirty patch becomes a
+  // glowing blob. A generated grid drawn in the SAME UV space aligns with the painted windows by
+  // construction without depending on mask quality at all.
+  assert.match(s.fragmentShader, /totalEmissiveRadiance = uFacadeWindowGlow \* tone/,
+    'night glow is a generated grid');
+  assert.ok(!/facadeTexel\.a/.test(s.fragmentShader), 'the alpha mask is not used anywhere');
+  // Hash the window CELL, not the fragment: per-fragment randomness shimmers as the camera moves.
+  assert.match(s.fragmentShader, /vec2 wcell = floor\(wuv\)/, 'lit/unlit is per window cell');
 });
 
 test('a square layer maps to a SQUARE patch of wall — the 2.9x stretch', () => {
