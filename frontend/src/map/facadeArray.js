@@ -49,12 +49,19 @@
  *                 is the pavement and the top edge meets the body band's first row.
  */
 
-import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M } from '../buildingConstants.js';
+import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, STOREY_H } from '../buildingConstants.js';
 
 /** Metres one layer spans horizontally. Both arrays share it so u repeats stay consistent. */
 export const LAYER_W_M = 8.0;
-/** Metres a BODY layer spans vertically — 2 storeys, so the tile is not obviously periodic. */
-export const BODY_LAYER_H_M = 8.0;
+/**
+ * Metres a BODY layer spans vertically — 2 storeys, so the tile is not obviously periodic.
+ *
+ * DERIVED FROM STOREY_H, not written as a literal. It was hardcoded 8.0 ("2 storeys of 4.0 m") while
+ * the bake's actual storey is 3.5 m, so every window row drifted against the floor it belongs to and
+ * the whole layer sampled ~14% too small. Tying it to STOREY_H means the art cannot silently
+ * disagree with the geometry again — and if the modular-storey rebuild moves STOREY_H, this follows.
+ */
+export const BODY_LAYER_H_M = 2 * STOREY_H;   // 7.0 m
 /** Metres a GROUND layer spans vertically — one shopfront module. */
 export const GROUND_LAYER_H_M = 4.0;
 
@@ -359,6 +366,36 @@ function waitForRenderer(timeoutMs = 20000) {
  * emitted GLSL1 this would fail to compile — if the dependency is ever downgraded, this is the first
  * thing that breaks, and the symptom is a shader error, not a wrong picture.
  */
+// A plain {x, y}, not a THREE.Vector2: this module never imports three — it receives it as a
+// parameter (createFacadeArrays(THREE)) — and three uploads a vec2 uniform from any object with
+// x and y. Constructing a Vector2 here would throw at module load.
+const _facadeScale = {
+  x: WALL_REPEAT_HORIZONTAL_M / LAYER_W_M,
+  y: FLOOR_HEIGHT / BODY_LAYER_H_M,
+};
+const _facadeScaleUniforms = [];
+
+/**
+ * Live knob — `window._ddFacadeSpan(widthM, heightM)`.
+ *
+ * Window SIZE on screen is entirely a function of how many real metres a layer claims to span:
+ * fewer metres per layer means bigger windows and fewer of them. The defaults are derived rather
+ * than chosen (LAYER_W_M, and BODY_LAYER_H_M = 2 x STOREY_H), but "correct" and "reads like a
+ * Barcelona street" are different questions and the second one is not mine to settle.
+ *
+ *   _ddFacadeSpan(8, 7)    the derived default
+ *   _ddFacadeSpan(8, 6)    taller storeys -> bigger windows, fewer rows
+ *   _ddFacadeSpan(10, 8)   bigger everything
+ */
+if (typeof window !== 'undefined') {
+  window._ddFacadeSpan = (wM, hM) => {
+    _facadeScale.x = WALL_REPEAT_HORIZONTAL_M / wM;
+    _facadeScale.y = FLOOR_HEIGHT / hM;
+    for (const u of _facadeScaleUniforms) u.value = _facadeScale;
+    return `facade layer spans ${wM} x ${hM} m  (storey ${(hM / 2).toFixed(2)} m; bake STOREY_H is ${STOREY_H})`;
+  };
+}
+
 let _facadeDiagLogged = false;
 const _facadeTypesSeen = new Set();
 export function patchFacadeArrayMaterial(material, arrays) {
@@ -376,6 +413,11 @@ export function patchFacadeArrayMaterial(material, arrays) {
       console.warn('[facadeArray] patched %s · body %s · ground %s',
         material.type, d(arrays.body), d(arrays.ground));
     }
+    // Legacy wall UV -> layer space. See the bandUV note: u arrives in units of
+    // WALL_REPEAT_HORIZONTAL_M (12 m) and v in units of FLOOR_HEIGHT (10 m); the layers are
+    // LAYER_W_M x BODY_LAYER_H_M.
+    shader.uniforms.uFacadeScale = { value: _facadeScale };
+    _facadeScaleUniforms.push(shader.uniforms.uFacadeScale);
     shader.uniforms.uFacadeBody = { value: arrays.body };
     shader.uniforms.uFacadeGround = { value: arrays.ground };
     // ⚠ CARRY OUR OWN UV VARYING — do NOT use three's `vMapUv`.
@@ -391,11 +433,9 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // makes the patch independent of which maps a given material happens to bind.
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
-        '#include <common>\nattribute float aLayer;\nvarying float vLayer;\nvarying vec2 vFacadeUv;')
+        '#include <common>\nattribute float aLayer;\nvarying float vLayer;\nvarying vec2 vFacadeUv;\nuniform vec2 uFacadeScale;')
       .replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLayer = aLayer;\nvFacadeUv = uv * vec2('
-        + (WALL_REPEAT_HORIZONTAL_M / LAYER_W_M).toFixed(6) + ', '
-        + (FLOOR_HEIGHT / BODY_LAYER_H_M).toFixed(6) + ');');
+        '#include <begin_vertex>\nvLayer = aLayer;\nvFacadeUv = uv * uFacadeScale;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
         '#include <common>\n' +

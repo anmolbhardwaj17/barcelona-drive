@@ -1670,3 +1670,15 @@ under-counted. It now has **145 MiB spare**.
   `FLOOR_HEIGHT`, because the vertex-colour path still depends on those constants and
   `?facadearray=0` has to keep working. (`buildingConstants.js` already warned "⚠ P3 WILL CHANGE
   THESE".) Note `bandUV()` computes exactly these repeats and **has no callers** — dead since P3-04.
+- **Facades were upside down: KTX2 is bottom-up and three cannot flip compressed data.** PNG is
+  top-down; `flipY` is ignored for block-compressed textures because there is no way to flip the
+  blocks on upload. Balconies and sills rendered ABOVE their windows. The plates are now flipped
+  **before encoding**, so the shipped artefact is correct by construction — a shader flip would work
+  and leave a trap, with the `.ktx2` and `.png` disagreeing.
+- **`BODY_LAYER_H_M` is derived from `STOREY_H`, not hardcoded.** The plan said "2 storeys of 4.0 m"
+  and the constant read 8.0, while the bake's actual storey is **3.5 m** — so every window row
+  drifted against the floor it belongs to and the layer sampled ~14% too small. Now `2 * STOREY_H`
+  = 7.0, and it follows automatically if the modular-storey rebuild moves `STOREY_H`.
+- **`window._ddFacadeSpan(widthM, heightM)`** — window size on screen is entirely a function of how
+  many real metres a layer claims to span. The defaults are derived; "reads like a Barcelona street"
+  is a separate question.

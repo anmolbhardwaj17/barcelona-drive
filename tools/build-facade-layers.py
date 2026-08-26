@@ -235,10 +235,24 @@ def main():
     # small palette — it bands a mask's edges, which on a facade means ragged glazing at night. And a
     # banded normal map reads as facets. ETC1S is right for opaque photographic colour and wrong for
     # both of these, so the extra ~2x of UASTC is bought deliberately.
+    # ── V-FLIP BEFORE ENCODING ────────────────────────────────────────────────────────────────
+    # PNG is top-down, KTX2 is bottom-up, and three CANNOT apply `flipY` to a compressed texture —
+    # there is no way to flip block-compressed data on upload, so the flag is ignored. The result was
+    # facades rendering upside down: balconies and sills sitting ABOVE their windows.
+    #
+    # Flipped here rather than in the shader so the shipped artefact is correct by construction. A
+    # shader flip would work and would leave a trap: the .ktx2 and the .png would disagree, and the
+    # next thing to load the PNG directly would be wrong in the opposite direction.
     print('\n  encoding KTX2 ARRAYS (UASTC -> BC7, 1 byte/texel against RGBA8 4):')
     names = [n for n, *_r in LAYERS]
+    flip_dir = f'{OUT}/.flipped'
+    os.makedirs(flip_dir, exist_ok=True)
+    for n in names:
+        for kind in ('albedo', 'normal'):
+            im = Image.open(f'{OUT}/{n}_{kind}.png')
+            im.transpose(Image.FLIP_TOP_BOTTOM).save(f'{flip_dir}/{n}_{kind}.png')
     for kind, is_nrm in (('albedo', False), ('normal', True)):
-        out, sz = encode_array([f'{OUT}/{n}_{kind}.png' for n in names],
+        out, sz = encode_array([f'{flip_dir}/{n}_{kind}.png' for n in names],
                                f'{OUT}/facade_body_{kind}.ktx2', codec='uastc', normal_map=is_nrm)
         print(f'    {os.path.basename(out):32s} {sz/1048576:5.2f} MB   ({len(names)} layers)')
     manifest['arrays'] = {'albedo': 'facade_body_albedo.ktx2', 'normal': 'facade_body_normal.ktx2',

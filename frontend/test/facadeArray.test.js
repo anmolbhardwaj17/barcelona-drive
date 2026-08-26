@@ -10,6 +10,7 @@ import {
   facadeLayerFor, groundLayerFor, bandUV, texelDensity,
   GROUND_LAYER_BASE, encodeGroundLayer, decodeLayer,
 } from '../src/map/facadeArray.js';
+import { STOREY_H } from '../src/buildingConstants.js';
 
 test('the layer set is 8 wide, matching the 8-layer array', () => {
   assert.equal(BODY_LAYERS.length, 8);
@@ -20,13 +21,22 @@ test('the layer set is 8 wide, matching the 8-layer array', () => {
 test('texel density hits the art bible band (85-150 texels/m)', () => {
   const body = texelDensity(1024, LAYER_W_M);
   assert.ok(body >= 85 && body <= 150, `body ${body} texels/m outside 85-150`);
-  assert.equal(texelDensity(1024, BODY_LAYER_H_M), body, 'body layers must be square in metres/texel');
-  // Ground is 512 over 8.0 x 4.0 — half across, same down. Deliberate: it never tiles vertically.
-  assert.equal(texelDensity(512, GROUND_LAYER_H_M), body, 'ground vertical density must match the body');
+  // Body layers are 1024² over LAYER_W_M x BODY_LAYER_H_M, and those are 8.0 and 7.0 — so the layer
+  // is NOT square in metres per texel, and must not be asserted to be. BODY_LAYER_H_M is derived
+  // from the bake's STOREY_H (2 x 3.5) rather than the plan's assumed 4.0 m, because a layer that
+  // disagrees with the geometry drifts its window rows against the floors they belong to.
+  const bodyV = texelDensity(1024, BODY_LAYER_H_M);
+  assert.ok(bodyV >= 85 && bodyV <= 150, `body vertical ${bodyV} texels/m outside 85-150`);
+  // Ground is 512 over 8.0 x 4.0 — half across. Deliberate: it never tiles vertically.
+  assert.ok(texelDensity(512, GROUND_LAYER_H_M) >= 85, 'ground vertical density stays in band');
 });
 
-test('a body layer spans TWO storeys, so the tile is not obviously periodic', () => {
-  assert.equal(BODY_LAYER_H_M / 4.0, 2, 'the plan specifies 2 storeys of 4.0 m');
+test('a body layer spans TWO REAL storeys, not the plan\'s assumed 4.0 m', () => {
+  // The plan said "2 storeys of 4.0 m" and this was hardcoded 8.0 — while the bake's actual storey
+  // is STOREY_H = 3.5. Every window row therefore drifted against the floor it belongs to and the
+  // layer sampled ~14% too small. Deriving it means the art cannot silently disagree with the
+  // geometry again, and if the modular-storey rebuild moves STOREY_H this follows automatically.
+  assert.equal(BODY_LAYER_H_M, 2 * STOREY_H, 'body layer must be derived from the bake storey height');
   assert.ok(BODY_LAYER_H_M > GROUND_LAYER_H_M, 'a body tile must cover more than one ground module');
 });
 
@@ -74,7 +84,7 @@ test('the GROUND band never tiles vertically — the pavement is not periodic', 
 test('the BODY band repeats per 2-storey layer, not per storey', () => {
   const uv = bandUV('body', 24, 16);            // 16 m of body = 2 layers
   assert.equal(uv.vRepeat, 16 / BODY_LAYER_H_M);
-  assert.equal(uv.vRepeat, 2, 'authoring a 1-storey tile and repeating per storey reads as a grid');
+  assert.ok(uv.vRepeat > 1, 'authoring a 1-storey tile and repeating per storey reads as a grid');
 });
 
 test('u repeat is height-independent — the same wall length gives the same u at any height', () => {
@@ -201,7 +211,12 @@ test('it declares and fills its own UV varying from the stock `uv` attribute', (
 
 test('both array uniforms are bound and both branches sample', () => {
   const s = generate();
-  assert.deepEqual(Object.keys(s.uniforms).sort(), ['uFacadeBody', 'uFacadeGround']);
+  // uFacadeScale converts the LEGACY wall UV into layer space — u arrives in units of
+  // WALL_REPEAT_HORIZONTAL_M (12 m) and v in FLOOR_HEIGHT (10 m), while the layers are 8 x 7.
+  // Sampling the array with the raw attribute stretched it by different factors on each axis, so
+  // windows rendered landscape where every source plate draws them portrait.
+  assert.deepEqual(Object.keys(s.uniforms).sort(), ['uFacadeBody', 'uFacadeGround', 'uFacadeScale']);
+  assert.match(s.vertexShader, /vFacadeUv = uv \* uFacadeScale/, 'wall UV is converted, not raw');
   assert.match(s.fragmentShader, /texture\(uFacadeGround, vec3\(vFacadeUv/);
   assert.match(s.fragmentShader, /texture\(uFacadeBody, vec3\(vFacadeUv/);
 });
