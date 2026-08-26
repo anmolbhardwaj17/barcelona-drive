@@ -1781,3 +1781,11 @@ now understood.
 
 **Verified by reintroducing the bugs**: deleting the import of `setFacadeArrayNightMode` or
 `setTreeCardNightMode` is detected; restoring it passes.
+- **Bloom blew the city white — the fault was window AREA, not level.** The first grid used
+  cell-relative fractions that came out nearly square and roughly panel-sized. Bloom responds to area
+  as much as to level, so an over-large window cannot be fixed by dimming it: 1.35 was already BELOW
+  the old path's `NIGHT_EMISSIVE_INTENSITY = 1.5` and still blew out far worse. Window dimensions are
+  now taken from the system this replaced — `buildingRenderer`'s residential style, **1.1 m × 2.0 m
+  on 1.4/1.0 m gaps**, real portrait openings — and derived from the layer span, so they stay 1.1×2.0
+  whatever the span becomes. With the geometry right the level lands at **0.85** against the old
+  path's 1.5, i.e. ~43% dimmer than before rather than brighter.

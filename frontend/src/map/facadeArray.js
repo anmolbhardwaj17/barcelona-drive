@@ -404,18 +404,31 @@ const _facadeScale = {
 const _facadeTint = { amt: 0.45, mean: 0.62 };
 
 // ── Generated night-window grid ───────────────────────────────────────────────────────────────
-// Cells per LAYER. The plates draw 2 windows across and 2 storeys tall per layer, so matching that
-// puts a lit box where a painted window is — the grid inherits the facade's alignment for free.
-const WINDOW_COLS = 2.0;
-const WINDOW_ROWS = 2.0;
-/** Box size as a fraction of its cell, and how high it sits — a real opening is not cell-centred. */
-const WINDOW_W = 0.34;
-const WINDOW_H = 0.42;
-const WINDOW_CENTRE_Y = 0.54;
+//
+// DIMENSIONS TAKEN FROM THE SYSTEM THIS REPLACED, not invented. buildingRenderer's window styles
+// specify residential windows as 1.1 m wide x 2.0 m tall on a 1.4 m / 1.0 m gap — real openings,
+// portrait. The first grid here used cell-relative fractions that came out nearly square and roughly
+// panel-sized, and the result blew the whole city to white however low the radiance went: bloom
+// responds to AREA as much as to level, so an over-large window cannot be fixed by dimming it.
+const WINDOW_W_M = 1.1;
+const WINDOW_H_M = 2.0;
+const WINDOW_GAP_H_M = 1.4;
+const WINDOW_GAP_V_M = 1.0;
+const WINDOW_PERIOD_H_M = WINDOW_W_M + WINDOW_GAP_H_M;   // 2.5 m
+const WINDOW_PERIOD_V_M = WINDOW_H_M + WINDOW_GAP_V_M;   // 3.0 m
+
+/** Cells per LAYER, derived — so the window stays 1.1 x 2.0 m whatever the layer span becomes. */
+const WINDOW_COLS = LAYER_W_M / WINDOW_PERIOD_H_M;
+const WINDOW_ROWS = BODY_LAYER_H_M / WINDOW_PERIOD_V_M;
+/** Box size as a fraction of its cell — the opening against its period. */
+const WINDOW_W = WINDOW_W_M / WINDOW_PERIOD_H_M;
+const WINDOW_H = WINDOW_H_M / WINDOW_PERIOD_V_M;
+const WINDOW_CENTRE_Y = 0.5;
 /** Fraction lit. Not 1.0: a fully lit block reads as an office at 3am, not a street of homes. */
 const LIT_WINDOW_FRACTION = 0.42;
 /** Dimmest lit window as a fraction of the brightest — variety, so the grid is not a checkerboard. */
 const WINDOW_MIN_BRIGHT = 0.30;
+
 /**
  * Window glow colour and strength.
  *
@@ -424,10 +437,11 @@ const WINDOW_MIN_BRIGHT = 0.30;
  * in isolation blows to white once the post chain has it. That is what the blown-out white
  * rectangles were.
  */
-// 1.35, not 0.55. It is RADIANCE and bloom keys off values ABOVE 1 — at 0.55 nothing ever reached
-// the threshold, so the windows were lit but inert and the city read grey. The tone above carries
-// the colour; this carries the energy, and the two were being confused.
-const _windowGlow = { x: 1.35, y: 1.35, z: 1.35 };
+// 0.85. The path this replaced ran `emissive 0xffffff` at `NIGHT_EMISSIVE_INTENSITY = 1.5`, so 1.35
+// was already BELOW it and still blew the city white — because bloom responds to AREA as much as to
+// level, and the boxes were panel-sized. With real 1.1 x 2.0 m openings the area is right, so the
+// level comes down to match the restrained look the old system had. Tunable: `_ddWindowGlow(s)`.
+const _windowGlow = { x: 0.85, y: 0.85, z: 0.85 };
 const _windowGlowUniforms = [];
 
 // Day/night for the window grid. A float, not a bool, so it crosses over with the env transition
