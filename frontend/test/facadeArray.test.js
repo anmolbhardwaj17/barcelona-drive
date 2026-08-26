@@ -10,7 +10,7 @@ import {
   facadeLayerFor, groundLayerFor, bandUV, texelDensity,
   GROUND_LAYER_BASE, encodeGroundLayer, decodeLayer,
 } from '../src/map/facadeArray.js';
-import { STOREY_H } from '../src/buildingConstants.js';
+import { STOREY_H, WALL_REPEAT_HORIZONTAL_M } from '../src/buildingConstants.js';
 
 test('the layer set is 8 wide, matching the 8-layer array', () => {
   assert.equal(BODY_LAYERS.length, 8);
@@ -31,19 +31,15 @@ test('texel density hits the art bible band (85-150 texels/m)', () => {
   assert.ok(texelDensity(512, GROUND_LAYER_H_M) >= 85, 'ground vertical density stays in band');
 });
 
-test('the body layer span is a JUDGED value, and the derivation history is why', () => {
-  // Three values, in order, and each was wrong for a different reason:
-  //   8.0  the plan's "2 storeys of 4.0 m" — but the bake's storey is STOREY_H 3.5, so window rows
-  //        drifted against the floors they belong to.
-  //   7.0  2 x STOREY_H — the drift was fixed and it still read too small and too busy, because the
-  //        PLATES draw their two storeys smaller within the tile than a real 7 m of building.
-  //   12.0 judged on screen against real streets.
-  // The lesson is that the correct span is a property of the ART, not of the geometry: the layer is
-  // a facade patch, not a literal two storeys. Asserted as a range so a re-tune does not fail the
-  // suite, but a typo or a silent revert to a derived value does.
-  assert.ok(BODY_LAYER_H_M >= 9 && BODY_LAYER_H_M <= 16,
-    `body span ${BODY_LAYER_H_M} outside the judged range — re-check on screen before changing`);
-  assert.ok(BODY_LAYER_H_M > 2 * STOREY_H, 'the plate needs more metres than its nominal 2 storeys');
+test('the body layer span is derived from the bake storey, not judged by eye', () => {
+  // Four values were tried and the first three were all chasing a unit error rather than a size:
+  //   8.0   the plan's "2 storeys of 4.0 m", against a bake storey of 3.5 — rows drifted vs floors
+  //   7.0   derived as 2 x STOREY_H — the drift went, the stretch stayed
+  //   12x12 judged on screen; it looked best of the three because it COMPENSATED for the stretch
+  //   7x7   once v was divided by STOREY_H instead of FLOOR_HEIGHT, the physical value is right
+  // The lesson is that "it looks better" is not evidence about a span when a UNIT is wrong: every
+  // value felt like an improvement and none of them could work.
+  assert.equal(BODY_LAYER_H_M, 2 * STOREY_H, 'body layer is two REAL storeys');
   assert.ok(BODY_LAYER_H_M > GROUND_LAYER_H_M, 'a body tile must cover more than one ground module');
 });
 
@@ -257,4 +253,26 @@ test('night windows are driven by the facade mask, not a second window grid', ()
   // Per-window on/off must hash the window CELL, not the fragment: a per-fragment random would
   // shimmer as the camera moves, and a constant would light every window in the city.
   assert.match(s.fragmentShader, /floor\(vFacadeUv \* /, 'lit/unlit is per window cell');
+});
+
+test('a square layer maps to a SQUARE patch of wall — the 2.9x stretch', () => {
+  // THE BUG THIS LOCKS. The wall UV has two vertical conventions, and the array path uses the one
+  // that is NOT obvious:
+  //     u  always   wallLen / WALL_REPEAT_HORIZONTAL_M   (12 m per repeat)
+  //     v  legacy   ...FLOOR_HEIGHT                      (10 m per repeat)
+  //     v  ARRAY    bodyH / STOREY_H                     (3.5 m per repeat)  <- windowOnlyTile
+  // Scaling v by FLOOR_HEIGHT/BODY_LAYER_H_M made the layer span 4.2 m vertically against 12 m
+  // horizontally: every window rendered 2.86x too wide. Three different BODY_LAYER_H_M values were
+  // tried against it and none worked, because rescaling an axis cannot fix a wrong UNIT.
+  const metresPerRepeatU = LAYER_W_M;
+  const metresPerRepeatV = BODY_LAYER_H_M;
+  const aspect = metresPerRepeatU / metresPerRepeatV;
+  assert.ok(Math.abs(aspect - 1) < 1e-6,
+    `layer maps ${metresPerRepeatU}m x ${metresPerRepeatV}m of wall — aspect ${aspect.toFixed(2)}x, must be 1`);
+
+  // And the scale must divide v by the storey height, not the legacy floor height.
+  const s = generate();
+  assert.equal(s.uniforms.uFacadeScale.value.y, STOREY_H / BODY_LAYER_H_M,
+    'v scale must use STOREY_H — windowOnlyTile makes v per-storey');
+  assert.equal(s.uniforms.uFacadeScale.value.x, WALL_REPEAT_HORIZONTAL_M / LAYER_W_M);
 });

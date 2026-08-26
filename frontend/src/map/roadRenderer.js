@@ -210,6 +210,9 @@ export function setRendererAnisotropy(v) {
 
 // ── Phase 3 Barcelona material cache ─────────────────────────────────────────
 let _panotMaterial = null;
+let _curbMaterial = null;
+let _bikeLaneMaterial = null;
+let _bikePictogramMaterial = null;
 
 /** MeshStandardMaterial with panot texture + world-space UVs (Phase 3 sidewalks). */
 function getPanotMaterial() {

@@ -1704,3 +1704,28 @@ how a working function leaves with its scaffolding.
 **URL switches stay.** `?treecards=0`, `?roadv2=0`, `?facadearray=0`, `?adaptres=0` are ATTRIBUTION
 switches, a documented house convention: they exist so a frame-cost question can be answered rather
 than argued. `?debug=*` are opt-in diagnostics that cost nothing when absent.
+
+## 2026-08-26 — the facade stretch was a UNIT error, 2.86×
+
+The wall UV has **two** vertical conventions and the array path uses the non-obvious one:
+
+| | | |
+|---|---|---|
+| `u` | always | `wallLen / WALL_REPEAT_HORIZONTAL_M` — 12 m per repeat |
+| `v` | legacy | `gFrac + bodyRepeats * bodyVPerTile` — **FLOOR_HEIGHT**, 10 m |
+| `v` | **array** | `bodyH / STOREY_H` — **3.5 m** per repeat (`windowOnlyTile`) |
+
+`windowOnlyTile` is set from the array flag, so whenever the facade shader runs v is **already
+per-storey**. Dividing it by `FLOOR_HEIGHT` made a layer span **4.2 m vertically against 12 m
+horizontally** — every window **2.86× too wide**.
+
+Three `BODY_LAYER_H_M` values were tried against this (8.0 → 7.0 → 12.0) and none could work:
+**rescaling an axis cannot fix a wrong unit.** 12×12 "looked best" only because it was
+*compensating* for the stretch. With `v` divided by `STOREY_H`, the layer is `2 × STOREY_H` square
+and maps a **7 m × 7 m** patch of wall at aspect **1.00**.
+
+A test now asserts the layer maps a square patch, and that the v scale uses `STOREY_H`.
+
+**Also fixed:** the dev-knob cleanup deleted `let _bikeLaneMaterial` / `_curbMaterial` /
+`_bikePictogramMaterial` along with a knob block — a runtime `ReferenceError` that `node --check`
+cannot see. Restored, and every cleanup-touched file scanned for the same class of loss.

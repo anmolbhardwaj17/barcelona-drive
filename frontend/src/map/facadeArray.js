@@ -52,22 +52,20 @@
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, STOREY_H } from '../buildingConstants.js';
 
 /** Metres one layer spans horizontally. Both arrays share it so u repeats stay consistent. */
-export const LAYER_W_M = 12.0;
+export const LAYER_W_M = 2 * STOREY_H;   // 7.0 m
 /**
  * Metres a BODY layer spans vertically.
  *
- * 12.0, CHOSEN ON THE DRIVE, not derived. The history is worth keeping because the derivation was
- * wrong twice: the plan said "2 storeys of 4.0 m" and the constant read 8.0, while the bake's actual
- * storey is STOREY_H = 3.5 — so rows drifted against floors. Deriving it as 2 x STOREY_H = 7.0 fixed
- * the drift and still read too small and too busy, because the PLATES draw their two storeys smaller
- * within the tile than a real 7 m of building.
+ * 2 x STOREY_H, and SQUARE with LAYER_W_M so a square plate maps to a square patch of wall.
  *
- * 12 x 12 was judged on screen against real streets. The layer no longer claims to be exactly two
- * storeys — it is a facade patch whose apparent storey (~6 m) is larger than the bake's, which reads
- * correctly because the plate's own windows sit well inside its 2-storey band. Re-tune by editing
- * LAYER_W_M / BODY_LAYER_H_M — the live knob was removed once the value was settled on screen.
+ * The history matters because three earlier values were all chasing the wrong thing. 8.0 came from
+ * the plan's "2 storeys of 4.0 m" against a bake storey of 3.5. 7.0 derived it correctly and still
+ * looked wrong. 12 x 12 was judged on screen and looked best of the three — because it was
+ * COMPENSATING for a unit error, not fixing it: v arrives per STOREY_H on this path and was being
+ * divided by FLOOR_HEIGHT, stretching every layer 2.9x horizontally. Rescaling an axis cannot fix a
+ * wrong unit, which is why each value felt like an improvement and none of them worked.
  */
-export const BODY_LAYER_H_M = 12.0;
+export const BODY_LAYER_H_M = 2 * STOREY_H;   // 7.0 m — square, so a square plate is undistorted
 /** Metres a GROUND layer spans vertically — one shopfront module. */
 export const GROUND_LAYER_H_M = 4.0;
 
@@ -375,9 +373,21 @@ function waitForRenderer(timeoutMs = 20000) {
 // A plain {x, y}, not a THREE.Vector2: this module never imports three — it receives it as a
 // parameter (createFacadeArrays(THREE)) — and three uploads a vec2 uniform from any object with
 // x and y. Constructing a Vector2 here would throw at module load.
+// ⚠ v ARRIVES IN UNITS OF STOREY_H, NOT FLOOR_HEIGHT — this was a 2.9x stretch.
+//
+// The wall UV has two conventions and the array path uses the SECOND one:
+//   u  always  wallLen / WALL_REPEAT_HORIZONTAL_M           (12 m per repeat)
+//   v  legacy  gFrac + bodyRepeats * bodyVPerTile           (FLOOR_HEIGHT, 10 m)
+//   v  ARRAY   bodyH / STOREY_H                             (3.5 m per repeat)   <- windowOnlyTile
+//
+// `windowOnlyTile` is set from the array flag (buildingWorker), so whenever this shader runs, v is
+// already per-STOREY. Dividing by FLOOR_HEIGHT made the layer span 4.2 m vertically against 12 m
+// horizontally — windows came out ~2.9x too wide, which is precisely the stretch that survived two
+// earlier "fixes". Chasing it by changing BODY_LAYER_H_M could never work: that only rescales an
+// axis whose UNIT was wrong.
 const _facadeScale = {
   x: WALL_REPEAT_HORIZONTAL_M / LAYER_W_M,
-  y: FLOOR_HEIGHT / BODY_LAYER_H_M,
+  y: STOREY_H / BODY_LAYER_H_M,
 };
 
 /**
