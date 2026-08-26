@@ -537,9 +537,21 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
 
   if (centers.length === 0) return [];
 
+  // GROUND SAMPLING. Prefer getWorldElevation — the single function tileManager builds from the
+  // terrain mesh and hands to everything that has to sit on the ground, already carrying vertExag.
+  // Recomputing `getElevationAt * vertExag` here duplicated that formula, and a duplicate is only
+  // ever one edit away from disagreeing with the terrain it is supposed to match.
+  const getWorldElevation = options?.getWorldElevation;
   const getElevationAt = options?.getElevationAt;
   const vertExag = Number.isFinite(CONFIG.ELEVATION_VERTICAL_EXAGGERATION)
     ? CONFIG.ELEVATION_VERTICAL_EXAGGERATION : 1;
+
+  // NO GROUND, NO CLUSTERS. This used to fall through to y = 0 for every item when no sampler was
+  // available. y = 0 is not "the ground" — it is the elevation-offset datum, i.e. the height of the
+  // spawn tile. On flat ground near a road that is invisibly close to correct, which is why it
+  // survived; scattered across a hillside that rises and falls 190 m it puts whole clusters in
+  // mid-air wherever the terrain sits below the datum. Placing nothing is the honest failure.
+  if (!getWorldElevation && !getElevationAt) return [];
 
   // Tile elevation footprint. Cluster centers are scattered across a bbox built from road/building
   // points that include CLIPPED roads overhanging the tile by 200-460 m (e.g. the long Ronda de Dalt
@@ -576,14 +588,21 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       // Skip items that land on or near roads — strict check per item
       if (!isVegetationAllowed(vegMask, wx, wz, 4)) continue;
 
-      let y = 0;
-      if (getElevationAt) {
-        const { lat, lon } = worldToLatLon(wx, wz);
-        // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
-        // the neighbour tile owns that ground and places its own vegetation there.
-        if (tileBounds && (lat < tileBounds.south || lat > tileBounds.north || lon < tileBounds.west || lon > tileBounds.east)) continue;
-        y = (getElevationAt(lat, lon) ?? 0) * vertExag;
+      // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
+      // the neighbour tile owns that ground and places its own vegetation there.
+      const { lat, lon } = worldToLatLon(wx, wz);
+      if (tileBounds && (lat < tileBounds.south || lat > tileBounds.north ||
+                         lon < tileBounds.west || lon > tileBounds.east)) continue;
+
+      let y;
+      if (getWorldElevation) {
+        y = getWorldElevation(wx, wz);
+      } else {
+        const e = getElevationAt(lat, lon);
+        if (e == null || !Number.isFinite(e)) continue;   // no reading here → place nothing
+        y = e * vertExag;
       }
+      if (!Number.isFinite(y)) continue;
 
       const itemScale = item.scale * clusterScale * (0.9 + seeded(ci * 10 + ii, 52) * 0.2);
       const rotY = seeded(ci * 10 + ii, 53) * Math.PI * 2;

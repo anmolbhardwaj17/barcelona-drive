@@ -223,6 +223,19 @@ const SHADOW_Y_OFFSET = 0.02;
 const MAX_ZONE_TREES_PER_TILE = 800;
 const MAX_ZONE_BUSHES_PER_TILE = 600;
 
+/**
+ * Which species set a greens polygon plants, by its OSM type.
+ *
+ * A park and a forest are not the same planting. Once relation-mapped woodland started reaching the
+ * tiles, Collserola's forest polygons were being planted from the 'park' set — 20% jacaranda — and
+ * the hillside came out dotted with flowering ornamentals. Wild greens plant the wild set; only
+ * actual parks and gardens get the ornamentals.
+ */
+const ZONE_TREE_CTX = {
+  forest: 'hill', scrub: 'hill', grass: 'hill', meadow: 'hill', grassland: 'hill',
+  park: 'park', garden: 'park', playground: 'plaza',
+};
+
 const ZONE_RULES = {
   forest: {
     treeDensity: 1 / 25, treeCap: 600, bushDensity: 0, bushCap: 200,
@@ -1422,6 +1435,7 @@ function collectZoneVegetation(tileData, tileKey, vegMask) {
         if (allTreePositions.length >= MAX_ZONE_TREES_PER_TILE) break;
         if (clearings.length > 0 && isInClearing(p.x, p.y, clearings)) continue;
         if (isValid(p.x, p.y)) {
+          p.ctx = ZONE_TREE_CTX[green.type] || 'park';   // see ZONE_TREE_CTX
           allTreePositions.push(p);
           allTreeScales.push(sLo + seeded(allTreePositions.length, zoneSeed + 51) * (sHi - sLo));
         }
@@ -2041,20 +2055,19 @@ export function processVegetationInWorker(data, config) {
     const keySeed = (tileKey || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);
     const zoneBuckets = Array.from({ length: NUM_TREE_VARIANTS }, () => ({ pos: [], scales: [] }));
 
-    // Zone trees are, by construction, inside a greens polygon — so their context is 'park'
-    // (the one set where the jacaranda is more than an accent). Same classifier, same fallback:
-    // on the blob path classifySpecies returns the legacy modulo untouched.
-    const PARK_CTX = { ctx: 'park' };
+    // Zone trees carry the context of the greens polygon they were scattered into (ZONE_TREE_CTX):
+    // a forest or scrub plants the wild set, a park or garden the ornamental one. Same classifier,
+    // same fallback: on the blob path classifySpecies returns the legacy modulo untouched.
     if (zoneTreeVariantIndices) {
       for (let i = 0; i < zoneTreePosArr.length; i++) {
-        const vi = classifySpecies(PARK_CTX, i, keySeed, zoneTreeVariantIndices[i] || 0);
+        const vi = classifySpecies(zoneTreePosArr[i], i, keySeed, zoneTreeVariantIndices[i] || 0);
         zoneBuckets[vi].pos.push(zoneTreePosArr[i]);
         zoneBuckets[vi].scales.push(zoneTreeScalesArr[i] || 1.0);
       }
     } else {
       for (let i = 0; i < zoneTreePosArr.length; i++) {
         const vi = classifySpecies(
-          PARK_CTX, i, keySeed + 9999,
+          zoneTreePosArr[i], i, keySeed + 9999,
           Math.floor(seeded(i, keySeed + 9999) * NUM_TREE_VARIANTS));
         zoneBuckets[vi].pos.push(zoneTreePosArr[i]);
         zoneBuckets[vi].scales.push(zoneTreeScalesArr[i] || 1.0);

@@ -1357,3 +1357,17 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
   tiles, `collectZoneVegetation` plants them at their own per-type density (forest = 1/25 m², cap
   600). The wild scatter exists to fill ground OSM says nothing about, so it now skips anything
   inside a greens polygon — otherwise a mapped wood carried ~2,200 trees where it should carry 600.
+
+## 2026-08-26 — floating clusters, and forests planted as parks
+
+- **Clusters could float.** `renderEnvironmentClusters` recomputed ground as
+  `getElevationAt * vertExag` instead of using `options.getWorldElevation` — the one function
+  tileManager builds from the terrain mesh for everything that must sit on the ground — and silently
+  fell back to `y = 0` when no sampler was present. **`y = 0` is not the ground**: it is the
+  elevation-offset datum, i.e. spawn-tile height. Near a road on flat ground that is invisibly close
+  to right, which is why it survived; scattered across a hillside that moves 190 m it puts whole
+  clusters in mid-air. Now uses `getWorldElevation`, and places nothing rather than floating when
+  there is no reading.
+- **Forest polygons were planted from the `park` set** (20% jacaranda), so Collserola came out dotted
+  with flowering ornamentals. Greens now carry their OSM type into the classifier via
+  `ZONE_TREE_CTX`: forest/scrub/grass plant the wild set, park/garden the ornamental one.
