@@ -1545,3 +1545,10 @@ guess, and both times a human looking at a screenshot caught what is a one-line 
   measures 4.7 mm and its span is independently confirmed twice: grout lines at 0/625/1250 px of
   1254 (exactly two 20 cm tiles), and signed off by eye in game. Concrete fines at ~5 mm are real.
 - `window._ddAsphaltSpan(m)` and `window._ddPanotSpan(m)` tune both live.
+- **`window._ddNightRig(ambientIntensity, ambientHex, hemiIntensity)`** — live night-rig knob, added
+  rather than a quiet retune. The carriageway reads lavender at night because `NIGHT.ambientColor`
+  is a blue-VIOLET `0x6b7a9e` at intensity **1.0** with no falloff. Those values are deliberate and
+  annotated ("the blue TINT (not darkness) is what sells night"; "readable floor: geometry must
+  survive as blue-charcoal masses, not voids"), so the trade gets exposed for judgement instead of
+  overwritten. The road ALBEDO is not the problem — base `#4a4a4a` (L\* 31.5) against the P8
+  Carriageway Grey anchor `#4F4E4C` (L\* 33.2) is within 1.7 L\*.
