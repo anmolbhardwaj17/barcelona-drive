@@ -1401,3 +1401,21 @@ screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs 
   −3.6% — resolution is NOT the constraint"*. The frame is **not fill-bound**, so the earlier
   reasoning that alpha-tested bush cards were costing fill was wrong. The bush LOD band (45–90 m) is
   still correct, but it was not the cause. Next step is an F9 drive report for section attribution.
+
+## 2026-08-26 — the frame was texture uploads, not vegetation
+
+F9 on Gran Via, worst frames: **`rend` 116–228 ms of CPU while the GPU sat at 6–7 ms**, with only
+170–410 draw calls and 0.5–1.1M triangles, and 6–13 MB allocated in the same frame. Draw calls and
+triangles that low with the GPU that idle cannot be a rendering cost — it is the CPU stalling inside
+`renderer.render()`.
+
+- **Atlases now upload during boot** (`preloadCardAtlases` → `renderer.initTexture`). They load
+  asynchronously, so three was uploading each page AND generating its mip chain on whatever frame
+  first drew it — mid-drive, and for a 3072×2048 page, enormous.
+- **The boot warm-up was warming the wrong materials.** It warmed `getBushMaterial()` — the BLOB —
+  while the live path had switched to bush cards, so the material that actually renders was never
+  warmed. It also called `getTreeBillboardMaterial(v)` per variant, a signature that stopped
+  existing when P3-10(c) collapsed the impostors to one material. **Warm what the seams return,
+  never a specific implementation.**
+- Corrected earlier in this session: the lag was blamed on alpha-tested bush fill. `adaptRes`
+  ("resolution is NOT the constraint") and now the GPU timings both say otherwise.

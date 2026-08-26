@@ -90,5 +90,39 @@ export function loadCardAtlas(albedoUrl, normalUrl) {
     t.magFilter = THREE.LinearFilter;
     t.anisotropy = 4;                                 // canopies are viewed at grazing angles
   }
+  _allCardTextures.push(albedo, normal);
   return { albedo, normal };
+}
+
+// Every atlas handed out by loadCardAtlas, so boot can force their upload before the drive starts.
+const _allCardTextures = [];
+
+/**
+ * Upload every vegetation atlas to the GPU during boot.
+ *
+ * WHY THIS EXISTS. Atlases load asynchronously, so three uploads each one — and GENERATES ITS MIP
+ * CHAIN — on whatever frame first draws it. That frame is mid-drive, and for a 3072x2048 page it is
+ * enormous. Measured on Gran Via: `renderer.render()` burning 116-228 ms of CPU while the GPU sat
+ * at 6-7 ms, with only ~400 draw calls and ~1M triangles in flight. Draw calls and triangles that
+ * low with the GPU that idle cannot be a rendering cost; it is the CPU stalling on uploads.
+ *
+ * `renderer.initTexture` does that work now instead. Awaiting the image first matters: calling it
+ * before the texture has data is a no-op, and the stall simply happens later as before.
+ */
+export function preloadCardAtlases(renderer) {
+  if (!renderer?.initTexture) return Promise.resolve(0);
+  const waits = _allCardTextures.map((t) => new Promise((resolve) => {
+    const go = () => { try { renderer.initTexture(t); } catch { /* context lost — retry on draw */ } resolve(); };
+    if (t.image && t.image.width) go();
+    else {
+      const src = t.source;
+      let tries = 0;
+      const poll = () => {
+        if ((t.image && t.image.width) || tries++ > 200) go();
+        else setTimeout(poll, 50);
+      };
+      void src; poll();
+    }
+  }));
+  return Promise.all(waits).then(() => _allCardTextures.length);
 }

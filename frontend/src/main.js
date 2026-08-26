@@ -52,7 +52,8 @@ import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
 import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
 import { createBuildingMeshes } from './map/buildingRenderer.js';
-import { renderVegetation, preloadTreeModels, updateTreeWind, getTreeMaterial, getTreeBillboardMaterial, getBushMaterial } from './map/vegetationRenderer.js';
+import { preloadCardAtlases } from './map/cardMesh.js';
+import { renderVegetation, preloadTreeModels, updateTreeWind, getTreeMaterial, getTreeBillboardMaterial, getBushCardsMaterial } from './map/vegetationRenderer.js';
 import { createSpatialIndex, queryNearestRoadSegment } from './map/spatialIndex.js';
 import { createStreetDisplay } from './ui/streetDisplay.js';
 import { createSpeedDisplay } from './ui/speedDisplay.js';
@@ -874,12 +875,16 @@ spawnTileReady.finally(() => {
         try {
           // v3 P1-04: the warm set was buildings-only. Vegetation is the family that actually runs on
           // BatchedMesh (the veg pools), so its materials are the ones whose USE_BATCHING variant was
-          // compiling mid-drive. Billboards are warmed for all 4 variant slots — they differ only by a
-          // uniform, but three keys the program on defines, so one warm covers the set.
+          // compiling mid-drive.
+          //
+          // ⚠ USE THE SEAMS. This warmed `getBushMaterial()` — the BLOB material — while the live
+          // path had already switched to bush cards, so the material that actually renders was never
+          // warmed at all. It also called getTreeBillboardMaterial(v) per variant, a signature that
+          // stopped existing when P3-10(c) collapsed the impostors to one material. Warm what
+          // getTreeMaterial/getBushCardsMaterial return, never a specific implementation.
           const _warmMats = [...warmAllBuildingMaterials(), getWaterMaterial()];
           try {
-            _warmMats.push(getTreeMaterial(), getBushMaterial());
-            for (let v = 0; v < 4; v++) { const bm = getTreeBillboardMaterial(v); if (bm) _warmMats.push(bm); }
+            _warmMats.push(getTreeMaterial(), getBushCardsMaterial(), getTreeBillboardMaterial());
           } catch {}
           // v3 P1-03: anything the material registry has patched is, by definition, a material with
           // a non-default shader — exactly the set that sync-compiles on first appearance. Pulling
@@ -938,6 +943,11 @@ spawnTileReady.finally(() => {
           scene.add(_warmGrp);
           // Compiled against the composer's target, like every other compile — see
           // compileForComposer() for why that matters (D-40).
+          // Force every vegetation atlas onto the GPU here, not on the frame that first draws it.
+          // See preloadCardAtlases — this is a 100-200 ms mid-drive stall moved into boot, where a
+          // stall is already expected and already measured by time-to-drive.
+          try { preloadCardAtlases(renderer); } catch {}
+
           const _p = compileForComposer();
           // ⚠ The warm group MUST come back out, on every path. three's own readiness poll can die
           // mid-flight — a 2026-08-26 drive caught `Cannot read properties of undefined (reading
