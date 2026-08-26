@@ -16,6 +16,7 @@ import { setTreeCardNightMode } from '../map/treeCards.js';
 import { setBushCardNightMode } from '../map/bushCards.js';
 import { setLightGridNightMode } from '../map/lightGrid.js';
 import { setSkyNightMode } from '../scene.js';
+import { setFacadeArrayNightMode } from '../map/facadeArray.js';
 import { setShopSignNightMode } from '../map/shopSignRenderer.js';
 import { setShopfrontNightMode } from '../map/shopfrontRenderer.js';
 import { UI, iconButton, injectUITheme } from './theme.js';

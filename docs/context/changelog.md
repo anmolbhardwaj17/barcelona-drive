@@ -1759,3 +1759,25 @@ sections lit blinding white. Knowing the number and shipping it anyway is the er
   carries the colour and the glow carries the ENERGY — the two were being confused. Tone shifted
   warmer at both ends (its cool end is now warmer than the old warm end), since a city lit by neutral
   windows reads grey however bright it is.
+
+## 2026-08-26 — a static check for the bug that shipped three times
+
+`setFacadeArrayNightMode` was called without being imported — the third runtime break in one session
+from an edit that removed or skipped a declaration (`_bikeLaneMaterial`, `setTreeCardNightMode` were
+the others). **All three passed `node --check`, passed the whole suite, and built cleanly**, because a
+reference inside a function body is only resolved when that function RUNS. The game died on the first
+tile build. `node --check` parses; it does not resolve, and there is no linter in this project.
+
+`test/undefinedRefs.test.js` asks one precise question: **is a name another module exports being
+CALLED here without being imported here?** That is the exact shape of all three breaks, and a global
+or a property access can never look like it.
+
+**Deliberately narrow.** The first version flagged `this._sfxBus`, `setTimeout` and object-literal
+keys — dozens of false positives, and a check that cries wolf gets switched off, at which point it
+catches nothing. The second still flagged four working call sites: function parameters (dependency
+injection like `createTileManager(scene, createRoadMeshes, …)`) and destructured bindings
+(`const { latLonToWorld } = deps`, `const { createRapierWorldAdapter } = await import(…)`). Both are
+now understood.
+
+**Verified by reintroducing the bugs**: deleting the import of `setFacadeArrayNightMode` or
+`setTreeCardNightMode` is detected; restoring it passes.
