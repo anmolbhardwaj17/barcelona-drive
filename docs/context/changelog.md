@@ -1296,3 +1296,22 @@ start, and p95 lives there. Reports taken on Collserola are not comparable to ea
   the entire baked region contains **10 `forest` and 12 `scrub` polygons** (vs 409 grass / 380
   garden / 78 park). Collserola — a natural park wrapping the whole city — has none. `ZONE_RULES`
   already has a dense `forest` rule (treeDensity 1/25, cap 600) waiting for data that never arrives.
+
+## 2026-08-26 — wild terrain: the renderer stops waiting for OSM
+
+Open ground now generates its own woodland instead of rendering as a bare green dome.
+
+`environmentClusterRenderer` classifies a tile as WILD when the map says nothing about it — no
+buildings, no greens, ≤8 roads — and wild ground gets: 620 clusters (vs 340), four new tree-DOMINANT
+`WOODLAND` templates (the original eight are rock-and-rubble roadside dressing, and only three carry
+a tree at all), and two octaves of value noise gating acceptance so the slope grows dense stands with
+clearings between them rather than an even carpet. **~1,682 trees per wild tile, one per ~149 m².**
+
+This is generated, not surveyed, and deliberately so: the baked region has 10 `forest` polygons for a
+city wrapped in a natural park, and fixing the relation parser would still leave open ground at the
+mercy of OSM's coverage. The alternative on offer was an empty hillside.
+
+Degrades safely — anything with buildings or a street network stays town and keeps the old dressing.
+
+**Perf note:** cards are 4 tris but each is an alpha-tested fragment, and a hillside puts many on
+screen at once. `WILD_MAX_CLUSTERS` is the one number to turn if the hill costs frames.

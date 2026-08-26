@@ -133,7 +133,52 @@ const CLUSTER_TEMPLATES = [
       { type: 'bush', dx: 2.5, dz: 1.2, scale: 0.8 },
     ],
   },
+
+  // ── WOODLAND templates (indices WOODLAND_FIRST..end) ────────────────────────────────────────
+  // The eight above are urban roadside compositions — rock-and-rubble dressing with at most two
+  // trees, and only three of them carry a tree at all. Scattered across Collserola they produce a
+  // rubble field, not a forest. These are tree-DOMINANT and drop the rocks almost entirely.
+  { // W1: dense stand
+    items: [
+      { type: 'tree', dx: 0, dz: 0, scale: 1.15 },
+      { type: 'tree', dx: 4.2, dz: 1.6, scale: 1.0 },
+      { type: 'tree', dx: -3.6, dz: 2.4, scale: 1.05 },
+      { type: 'tree', dx: 1.2, dz: -4.0, scale: 0.9 },
+      { type: 'bush', dx: -1.4, dz: -1.8, scale: 1.0 },
+    ],
+  },
+  { // W2: open stand with undergrowth
+    items: [
+      { type: 'tree', dx: 0, dz: 0, scale: 1.25 },
+      { type: 'tree', dx: -5.0, dz: -1.2, scale: 0.95 },
+      { type: 'bush', dx: 2.4, dz: 1.6, scale: 1.2 },
+      { type: 'bush', dx: -2.0, dz: 2.6, scale: 1.0 },
+      { type: 'bush', dx: 3.0, dz: -2.2, scale: 0.9 },
+    ],
+  },
+  { // W3: thicket
+    items: [
+      { type: 'tree', dx: 0, dz: 0, scale: 1.0 },
+      { type: 'tree', dx: 3.0, dz: -2.8, scale: 1.1 },
+      { type: 'tree', dx: -2.6, dz: -3.2, scale: 0.85 },
+      { type: 'tree', dx: -4.4, dz: 1.8, scale: 1.0 },
+      { type: 'tree', dx: 2.2, dz: 3.6, scale: 0.95 },
+      { type: 'bush', dx: 0.6, dz: 1.2, scale: 1.1 },
+    ],
+  },
+  { // W4: scrub margin — the edge of a stand, where woodland meets open ground
+    items: [
+      { type: 'tree', dx: 0, dz: 0, scale: 0.85 },
+      { type: 'bush', dx: 2.6, dz: 0.8, scale: 1.3 },
+      { type: 'bush', dx: -2.2, dz: 1.6, scale: 1.1 },
+      { type: 'bush', dx: 0.4, dz: -2.4, scale: 1.2 },
+      { type: 'rock', dx: -3.0, dz: -1.4, scale: 0.8 },
+    ],
+  },
 ];
+
+/** Index of the first WOODLAND template. Everything before it is urban roadside dressing. */
+const WOODLAND_FIRST = CLUSTER_TEMPLATES.length - 4;
 
 // A zoom-16 tile is ~500x500 m = 250,000 m². At spacing 25 the theoretical maximum is 400 clusters,
 // so the cap was the real limit: 120 clusters is one per ~2,000 m², which reads as an occasional
@@ -141,6 +186,46 @@ const CLUSTER_TEMPLATES = [
 // — before this, most of those clusters had nowhere to go anyway.
 const CLUSTER_SPACING = 18;   // metres between cluster centres
 const MAX_CLUSTERS_PER_TILE = 340;
+
+// ── WILD TERRAIN ──────────────────────────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS AND IS NOT DRIVEN BY OSM. Barcelona is wrapped in the Serra de Collserola, a
+// forested natural park, and the entire baked region contains TEN `forest` polygons and twelve
+// `scrub` (against 409 grass and 380 garden). The woodland is mapped as multipolygon relations and
+// the bake reads ways only — but even with that fixed, OSM's coverage of open ground is not
+// something to build a landscape on. Waiting for the data to describe a hillside means the hillside
+// stays bare grass, which is what it looked like.
+//
+// So on ground the map says nothing about, the renderer makes the call: no roads, no buildings and
+// no greens means WILD, and wild means wooded. This is generated, not surveyed, and it is meant to
+// be — the alternative on offer is an empty green dome.
+const WILD_MAX_CLUSTERS = 620;   // vs 340 urban: a hillside is denser than a verge
+const WILD_ROAD_LIMIT = 8;       // more named roads than this and it is not open country
+
+/** Value noise in [0,1] — clumps woodland into stands and clearings instead of an even scatter. */
+function _hash2(ix, iz) {
+  const h = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453;
+  return h - Math.floor(h);
+}
+function standDensity(x, z, scale) {
+  const fx = x / scale, fz = z / scale;
+  const ix = Math.floor(fx), iz = Math.floor(fz);
+  const tx = fx - ix, tz = fz - iz;
+  const sx = tx * tx * (3 - 2 * tx), sz = tz * tz * (3 - 2 * tz);
+  const a = _hash2(ix, iz),     b = _hash2(ix + 1, iz);
+  const c = _hash2(ix, iz + 1), d = _hash2(ix + 1, iz + 1);
+  return (a + (b - a) * sx) + ((c + (d - c) * sx) - (a + (b - a) * sx)) * sz;
+}
+
+/**
+ * Is this tile open country? Judged on what the map DOES contain, so it degrades safely: a tile
+ * with buildings or a street network is town and keeps the urban dressing, whatever else is missing.
+ */
+function isWildTile(tileData) {
+  if ((tileData.buildings || []).length > 0) return false;
+  if ((tileData.greens || []).length > 0) return false;
+  return (tileData.roads || []).length <= WILD_ROAD_LIMIT;
+}
 const GATE_CLUSTER_OFFSET = 6;  // metres from gate centre to place flanking clusters
 
 // ---------------------------------------------------------------------------
@@ -204,7 +289,9 @@ function findClusterCenters(tileData, tileKey, vegMask) {
   const tileW = bbox.mxX - bbox.mnX;
   const tileH = bbox.mxZ - bbox.mnZ;
   const tileArea = tileW * tileH;
-  const maxClusters = Math.min(Math.floor(tileArea / (CLUSTER_SPACING * CLUSTER_SPACING)), MAX_CLUSTERS_PER_TILE);
+  const wild = isWildTile(tileData);
+  const cap = wild ? WILD_MAX_CLUSTERS : MAX_CLUSTERS_PER_TILE;
+  const maxClusters = Math.min(Math.floor(tileArea / (CLUSTER_SPACING * CLUSTER_SPACING)), cap);
   let attempts = maxClusters * 10;
 
   while (centers.length < maxClusters && attempts-- > 0) {
@@ -214,6 +301,14 @@ function findClusterCenters(tileData, tileKey, vegMask) {
 
     if (!isVegetationAllowed(vegMask, x, z, 6)) continue;
     if (isInsideOrNearBuilding(x, z, buildings, 6)) continue;
+
+    // Wild ground clumps: two noise octaves gate acceptance, so the slope grows dense stands with
+    // clearings between them. A flat probability would carpet the hill evenly, which reads as a
+    // texture rather than a forest — the clearings are what make the stands look placed.
+    if (wild) {
+      const d = standDensity(x, z, 140) * 0.7 + standDensity(x, z, 45) * 0.3;
+      if (seeded(idx, globalSeed + 3) > d * 1.25) continue;
+    }
 
     // Check spacing against existing centers
     let tooClose = false;
@@ -225,7 +320,10 @@ function findClusterCenters(tileData, tileKey, vegMask) {
     }
     if (tooClose) continue;
 
-    const templateIdx = Math.floor(seeded(idx, globalSeed + 2) * CLUSTER_TEMPLATES.length) % CLUSTER_TEMPLATES.length;
+    // Wild ground draws only from the WOODLAND templates; town keeps the roadside dressing.
+    const lo = wild ? WOODLAND_FIRST : 0;
+    const n = wild ? CLUSTER_TEMPLATES.length - WOODLAND_FIRST : WOODLAND_FIRST;
+    const templateIdx = lo + (Math.floor(seeded(idx, globalSeed + 2) * n) % n);
     centers.push({ x, z, templateIdx });
   }
 
