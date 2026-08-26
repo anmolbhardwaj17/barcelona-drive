@@ -1281,3 +1281,18 @@ vegetation: the `hill` species set lives in environmentClusterRenderer's terrain
 has anything to show on non-urban ground with real elevation. **Move back to Gran Via
 `{41.3866, 2.1640}` before any perf work** — that is the P0-05 benchmark and `bench/benchRoute.js`
 start, and p95 lives there. Reports taken on Collserola are not comparable to earlier ones.
+
+## 2026-08-26 — hillsides were bare: two independent causes
+
+- **FIXED (frontend).** `environmentClusterRenderer.getTileBbox()` bounded the background cluster
+  scatter by the extent of the tile's ROADS AND BUILDINGS. A Collserola tile has 0 of each, so the
+  bbox came back null and the tile got ZERO clusters; a tile with one road got a thin sliver, which
+  is why trees hugged the carriageway and stopped at its edge. Now bounded by the tile's ELEVATION
+  footprint — the ground that actually exists, present on every tile, and already the authority the
+  per-item loop uses to reject out-of-footprint placements. Density raised with it (spacing 25→18,
+  cap 120→340); before the bbox fix most of those clusters had nowhere to go.
+- **NOT FIXED (needs a re-bake).** `backend/worldBuilder/pbfGreens.js` parses WAYS ONLY — it has no
+  handling for multipolygon relations. Barcelona's woodland is mapped predominantly as relations, so
+  the entire baked region contains **10 `forest` and 12 `scrub` polygons** (vs 409 grass / 380
+  garden / 78 park). Collserola — a natural park wrapping the whole city — has none. `ZONE_RULES`
+  already has a dense `forest` rule (treeDensity 1/25, cap 600) waiting for data that never arrives.

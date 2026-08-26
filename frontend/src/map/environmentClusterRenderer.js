@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
-import { worldToLatLon } from '../projection.js';
+import { worldToLatLon, latLonToWorld } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 import { getTreeGeometries, getTreeMaterial, getBushGeometry, getBushMaterial } from './vegetationRenderer.js';
 import { classifySpecies as classifyTreeSpecies } from './treeSpeciesSets.js';
@@ -135,8 +135,12 @@ const CLUSTER_TEMPLATES = [
   },
 ];
 
-const CLUSTER_SPACING = 25;   // metres between cluster centres
-const MAX_CLUSTERS_PER_TILE = 120;
+// A zoom-16 tile is ~500x500 m = 250,000 m². At spacing 25 the theoretical maximum is 400 clusters,
+// so the cap was the real limit: 120 clusters is one per ~2,000 m², which reads as an occasional
+// bush rather than a wooded slope. Raised now that the bbox covers the whole tile (see getTileBbox)
+// — before this, most of those clusters had nowhere to go anyway.
+const CLUSTER_SPACING = 18;   // metres between cluster centres
+const MAX_CLUSTERS_PER_TILE = 340;
 const GATE_CLUSTER_OFFSET = 6;  // metres from gate centre to place flanking clusters
 
 // ---------------------------------------------------------------------------
@@ -144,7 +148,34 @@ const GATE_CLUSTER_OFFSET = 6;  // metres from gate centre to place flanking clu
 // ---------------------------------------------------------------------------
 
 /** Derive bounding box from all road/building points in the tile. */
+/**
+ * The area over which background clusters may be scattered.
+ *
+ * THIS USED TO BE THE EXTENT OF THE ROADS AND BUILDINGS, and on open ground that is close to
+ * nothing. A Collserola hillside tile has 0 roads and 0 buildings, so the bbox came back null and
+ * the tile got ZERO clusters — the hill rendered as bare grass. A tile with one winding road got a
+ * thin sliver around it, which is why trees hugged the carriageway and stopped dead at its edge.
+ *
+ * The right bound is the tile's ELEVATION footprint: it is the ground that actually exists here,
+ * every tile has one (terrain is baked for all of them), and it is already the authority for which
+ * items get placed — the per-item loop below rejects anything outside it, because getElevationAt
+ * CLAMPS beyond the edge and would leave vegetation hanging in mid-air. Bounding the scatter by the
+ * same rect makes those two agree instead of one throwing away what the other allowed.
+ *
+ * Falls back to the old road/building extent for any tile with no elevation block.
+ */
 function getTileBbox(tileData) {
+  const e = tileData?.elevation;
+  if (e && Number.isFinite(e.south) && Number.isFinite(e.north) &&
+      Number.isFinite(e.west) && Number.isFinite(e.east)) {
+    const a = latLonToWorld(e.south, e.west);
+    const b = latLonToWorld(e.north, e.east);
+    return {
+      mnX: Math.min(a.x, b.x), mxX: Math.max(a.x, b.x),
+      mnZ: Math.min(a.z, b.z), mxZ: Math.max(a.z, b.z),
+    };
+  }
+
   let mnX = Infinity, mxX = -Infinity, mnZ = Infinity, mxZ = -Infinity;
   for (const road of tileData.roads || []) {
     for (const p of road.points || []) {
