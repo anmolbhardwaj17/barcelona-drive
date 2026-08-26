@@ -268,3 +268,30 @@ test('bushes are planted by context, not at random', () => {
   assert.equal(classifyBush(123.4, 56.7, 'wild', 1), 0);
   assert.ok(Object.keys(BUSH_SETS).length >= 2);
 });
+
+test('P3-09: the kerb gate is honest and the granite is real', () => {
+  const src = fs.readFileSync('src/map/roadRenderer.js', 'utf8');
+  // The flag must gate BOTH paths. It gated only the procedural one, so ENABLE_CURBS:false still
+  // rendered kerbs on all 409 baked tiles — a switch that does nothing is worse than no switch.
+  const baked = src.slice(src.indexOf('function buildBakedSidewalkMeshes'));
+  assert.ok(/CONFIG\.ENABLE_CURBS/.test(baked.slice(0, baked.indexOf('return { sidewalkMesh'))),
+    'the baked curb path respects ENABLE_CURBS');
+  assert.ok(/if \(!CONFIG\.ENABLE_CURBS\) return null;/.test(src), 'the procedural path still does');
+
+  // UVs must come from world position: the baked curb blobs carry no uv attribute at all, so
+  // sampling geometry UVs would silently texture nothing.
+  const mat = src.slice(src.indexOf('function getCurbMaterial'));
+  const body = mat.slice(0, mat.indexOf('return markShared'));
+  assert.ok(/modelMatrix \* vec4\(position/.test(body), 'kerb UV is derived from world position');
+  assert.ok(/normalMap/.test(body), 'kerb has a normal map — it is what reads at distance');
+  assert.ok(/MeshLambertMaterial/.test(body), 'Lambert, not Standard — rough granite, huge coverage');
+});
+
+test('P3-09: kerb granite passed its bake gates', () => {
+  const m = JSON.parse(fs.readFileSync('src/map/kerbTexture.js', 'utf8')
+    .replace(/^\/\/.*$/gm, '').replace('export default', '').trim().replace(/;$/, ''));
+  assert.equal(m.normalize.tileVerifyPass, true, 'tiles seamlessly');
+  assert.equal(m.normalize.gate4Pass, true, 'within ΔE2000 15 of a palette anchor');
+  assert.equal(m.normalize.normalBandPass, true, 'normal strength inside the §3.7 masonry band');
+  assert.ok(/bordillo_granite/.test(m.normalize.nearestAnchor), 'snapped to P7, the kerb anchor');
+});

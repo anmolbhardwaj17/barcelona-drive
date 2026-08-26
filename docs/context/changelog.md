@@ -1419,3 +1419,24 @@ triangles that low with the GPU that idle cannot be a rendering cost — it is t
   never a specific implementation.**
 - Corrected earlier in this session: the lag was blamed on alpha-tested bush fill. `adaptRes`
   ("resolution is NOT the constraint") and now the GPU timings both say otherwise.
+
+## 2026-08-26 — v3 P3-09: granite kerb
+
+- **Tiling granite albedo + normal, 512²**, generated PROCEDURALLY (`tools/build-kerb-texture.py`).
+  Granite is millimetre-scale speckle with no large features — what band-limited noise does well and
+  image models do badly (they invent cracks and mortar a 0.30 m kerb face has no room for). Periodic
+  sin/cos octaves also make STEP 1 exact rather than repaired. Gates: tile **1.00**, ΔE2000 **5.48**
+  vs P7 Bordillo Granite, |N.xy| **0.470 → 0.250**.
+- **UVs derived from world position in the vertex shader.** The baked v8/v9 curb blobs carry no `uv`
+  attribute (`withUv=false`), so there is nothing to sample; world-metric UV needs no attribute and
+  ships without a re-bake. Top face reads world XZ, vertical face reads (horizontal run, height),
+  picked by vertex normal so the grain stays upright.
+- **`ENABLE_CURBS` lie resolved.** Only `buildCurbs()` checked the flag; `buildBakedSidewalkMeshes()`
+  rendered kerbs on all 409 v9 tiles regardless — the switch did nothing and reading it misled.
+  Both paths gate on it now, and it reads `true`.
+- **Tile-verify metric finally calibrated** — see `artNormalize.step1_tile_verify`. Five attempts,
+  each wrong differently; what survives is signed-mean coherence, max over both axes, with an
+  absolute floor below one 8-bit level. Anchored at both ends: procedurally periodic noise scores
+  **0.00**, the three seamed AI rock plates score **2.7–4.2**. Enforced on raw input, reported after
+  repair (the threshold is not calibrated for blended output).
+- Tests 172 → 174.

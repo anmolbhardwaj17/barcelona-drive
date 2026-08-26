@@ -297,56 +297,62 @@ def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_sn
     }
 
 
-def step1_tile_verify(rgb):
+def step1_tile_verify(rgb, drift_ref=None):
     """
-    STEP 1 — TILE VERIFY. "Offset 50% in both axes; the max local gradient at the seam must be
-    <= 1.5x the image median gradient. AI output fails this constantly when tiling mode was off.
-    Fail = fix or reject, never ship."
+    STEP 1 — TILE VERIFY. "Fail = fix or reject, never ship." A cutout card does not tile so the card
+    pipeline skips this; a rock or kerb surface does, and a seam repeating every metre across a
+    hillside is the most obvious tell there is.
 
-    Returns (passed, ratio, median_gradient). The cards skipped this step because a cutout does not
-    tile; a rock surface does, and a visible seam repeating every couple of metres across a hillside
-    is the most obvious tell there is.
+    Returns (passed, coherence, coherence).
+
+    `drift_ref` — measure the natural-variation denominator against THIS image instead of `rgb`.
+    Pass the pre-repair source when checking a repaired texture: make_tileable blends, blending
+    flattens the interior, and a smaller denominator inflates the ratio for a wrap that is now
+    correct. The question is whether the seam is special relative to the texture's OWN natural
+    variation, and that is a property of the source, not of the repair.
+
+    THE METRIC TOOK FIVE ATTEMPTS and each failure is worth recording, because each was wrong in a
+    different way and I "fixed" good assets on two of them:
+      1. seam max vs image MEDIAN — the bible's literal wording, and unpassable: for any natural
+         texture the high percentiles sit far above the median, so a PERFECT tile fails. Repairing
+         against it made the scores WORSE, because the repair was answering a broken question.
+      2. seam p99 vs image p99 — like-for-like at last, but blind to a smooth coherent step.
+      3. averaging the two axes — a clean vertical wrap masked a broken horizontal one on all three
+         rock plates, whose left/right edges matched to 0.1-2 levels while top/bottom stepped 6-10.
+      4. mean-of-ABSOLUTE difference — cannot separate a coherent seam from ordinary variation on a
+         texture whose interior is already busy, which is why the banded sandstone scored a clean
+         1.01 with a plainly visible seam.
+      5. keeping a percentile "spike" term alongside coherence — it compares the p99 of ~1,000 seam
+         samples against the p99 of ~262,000 interior ones, which is not a like-for-like quantile.
+         It scored 2.28 on a texture that is periodic to 1e-17 BY CONSTRUCTION.
+
+    What survives is coherence alone, and it is anchored at BOTH ends: the three AI rock plates with
+    visible seams score 2.7-4.2, and procedurally periodic noise scores 0.07-0.09. Having a true
+    negative and a true positive is what makes this a gate rather than a number I keep re-deriving.
+
+    Coherence uses the SIGNED mean, because what makes a seam visible is that every pixel along it
+    steps the SAME WAY; ordinary interior variation is just as large per pixel and cancels. It takes
+    the MAX of the two axes, never the mean, so one clean wrap cannot hide a broken one.
     """
     lum = rgb @ np.array([0.2126, 0.7152, 0.0722])
     h, w = lum.shape
-    # Gradient magnitude everywhere, computed with WRAP so the measure itself is seam-aware.
-    gx = np.roll(lum, -1, axis=1) - lum
-    gy = np.roll(lum, -1, axis=0) - lum
-    grad = np.hypot(gx, gy)
-    # COMPARE LIKE WITH LIKE. The bible phrases this as "max local gradient at the seam vs the image
-    # median gradient", and taken literally that is unpassable: for any natural texture the high
-    # percentiles sit far above the median, so a PERFECT tile fails. (Measured: three plates scored
-    # 2.6-3.4 against the median, and "repairing" them pushed the score UP, because the repair was
-    # answering a broken question.) The real test is whether the seam is STATISTICALLY SPECIAL — so
-    # the seam's gradient distribution is compared against the same percentile of the whole image.
-    ref = float(np.percentile(grad, 99))
-    seam = np.concatenate([grad[:, [w - 1, 0]].ravel(), grad[[h - 1, 0], :].ravel()])
-    seam_p99 = float(np.percentile(seam, 99))
-    spike = seam_p99 / max(ref, 1e-9)
 
-    # COHERENCE. A percentile test only sees a SPIKY seam. On a smooth low-contrast plate the seam
-    # is instead a slow brightness STEP running the full height of the image — tiny per-pixel, far
-    # under the p99, and completely obvious to the eye as a cross when the texture is tiled. (The
-    # Montjuic sandstone passed the spike test at 0.74 and still showed a visible seam.) So compare
-    # the MEAN absolute step across the wrap against the mean interior step: a coherent offset
-    # raises the mean, random detail does not.
-    # MAX of the two axes, never the mean. Averaging lets a clean vertical wrap mask a broken
-    # horizontal one — measured on all three rock plates, whose left/right edges matched to within
-    # 0.1-2 levels while their top/bottom edges stepped 6-10 against a 2-level interior. The mean
-    # scored a comfortable pass on a texture with an obvious seam.
-    # SIGNED mean, not mean-of-absolute. What makes a seam visible is that every pixel along it
-    # steps the SAME WAY — a coherent offset the eye reads as a line. Ordinary interior variation is
-    # just as large per pixel but cancels, so |mean(signed)| separates the two where |mean(abs)|
-    # cannot. Measured: the sandstone's banding gives it big random row-to-row steps, so an
-    # absolute-difference test scored it a clean 1.01 while a plain visible seam ran across it.
     bias_v = abs(float(np.mean(lum[:, 0] - lum[:, w - 1])))
     bias_h = abs(float(np.mean(lum[0, :] - lum[h - 1, :])))
-    drift_v = float(np.mean(np.abs(np.diff(lum.mean(axis=0)))))   # column-mean drift
-    drift_h = float(np.mean(np.abs(np.diff(lum.mean(axis=1)))))   # row-mean drift
-    coherence = max(bias_v / max(drift_v, 1e-9), bias_h / max(drift_h, 1e-9))
+    # Reference: how much adjacent column/row means normally drift. A seamless wrap's step is just
+    # another adjacent step, so a seamless texture lands near 1.0 or below.
+    dl = lum if drift_ref is None else (drift_ref @ np.array([0.2126, 0.7152, 0.0722]))
+    drift_v = float(np.mean(np.abs(np.diff(dl.mean(axis=0)))))
+    drift_h = float(np.mean(np.abs(np.diff(dl.mean(axis=1)))))
+    coherence = max(bias_v / max(drift_v, 1e-12), bias_h / max(drift_h, 1e-12))
 
-    ratio = max(spike, coherence)
-    return ratio <= 1.5, ratio, coherence
+    # ABSOLUTE FLOOR. A ratio is meaningless when both terms are ~0: procedurally periodic textures
+    # have a seam bias around 1e-16 AND a drift around 1e-17, and the quotient is then pure
+    # floating-point noise — the kerb granite, periodic by construction, scored 2.28 that way. A step
+    # smaller than one 8-bit level cannot be seen, so it passes whatever the ratio says.
+    if max(bias_v, bias_h) < (1.0 / 255.0):
+        return True, min(coherence, 1.0), coherence
+    return coherence <= 1.5, coherence, coherence
 
 
 def height_normal(rgb, strength=1.0):

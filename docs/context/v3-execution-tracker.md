@@ -1024,14 +1024,23 @@ before anything is painted.**
 - **Full spec:** master plan §4 → P3
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P3-09 · 0.75d · risk low
+### `[x]` P3-09 · 0.75d · risk low — **DONE 2026-08-26**
 **Kerb material** — tiling granite/concrete albedo + normal at 512² with a chamfer highlight baked into the top edge. **The kerb is the silhouette element that reads at 200 m and is currently flat `0x5a5a5a`.** Also resolve the `ENABLE_CURBS` lie: the baked path bypasses the flag on all 409 v9 tiles.
 
 - **Files:** `roadRenderer.js:219-228,1758-1774,1777`; `config.js:187`
 - **Depends:** road asset set
 - **Subsystem:** road
 - **Full spec:** master plan §4 → P3
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **DONE 2026-08-26.** Tiling granite albedo + normal at 512² (`tools/build-kerb-texture.py`),
+  PROCEDURAL rather than AI — granite is millimetre-scale speckle with no large features, which noise
+  does well and image models do badly, and periodic sin/cos octaves make STEP 1 exact rather than
+  repaired. Gates: **tile 1.00**, **ΔE2000 5.48** vs P7 Bordillo Granite, **|N.xy| 0.470 → 0.250**
+  (masonry band 0.18–0.32). UVs derived from WORLD POSITION in the vertex shader — the baked v8/v9
+  curb blobs have no `uv` attribute, so this ships without a re-bake. Chamfer read as a value break
+  between top face and road-facing face. MeshStandard → MeshLambert.
+  - **`ENABLE_CURBS` lie resolved:** only `buildCurbs()` checked the flag; `buildBakedSidewalkMeshes()`
+    rendered kerbs on all 409 v9 tiles regardless. Both paths now gate on it, and it reads `true`,
+    which is what was actually happening.
 
 ### `[x]` P3-10 · 3.5d · risk medium — **DONE (partial: tiers 1-2 of the classifier blocked on P1 species pipe)**
 **Vegetation, data-only wave — no re-bake, no art, no KTX2.** (a) **Species-by-context classifier** replacing the species-blind `bakedVariantIndices[i] % 4`: three-tier — OSM tagged tree within 4 m → its species; else per-tile species histogram from that tile's own tagged trees; else context (inside a greens polygon → park set, adjacent to coast/beach → palm, road class primary/secondary → avenue set). **Species coverage is 13.8%, so graceful degradation is the whole design.** (b) **Roadside decimation** 2–5 m baked stride → ~7 m (fixes density realism and ~35–40% of the tree count). (c) **Billboard collapse**:…

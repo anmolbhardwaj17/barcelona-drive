@@ -293,7 +293,13 @@ export const CONFIG = {
   /** Zebra crosswalks (paso de cebra) at every eligible junction. Norma 8.2-IC: 0.50m stripe / 0.50m gap.
    *  Phase 1 Barcelona road overhaul. LOD-culled at 80m to control vertex budget. */
   ENABLE_CROSSWALKS: true, // zebra crossings at junctions — stripe height now interpolated along the road + unshaded bright paint
-  ENABLE_CURBS: false,        // Phase 3: granite curb L-profile (top + outer vertical face)
+  /** Granite kerb L-profile (top + road-facing vertical face), textured — v3 P3-09.
+   *
+   *  ON as of 2026-08-26. It read `false` while kerbs rendered on all 409 v9 tiles regardless,
+   *  because only the procedural path (`buildCurbs`) checked it and the baked path
+   *  (`buildBakedSidewalkMeshes`) did not. The flag now gates both, so it is finally an honest A/B
+   *  switch — and honest means it has to say what is actually happening, which is that kerbs are on. */
+  ENABLE_CURBS: true,
   ENABLE_BIKE_LANES: false,   // Phase 3: green bike lane surface + bike pictograms (InstancedMesh)
   /** One-way direction arrows (→) painted on road surface every 30m. Norma 8.2-IC.
    *  Requires road.oneway data from Phase 2 re-bake. LOD-culled at 80m. */

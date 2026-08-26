@@ -212,13 +212,75 @@ function getPanotMaterial() {
 }
 
 /** MeshStandardMaterial for granite curbs (Phase 3). */
+/**
+ * v3 P3-09 — granite kerb.
+ *
+ * Was a flat `BCN_COLORS.CURB_GRANITE` on a MeshStandardMaterial. The tracker's own framing: the
+ * kerb is "the silhouette element that reads at 200 m", and a flat colour gives it nothing to read
+ * WITH — no value break between the top face and the road-facing face, so the L-profile collapses
+ * into one grey band at any distance.
+ *
+ * UVs COME FROM WORLD POSITION, NOT FROM THE GEOMETRY. The baked v8/v9 curb blobs carry no `uv`
+ * attribute at all (`buildBakedSidewalkMeshes` builds them with withUv=false), so there is nothing
+ * to sample with — and adding one would mean a re-bake of all 409 tiles. Instead the vertex shader
+ * derives UV from world XZ on the top face and from (horizontal run, height) on the vertical face,
+ * picked by the vertex normal. That is the same world-metric approach asphalt v2 already uses, it
+ * needs no attribute, and it keeps the granite grain at a true 1 m repeat however the kerb bends.
+ *
+ * Lambert, not Standard: a kerb is rough granite with no meaningful specular response, and roads +
+ * kerbs are the largest screen coverage in the game.
+ */
 function getCurbMaterial() {
   if (_curbMaterial) return _curbMaterial;
-  _curbMaterial = new THREE.MeshStandardMaterial({
-    color: BCN_COLORS.CURB_GRANITE,
-    roughness: 0.6,
-    metalness: 0.1,
-  });
+  const loader = new THREE.TextureLoader();
+  const albedo = loader.load('/textures/road/kerb_granite_albedo.png');
+  const normal = loader.load('/textures/road/kerb_granite_normal.png');
+  albedo.colorSpace = THREE.SRGBColorSpace;
+  normal.colorSpace = THREE.NoColorSpace;
+  for (const t of [albedo, normal]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;   // tiling surface, unlike the atlases
+    t.generateMipmaps = true;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.anisotropy = 4;                           // a kerb is nearly always seen at a grazing angle
+  }
+
+  _curbMaterial = new THREE.MeshLambertMaterial({ map: albedo, normalMap: normal });
+  // AD-5: the normal is calibrated at bake into the §3.7 masonry band, so 1.0 is correct here.
+  _curbMaterial.normalScale = new THREE.Vector2(1.0, 1.0);
+
+  patchMaterial(_curbMaterial, (shader) => {
+    shader.uniforms.uKerbSpan = { value: 1.0 };   // texture covers 1 real metre — kerbTexture.spanM
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uKerbSpan;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        {
+          vec3 kwp = (modelMatrix * vec4(position, 1.0)).xyz;
+          vec3 kn  = normalize(mat3(modelMatrix) * normal);
+          // Top face (normal points up) reads world XZ. Vertical face reads horizontal run against
+          // height, so the grain stays upright on the face instead of smearing along the kerb.
+          vec2 kuv = abs(kn.y) > 0.5
+            ? kwp.xz
+            : vec2(kwp.x * abs(kn.z) + kwp.z * abs(kn.x), kwp.y);
+          vMapUv = kuv / uKerbSpan;
+          vNormalMapUv = vMapUv;
+        }`);
+
+    // CHAMFER. A real Barcelona kerb has a worn bevel along the top-outer arris: decades of tyres
+    // and feet polish it lighter than either flat it joins. That highlight is the only part of a
+    // kerb that carries at distance, so it is what makes the silhouette read. Cheapest honest
+    // version — lift the top face slightly against the road-facing face, giving the L-profile a
+    // value break instead of one uniform grey band.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vKerbTop;')
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );',
+        'vec4 diffuseColor = vec4( diffuse * mix(0.88, 1.14, vKerbTop), opacity );');
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vKerbTop;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvKerbTop = step(0.5, abs(normalize(mat3(modelMatrix) * normal).y));');
+  }, 'kerbGranite');
+
   return markShared(_curbMaterial);
 }
 
@@ -1727,8 +1789,14 @@ function buildBakedSidewalkMeshes(bs, bakedOffset, bakedVertExag) {
     sidewalkMesh.userData = { sharedMaterial: true, type: 'sidewalk', noMerge: true };
   }
 
+  // v3 P3-09: the flag now actually gates BOTH paths. `buildCurbs()` (the procedural path) has
+  // always checked it; this baked path never did, so with ENABLE_CURBS:false the config claimed
+  // kerbs were off while all 409 v9 tiles rendered them anyway. Turning the flag off did nothing,
+  // which made it useless as an A/B and actively misleading to read.
   let curbMesh = null;
-  const curbGeoms = [toGeom(bs.curbTop, false), toGeom(bs.curbFace, false)].filter(Boolean);
+  const curbGeoms = CONFIG.ENABLE_CURBS
+    ? [toGeom(bs.curbTop, false), toGeom(bs.curbFace, false)].filter(Boolean)
+    : [];
   if (curbGeoms.length) {
     let merged = curbGeoms[0];
     if (curbGeoms.length > 1) {
