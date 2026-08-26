@@ -76,7 +76,8 @@ the same shadow saving in planning; do not repeat that in execution.
 | p95 GPU, night, 80 km/h, dense Eixample | P0: **15.32 ms** @ pr **1.2** | post-P1: **13.85 ms** @ pr **1.0** ⚠ NOT like-for-like | **15.00** | see D-18 |
 | ↳ GPU p50 | 13.31 @ 1.2 | **8.02** @ 1.0 | — | frame is no longer GPU-bound at p50 |
 | ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ still unproven — needs an A/B, not a single capture | — | P0-03 |
-| **frame p95** | — | **33.4 ms** (37% of frames miss vsync → 30 fps) | 16.7 | P1-08 / task #39 |
+| **frame p95** | — | **33.4 ms** (37% of frames miss vsync → 30 fps) ⚠ pre-KTX2; not re-measured | 16.7 | P1-08 / task #39 |
+| **long frames per ~21 s drive** | 26-08: **≥40**, worst 243.1 ms | **27-08: 3**, worst 103.7 ms, all inside the first 6.03 s | — | P3-GATE-01 (KTX2) |
 | ↳ non-GPU share at p95 | P0 **18.1 ms** | **2026-08-26: 95% of a 50-76 ms frame, gpu only 7.3-7.8 ms — the cause is GC, see D-36** | — | task #39 |
 | ↳ GPU share at p50 | — | **13.3 of 16.7 ms** — median frame IS GPU-bound, only 3.4 ms spare | — | P2 |
 | Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
@@ -687,9 +688,9 @@ small value once this lands.**
 | Art library over the wire | ≤ 24.0 MB | **17.09 MB** (world 15.28 + facade 1.81) | ✅ |
 | Building detail coverage | ≥ 95% | fair-budget water-filling, 7 tests | ✅ |
 | Every asset passes §2.7 | 14 gates | **both closed 2026-08-27** — P11 violet anchor; hue-preserving grade rolloff | ✅ |
-| p95 night GPU | ≤ 15.0 ms | ⚠ **NOT MEASURED** — visual sign-off only | ◐ |
-| Draws / triangles | ≤ 450 / ≤ 2.6 M | ⚠ **NOT MEASURED** — visual sign-off only | ◐ |
-| Time-to-drive regression | < 1.5 s | ⚠ **NOT MEASURED** — visual sign-off only | ◐ |
+| p95 night GPU | ≤ 15.0 ms | **8.5–10.6 ms on the three worst frames** (F9, 27-08). Not a true all-frame p95, but every long frame was well under, vs a P0 p95 of 15.32 | ◐→✅ |
+| Draws / triangles | ≤ 450 / ≤ 2.6 M | ⚠ still **NOT MEASURED** — the F9 drive report does not capture either; needs the STATS overlay | ◐ |
+| Time-to-drive regression | < 1.5 s | **20.98 s vs 21.39 s** the day before — improved by 0.41 s, no regression | ✅ |
 
 > **How P3 actually closed.** The user drove on 2026-08-27 and signed off on the LOOK — toldos,
 > night-only shopfronts, the reworked shop signs, and no untextured surfaces after the KTX2 swap.
@@ -700,9 +701,23 @@ small value once this lands.**
 > signage, vehicles and terrain against a draws cap of 450, and budgeting against a number nobody
 > took is how the double-count strikes in §3 happened.
 >
-> **Cheapest way to close them: press F9 on ANY future drive.** It costs nothing and writes the
-> report to `backend/debug-reports/`. Until then, treat the ledger's p95/draws/triangle rows as
-> stale-since-P1, not as P3-verified.
+> **UPDATE 2026-08-27 — an F9 report arrived** (`drive-report-2026-08-26T23-38-21-700Z.json`,
+> 22.5 s drive). Two of the three rows above are now answered; **draws and triangles remain open**
+> because the drive report does not record them at all — that needs the STATS overlay, not F9.
+>
+> **The headline is the long-frame count: ≥40 → 3 over comparable ~21 s drives, both `capped:false`,
+> so it is a real count and not a truncation artefact.** Worst frame **243.1 ms → 103.7 ms** (−57%).
+> And all three survivors land inside the first **6.03 s**: the remaining ~16 s of driving produced
+> **zero** long frames, where the 26-08 drive produced 40 across the whole run.
+>
+> Attribution is the KTX2 conversion (P3-GATE-01). Mid-drive texture upload + mipgen was the
+> established cause (D-36/D-37); compressed textures carry their mip chain in the file, so there is
+> no mipgen and ~4× fewer bytes to upload.
+>
+> ⚠ **D-37 is NOT fixed, only made rare.** Every surviving long frame is ~97% `rend` with the GPU at
+> 8.5–10.6 ms, and `rend` allocated 26.1 MB across the three (~8.7 MB/frame) — squarely in D-37's
+> measured 7–13 MB/frame band. The frame is still CPU-bound inside `renderer.render()`; task #39
+> stands. Two of the three also coincide with shader-variant compiles (3.89 s, 6.03 s).
 
 P3-GATE-01 (2026-08-27) took the world texture library from **153.3 MiB of PNG to 34.7 MiB** of
 BC1/BC7, and the `public/` deploy from 183 MB to 35 MB. A phase is not done because its boxes are
