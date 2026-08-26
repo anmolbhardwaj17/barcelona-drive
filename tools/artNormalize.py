@@ -141,7 +141,7 @@ def delta_e_2000(lab1, lab2):
 
 
 # ══ the steps ═════════════════════════════════════════════════════════════════════════════════
-def step2_delight(lab, mask, source_type):
+def step2_delight(lab, mask, source_type, tiling=False):
     """
     STEP 2 — remove the source's OWN baked lighting.
 
@@ -161,8 +161,19 @@ def step2_delight(lab, mask, source_type):
     # L* of precision in a deliberately LOW-FREQUENCY estimate (sigma = W/8), where it is far below
     # the signal being extracted — the alternative, a 128-px-sigma kernel in numpy, buys nothing.
     q = np.clip(filled, 0, 100) * 2.55
-    low = np.asarray(Image.fromarray(q.astype(np.uint8), 'L')
-                     .filter(ImageFilter.GaussianBlur(sigma)), dtype=np.float64) / 2.55
+    if tiling:
+        # A TILING texture must be blurred with WRAP, not edge-clamp. PIL clamps, which pulls the
+        # border toward its own value — so the de-light would apply a different correction either
+        # side of the seam and break the very seam STEP 1 just verified. Tiling 3x3 and taking the
+        # centre gives a wrapped blur for the cost of one resample.
+        h, w = q.shape
+        tiled = np.tile(q, (3, 3))
+        blurred = np.asarray(Image.fromarray(tiled.astype(np.uint8), 'L')
+                             .filter(ImageFilter.GaussianBlur(sigma)), dtype=np.float64)
+        low = blurred[h:2 * h, w:2 * w] / 2.55
+    else:
+        low = np.asarray(Image.fromarray(q.astype(np.uint8), 'L')
+                         .filter(ImageFilter.GaussianBlur(sigma)), dtype=np.float64) / 2.55
     out = lab.copy()
     out[..., 0] = np.clip(L - k * (low - (L[mask].mean() if mask.any() else 0)), 0, 100)
     return out
@@ -264,7 +275,7 @@ def rally_clip_check(lab, mask):
 
 
 def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_snap,
-                     alpha_threshold=0.02):
+                     alpha_threshold=0.02, tiling=False):
     """
     Run STEPS 2 -> 3 -> 5 -> 6 on an RGBA plate. Statistics are computed over OPAQUE pixels only:
     including the transparent margin would drag every mean toward the background and silently
@@ -272,7 +283,7 @@ def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_sn
     """
     mask = alpha > alpha_threshold
     lab = rgb_to_lab(rgb)
-    lab = step2_delight(lab, mask, source_type)
+    lab = step2_delight(lab, mask, source_type, tiling=tiling)
     lab, before = step3_rescale(lab, mask, surface_class)
     lab = step5_palette_snap(lab, mask, anchor, alpha_snap)
     lab = step6_pre_grade(lab)
@@ -284,3 +295,120 @@ def normalize_albedo(rgb, alpha, *, source_type, surface_class, anchor, alpha_sn
         'anchor': anchor_name, 'deltaE': dE, 'rally_clip_pct': clip_frac * 100,
         'gate4_pass': dE <= 15.0,
     }
+
+
+def step1_tile_verify(rgb):
+    """
+    STEP 1 — TILE VERIFY. "Offset 50% in both axes; the max local gradient at the seam must be
+    <= 1.5x the image median gradient. AI output fails this constantly when tiling mode was off.
+    Fail = fix or reject, never ship."
+
+    Returns (passed, ratio, median_gradient). The cards skipped this step because a cutout does not
+    tile; a rock surface does, and a visible seam repeating every couple of metres across a hillside
+    is the most obvious tell there is.
+    """
+    lum = rgb @ np.array([0.2126, 0.7152, 0.0722])
+    h, w = lum.shape
+    # Gradient magnitude everywhere, computed with WRAP so the measure itself is seam-aware.
+    gx = np.roll(lum, -1, axis=1) - lum
+    gy = np.roll(lum, -1, axis=0) - lum
+    grad = np.hypot(gx, gy)
+    # COMPARE LIKE WITH LIKE. The bible phrases this as "max local gradient at the seam vs the image
+    # median gradient", and taken literally that is unpassable: for any natural texture the high
+    # percentiles sit far above the median, so a PERFECT tile fails. (Measured: three plates scored
+    # 2.6-3.4 against the median, and "repairing" them pushed the score UP, because the repair was
+    # answering a broken question.) The real test is whether the seam is STATISTICALLY SPECIAL — so
+    # the seam's gradient distribution is compared against the same percentile of the whole image.
+    ref = float(np.percentile(grad, 99))
+    seam = np.concatenate([grad[:, [w - 1, 0]].ravel(), grad[[h - 1, 0], :].ravel()])
+    seam_p99 = float(np.percentile(seam, 99))
+    spike = seam_p99 / max(ref, 1e-9)
+
+    # COHERENCE. A percentile test only sees a SPIKY seam. On a smooth low-contrast plate the seam
+    # is instead a slow brightness STEP running the full height of the image — tiny per-pixel, far
+    # under the p99, and completely obvious to the eye as a cross when the texture is tiled. (The
+    # Montjuic sandstone passed the spike test at 0.74 and still showed a visible seam.) So compare
+    # the MEAN absolute step across the wrap against the mean interior step: a coherent offset
+    # raises the mean, random detail does not.
+    # MAX of the two axes, never the mean. Averaging lets a clean vertical wrap mask a broken
+    # horizontal one — measured on all three rock plates, whose left/right edges matched to within
+    # 0.1-2 levels while their top/bottom edges stepped 6-10 against a 2-level interior. The mean
+    # scored a comfortable pass on a texture with an obvious seam.
+    # SIGNED mean, not mean-of-absolute. What makes a seam visible is that every pixel along it
+    # steps the SAME WAY — a coherent offset the eye reads as a line. Ordinary interior variation is
+    # just as large per pixel but cancels, so |mean(signed)| separates the two where |mean(abs)|
+    # cannot. Measured: the sandstone's banding gives it big random row-to-row steps, so an
+    # absolute-difference test scored it a clean 1.01 while a plain visible seam ran across it.
+    bias_v = abs(float(np.mean(lum[:, 0] - lum[:, w - 1])))
+    bias_h = abs(float(np.mean(lum[0, :] - lum[h - 1, :])))
+    drift_v = float(np.mean(np.abs(np.diff(lum.mean(axis=0)))))   # column-mean drift
+    drift_h = float(np.mean(np.abs(np.diff(lum.mean(axis=1)))))   # row-mean drift
+    coherence = max(bias_v / max(drift_v, 1e-9), bias_h / max(drift_h, 1e-9))
+
+    ratio = max(spike, coherence)
+    return ratio <= 1.5, ratio, coherence
+
+
+def height_normal(rgb, strength=1.0):
+    """
+    Tangent-space normal from luminance treated as height, with WRAPPED derivatives so the map
+    tiles as cleanly as the albedo it came from.
+    """
+    lum = rgb @ np.array([0.2126, 0.7152, 0.0722])
+    gx = (np.roll(lum, -1, axis=1) - np.roll(lum, 1, axis=1)) * 0.5 * strength
+    gy = (np.roll(lum, -1, axis=0) - np.roll(lum, 1, axis=0)) * 0.5 * strength
+    nx, ny = -gx, -gy
+    nz = np.ones_like(nx) * 0.25
+    ln = np.sqrt(nx * nx + ny * ny + nz * nz)
+    return np.dstack([nx / ln, ny / ln, nz / ln]) * 0.5 + 0.5
+
+
+def make_tileable(rgb, band_frac=0.22):
+    """
+    Repair a nearly-tiling texture so it actually wraps. STEP 1's "fix or reject" path.
+
+    METHOD. Roll the image by half its size in both axes: the original border seams now run as a
+    cross through the middle, and the image's own smooth interior sits along the border. Blend the
+    rolled copy over the original with a mask that is 0 at the border and 1 in the middle. The
+    border is then taken entirely from the rolled copy — whose values there are adjacent columns of
+    the original interior — so it is continuous by construction, while the rolled copy's own seam
+    cross falls where the mask is 1 and the original is used instead.
+
+    The cost is a soft blend band where the two overlap, which on a stochastic surface like rock
+    reads as slightly gentler detail. Mirroring would tile perfectly with no blend, but mirror
+    symmetry across a hillside is far more visible than softened grain.
+    """
+    h, w = rgb.shape[:2]
+    rolled = np.roll(np.roll(rgb, h // 2, axis=0), w // 2, axis=1)
+
+    def ramp(n, b):
+        x = np.arange(n, dtype=np.float64)
+        d = np.minimum(x, n - 1 - x) / max(b, 1)      # 0 at the border, 1 at band depth
+        d = np.clip(d, 0, 1)
+        return d * d * (3 - 2 * d)                     # smoothstep
+
+    b = max(1, int(min(h, w) * band_frac))
+    m = np.minimum(ramp(h, b)[:, None], ramp(w, b)[None, :])[..., None]
+    return rgb * m + rolled * (1 - m)
+
+
+def resize_tiling(rgb, size):
+    """
+    Resample a TILING texture without breaking its wrap.
+
+    PIL clamps at the image edge, so a plain resize invents new border pixels from one side only and
+    the seam that step 1 just verified stops matching. (Measured: a sandstone plate passing at 0.73
+    grew a visible seam cross purely from a 1254 -> 1024 resize.) Tiling 3x3 before the resample
+    gives every border real neighbours to interpolate from; the centre tile is then still seamless.
+
+    Same shape of mistake as bleed_rgb in the card pipeline: a resample is where wrap and alpha
+    assumptions go to die, so both are handled BEFORE any resize, never after.
+    """
+    h, w = rgb.shape[:2]
+    tiled = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8), 'RGB')
+    big = Image.new('RGB', (w * 3, h * 3))
+    for a in range(3):
+        for b in range(3):
+            big.paste(tiled, (a * w, b * h))
+    big = big.resize((size * 3, size * 3), Image.LANCZOS)
+    return np.asarray(big.crop((size, size, size * 2, size * 2)), dtype=np.float64) / 255.0
