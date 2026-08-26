@@ -1273,3 +1273,11 @@ State at time of analysis:
   facades. Now modulated by the albedo (`emissiveMap = map`, declared in the constructor so the
   define is baked before the boot warm-up). `window._ddTreeNight(scale)` tunes it live at night.
 - Tests 168 → 169.
+
+## 2026-08-26 — spawn moved to Collserola (temporary)
+
+DEFAULT_SPAWN → `{lat:41.4180, lon:2.1150}` (Carretera de les Aigües) to check P3-10 hillside
+vegetation: the `hill` species set lives in environmentClusterRenderer's terrain scatter, which only
+has anything to show on non-urban ground with real elevation. **Move back to Gran Via
+`{41.3866, 2.1640}` before any perf work** — that is the P0-05 benchmark and `bench/benchRoute.js`
+start, and p95 lives there. Reports taken on Collserola are not comparable to earlier ones.

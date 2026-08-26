@@ -23,14 +23,21 @@
  *  (Previous spawns: 41.3700/2.1600 Montjuïc slope — Phase 0/1/2 gates; 41.40606/2.12031 Gran Via
  *  trunk-tunnel approach — old simple-tunnel testing.) */
 export const DEFAULT_SPAWN = {
-  // 2026-08-26 — GRAN VIA at Plaça Universitat, dense Eixample. Restored for the FRAME-LAG work.
+  // 2026-08-26 — COLLSEROLA, Carretera de les Aigües. Set to check v3 P3-10 HILLSIDE vegetation.
   //
-  // This is deliberately the same place as the v3 performance benchmark (P0-05) and the start of
-  // `bench/benchRoute.js`: the densest thing the renderer has to survive. Measuring stream-in cost
-  // anywhere quieter measures the wrong thing — the reported lag is a p95 problem, and p95 lives
-  // here. Chamfered blocks, continuous street walls, heavy tile churn when you move.
-  lat: 41.3866,
-  lon: 2.1640,
+  // The species classifier now routes background/hill cluster trees through a 'hill' set
+  // (celtis/tipuana/plane — no palms, no ornamentals). That path is environmentClusterRenderer's
+  // terrain scatter, which only has anything to show on non-urban ground with real elevation, so
+  // it cannot be judged from the Eixample. Collserola is the wooded slope; Montjuïc (41.3700,
+  // 2.1600) and Park Güell (41.4145, 2.1527) are the other two baked hills.
+  //
+  // ⚠ PERF WORK MUST MOVE THIS BACK. The frame-lag benchmark spawn is GRAN VIA at Plaça
+  // Universitat — { lat: 41.3866, lon: 2.1640 } — deliberately the same place as the v3 benchmark
+  // (P0-05) and the start of `bench/benchRoute.js`: the densest thing the renderer has to survive.
+  // Lag is a p95 problem and p95 lives there; measuring stream-in on a quiet hillside measures the
+  // wrong thing. Any A/B or drive report taken from Collserola is NOT comparable to earlier ones.
+  lat: 41.4180,
+  lon: 2.1150,
   heading: null,
 };
 
