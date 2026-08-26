@@ -1682,3 +1682,25 @@ under-counted. It now has **145 MiB spare**.
 - **`window._ddFacadeSpan(widthM, heightM)`** — window size on screen is entirely a function of how
   many real metres a layer claims to span. The defaults are derived; "reads like a Barcelona street"
   is a separate question.
+
+## 2026-08-26 — dev-knob cleanup
+
+Tuning knobs are scaffolding: once a value is settled they are dead weight that still ships. Removed
+the ones whose values are now fixed in code — `_ddTreeNight`, `_ddNightRig`, `_ddPanotSpan`,
+`_ddAsphaltSpan`, `_ddFacadeSpan`.
+
+⚠ Removing `_ddTreeNight` also took `setTreeCardNightMode` with it — it sat between the knob and the
+test seam, and `envToggle` imports it. The suite caught it. Deleting a block by line range is exactly
+how a working function leaves with its scaffolding.
+
+**Deliberately kept**, each with a reason:
+- `_ddReport` (F9) and `_ddRoadFit` — measurement instruments, not tuning knobs.
+- `_ddVegCount` / `_ddVegPools` — the census that separated "not generated" from "not visible".
+- `_ddRoadDetail`, `_ddWindowGlow`, `_ddFacadeTint` — their values are **not yet judged on screen**.
+  They go when they are.
+- `_ddBootDone` / `_ddGate` / `_ddModeLoadDone` / `_ddRapierActive` / `_ddRenderer` / `_ddTilePerf` /
+  `_ddBenchResult` / `_ddLightGridAB` — pre-existing harness, not mine.
+
+**URL switches stay.** `?treecards=0`, `?roadv2=0`, `?facadearray=0`, `?adaptres=0` are ATTRIBUTION
+switches, a documented house convention: they exist so a frame-cost question can be answered rather
+than argued. `?debug=*` are opt-in diagnostics that cost nothing when absent.

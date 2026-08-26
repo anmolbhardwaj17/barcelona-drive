@@ -55,17 +55,7 @@ if (typeof window !== 'undefined') {
     return `road detail normal ${v}` + (v === 0 ? '  (OFF — this is the before picture)' : '');
   };
 }
-let _asphaltRepeatUniform = null;
 
-// Live knob — `window._ddAsphaltSpan(metres)`. The default is measured, not chosen: the bake reports
-// the grain size the span implies and warns when it leaves the physical band for the surface class.
-if (typeof window !== 'undefined') {
-  window._ddAsphaltSpan = (m) => {
-    if (!_asphaltRepeatUniform) return 'no road material yet — drive first';
-    _asphaltRepeatUniform.value = m;
-    return `asphalt span ${m} m -> aggregate ~${(11.7 * m / 2).toFixed(1)} mm (real is 5-15 mm)`;
-  };
-}
 
 const ROAD_ZFIGHT_OFFSET = 0.02;
 const SIDEWALK_OFFSET = 0.08;
@@ -220,24 +210,6 @@ export function setRendererAnisotropy(v) {
 
 // ── Phase 3 Barcelona material cache ─────────────────────────────────────────
 let _panotMaterial = null;
-let _panotSpanUniform = null;
-
-// Live tuning knob — `window._ddPanotSpan(metres)` in the console.
-//
-// The default 0.40 m is MEASURED, not guessed: the plate's grout lines sit at 0, ~625 and ~1250 px
-// of 1254, so it is exactly two tiles across, and Barcelona panot is 20 cm. That is the real size.
-// It is exposed anyway because "correct" and "reads well from a car camera three metres up" are
-// different questions, and the second one is the user's to answer, not mine.
-if (typeof window !== 'undefined') {
-  window._ddPanotSpan = (m) => {
-    if (!_panotSpanUniform) return 'no panot material yet — drive first';
-    _panotSpanUniform.value = m;
-    return `panot span ${m} m  ->  tile ${(m / 2 * 100).toFixed(0)} cm (real panot is 20 cm)`;
-  };
-}
-let _curbMaterial = null;
-let _bikeLaneMaterial = null;
-let _bikePictogramMaterial = null;
 
 /** MeshStandardMaterial with panot texture + world-space UVs (Phase 3 sidewalks). */
 function getPanotMaterial() {
@@ -271,7 +243,6 @@ function getPanotMaterial() {
   // the flower to 20 cm everywhere, and makes it continuous across tile seams for free.
   patchMaterial(_panotMaterial, (shader) => {
     shader.uniforms.uPanotSpan = { value: spanM };
-    _panotSpanUniform = shader.uniforms.uPanotSpan;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uPanotSpan;')
       .replace('#include <uv_vertex>', `#include <uv_vertex>
@@ -475,7 +446,6 @@ function patchRoadAO(mat, opts = {}) {
     _roadDetailUniform = shader.uniforms.uRoadDetailAmt;
     shader.uniforms.uAsphaltGain = { value: _asphaltGain || new THREE.Vector3(1, 1, 1) };
     shader.uniforms.uAsphaltRepeatM = { value: _asphaltRepeatM || ROAD_V2_UNIFORMS.uAsphaltRepeatM };
-    _asphaltRepeatUniform = shader.uniforms.uAsphaltRepeatM;
     shader.uniforms.uRoadRut = { value: ROAD_V2_UNIFORMS.uRoadRut };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',

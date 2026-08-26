@@ -64,8 +64,8 @@ export const LAYER_W_M = 12.0;
  *
  * 12 x 12 was judged on screen against real streets. The layer no longer claims to be exactly two
  * storeys — it is a facade patch whose apparent storey (~6 m) is larger than the bake's, which reads
- * correctly because the plate's own windows sit well inside its 2-storey band. `_ddFacadeSpan(w, h)`
- * re-tunes it live.
+ * correctly because the plate's own windows sit well inside its 2-storey band. Re-tune by editing
+ * LAYER_W_M / BODY_LAYER_H_M — the live knob was removed once the value was settled on screen.
  */
 export const BODY_LAYER_H_M = 12.0;
 /** Metres a GROUND layer spans vertically — one shopfront module. */
@@ -379,7 +379,6 @@ const _facadeScale = {
   x: WALL_REPEAT_HORIZONTAL_M / LAYER_W_M,
   y: FLOOR_HEIGHT / BODY_LAYER_H_M,
 };
-const _facadeScaleUniforms = [];
 
 /**
  * How much of the per-building vertex tint survives on the authored-facade path, and what it is
@@ -410,18 +409,6 @@ const _windowGlow = { x: 1.00 * 0.55, y: 0.874 * 0.55, z: 0.658 * 0.55 };
 const _windowGlowUniforms = [];
 const _facadeTintUniforms = [];
 
-/**
- * Live knob — `window._ddFacadeSpan(widthM, heightM)`.
- *
- * Window SIZE on screen is entirely a function of how many real metres a layer claims to span:
- * fewer metres per layer means bigger windows and fewer of them. The defaults are derived rather
- * than chosen (LAYER_W_M, and BODY_LAYER_H_M = 2 x STOREY_H), but "correct" and "reads like a
- * Barcelona street" are different questions and the second one is not mine to settle.
- *
- *   _ddFacadeSpan(8, 7)    the derived default
- *   _ddFacadeSpan(8, 6)    taller storeys -> bigger windows, fewer rows
- *   _ddFacadeSpan(10, 8)   bigger everything
- */
 if (typeof window !== 'undefined') {
   /**
    * `_ddFacadeTint(amount)` — how much per-building colour variation survives, as BRIGHTNESS.
@@ -454,12 +441,7 @@ if (typeof window !== 'undefined') {
     return `facade tint ${_facadeTint.amt} (brightness only, hue discarded) around mean ${_facadeTint.mean}`;
   };
 
-  window._ddFacadeSpan = (wM, hM) => {
-    _facadeScale.x = WALL_REPEAT_HORIZONTAL_M / wM;
-    _facadeScale.y = FLOOR_HEIGHT / hM;
-    for (const u of _facadeScaleUniforms) u.value = _facadeScale;
-    return `facade layer spans ${wM} x ${hM} m  (storey ${(hM / 2).toFixed(2)} m; bake STOREY_H is ${STOREY_H})`;
-  };
+
 }
 
 let _facadeDiagLogged = false;
@@ -483,7 +465,6 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // WALL_REPEAT_HORIZONTAL_M (12 m) and v in units of FLOOR_HEIGHT (10 m); the layers are
     // LAYER_W_M x BODY_LAYER_H_M.
     shader.uniforms.uFacadeScale = { value: _facadeScale };
-    _facadeScaleUniforms.push(shader.uniforms.uFacadeScale);
     shader.uniforms.uFacadeWindowGlow = { value: _windowGlow };
     _windowGlowUniforms.push(shader.uniforms.uFacadeWindowGlow);
     shader.uniforms.uFacadeTintAmt = { value: _facadeTint.amt };

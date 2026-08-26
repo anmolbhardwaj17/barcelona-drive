@@ -99,29 +99,7 @@ let _presetFogDensity = DAY.fogDensity;
 export function getPresetFogDensity() { return _presetFogDensity; }
 
 export function createEnvToggle(refs) {
-  // ── Live night-rig knob ──────────────────────────────────────────────────────────────────────
-  // `_ddNightRig(ambientIntensity, ambientHex, hemiIntensity)` in the console, at night.
-  //
-  // NOT a quiet retune. The NIGHT values below are deliberate and annotated — "the blue TINT (not
-  // darkness) is what sells night", "readable floor: geometry must survive as blue-charcoal masses,
-  // not voids" — and ambient 1.0 with a blue-VIOLET fill (0x6b7a9e) is exactly why the carriageway
-  // reads lavender rather than dark blue-charcoal. Whether that trade is right is a design call
-  // that was already made once, so it gets exposed for judgement rather than overwritten.
-  //
-  //   _ddNightRig(0.55)                    darker, same hue
-  //   _ddNightRig(0.55, 0x63788f)          darker and less violet
-  //   _ddNightRig(1.0, 0x6b7a9e, 0.6)      back to shipped
-  if (typeof window !== 'undefined') {
-    window._ddNightRig = (ai, hex, hi) => {
-      const a = refs.ambientLight, h = refs.hemiLight;
-      if (!a) return 'no ambient light ref';
-      if (ai != null) { a.intensity = ai; NIGHT.ambientIntensity = ai; }
-      if (hex != null) { a.color.setHex(hex); NIGHT.ambientColor = hex; }
-      if (hi != null && h) { h.intensity = hi; NIGHT.hemiIntensity = hi; }
-      return `night ambient ${a.intensity.toFixed(2)} #${a.color.getHexString()}` +
-             (h ? `  hemi ${h.intensity.toFixed(2)}` : '');
-    };
-  }
+
 
   const { scene, renderer, ambientLight, hemiLight, dirLight, sky,
           setLampEmissiveIntensity, setBloom } = refs;

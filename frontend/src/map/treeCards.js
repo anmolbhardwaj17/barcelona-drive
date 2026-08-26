@@ -189,7 +189,8 @@ export const CARD_NIGHT_TINT = [0.55, 0.62, 0.56];
  */
 export const NIGHT_LIGHT_FRACTION = 0.38;
 
-// The impostor material registers here so the live knob moves both sides together.
+// The impostor material registers here so its night tint stays derived from the card tint rather
+// than hand-picked — see NIGHT_LIGHT_FRACTION for why that mattered.
 const _nightTintListeners = [];
 export function onCardNightTint(fn) { _nightTintListeners.push(fn); }
 
@@ -206,36 +207,18 @@ function _applyCardNight(m) {
 }
 
 /**
- * Live tuning knob — `window._ddTreeNight(scale)` in the console while driving at night.
- *
- * Night foliage brightness cannot be judged from a screenshot or a contact sheet; it has to be
- * seen against lit facades, street lamps and headlights, at speed. Rebuilding between guesses puts
- * that judgement a full round-trip away, so this exposes it directly: dial it, then tell me the
- * number and it becomes the default. Dev convenience only — it changes one uniform, nothing else.
- */
-if (typeof window !== 'undefined') {
-  window._ddTreeNight = (emissiveScale = 1, tintScale = 1) => {
-    if (!_material) return 'no card material yet — drive first';
-    const e = CARD_NIGHT_EMISSIVE.map((c) => c * emissiveScale);
-    const t = CARD_NIGHT_TINT.map((c) => Math.min(1, c * tintScale));
-    _material.emissive.setRGB(...e);
-    _material.color.setRGB(...t);
-    // Move the LOD impostors with the near cards, or tuning one just breaks the match again.
-    _nightTintListeners.forEach((fn) => fn(t));
-    return `emissive ${e.map((c) => c.toFixed(4)).join(', ')} (x${emissiveScale})  ·  ` +
-           `tint ${t.map((c) => c.toFixed(3)).join(', ')} (x${tintScale})  ·  ` +
-           `impostors ${t.map((c) => (c * NIGHT_LIGHT_FRACTION).toFixed(3)).join(', ')}`;
-  };
-}
-
-/**
  * Day/night switch for the card material. Called from envToggle alongside the other material
- * callbacks. Safe with respect to G-53: `emissive` is a plain uniform on MeshLambert (the slot
- * always exists), so changing it uploads a uniform and does NOT recompile the program.
+ * callbacks. Safe with respect to G-53: `emissive` and `color` are plain uniforms on MeshLambert
+ * (the slots always exist), so changing them uploads a uniform and does NOT recompile the program.
+ *
+ * Also drives the LOD impostors, whose night tint is DERIVED from the card tint rather than
+ * hand-picked — see NIGHT_LIGHT_FRACTION for why two independently-tuned tints could never agree.
  */
 export function setTreeCardNightMode(isNight) {
   _cardNight = isNight;
   _applyCardNight(_material);
+  const tint = isNight ? CARD_NIGHT_TINT : [1, 1, 1];
+  _nightTintListeners.forEach((fn) => fn(tint));
 }
 
 /** Test/debug seam. */
