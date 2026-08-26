@@ -1085,6 +1085,34 @@ export function getVegPools(parentGroup) {
       capacity: 16384, castShadow: false, receiveShadow: false,
     }, parentGroup),
   };
+
+  // Dev probe: `_ddVegCount()` in the console reports what each vegetation pool actually holds.
+  // Added because "I can't see bushes" is ambiguous between not-generated, not-added, not-visible
+  // and not-where-I-was-looking, and hunting for a 1 m shrub in the Eixample to tell those apart is
+  // a bad use of a drive. Counts come straight from the pools, so they answer it in one line.
+  if (typeof window !== 'undefined') {
+    window._ddVegPools = _vegPools;
+    window._ddVegCount = () => {
+      // A pool SET wraps an array of pools (a sibling spawns when one fills), so totals are summed.
+      const row = (name, set) => {
+        const ps = set?.pools || [];
+        let inst = 0, vis = 0, geo = 0; let mat = null;
+        for (const p of ps) {
+          const bm = p.mesh;
+          inst += bm.instanceCount ?? 0;
+          if (bm.visible) vis++;
+          geo = p.geometries?.length ?? geo;
+          mat = bm.material;
+        }
+        return `${name.padEnd(12)} pools ${String(ps.length).padStart(2)}  instances ${String(inst).padStart(6)}` +
+               `  visiblePools ${vis}  geometries ${geo}` +
+               `  ${mat?.type || '?'}${mat ? (mat.map ? ' +map' : ' NO-MAP') : ''}`;
+      };
+      return [row('trees', _vegPools.trees), row('bushes', _vegPools.bushes),
+              row('shadows', _vegPools.shadows), row('billboards', _vegPools.billboards)].join('\n');
+    };
+  }
+
   return _vegPools;
 }
 

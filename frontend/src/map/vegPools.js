@@ -190,7 +190,7 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     bm.setColorAt(instanceId, color);
   }
 
-  const api = { name, mesh: bm, add, remove, setVisibleCount, setColorAt, freeSlots };
+  const api = { name, mesh: bm, geometries, add, remove, setVisibleCount, setColorAt, freeSlots };
   return api;
 }
 
