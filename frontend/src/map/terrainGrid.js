@@ -89,26 +89,44 @@ export function buildTerrainFromGrid(elevation) {
 
   // Triangles, skipping degenerates. The baker's tunnel/approach rejection collapses to this
   // because `hasTunnels` is false for every tile — see the header note.
-  const idx = [];
   const DEGEN_EPS = 1e-10;
   const triArea = (i0, i1, i2) => {
     const ax = positions[i0 * 3] - positions[i1 * 3], az = positions[i0 * 3 + 2] - positions[i1 * 3 + 2];
     const bx = positions[i2 * 3] - positions[i1 * 3], bz = positions[i2 * 3 + 2] - positions[i1 * 3 + 2];
     return Math.abs(ax * bz - az * bx) * 0.5;
   };
-  for (let r = 0; r < rows - 1; r++) {
-    for (let c = 0; c < cols - 1; c++) {
-      const a = r * cols + c, b = a + 1, c1 = (r + 1) * cols + c, d = c1 + 1;
-      if (triArea(a, c1, b) > DEGEN_EPS) idx.push(a, c1, b);
-      if (triArea(b, c1, d) > DEGEN_EPS) idx.push(b, c1, d);
+
+  /**
+   * One index set at `step`. v3 P4-02: the LOD rings share ONE vertex buffer and differ only in
+   * which vertices they connect, so a coarser ring costs nothing but its own index array — no extra
+   * positions, no re-upload of vertex data, and swapping rings is a `setIndex`, not a rebuild.
+   */
+  const ring = (step) => {
+    const out = [];
+    for (let r = 0; r + step < rows; r += step) {
+      for (let c = 0; c + step < cols; c += step) {
+        const a = r * cols + c, b = a + step,
+              c1 = (r + step) * cols + c, d = c1 + step;
+        if (triArea(a, c1, b) > DEGEN_EPS) out.push(a, c1, b);
+        if (triArea(b, c1, d) > DEGEN_EPS) out.push(b, c1, d);
+      }
     }
-  }
-  const indices = new Uint16Array(idx);
+    return new Uint16Array(out);
+  };
+
+  const indices = ring(1);
+  // Coarse rings are only ever drawn far away, where FogExp2 at the shipping density of 0.0025 has
+  // already taken the surface to 98% fog by 800 m and 100% by 1000 m. Detail out there is invisible
+  // BY MEASUREMENT, which is what makes 1:4 safe rather than merely cheap.
+  const indicesMid = ring(2);
+  const indicesFar = ring(4);
 
   // Smooth normals: accumulate un-normalized face normals per vertex, then normalize.
   const normals = new Float32Array(totalVerts * 3);
-  for (let i = 0; i < idx.length; i += 3) {
-    const i0 = idx[i], i1 = idx[i + 1], i2 = idx[i + 2];
+  // Normals accumulate from the FULL ring only. A coarse ring averages over 4x the area and would
+  // light the near ground with far-field normals.
+  for (let i = 0; i < indices.length; i += 3) {
+    const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
     const ax = positions[i1 * 3] - positions[i0 * 3];
     const ay = positions[i1 * 3 + 1] - positions[i0 * 3 + 1];
     const az = positions[i1 * 3 + 2] - positions[i0 * 3 + 2];
@@ -130,5 +148,6 @@ export function buildTerrainFromGrid(elevation) {
     }
   }
 
-  return { positions, normals, uvs, indices, gridSize: TERRAIN_GRID_SIZE, vertExag };
+  return { positions, normals, uvs, indices, indicesMid, indicesFar,
+           gridSize: TERRAIN_GRID_SIZE, vertExag };
 }

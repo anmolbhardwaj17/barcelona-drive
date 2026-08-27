@@ -588,6 +588,61 @@ function countVertices(meshes) {
   return n;
 }
 
+/**
+ * v3 P4-02 — terrain visibility and LOD ring.
+ *
+ * WHY TERRAIN LEFT THE GENERAL FOG CULL. Terrain used to be hidden with buildings and vegetation at
+ * FOG_FULL_DIST (280 m). At the shipping FogExp2 density of 0.0025 that distance is only **38.7%
+ * fogged** — the ground was being deleted while still ~61% visible — and it is the reason the city
+ * has no distant landform at all: Montjuïc and the Collserola ridge stop existing 280 m out.
+ * Buildings and vegetation are detail and stay culled; the ground is not detail.
+ *
+ * THE RINGS. `terrainGrid.js` emits three index sets over ONE vertex buffer (32,258 / 7,938 / 1,922
+ * triangles), so switching is a `setIndex` — no vertex re-upload, no second mesh, no extra draw call.
+ *
+ * WHERE THE DISTANCES COME FROM, measured rather than chosen by eye:
+ *   - FULL below 500 m, because roads drape on the full grid and a coarser ring would move the
+ *     ground out from under them. This is a hard floor, not a preference.
+ *   - 1:2 to 900 m. Fog is 89.5% at 600 m and 98.2% at 800 m, so mid-field detail is nearly gone.
+ *   - 1:4 beyond that out to CUT, where fog is ~100% and the surface is pure fog colour. It still
+ *     earns its place: a fog-coloured mass OCCLUDES the sky, and the sky dome is not the horizon
+ *     colour higher up — that difference IS the silhouette. Expect a soft haze ridge, not detail.
+ *
+ * Hysteresis is a flat 60 m band so a tile sitting exactly on a boundary cannot flip ring every
+ * frame; the ring only changes when the viewer has committed to crossing.
+ */
+const TERRAIN_LOD_FULL_M = 500;
+const TERRAIN_LOD_MID_M  = 900;
+const TERRAIN_CUT_M      = 1500;
+const TERRAIN_LOD_HYST_M = 60;
+
+function applyTerrainLod(entry, nearEdgeDist) {
+  const mesh = entry.terrainMesh;
+  if (!mesh) return;
+  if (CONFIG.TERRAIN_INVISIBLE) { mesh.visible = false; return; }
+
+  mesh.visible = nearEdgeDist <= TERRAIN_CUT_M;
+  if (!mesh.visible) return;
+
+  const rings = mesh.geometry?.userData?.lodRings;
+  if (!rings) return;   // a tile still on its baked mesh has no rings — leave its index alone
+
+  const prev = entry._terrainRing || 'full';
+  // Widen the band we must exit before stepping DOWN in detail, so the flip point differs by
+  // direction — that asymmetry is what stops the oscillation.
+  const h = TERRAIN_LOD_HYST_M;
+  let next = prev;
+  if (prev === 'full')      next = nearEdgeDist > TERRAIN_LOD_FULL_M + h ? 'mid' : 'full';
+  else if (prev === 'mid')  next = nearEdgeDist < TERRAIN_LOD_FULL_M - h ? 'full'
+                                 : nearEdgeDist > TERRAIN_LOD_MID_M + h ? 'far' : 'mid';
+  else                      next = nearEdgeDist < TERRAIN_LOD_MID_M - h ? 'mid' : 'far';
+
+  if (next !== prev) {
+    entry._terrainRing = next;
+    mesh.geometry.setIndex(rings[next]);
+  }
+}
+
 /** @type {Map<string, { roads: object[], buildings: object[], roadMeshes?: THREE.Mesh[], buildingMeshes?: THREE.Mesh[], spatialIndex?: object }>} */
 const tileCache = new Map();
 let _tileEpoch = 0;   // bumped on every tileCache add/delete — see getTileEpoch()
@@ -2788,7 +2843,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         hideAll(entry.cafeTerraceMeshes);
         if (entry.shopSignMesh) entry.shopSignMesh.visible = false;
         if (entry.awningMesh)   entry.awningMesh.visible   = false;
-        if (entry.terrainMesh) entry.terrainMesh.visible = false;
+        // v3 P4-02: TERRAIN IS NOT CULLED HERE ANY MORE. It was hidden with the rest of the tile at
+        // FOG_FULL_DIST (280 m) — but at the shipping fog density of 0.0025, 280 m is only 38.7%
+        // fogged, so this was deleting ground that was still ~61% visible, and it is why Barcelona
+        // has no distant landform: Montjuïc and the Collserola ridge simply stop existing 280 m out.
+        // Buildings and vegetation ARE detail and stay culled here; the ground is not detail.
+        // Terrain visibility + LOD ring are decided by applyTerrainLod() below.
+        applyTerrainLod(entry, nearEdgeDist);
         if (entry.lodBuildingMesh) entry.lodBuildingMesh.visible = false;
         if (entry.propMesh) entry.propMesh.visible = false;
         if (entry.reflectorGroup) entry.reflectorGroup.visible = false;
@@ -2819,7 +2880,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
 
       // ── Close tile: ensure terrain + water are visible (may have been fog-hidden) ──
-      if (entry.terrainMesh) entry.terrainMesh.visible = true;
+      applyTerrainLod(entry, nearEdgeDist);
       if (entry.waterMesh) entry.waterMesh.visible = true;
 
       // Global veg pools: per-tile count fade by nearest-edge distance (nearest-first id order —

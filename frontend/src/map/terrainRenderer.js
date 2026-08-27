@@ -178,6 +178,16 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    // v3 P4-02: stash the coarse rings on the geometry. They share this vertex buffer, so switching
+    // ring is a setIndex + a draw-range change — no re-upload of positions/normals/uvs, which is the
+    // whole reason LOD is done with index sets here rather than separate meshes.
+    if (bakedTerrain.indicesMid && bakedTerrain.indicesFar) {
+      geometry.userData.lodRings = {
+        full: new THREE.BufferAttribute(indices, 1),
+        mid: new THREE.BufferAttribute(bakedTerrain.indicesMid, 1),
+        far: new THREE.BufferAttribute(bakedTerrain.indicesFar, 1),
+      };
+    }
   } else {
     // v3 P4-01: THE RUNTIME FALLBACK MESH IS GONE, and its water dip with it.
     //

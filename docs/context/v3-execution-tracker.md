@@ -1145,7 +1145,7 @@ before anything is painted.**
 ## P4 — THE COMPLETION WAVE · 51 days · 18 tasks
 **Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.
 
-**Progress:** 1 / 18 — P4-01 ✅
+**Progress:** 2 / 18 — P4-01 ✅ · P4-02 ✅
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -1205,14 +1205,20 @@ before anything is painted.**
 - **Full spec:** master plan §4 → P4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P4-02 · 2.0d · risk medium
+### `[x]` P4-02 · 2.0d · **DONE 2026-08-27 — awaiting one drive**
 **TERRAIN: LOD index rings** — from one vertex buffer emit three index sets (full 32,258 / 1:2 7,938 / 1:4 1,922), swap by distance with hysteresis, and **raise the terrain visibility cut from 280 m to ~1500 m at the coarse ring so the game finally has a distant landform silhouette.** LOD must never engage inside 500 m where roads drape on the full grid.
 
 - **Files:** `tileParserWorker.js`, `tileManager.js:2908-2932`, `terrainRenderer.js`
 - **Depends:** bake deletion
 - **Subsystem:** terrain
 - **Full spec:** master plan §4 → P4
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ Three index rings over ONE vertex buffer — **32,258 / 7,938 / 1,922 triangles**,
+  exactly the planned counts, verified against a real tile. Swapping ring is a `setIndex`, so no
+  vertex re-upload and no extra draw call. **Terrain removed from the blanket fog cull**: it was
+  hidden at `FOG_FULL_DIST` 280 m, which at the shipping FogExp2 density of **0.0025 is only 38.7%
+  fogged** — ground was being deleted while still ~61% visible, and that is why the city had no
+  distant landform. Cut is now 1500 m; FULL below 500 m (hard floor — roads drape on the full grid),
+  1:2 to 900 m, 1:4 beyond. 60 m asymmetric hysteresis band. 5 tests in `test/terrainLod.test.js`.
 
 ### `[ ]` P4-02b · 1.0d · risk medium · ⚠ **RE-BAKE — RIDES THE v10 WINDOW (P4-03)**
 **Buildings must be tested against the trench corridors.** `trenchCorridors` (`buildRegion.js:1099`)

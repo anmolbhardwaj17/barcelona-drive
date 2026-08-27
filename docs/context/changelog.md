@@ -1986,3 +1986,23 @@ tile's baked mesh, and now only ~12 of 445 have one. A blind stride sample found
 comparable tile, so the bit-equality test was on the verge of passing while asserting almost nothing.
 It now SELECTS tiles that carry a bake, and asserts a floor of 3 — failing loudly rather than
 vacuously if the orphans are ever tidied away.
+
+## 2026-08-27 — P4-02: terrain LOD rings, and terrain leaves the fog cull
+
+- **The real defect was the cull, not the LOD.** Terrain was hidden with buildings and vegetation at
+  `FOG_FULL_DIST` = 280 m. At the shipping FogExp2 density of **0.0025, 280 m is only 38.7% fogged** —
+  so the ground was being deleted while still ~61% visible, and that is precisely why Barcelona has
+  no distant landform: Montjuïc and the Collserola ridge stop existing 280 m out. Buildings and
+  vegetation are detail and stay culled; the ground is not detail.
+- **Three index rings over ONE vertex buffer** — 32,258 / 7,938 / 1,922 triangles, exactly the
+  planned counts, verified against a real tile. Switching ring is a `setIndex`: no vertex re-upload,
+  no second mesh, no extra draw call.
+- Distances are measured, not chosen by eye. **FULL below 500 m is a hard floor** — roads drape on
+  the full grid, so a coarser ring moves the ground out from under them. 1:2 to 900 m (fog is 89.5%
+  at 600 m, 98.2% at 800 m). 1:4 out to the 1500 m cut, where fog is ~100% and the surface is pure
+  fog colour — it still earns its place because a fog-coloured mass **occludes the sky**, and the sky
+  dome is not the horizon colour higher up. That difference is the silhouette. Expect a soft haze
+  ridge, not visible detail.
+- 60 m **asymmetric** hysteresis band: the flip point differs by direction, so a tile sitting on a
+  boundary cannot oscillate. The test walks a viewer back and forth across it 200 times and asserts
+  zero flips.
