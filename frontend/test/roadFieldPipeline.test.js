@@ -3,7 +3,7 @@
  *
  * ═══ WHY THIS EXISTS ════════════════════════════════════════════════════════════════════════════
  *
- * A road record is copied FIELD BY FIELD at six points between the PBF and the renderer:
+ * A road record is copied FIELD BY FIELD at SEVEN points between the PBF and the entity systems:
  *
  *   1. buildRegion.deepCloneRoad
  *   2. RoadGeometryBuilder — the `result.push({...})` in buildRoadGeometry
@@ -11,6 +11,7 @@
  *   4. buildRegion — the tile-record map that becomes the tile JSON
  *   5. convertToBinary — the binary header entry
  *   6. tileParserWorker.readRoads        (frontend side)
+ *   7. tileManager.getLoadedRoadSegments (runtime projection → traffic, parked cars, pedestrians)
  *
  * Every one is a WHITELIST. A field absent from any single one ceases to exist from that point on —
  * silently, as `undefined`, with no error, no warning and no failing test. This has now bitten three
@@ -22,6 +23,10 @@
  *   · R-W1, first bake: the width section was added to five of the six and still arrived at the
  *     tiles empty in ALL 2,148 road records — `deepCloneRoad` had it not.
  *   · R-W1, second look: `RoadGeometryBuilder` had it not either.
+ *   · R-W1, third look: `getLoadedRoadSegments` — the very function D-42 is about, carrying a
+ *     comment I had just written warning that it is a whitelist — dropped the width section, so
+ *     parked cars and pedestrians silently ran on the fallback table. Writing the warning is not
+ *     the same as reading it, which is the argument for a test over a comment in one line.
  *
  * Unit tests cannot catch this. The width model was 19/19 green while the pipeline emitted nothing
  * — exactly D-29 ("a suite that only unit-tests the parts of a pipeline can be 100% green while the
@@ -86,6 +91,14 @@ const SITES = [
     name: 'tileParserWorker.readRoads',
     get: () => slice(read('frontend/src/map/tileParserWorker.js'),
       'function readRoads(', '\n}'),
+  },
+  {
+    // The SEVENTH copy site, and the one D-42 was written about. It is a RUNTIME projection rather
+    // than a bake step, which is why it was not in this list to begin with — and it promptly dropped
+    // the width section, leaving parked cars and pedestrians on the fallback table.
+    name: 'tileManager.getLoadedRoadSegments',
+    get: () => slice(read('frontend/src/map/tileManager.js'),
+      'function getLoadedRoadSegments(', '_segCache = segments'),
   },
 ];
 

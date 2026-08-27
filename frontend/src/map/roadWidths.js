@@ -96,6 +96,25 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 
  *            kerbToKerbW:number, sidewalkW:number, corridorW:number, baked:boolean}}
  */
 export function roadSection(road) {
+  // Memoised on the road object. Every accessor below funnels through here, several of them from
+  // per-road placement loops, and a fresh object per call showed up as a new `peds` allocation
+  // bucket in the drive report the day this landed. Road records are rebuilt per tile epoch, so the
+  // cache invalidates itself; the symbol keeps it off anything that enumerates the record.
+  if (road && typeof road === 'object') {
+    const hit = road[SECTION];
+    if (hit) return hit;
+  }
+  const s = computeSection(road);
+  if (road && typeof road === 'object') {
+    try { Object.defineProperty(road, SECTION, { value: s, enumerable: false, configurable: true }); }
+    catch { /* frozen road record — correctness does not depend on the cache */ }
+  }
+  return s;
+}
+
+const SECTION = Symbol('roadSection');
+
+function computeSection(road) {
   const carriagewayW = num(road?.carriagewayW);
   if (carriagewayW != null) {
     const parkingLeftW = num(road.parkingLeftW) ?? 0;

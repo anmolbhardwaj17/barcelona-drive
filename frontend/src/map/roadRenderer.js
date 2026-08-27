@@ -786,23 +786,66 @@ function getRoadWidth(road) {
 }
 
 /** Endpoints shared by at least two road segments. Returns [{ x, z, radius }] where radius = max(roadWidth) at junction. */
-export function getJunctionPoints(roads, tolerance) {
+/**
+ * Junction nodes, as {x, z, radius}.
+ *
+ * ⚠ THE DEFAULT RULE ONLY SEES CROSSROADS, NOT T-JUNCTIONS.
+ *
+ * It counts places where TWO OR MORE ROAD ENDPOINTS meet. At a T-junction the side street ends but
+ * the through road passes straight through — one endpoint, not two — so the cell is not a junction
+ * and nothing gets clipped there. Measured over the shipped v10 tiles: **11,934 of 31,015 junctions
+ * (38.5%) are invisible to this rule.**
+ *
+ * For guard rails that is not cosmetic. A rail is a COLLIDER, so an unclipped rail on the through
+ * road runs across the mouth of the side street and you cannot turn into it or cross — which is
+ * what the user reported ("in some intersections a railing is there so I can't cross the road").
+ * R-W1 made it easier to see rather than causing it: the rail used to sit at half of a 4 m width,
+ * i.e. inside the carriageway; now it sits correctly at the kerb, where the side street's mouth is.
+ *
+ * `includeTees` adds the missing case: a road ENDPOINT sharing a cell with a vertex of a DIFFERENT
+ * road. It is opt-in because the other consumers of this function — lane paint, sidewalks, kerbs —
+ * have the same blind spot and opening 11,934 new gaps in all of them at once is a look change, not
+ * a bug fix. Filed as R-J2; do it deliberately and look at it.
+ *
+ * KNOWN LIMIT: matching is by shared VERTEX. If Douglas-Peucker removed the through road's vertex at
+ * the junction, the side street's endpoint lands on a segment interior and is still missed. The
+ * measurement above says shared vertices account for the bulk, so this is not chased further here.
+ */
+export function getJunctionPoints(roads, tolerance, includeTees = false) {
   const byHash = new Map();
+  const cell = (h, x, z, w) => {
+    if (!byHash.has(h)) byHash.set(h, { x, z, count: 0, maxWidth: 0, ids: null });
+    const v = byHash.get(h);
+    v.maxWidth = Math.max(v.maxWidth, w);
+    return v;
+  };
+  // Every vertex of every road, so an endpoint can be matched against another road's INTERIOR.
+  // Only built when asked for: it is O(all vertices) against the endpoint rule's O(roads).
+  if (includeTees) {
+    for (const road of roads || []) {
+      const pts = road.points;
+      if (!pts || pts.length < 2) continue;
+      const w = getRoadWidth(road);
+      for (const p of pts) {
+        const v = cell(hashPoint(p.x, p.y, tolerance), p.x, p.y, w);
+        (v.ids ||= new Set()).add(road.id);
+      }
+    }
+  }
   for (const road of roads || []) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
     const w = getRoadWidth(road);
     for (const p of [pts[0], pts[pts.length - 1]]) {
-      const h = hashPoint(p.x, p.y, tolerance);
-      if (!byHash.has(h)) byHash.set(h, { x: p.x, z: p.y, count: 0, maxWidth: 0 });
-      const v = byHash.get(h);
+      const v = cell(hashPoint(p.x, p.y, tolerance), p.x, p.y, w);
       v.count += 1;
-      v.maxWidth = Math.max(v.maxWidth, w);
     }
   }
   const out = [];
   for (const v of byHash.values()) {
-    if (v.count >= 2) out.push({ x: v.x, z: v.z, radius: v.maxWidth });
+    const isCrossroads = v.count >= 2;
+    const isTee = includeTees && v.count >= 1 && v.ids && v.ids.size >= 2;
+    if (isCrossroads || isTee) out.push({ x: v.x, z: v.z, radius: v.maxWidth });
   }
   return out;
 }
@@ -3337,7 +3380,9 @@ function computeGuardRailMask(roads, options) {
   const mask = new Map();
   if (!roads || !roads.length) return mask;
   const surface = roads.filter((r) => r && !r.tunnel);
-  const junctions = getJunctionPoints(surface, JUNCTION_TOLERANCE); // {x,z,radius}
+  // includeTees: a rail is a COLLIDER, so a missed T-junction is a wall across a street you have to
+  // drive through — not a cosmetic gap. See getJunctionPoints for the 38.5% measurement.
+  const junctions = getJunctionPoints(surface, JUNCTION_TOLERANCE, true); // {x,z,radius}
   const roundabouts = detectRoundaboutZonesForRails(surface);
 
   // Gather elevated roads (stable seq) + their thickness-offset edges (1:1 with points)

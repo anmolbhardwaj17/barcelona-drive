@@ -3438,6 +3438,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           isRamp: road.isRamp === true,
           layer: road.layer ?? null,
           crossesTrench: road.crossesTrench === true,
+          // R-W1 width section. I added the four flags above with a comment warning that this
+          // projection is a whitelist, then shipped a width model whose fields it does not copy —
+          // so parked cars and pedestrians silently fell back to the class table and lost every
+          // per-road OSM nuance (a `parking:left=no` kerb, a width-capped Gràcia street). Writing
+          // the warning is not the same as reading it. SEVENTH copy site in this pipeline.
+          carriagewayW:  road.carriagewayW,
+          parkingLeftW:  road.parkingLeftW,
+          parkingRightW: road.parkingRightW,
+          shoulderW:     road.shoulderW,
+          kerbToKerbW:   road.kerbToKerbW,
+          sidewalkW:     road.sidewalkW,
+          corridorW:     road.corridorW,
         });
       }
     }
