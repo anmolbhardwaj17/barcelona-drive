@@ -20,7 +20,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getJunctionPoints } from '../src/map/roadRenderer.js';
+import {
+  getJunctionPoints, junctionsForSide, crossroadsOnly, junctionClipRadius,
+} from '../src/map/roadRenderer.js';
 
 /** A road as the renderer sees it: points are {x, y} in the world plane (y is the Z axis). */
 const road = (id, pts, extra = {}) => ({
@@ -106,4 +108,92 @@ test('the default stays the default — no caller gets tee behaviour by accident
   // not a side effect of a rail fix.
   assert.equal(getJunctionPoints(TEE, 2).length, getJunctionPoints(TEE, 2, false).length);
   assert.ok(getJunctionPoints(TEE, 2, true).length > getJunctionPoints(TEE, 2).length);
+});
+
+// ── R-J2 · SIDE AWARENESS ───────────────────────────────────────────────────────────────────────
+//
+// A T interrupts ONE side of the through road. Clipping radially — which is what the rail does, and
+// what "just turn includeTees on everywhere" would have done — punches an equal hole in the kerb and
+// the pavement on the FAR side, where nothing is happening. These pin which side is which, because
+// a sign error here is invisible in code review and obvious only from the driver's seat.
+
+/** The through road of TEE runs west→east; the side street departs toward -Z (`[0,-40]`). */
+const THROUGH = TEE[0];
+const SIDE_STREET = TEE[1];
+
+test('a T opens exactly ONE side of the through road', () => {
+  const js = getJunctionPoints(TEE, 2, true);
+  const left = junctionsForSide(THROUGH, js, -1);
+  const right = junctionsForSide(THROUGH, js, +1);
+  assert.notEqual(left.length, right.length,
+    'if both sides get the same junctions, the clip is still radial and R-J2 did nothing');
+  assert.equal(left.length + right.length, 1, 'exactly one side, not zero and not both');
+});
+
+test('the side that opens is the side the street is actually on', () => {
+  // getOffsetPolyline puts a positive offset along (-dz, dx). The through road runs +X, so its
+  // tangent is (1, 0) and the positive side is (0, 1) — toward +Z. The side street departs to -Z,
+  // so it must open the NEGATIVE side. Spelled out because "left" and "right" are meaningless
+  // without the convention, and getting it backwards clips the wrong pavement everywhere.
+  const js = getJunctionPoints(TEE, 2, true);
+  assert.equal(junctionsForSide(THROUGH, js, -1).length, 1, 'the -Z side must open');
+  assert.equal(junctionsForSide(THROUGH, js, +1).length, 0, 'the +Z side must NOT');
+});
+
+test('flipping the side street to the other side flips which side opens', () => {
+  const mirrored = [THROUGH, road(2, [[0, 0], [0, 40]])];   // side street now toward +Z
+  const js = getJunctionPoints(mirrored, 2, true);
+  assert.equal(junctionsForSide(mirrored[0], js, +1).length, 1);
+  assert.equal(junctionsForSide(mirrored[0], js, -1).length, 0);
+});
+
+test('the SIDE STREET itself is interrupted on BOTH sides at its own end', () => {
+  // The road that ends at the node meets the through carriageway head-on; both its kerbs stop
+  // there. Told apart from the through-road case by the arm running ALONG this road, not across it.
+  const js = getJunctionPoints(TEE, 2, true);
+  assert.equal(junctionsForSide(SIDE_STREET, js, -1).length, 1);
+  assert.equal(junctionsForSide(SIDE_STREET, js, +1).length, 1);
+});
+
+test('a crossroads still interrupts both sides of everything', () => {
+  const js = getJunctionPoints(CROSS, 2, true);
+  for (const r of CROSS) {
+    assert.equal(junctionsForSide(r, js, -1).length, 1, 'crossroads, - side');
+    assert.equal(junctionsForSide(r, js, +1).length, 1, 'crossroads, + side');
+  }
+});
+
+test('crossroadsOnly drops tees and keeps crossroads', () => {
+  // The centre line and lane dividers use this: a centre line does not break for a street joining
+  // from one kerb. Breaking it at every T would dash the middle of every through street in the grid.
+  assert.equal(crossroadsOnly(getJunctionPoints(TEE, 2, true)).length, 0);
+  assert.equal(crossroadsOnly(getJunctionPoints(CROSS, 2, true)).length, 1);
+});
+
+test('a tee gap is sized to the SIDE STREET, not the widest road at the node', () => {
+  // The bug this prevents: a primary meeting residential side streets would have ~35 m cut out of
+  // its kerb and paint at every one of them — most of an Eixample block face.
+  const wide = [
+    road(1, [[-50, 0], [0, 0], [50, 0]], { highwayType: 'primary', kerbToKerbW: 17.4, carriagewayW: 13 }),
+    road(2, [[0, 0], [0, -40]], { kerbToKerbW: 10.4, carriagewayW: 6 }),
+  ];
+  const j = getJunctionPoints(wide, 2, true).find((q) => Math.hypot(q.x, q.z) <= 3);
+  const r = junctionClipRadius(j, 8);
+  assert.ok(r < 17.4 / 2 + 4, `tee radius ${r} must be sized to the side street, not the primary`);
+  assert.ok(r > 10.4 / 2, `tee radius ${r} must still span the side street's own paving`);
+});
+
+test('a crossroads keeps the OLD radius — the widest road at the node', () => {
+  const j = getJunctionPoints(CROSS, 2, true)[0];
+  assert.equal(junctionClipRadius(j, 8), j.radius,
+    'every arm of a crossroads really does cross the whole intersection');
+});
+
+test('junctionsForSide degrades to "clip everything" on a degenerate road', () => {
+  // A one-point or zero-length road has no tangent, so there is no side to compute. Clipping is the
+  // safe direction: a missing gap is a wall, an extra gap is a seam.
+  const js = getJunctionPoints(TEE, 2, true);
+  for (const bad of [{ points: [] }, { points: [{ x: 0, y: 0 }] }, {}]) {
+    assert.equal(junctionsForSide(bad, js, +1).length, js.length);
+  }
 });

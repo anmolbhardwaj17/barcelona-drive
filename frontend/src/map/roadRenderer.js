@@ -4,7 +4,7 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
-import { pavedWidth, kerbOffset } from './roadWidths.js';   // R-W1: never re-derive a width
+import { pavedWidth, kerbOffset, sidewalkWidth } from './roadWidths.js';   // R-W1: never re-derive a width
 import { getKTX2TextureSync } from '../loaders.js';
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -814,7 +814,7 @@ function getRoadWidth(road) {
 export function getJunctionPoints(roads, tolerance, includeTees = false) {
   const byHash = new Map();
   const cell = (h, x, z, w) => {
-    if (!byHash.has(h)) byHash.set(h, { x, z, count: 0, maxWidth: 0, ids: null });
+    if (!byHash.has(h)) byHash.set(h, { x, z, count: 0, maxWidth: 0, ids: null, tees: null });
     const v = byHash.get(h);
     v.maxWidth = Math.max(v.maxWidth, w);
     return v;
@@ -836,19 +836,107 @@ export function getJunctionPoints(roads, tolerance, includeTees = false) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
     const w = getRoadWidth(road);
-    for (const p of [pts[0], pts[pts.length - 1]]) {
+    const n = pts.length;
+    for (const [p, q] of [[pts[0], pts[1]], [pts[n - 1], pts[n - 2]]]) {
       const v = cell(hashPoint(p.x, p.y, tolerance), p.x, p.y, w);
       v.count += 1;
+      // The direction this road DEPARTS in, away from the node. R-J2 needs it to tell which side
+      // of a through road a side street opens on — a T interrupts one side, not both.
+      const dx = q.x - p.x, dz = q.y - p.y;
+      const len = Math.hypot(dx, dz);
+      if (len > 1e-6) (v.tees ||= []).push({ dx: dx / len, dz: dz / len, width: w });
     }
   }
   const out = [];
   for (const v of byHash.values()) {
     const isCrossroads = v.count >= 2;
     const isTee = includeTees && v.count >= 1 && v.ids && v.ids.size >= 2;
-    if (isCrossroads || isTee) out.push({ x: v.x, z: v.z, radius: v.maxWidth });
+    if (!isCrossroads && !isTee) continue;
+    out.push({
+      x: v.x, z: v.z,
+      radius: v.maxWidth,
+      // A crossroads clips every side of everything, as it always has. A tee carries the arms that
+      // END here, so a consumer can ask which side opens and how wide the opening is.
+      tees: isCrossroads ? null : v.tees,
+      teeWidth: v.tees ? Math.max(...v.tees.map((t) => t.width)) : v.maxWidth,
+    });
   }
   return out;
 }
+
+/**
+ * R-J2 · The junctions that should interrupt ONE SIDE of a road.
+ *
+ * A crossroads interrupts everything, so it is always included. A T-junction does not: the side
+ * street opens on exactly one side of the through road, and clipping radially would punch an equal
+ * hole in the kerb and pavement on the FAR side, where nothing is happening.
+ *
+ * Two cases have to be told apart, and the road's own tangent does it:
+ *   · the tee arm runs ALONG this road  → this road is the one ending here. Its own end meets the
+ *     through road, so both of its sides are interrupted. Include.
+ *   · the tee arm runs ACROSS this road → this road is the through road. Include only for the side
+ *     the arm departs on.
+ *
+ * @param {object} road   the road whose offset polyline is being clipped
+ * @param {Array}  junctions from getJunctionPoints(..., includeTees = true)
+ * @param {number} sign   +1 / -1, matching the sign passed to getOffsetPolyline
+ */
+export function junctionsForSide(road, junctions, sign) {
+  const pts = road?.points;
+  if (!pts || pts.length < 2 || !junctions?.length) return junctions || [];
+  const out = [];
+  for (const j of junctions) {
+    if (!j.tees) { out.push(j); continue; }               // crossroads — interrupts both sides
+    const t = roadTangentNear(pts, j.x, j.z);
+    if (!t) { out.push(j); continue; }                    // degenerate — keep the safe behaviour
+    // The offset direction for a positive sign, matching getOffsetPolyline: (-dz, dx).
+    const ox = -t.dz * sign, oz = t.dx * sign;
+    let keep = false;
+    for (const arm of j.tees) {
+      const along = Math.abs(arm.dx * t.dx + arm.dz * t.dz);
+      if (along > 0.85) { keep = true; break; }           // this road is the one ending here
+      if (arm.dx * ox + arm.dz * oz > 0) { keep = true; break; }   // opens on THIS side
+    }
+    if (keep) out.push(j);
+  }
+  return out;
+}
+
+/** Only the crossroads. A centre line does not break for a side road — the edge line does. */
+export function crossroadsOnly(junctions) {
+  return (junctions || []).filter((j) => !j.tees);
+}
+
+/** Unit tangent of a polyline at the point nearest (x, z). Points are {x, y} with y = world Z. */
+function roadTangentNear(pts, x, z) {
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2, mz = (pts[i].y + pts[i + 1].y) / 2;
+    const d = (mx - x) ** 2 + (mz - z) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  if (best < 0) return null;
+  const dx = pts[best + 1].x - pts[best].x, dz = pts[best + 1].y - pts[best].y;
+  const len = Math.hypot(dx, dz);
+  return len > 1e-6 ? { dx: dx / len, dz: dz / len } : null;
+}
+
+/**
+ * R-J2 · Clip radius for one junction.
+ *
+ * A crossroads keeps the old radius — the widest road at the node — because every arm's carriageway
+ * really does cross the whole intersection. A TEE must be sized to the SIDE STREET instead: the
+ * widest-road rule would cut ~35 m out of a primary for every residential street that joins it,
+ * which is most of an Eixample block face.
+ */
+export function junctionClipRadius(j, fallback) {
+  if (!j) return fallback;
+  if (j.tees) return (j.teeWidth ?? j.radius ?? fallback) / 2 + JUNCTION_TEE_MARGIN;
+  return j.radius != null ? j.radius : fallback;
+}
+
+/** m — kerb-radius allowance beyond half the side street's paved width. */
+const JUNCTION_TEE_MARGIN = 1.5;
 
 // ---------------------------------------------------------------------------
 // Width tapering at junctions: smooth transitions between different road widths
@@ -1317,8 +1405,11 @@ function interpolateHeightsFromSource(srcPts, srcHeights, targetPts) {
 async function buildRoadMarkings(roads, options, yieldFn) {
   const whiteGeoms = [];
   const yellowGeoms = [];
-  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
-  const getJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS);
+  // R-J2: tees included. Paint ran straight across 11,934 side-street mouths because the default
+  // rule only sees places where two road ENDPOINTS meet, and at a T the through road passes through.
+  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE, true);
+  const crossroads = crossroadsOnly(junctionPoints);
+  const getJunctionRadius = (j) => junctionClipRadius(j, INTERSECTION_RADIUS);
 
   // Yield through the generation loop — round 3 budgeted the MERGE below but generation ran
   // as one sync span: per road it clips every line against all junctions, offsets per lane,
@@ -1352,8 +1443,11 @@ async function buildRoadMarkings(roads, options, yieldFn) {
     // --- Center line ---
     if (rules.center) {
       const centerPts = pts;
-      const runs = junctionPoints.length > 0
-        ? clipPolylineNearJunctions(centerPts, junctionPoints, getClipRadius)
+      // R-J2: CROSSROADS ONLY. A centre line does not break for a side road joining from one side —
+      // that is what the edge line is for. Breaking it at every T would dash the middle of every
+      // through street in the Eixample grid.
+      const runs = crossroads.length > 0
+        ? clipPolylineNearJunctions(centerPts, crossroads, getClipRadius)
         : [centerPts];
 
       for (const run of runs) {
@@ -1387,8 +1481,10 @@ async function buildRoadMarkings(roads, options, yieldFn) {
           if (Math.abs(offset) < 0.1) continue;
           const lanePts = getOffsetPolyline(pts, offset);
 
-          const runs = junctionPoints.length > 0
-            ? clipPolylineNearJunctions(lanePts, junctionPoints, getClipRadius)
+          // R-J2: crossroads only, like the centre line — an interior lane divider is not
+          // interrupted by a street joining from the kerb.
+          const runs = crossroads.length > 0
+            ? clipPolylineNearJunctions(lanePts, crossroads, getClipRadius)
             : [lanePts];
 
           for (const run of runs) {
@@ -1405,8 +1501,10 @@ async function buildRoadMarkings(roads, options, yieldFn) {
       for (const sign of [-1, 1]) {
         const edgePts = getOffsetPolyline(pts, sign * (half - 0.4));
 
-        const runs = junctionPoints.length > 0
-          ? clipPolylineNearJunctions(edgePts, junctionPoints, getClipRadius)
+        // R-J2: the edge line IS interrupted by a side street — but only on the side it opens.
+        const sideJ = junctionsForSide(road, junctionPoints, sign);
+        const runs = sideJ.length > 0
+          ? clipPolylineNearJunctions(edgePts, sideJ, getClipRadius)
           : [edgePts];
 
         for (const run of runs) {
@@ -1765,7 +1863,8 @@ async function buildSidewalks(roads, options, yieldFn) {
   // v3 P2-08: kerb height comes from groundLayers so sidewalkSurfaceY() and anything placed ON a
   // sidewalk (tactile paving) cannot drift from the sidewalk itself.
   const SIDEWALK_Y_ABOVE = CURB_HEIGHT; // 0.12m — atop the curb
-  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
+  // R-J2: tees included — a pavement must break where a side street crosses it, one side only.
+  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE, true);
 
   // Building proximity gate: skip sidewalk on roads with no building centroid within 30m.
   // Prevents sidewalks in parks, open fields, and rural roads inferred by road-type fallback.
@@ -1798,14 +1897,17 @@ async function buildSidewalks(roads, options, yieldFn) {
     if (!pts || pts.length < 2) continue;
     if (!_hasBuildingNearby(pts)) continue; // no adjacent urban context
 
-    const roadWidth = Math.max(4, Math.min(30, Number(road.width) || 6));
+    const roadWidth = pavedWidth(road);   // R-W1: a leftover [4,30] clamp lived here
     const half = roadWidth / 2;
 
-    // Sidewalk width from road width (no heuristics — just geometry-driven)
-    let swWidth;
-    if (roadWidth >= 25) swWidth = BCN_DIMS.SIDEWALK_WIDTH_BOULEVARD;
-    else if (roadWidth < 12) swWidth = BCN_DIMS.SIDEWALK_WIDTH_NARROW;
-    else swWidth = BCN_DIMS.SIDEWALK_WIDTH_EIXAMPLE;
+    // R-W1: the width model states the sidewalk per road class; the roadWidth bands are the fallback
+    // for a pre-v10 tile. Note they are now fed kerb-to-kerb, so they band differently than they did.
+    let swWidth = sidewalkWidth(road);
+    if (!(swWidth > 0)) {
+      if (roadWidth >= 25) swWidth = BCN_DIMS.SIDEWALK_WIDTH_BOULEVARD;
+      else if (roadWidth < 12) swWidth = BCN_DIMS.SIDEWALK_WIDTH_NARROW;
+      else swWidth = BCN_DIMS.SIDEWALK_WIDTH_EIXAMPLE;
+    }
 
     const heights = getRoadPointHeights(road, options);
     const baseY = heights ? heights.map(h => h + SIDEWALK_Y_ABOVE) : (ROAD_OFFSET + ROAD_VISUAL_ABOVE_TERRAIN + SIDEWALK_Y_ABOVE);
@@ -1815,15 +1917,20 @@ async function buildSidewalks(roads, options, yieldFn) {
 
     // Junction clip radius must exceed offsetFromCenter so the clip actually reaches
     // the offset polyline and trims the sidewalk before it enters the intersection.
-    const swJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS) + offsetFromCenter;
+    // R-J2: a tee's radius is sized to the SIDE STREET, not the widest road at the node — but it
+    // still has to reach out past `offsetFromCenter`, or the clip never touches the pavement it is
+    // meant to interrupt.
+    const swJunctionRadius = (j) => junctionClipRadius(j, INTERSECTION_RADIUS) + offsetFromCenter;
 
     const sides = sidewalkSide === 'left'  ? [-1] :
                   sidewalkSide === 'right' ? [+1] : [-1, +1];
 
     for (const sign of sides) {
       const offsetPts = getOffsetPolyline(pts, sign * offsetFromCenter);
-      const runs = junctionPoints.length > 0
-        ? clipPolylineNearJunctions(offsetPts, junctionPoints, swJunctionRadius)
+      // R-J2: only the side the street opens on. A radial clip would hole the pavement opposite.
+      const sideJ = junctionsForSide(road, junctionPoints, sign);
+      const runs = sideJ.length > 0
+        ? clipPolylineNearJunctions(offsetPts, sideJ, swJunctionRadius)
         : [offsetPts];
 
       for (const run of runs) {
@@ -1934,7 +2041,8 @@ async function buildCurbs(roads, options, yieldFn) {
 
   const CURB_H = BCN_DIMS.CURB_HEIGHT;  // 0.12m
   const CURB_W = BCN_DIMS.CURB_WIDTH;   // 0.30m
-  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
+  // R-J2: tees included — a kerb line must open where a side street joins, and only on that side.
+  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE, true);
 
   // Same building proximity gate as buildSidewalks — curbs only where sidewalks are.
   const _bldgCentroids = (options.buildings || []).map(b => {
@@ -1970,13 +2078,16 @@ async function buildCurbs(roads, options, yieldFn) {
     const half = roadWidth / 2;
     const curbOffset = half + CURB_W;
     // Junction clip radius: must reach the curb offset polyline to actually trim corners.
-    const curbJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS) + curbOffset;
+    const curbJunctionRadius = (j) => junctionClipRadius(j, INTERSECTION_RADIUS) + curbOffset;   // R-J2
 
     const heights = getRoadPointHeights(road, options);
     const sides = sidewalkSide === 'left'  ? [-1] :
                   sidewalkSide === 'right' ? [+1] : [-1, +1];
 
     for (const sign of sides) {
+      // R-J2: only the junctions that interrupt THIS side. All four clips below share it, so the
+      // top face, the outer face and the inner edge cannot disagree about where the kerb stops.
+      const sideJ = junctionsForSide(road, junctionPoints, sign);
       // Curb outer edge sits at road edge (half from centerline)
       // Curb inner edge is CURB_W further outward
       const outerOffset = half;
@@ -1987,13 +2098,13 @@ async function buildCurbs(roads, options, yieldFn) {
       // Inner edge polyline (at sidewalk boundary)
       const innerPts = getOffsetPolyline(pts, sign * innerOffset);
 
-      const runs = junctionPoints.length > 0
-        ? clipPolylineNearJunctions(outerPts, junctionPoints, curbJunctionRadius)
+      const runs = sideJ.length > 0
+        ? clipPolylineNearJunctions(outerPts, sideJ, curbJunctionRadius)
         : [outerPts];
 
       for (const run of runs) {
         if (run.length < 2) continue;
-        const runInner = clipPolylineNearJunctions(innerPts, junctionPoints, curbJunctionRadius);
+        const runInner = clipPolylineNearJunctions(innerPts, sideJ, curbJunctionRadius);
 
         // Per-run: build TOP face and OUTER VERTICAL face
         // TOP face: ribbon at Y = roadH + CURB_H, between outer and inner edges
@@ -2005,8 +2116,8 @@ async function buildCurbs(roads, options, yieldFn) {
         // Simpler approach: center the ribbon between outer and inner
         const midOffset = sign * (outerOffset + CURB_W / 2);
         const midPtsSimple = getOffsetPolyline(pts, midOffset);
-        const midRunsSimple = junctionPoints.length > 0
-          ? clipPolylineNearJunctions(midPtsSimple, junctionPoints, curbJunctionRadius)
+        const midRunsSimple = sideJ.length > 0
+          ? clipPolylineNearJunctions(midPtsSimple, sideJ, curbJunctionRadius)
           : [midPtsSimple];
 
         for (const midRun of midRunsSimple) {
@@ -2019,8 +2130,8 @@ async function buildCurbs(roads, options, yieldFn) {
 
           // Quad B: OUTER VERTICAL FACE — thin vertical ribbon at road edge
           // Points run along the road edge; ribbon extends vertically 0→CURB_H
-          const outerRunSimple = junctionPoints.length > 0
-            ? clipPolylineNearJunctions(getOffsetPolyline(pts, sign * outerOffset), junctionPoints, curbJunctionRadius)
+          const outerRunSimple = sideJ.length > 0
+            ? clipPolylineNearJunctions(getOffsetPolyline(pts, sign * outerOffset), sideJ, curbJunctionRadius)
             : [getOffsetPolyline(pts, sign * outerOffset)];
           for (const outerRun of outerRunSimple) {
             if (outerRun.length < 2) continue;
@@ -2112,8 +2223,11 @@ async function buildBikeLanes(roads, options, yieldFn) {
   const VALID_CYCLEWAY = new Set(['lane', 'opposite_lane', 'track', 'opposite_track']);
   const BIKE_W = BCN_DIMS.BIKE_LANE_WIDTH_ONEWAY; // 2.0m
   const BIKE_Y_ABOVE = 0.02; // slight raise above asphalt
-  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
-  const getJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS);
+  // R-J2: tees included. Paint ran straight across 11,934 side-street mouths because the default
+  // rule only sees places where two road ENDPOINTS meet, and at a T the through road passes through.
+  const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE, true);
+  const crossroads = crossroadsOnly(junctionPoints);
+  const getJunctionRadius = (j) => junctionClipRadius(j, INTERSECTION_RADIUS);
 
   const geoms = [];
 
