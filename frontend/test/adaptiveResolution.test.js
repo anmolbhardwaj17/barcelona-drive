@@ -22,6 +22,12 @@ function harness() {
   const renderer = { setPixelRatio: (s) => resizes.push(s), setSize() {} };
   const composer = { setSize() {}, setPixelRatio() {} };
   const ctl = createAdaptiveResolution(renderer, composer, null, { width: 1280, height: 720 });
+  // ARM + settle. The controller does nothing until the world is drivable — see the `_armed` note in
+  // adaptiveResolution.js: it used to probe during the LOAD, where the frame is long because tiles
+  // are streaming, and locked itself out on four consecutive drives measuring a transient. Every
+  // test below is about steady-state behaviour, so every test has to get there first.
+  ctl.arm();
+  for (let i = 0; i < 200; i++) ctl.tick(16 / 1000, 8);
   // Sustained SLOW frames with a BUSY GPU — the exact trigger, and the exact trap: the frame never
   // improves however far resolution falls, because the constraint is geometry, not fill rate.
   const feedSlow = (frames) => { for (let i = 0; i < frames; i++) ctl.tick(30 / 1000, 27); };
@@ -54,6 +60,12 @@ test('a drop that DOES improve the frame keeps resolution as a live lever', () =
   const renderer = { setPixelRatio: (s) => resizes.push(s), setSize() {} };
   const composer = { setSize() {}, setPixelRatio() {} };
   const ctl = createAdaptiveResolution(renderer, composer, null, { width: 1280, height: 720 });
+  // ARM + settle. The controller does nothing until the world is drivable — see the `_armed` note in
+  // adaptiveResolution.js: it used to probe during the LOAD, where the frame is long because tiles
+  // are streaming, and locked itself out on four consecutive drives measuring a transient. Every
+  // test below is about steady-state behaviour, so every test has to get there first.
+  ctl.arm();
+  for (let i = 0; i < 200; i++) ctl.tick(16 / 1000, 8);
   const start = ctl.getScale();
   // Frame time falls as resolution falls — a real fill-rate-bound scene.
   for (let i = 0; i < 20000; i++) {
@@ -62,4 +74,66 @@ test('a drop that DOES improve the frame keeps resolution as a live lever', () =
   }
   assert.ok(ctl.getScale() < start,
     'resolution never dropped even though dropping it demonstrably helped — the lockout is too eager');
+});
+
+// ── ARMING · added 2026-08-27 ───────────────────────────────────────────────────────────────────
+//
+// Four consecutive drives showed the same thing: probe, fail, probe, fail, LOCKED OUT — costing 4
+// reallocations, 210-519 ms and 15.3 MB, every single time. The verdict was always right ("the GPU
+// is busy but not with FRAGMENTS"); the mistake was WHEN it was reached. Ticking from frame one put
+// every probe inside the load, where the frame is long because the world is streaming and no
+// resolution change can reach it — the same error the tile-build budget made (D-66).
+
+test('an UNARMED controller never resizes, however slow the frames look', () => {
+  const resizes = [];
+  const renderer = { setPixelRatio: (s) => resizes.push(s), setSize() {} };
+  const ctl = createAdaptiveResolution(renderer, { setSize() {}, setPixelRatio() {} }, null,
+    { width: 1280, height: 720 });
+  const start = ctl.getScale();
+  const base = resizes.length;   // construction calls apply() once — that is setup, not a probe
+  for (let i = 0; i < 5000; i++) ctl.tick(30 / 1000, 27);   // load-shaped: slow frames, busy GPU
+  assert.equal(resizes.length - base, 0,
+    `${resizes.length - base} reallocations during the load — each one is 70-144 ms spent ` +
+    'answering a question the transient cannot answer');
+  assert.equal(ctl.getScale(), start, 'and resolution must not have moved');
+});
+
+test('arming does not fire immediately — there is a settling window', () => {
+  // time-to-drive is the moment the loader lifts, not the moment streaming stops. Probing on that
+  // exact frame would measure the tail of the load.
+  const resizes = [];
+  const renderer = { setPixelRatio: (s) => resizes.push(s), setSize() {} };
+  const ctl = createAdaptiveResolution(renderer, { setSize() {}, setPixelRatio() {} }, null,
+    { width: 1280, height: 720 });
+  const base = resizes.length;   // construction's apply()
+  ctl.arm();
+  for (let i = 0; i < 100; i++) ctl.tick(30 / 1000, 27);   // inside the settle window
+  assert.equal(resizes.length - base, 0, 'no probe may land inside the settling window');
+});
+
+test('once armed and settled it still works — the fix is timing, not disablement', () => {
+  // The controller is a real safety net on a weaker GPU. If arming had quietly disabled it, these
+  // tests would all pass while the feature was dead, which is this codebase's favourite failure.
+  const resizes = [];
+  const renderer = { setPixelRatio: (s) => resizes.push(s), setSize() {} };
+  const ctl = createAdaptiveResolution(renderer, { setSize() {}, setPixelRatio() {} }, null,
+    { width: 1280, height: 720 });
+  const base = resizes.length;
+  ctl.arm();
+  for (let i = 0; i < 200; i++) ctl.tick(16 / 1000, 8);    // settle on healthy frames
+  for (let i = 0; i < 2000; i++) ctl.tick(30 / 1000, 27);  // then genuine sustained load
+  assert.ok(resizes.length - base > 0, 'an armed, settled controller must still respond to a slow frame');
+});
+
+test('arm() is idempotent — a second call cannot restart the settling window', () => {
+  const resizes = [];
+  const renderer = { setPixelRatio: (s) => resizes.push(s), setSize() {} };
+  const ctl = createAdaptiveResolution(renderer, { setSize() {}, setPixelRatio() {} }, null,
+    { width: 1280, height: 720 });
+  const base = resizes.length;
+  ctl.arm();
+  for (let i = 0; i < 200; i++) ctl.tick(16 / 1000, 8);
+  ctl.arm();                                               // must be a no-op
+  for (let i = 0; i < 2000; i++) ctl.tick(30 / 1000, 27);
+  assert.ok(resizes.length - base > 0, 're-arming must not push the controller back into settling forever');
 });

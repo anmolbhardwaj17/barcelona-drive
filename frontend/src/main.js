@@ -1513,6 +1513,10 @@ function animate(time = 0) {
       && !document.getElementById('dd-loading') && !document.getElementById('dd-modeload')) {
     _timeToDriveMs = Math.round(performance.now());
     cpuTimer.armLongFrames();   // fresh budget now that the measured thing has actually started
+    // Same instant, same reason: adaptive resolution was probing during the LOAD, where the frame is
+    // long because the world is streaming and no resolution change can reach it. It locked itself
+    // out on four consecutive drives, correctly and expensively. See adaptiveResolution.js `_armed`.
+    adaptiveRes?.arm?.();
     // Same instant, same reason: D-38 measured "153 programs at time-to-drive", so the report's
     // warm-vs-late split has to be taken here or it is measuring a different thing.
     armReport(renderer.info.programs, { timeToDriveMs: _timeToDriveMs });

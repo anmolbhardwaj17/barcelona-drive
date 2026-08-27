@@ -78,6 +78,36 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
   // restored, because continuing means paying ~120 ms a step to blur the picture for nothing.
   let _probe = null;        // {beforeAvg, beforeScale} — a drop awaiting its verdict
   let _ineffective = 0;
+
+  /**
+   * ── IT WAS MAKING ITS DECISION DURING THE LOAD ────────────────────────────────────────────────
+   *
+   * Measured over four consecutive drives (2026-08-27): the controller probed twice, both probes
+   * failed, it locked out, and it did that EVERY time — costing 4 resizes, 210-519 ms and 15.3 MB,
+   * enough to earn its own `adaptRes` line in the drive report. Its verdict was always the same and
+   * always correct: *"the GPU is busy but not with FRAGMENTS."*
+   *
+   * The reason it kept spending that budget to learn nothing is WHEN it spent it. It ticked from
+   * frame one, so every probe landed inside the first ~20 s — where the frame is long because the
+   * world is streaming, not because of fill rate. It was answering a steady-state question with
+   * transient data, and no resolution change can fix a frame that is waiting on a tile build.
+   *
+   * This is D-66's shape exactly (the tile build budget shrank itself during the load, because
+   * loading is what was making frames long). Two independent adaptive controllers, same mistake:
+   * **an adaptive controller tuned for the steady state will read the transient as a fault.**
+   *
+   * So it now waits to be ARMED, at the same instant `cpuTimer.armLongFrames()` fires — the moment
+   * main.js already considers "the measured thing has actually started" — plus a settling window.
+   * The two-probe limit is deliberately kept: the readings were noisy in the transient (one drive
+   * measured +4.3%, the next -23.5% on the same step), and one noisy negative should not lock the
+   * controller out for a session on a machine where resolution IS the right lever.
+   *
+   * NOT disabled by default. On a weaker GPU this is a real safety net; what was broken here is
+   * when it measured, not that it exists.
+   */
+  let _armed = false;
+  let _settle = 0;
+  const SETTLE_FRAMES = 180;   // ~3 s after the world is drivable, before the first probe
   let _restoreScale = null;   // scale before the FIRST ineffective drop — the whole streak unwinds
   let _lockedOut = false;
   const PROBE_MIN_GAIN = 0.05;   // a real fill-rate win from -0.08 dpr is far more than 5%
@@ -127,9 +157,17 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
      * So we only drop when the GPU is plausibly the constraint. With no GPU timer (unsupported),
      * we fall back to the old behaviour rather than never adapting at all.
      */
+    /**
+     * Start measuring. Called at the time-to-drive instant — see the note by `_armed`: before that
+     * the frame is long because of streaming, and resolution cannot reach it.
+     */
+    arm() { if (!_armed) { _armed = true; _settle = SETTLE_FRAMES; } },
+
     tick(frameDtSeconds, gpuMs = null) {
       if (photo) return;   // resolution pinned high for photos — don't auto-adjust
       if (!ENABLED) return;   // ?adaptres=0 — attribution switch, see ENABLED
+      if (!_armed) return;    // the world is still loading; nothing here can be measured yet
+      if (_settle > 0) { _settle -= 1; return; }
       acc += (frameDtSeconds || 0) * 1000;
       if (gpuMs != null && gpuMs > 0) { gacc += gpuMs; gn += 1; }
       n += 1;
