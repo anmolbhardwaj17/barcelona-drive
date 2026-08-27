@@ -113,7 +113,12 @@ the same shadow saving in planning; do not repeat that in execution.
 | ↳ GPU share at p50 | — | **13.3 of 16.7 ms** — median frame IS GPU-bound, only 3.4 ms spare | — | P2 |
 | Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
 | Draw calls | P0 p95 **261** | post-P1 p95 **246** ✅ (−15, pr-independent) | **450** | ✅ real improvement |
-| ↳ cars + car lights | **41** (28 traffic Meshes + 9 parked IMs + 2+2 lights) | **3** — one BatchedMesh + 2 light IMs (P4-15a). ⚠ counted structurally, NOT yet measured in a drive; and it is 3 only where `WEBGL_multi_draw` exists | — | P4-15a |
+| ↳ cars + car lights | **41** (28 traffic Meshes + 9 parked IMs + 2+2 lights) | **3** ✅ — one BatchedMesh + 2 light IMs (P4-15a). `WEBGL_multi_draw` confirmed present, so the fleet really is one call. ⚠ 3 only where that extension exists; without it three loops per instance (~250 calls) | — | P4-15a |
+| Draws / triangles, STEADY STATE | — | **202 draws · 1,014k tris** (console read, post-P4-15a; one sample, not a p95) | 450 / 2.6 M | P4-15a |
+| **`traffic` allocation** | **22.6 MB** over a 69 s drive (#2 allocator behind `rend`) | **0 — absent from the report** over a 147.6 s drive ✅ **BANKED** (P4-15a) | — | P4-15a |
+| **heap growth per second** | **+1.53 MB/s** (629→706 MB / 69 s) | **−2.03 MB/s** — net collect, like-for-like `/game` drive ✅ (P4-15a) | — | P4-15a / task #39 |
+| **allocation across 40 long frames** | **55.7 MB** | **22.2 MB** ✅ **−60%**, like-for-like (P4-15a) | — | P4-15a |
+| **max frame** | 241.5 ms | **114.2 ms** ✅ **−53%**, like-for-like (P4-15a) | — | P4-15a |
 | ↳ tire smoke | up to **90** Sprites / 90 materials | **1** InstancedMesh, 1 material (P4-15a) | — | P4-15a |
 | Parked-car triangles ALWAYS drawn | ~250 × 2,189 ≈ **0.55 M** (nine `frustumCulled = false` InstancedMeshes) | per-instance frustum culled — expect ~⅓ to survive. **UNMEASURED; the single biggest claim in P4-15a** | — | P4-15a |
 | Triangles | P0 p95 **1.88 M** | post-P1 p95 **1.96 M** ⚠ **UP 75k** | **2.6 M** | unexplained — see D-18 |
@@ -1444,8 +1449,52 @@ Scope, all of it already specified inside P4-15:
     ≈ **0.55 M triangles drawn every frame regardless of where the camera pointed**. Expect roughly a
     third of that to survive culling — **the largest single number here, and the one that most needs
     the drive report to confirm.**
-  - ⚠ **NOT yet measured in-game:** `traffic` ms across long frames, the real draw/triangle delta, or
-    the allocation delta. All four need one F9 drive. 245 tests green, production build clean.
+  - **MEASURED, drive-report `2026-08-27T04-27-58-861Z` vs `T02-56-14-765Z`:**
+    - ✅ **`traffic` allocation 22.6 MB → 0** (absent from `totalAllocBySection` entirely; it was the
+      #2 allocator behind `rend`). Route-independent in kind — it was the per-spawn `new THREE.Mesh`
+      + `scene.add`/`remove`, ~2 of each per frame, so the 2× longer drive should have produced MORE
+      of it, not none. **This is the banked win.**
+    - ✅ **Heap growth +1.53 MB/s → +0.02 MB/s** (629→706 MB over 69 s, vs 386→388 MB over 147.6 s).
+      Flat over a drive twice as long. Consistent with the allocation result.
+    - ✅ **No car material compiled mid-drive.** Neither `carSmokeAlpha` nor the shared kit material
+      appears among the 41 late variants; `compiledWhileDriving` 43 → 41. The risk that a new
+      `USE_BATCHING` / `USE_INSTANCING` variant would sync-compile on first car did not materialise.
+  - **LIKE-FOR-LIKE PAIR, both `/game`, 40 long frames each — `T02-56-14` (69.0 s, pre) vs
+    `T04-36-17` (75.1 s, post). These are the numbers.**
+    | metric (summed across the 40 long frames) | pre | post | Δ |
+    |---|---|---|---|
+    | **allocation, total** | 55.7 MB | **22.2 MB** | **−60%** |
+    | ↳ `traffic` alloc | 22.6 MB | **5.9 MB** | **−74%** |
+    | ↳ `rend` alloc | 33.1 MB | **16.3 MB** | −51% |
+    | `rend` ms | 809.0 | **383.7** | **−53%** |
+    | **max frame** | 241.5 ms | **114.2 ms** | **−53%** |
+    | p95 long frame | 122.1 ms | **90.1 ms** | −26% |
+    | time-to-drive | 24.7 s | 22.7 s | −8% |
+    | `traffic` ms | 52.7 | 53.5 | **+2% — unchanged** |
+    | `other` ms | 1774.1 | 2084.0 | **+17% — unexplained** |
+    | triangles p50 (worst frames) | 1,095k | 761k | −30% |
+    | **draws p50 (worst frames)** | 175 | **188** | **+7% — WRONG DIRECTION, see below** |
+    - **`other` +17% (+310 ms) has a named suspect, and it is not P4-15a.** The drive's own console
+      printed `[adaptRes] LOCKED OUT — restored 1.04 … 6 resizes have cost 519 ms`. `adaptRes` reads
+      ~0 ms in every one of the 30 worst frames across both reports, so that 519 ms is landing in
+      `other` — more than the entire increase. This is D-25 exactly (`apply()` reallocates the whole
+      composer chain and was never in a lap). **Testable in one drive: `?adaptres=0`.** Note what the
+      lockout message itself concluded — "the GPU is busy but not with FRAGMENTS" — which is D-18's
+      finding restated by the controller: the frame is CPU/stream-bound, not fragment-bound.
+    - **`traffic` ms did not move, exactly as D-44 predicted.** That lap times
+      `trafficSystem.update()`, which is dominated by `buildPath`'s per-point `getGroundY` sampling,
+      not by the rendering P4-15a replaced. The residual 5.9 MB is its `pts`/`order` arrays. **The
+      27.6 ms that scheduled this task was never going to fall from instancing** — if it matters,
+      it is a separate task about `buildPath`, and it should be written up as one.
+    - ✅ **CLOSED — `WEBGL_multi_draw` is present on this machine (`true`), so the whole fleet is
+      genuinely ONE draw call.** The +13 draws in the table above is tile residency inside the boot
+      window (`geom` first 491 → 583), not a per-instance fallback. **Steady state, measured in the
+      console: `draws 202 · tris 1014k`** against caps of 450 / 2.6 M and a post-P1 p95 of 246 /
+      1.96 M. One instantaneous sample, not a p95 — but it is a steady-state one, which the
+      worst-frame table is not. **41 → 3 confirmed.**
+      ⚠ It is 3 only where the extension exists. Without it three loops `drawElements` per instance
+      and the fleet costs ~250 draws. Nothing in the codebase checks; `vegPools` makes the same bet.
+  - 245 tests green, production build clean.
 
 ### `[ ]` P4-15b · ~16.5d · risk high — **ART HALF (the original P4-15 body)**
 **VEHICLES.** Shared template cache + single loader registry (kills 9 duplicate GLB parses, colormap 18 → 1 resident). Tire smoke 90 Sprites+90 SpriteMaterials → one InstancedMesh. **Blender modular Barcelona kit** — 6 bodies at 1,800–2,800 tris LOD0 + 500–700 LOD1, TRUE dimensions (the `carModels.js:75` squash deleted), one shared UV layout, modelled shutlines/bevels for the normal bake. 2048² albedo with a **paintjob mask** + 1024² normal (UASTC) + 1024² ORM. Rewire traffic 28 loose Meshes → 2 InstancedMeshes (30 → ~7 draws), parked 11 → ~8. **Hero car re-UV** on the existing 9,792-tri geometry, 11 materials →…
