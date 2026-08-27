@@ -1449,6 +1449,30 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   // frames instead of several tiles materializing in one frame. Kept small so the render always has headroom.
   const FRAME_BUDGET_MS = 3;      // baseline ms of tile build work per frame when the frame rate is healthy
   const BUDGET_MIN = 1.0, BUDGET_MAX = 3.5; // capped low: a finalizing tile can't brush the 16.6ms frame limit
+
+  /**
+   * ── THE INITIAL LOAD IS YIELD-BOUND, NOT WORK-BOUND ───────────────────────────────────────────
+   *
+   * Measured 2026-08-27, the first time anything read the per-phase build totals:
+   *
+   *     initial tile load COMPLETE after 108 polls (~16200 ms), 14 tiles resident
+   *     main-thread time by build phase (3095 ms total): p1 physics 752/132 · p4 clusters 589/124 ·
+   *       p2 buildings 465/163 · p4 urban 389/263 · p1 rg:markings 256/251 · ...
+   *
+   * **3,095 ms of work took 16,200 ms of wall time.** ~1,180 chunks at an average of 2.63 ms each —
+   * which is exactly `FRAME_BUDGET_MS` — and every chunk ends in a yield that costs a whole 16.7 ms
+   * frame. 1,180 frames ≈ 19.7 s. The main thread is IDLE for ~84% of the load, waiting for vsync.
+   *
+   * The 3 ms cap is right while DRIVING: it exists so tile work never piles onto a frame that is
+   * already missing 60 fps. But during the initial load the only thing on screen is the loading
+   * overlay, there is no car, and nothing needs to stay smooth — so the same cap that protects the
+   * drive is spending 13 seconds of the load doing nothing at all.
+   *
+   * ⚠ This budget must END when the load does. The title screen's cinematic orbit runs AFTER
+   * `isInitialLoadComplete()`, and that does need its frames.
+   */
+  const LOAD_BUDGET_MS = 12;      // ~72% of a frame — nothing is being kept smooth behind a loader
+  let _initialLoadDone = false;
                                             // and drop a frame. Tiles appear a touch slower; driving stays smooth.
   let _budgetMs = FRAME_BUDGET_MS; // ADAPTIVE: shrinks when frames run long (heavy streaming at speed),
                                    //           grows back when they're smooth — so build never compounds a slow frame
@@ -2751,7 +2775,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Adaptive budget: the gap between update() calls ≈ the last frame's duration. If frames are running
     // long (streaming + render can't keep 60fps), shrink the build budget so tile work stops piling onto an
     // already-slow frame (the high-speed stutter); when frames are smooth again, grow it back to catch up.
-    if (_lastUpdateAt) {
+    // While the loading overlay is still up there is nothing to keep smooth, so the drive-time cap
+    // does not apply — see LOAD_BUDGET_MS. The latch is one-way: once the first ring has built, the
+    // adaptive drive budget takes over for the rest of the session and never comes back here.
+    if (!_initialLoadDone) {
+      if (isInitialLoadComplete()) { _initialLoadDone = true; _budgetMs = FRAME_BUDGET_MS; }
+      else _budgetMs = LOAD_BUDGET_MS;
+    }
+    if (_initialLoadDone && _lastUpdateAt) {
       const frameMs = _now - _lastUpdateAt;
       if (frameMs > 20) _budgetMs = Math.max(BUDGET_MIN, _budgetMs - 0.6);        // < ~50 fps → back off
       else if (frameMs < 17) _budgetMs = Math.min(BUDGET_MAX, _budgetMs + 0.4);   // ~60 fps → resume
