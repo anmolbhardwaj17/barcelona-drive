@@ -492,6 +492,34 @@ level up: **a drivable surface above ground implies an edge**.
 > with no bridge tag. That needs 2D crossing tests, not a DEM comparison. Re-file as its own ticket
 > rather than smuggling it into R-B1.
 
+> **R-B1 CLOSED 2026-08-27 — ALREADY IMPLEMENTED. The real defect is upstream classification.**
+>
+> `roadRenderer.js:isElevatedGuardRailRoad` already gates railings on
+> `bridge || isRamp || layer > 0 || crossesTrench || (link && elevated)` — precisely the inference
+> this ticket proposed to build. Railings have never been OSM-barrier-driven. Writing R-B1 would
+> have duplicated a working system.
+>
+> The gaps the user sees have a different cause, and it is measurable:
+>
+> | | segments | share |
+> |---|---|---|
+> | tunnel | 1,044 | 1.94% |
+> | isRamp | 842 | 1.56% |
+> | **bridge** | **63** | **0.12%** |
+> | layer > 0 | 63 | (the same set — `bridge = bridgeTag \|\| layer > 0`) |
+>
+> **63 bridge segments in the whole of Barcelona**, against 1,044 tunnel segments. The city has the
+> Ronda de Dalt, the Ronda Litoral and the Glòries interchange. Elevated structure is not
+> under-*rendered*, it is under-**classified** — the gate cannot fire on a road nobody knows is
+> elevated, and that same road also gets no layer offset, so it sits flat on the ground.
+>
+> **This is `M1_implied_bridge`** from the defect taxonomy (`osm-repair-layer.md` §2), and it now has
+> two independent symptoms pointing at it: missing railings, and part of the measured 4.9% of drivable
+> road points floating. Detection is TOPOLOGICAL — a way crossing water, rail or another way at a
+> different layer with no bridge tag — so it belongs with the repair layer, not here.
+>
+> **Do not re-open R-B1.** Re-file the work as M1 detection.
+
 ### R-B2 · Barrier TYPE selection
 **Today:** nothing selects a type; the deleted renderer drew one style.
 **Wanted:** the right object for the context — concrete (New Jersey) barrier on fast dual

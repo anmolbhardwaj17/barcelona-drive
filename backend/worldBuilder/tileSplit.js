@@ -171,11 +171,6 @@ export function roadsForTileNoClip(roads, tileId = null) {
       isRamp: road.isRamp || false,
       brokenRamp: road.brokenRamp || false,
       crossesTrench: road.crossesTrench || false, // OPTION L flag must survive tile split
-      // R-B1: the edge decision is made on the WHOLE way before this split (R-0), so it must survive
-      // it. Safe to carry the mask verbatim HERE because the no-clip path emits the full way — mask
-      // index i still refers to point i.
-      edgeType: road.edgeType || null,
-      edgeMask: road.edgeMask || null,
     });
     if (road.id === TRACE_WAY_ID && tileId != null) {
       console.log(`  [TRACE ${TRACE_WAY_ID}] noClip tile ${tileId}: full way, ${pts.length} points`);
@@ -218,13 +213,6 @@ export function clipRoadsForTile(roads, bounds, tileId = null) {
         isRamp: road.isRamp || false,
         brokenRamp: road.brokenRamp || false,
         crossesTrench: road.crossesTrench || false, // OPTION L flag must survive tile split
-      // R-B1: the CLIPPING path re-cuts the point list, so a whole-way mask no longer lines up with
-      // it — index i means a different vertex. Carrying it would put railings on the wrong stretch,
-      // which is worse than none, so it is dropped and the type kept for diagnosis. If this path
-      // ever becomes the live strategy (it is not — see the bake's NO-CLIP banner), the mask must be
-      // clipped alongside the points, not passed through.
-      edgeType: road.edgeType || null,
-      edgeMask: null,
       });
     }
   }
