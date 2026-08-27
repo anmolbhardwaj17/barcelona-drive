@@ -90,30 +90,6 @@ export function getElevationFromGrid(elevation, lat, lon) {
  * @param {string} [tileKey] - e.g. "0_0" for deterministic texture choice per tile
  * @returns {{ mesh: THREE.Mesh, getElevationAt: (lat: number, lon: number) => number }}
  */
-// --- Helpers for road-proximity terrain coloring ---
-function distSqToSegment(px, pz, ax, az, bx, bz) {
-  const dx = bx - ax, dz = bz - az;
-  const lenSq = dx * dx + dz * dz;
-  if (lenSq < 0.001) return (px - ax) ** 2 + (pz - az) ** 2;
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lenSq));
-  const cx = ax + t * dx, cz = az + t * dz;
-  return (px - cx) ** 2 + (pz - cz) ** 2;
-}
-
-function minDistSqToRoads(roads, x, z) {
-  let best = Infinity;
-  for (const road of roads) {
-    const pts = road.points;
-    if (!pts || pts.length < 2) continue;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const d = distSqToSegment(x, z, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
-      if (d < best) best = d;
-      if (best < 1) return best; // early exit
-    }
-  }
-  return best;
-}
-
 /**
  * One-time log of the terrain path.
  *
@@ -207,55 +183,18 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
 
   if (yieldFn) await yieldFn();
 
-  // Filter roads to ground-level only (exclude tunnels and elevated)
-  const groundRoads = roads?.filter(r =>
-    !r.tunnel && (r.layer == 0 || r.layer == null)
-  ) || null;
-
-  // --- Build spatial grid for fast road-proximity lookups ---
-  // Replaces O(V × S) brute-force with O(V × ~4 nearby segments)
-  let roadDistGrid = null;
-  let rdgMinX, rdgMinZ, rdgCols, rdgRows, rdgCellSize;
-  if (groundRoads && groundRoads.length > 0) {
-    rdgCellSize = 8; // metres per cell
-    rdgMinX = positions[0]; rdgMinZ = positions[2];
-    let rdgMaxX = rdgMinX, rdgMaxZ = rdgMinZ;
-    for (let i = 0; i < totalVerts; i++) {
-      const px = positions[i * 3], pz = positions[i * 3 + 2];
-      if (px < rdgMinX) rdgMinX = px; if (px > rdgMaxX) rdgMaxX = px;
-      if (pz < rdgMinZ) rdgMinZ = pz; if (pz > rdgMaxZ) rdgMaxZ = pz;
-    }
-    rdgMinX -= 1; rdgMinZ -= 1; rdgMaxX += 1; rdgMaxZ += 1;
-    rdgCols = Math.ceil((rdgMaxX - rdgMinX) / rdgCellSize) + 1;
-    rdgRows = Math.ceil((rdgMaxZ - rdgMinZ) / rdgCellSize) + 1;
-    roadDistGrid = new Float32Array(rdgCols * rdgRows);
-    roadDistGrid.fill(Infinity);
-
-    // For each road segment, stamp minimum distance into nearby grid cells
-    const OUTER_SQ = 15 * 15; // only care about distances < 15m
-    for (const road of groundRoads) {
-      const pts = road.points;
-      if (!pts || pts.length < 2) continue;
-      for (let si = 0; si < pts.length - 1; si++) {
-        const ax = pts[si].x, az = pts[si].y, bx = pts[si + 1].x, bz = pts[si + 1].y;
-        const sMinX = Math.min(ax, bx) - 15, sMaxX = Math.max(ax, bx) + 15;
-        const sMinZ = Math.min(az, bz) - 15, sMaxZ = Math.max(az, bz) + 15;
-        const c0 = Math.max(0, Math.floor((sMinX - rdgMinX) / rdgCellSize));
-        const c1 = Math.min(rdgCols - 1, Math.floor((sMaxX - rdgMinX) / rdgCellSize));
-        const r0 = Math.max(0, Math.floor((sMinZ - rdgMinZ) / rdgCellSize));
-        const r1 = Math.min(rdgRows - 1, Math.floor((sMaxZ - rdgMinZ) / rdgCellSize));
-        for (let gr = r0; gr <= r1; gr++) {
-          for (let gc = c0; gc <= c1; gc++) {
-            const gx = rdgMinX + (gc + 0.5) * rdgCellSize;
-            const gz = rdgMinZ + (gr + 0.5) * rdgCellSize;
-            const dSq = distSqToSegment(gx, gz, ax, az, bx, bz);
-            const gi = gr * rdgCols + gc;
-            if (dSq < roadDistGrid[gi]) roadDistGrid[gi] = dSq;
-          }
-        }
-      }
-    }
-  }
+  // ─── REMOVED 2026-08-27: the road-proximity grid was built for every tile and NEVER READ ───────
+  //
+  // `groundRoads`, `roadDistGrid` (a full uniform grid, one distance stamped per road segment into
+  // every cell within 15 m) and the `minDistSqToRoads` / `distSqToSegment` helpers were computed on
+  // every terrain build and consumed by nothing. It is the leftover of commit 3635fa6, "Remove dark
+  // road-edge outline — drop the Delhi roadside dirt strip": the CONSUMER was deleted deliberately
+  // (the brown roadside band was a Delhi artifact and is not wanted in Barcelona) and the producer
+  // was left behind. The stale comment further down still claims "CPU vertex colors carry road-edge
+  // brown", which is how this survived a reading of the file.
+  //
+  // Do NOT reinstate it to fix bare ground near roads — that ground is covered by the pavement, and
+  // when it reads as a lawn the cause is LOD (D-72/D-74), not a missing tint.
 
   // Height-based and normal-based vertex colors with per-vertex noise variation.
   const posAttr = geometry.getAttribute('position');
@@ -729,7 +668,9 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       terrainBase = mix(terrainBase, drySoil, soilBlend);
 
       // ── 5. Blend with vertex colors — procedural dominates at 75% ──
-      // CPU vertex colors carry road-edge brown, tree shadow, water shore.
+      // CPU vertex colors carry tree shadow and water shore. (They no longer carry "road-edge
+      // brown" — that consumer was deleted in 3635fa6 with the Delhi dirt strip, and this line
+      // claiming otherwise is why its dead producer survived until 2026-08-27. See the note above.)
       // vCoast masks the greens OFF sand/sea vertices — the coast is CPU-painted (beach polys +
       // sea-level detection) and the procedural pass must not repaint it.
       diffuseColor.rgb = mix(diffuseColor.rgb, terrainBase, 0.75 * (1.0 - vCoast));

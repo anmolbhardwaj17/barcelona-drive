@@ -14,6 +14,24 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { worldToLatLon } from '../projection.js';
 import { CONFIG } from '../config.js';
 import { patchAoDarkening } from './aoSampler.js';
+import { getPanotSurfaceMaterial } from './roadRenderer.js';
+
+/** `?plazatex=0` — revert pedestrian plazas to the flat fill. Attribution switch, read once. */
+const PLAZA_TEXTURE = typeof location === 'undefined'
+  || new URLSearchParams(location.search).get('plazatex') !== '0';
+
+/**
+ * `?pedareas=0` — draw no pedestrian plazas at all.
+ *
+ * ⚠ This is a DIAGNOSTIC, not a preference. `?plazatex=0` only swaps the material, so it cannot
+ * answer "are these polygons the thing I am looking at?" — which is exactly the question that cost
+ * a round trip. This one removes them, so one reload settles identity. Barcelona really does have
+ * large pedestrianised areas (measured: six polygons, 6,648 m², largest 3,143 m² in an 89x89 m
+ * footprint, in the Gran Via tile alone), so OFF is the wrong long-term default — it deletes real
+ * city. Use it to identify, then argue about how they should LOOK.
+ */
+const PED_AREAS_ON = typeof location === 'undefined'
+  || new URLSearchParams(location.search).get('pedareas') !== '0';
 
 const AREA_OFFSET_Y = 0.02;   // above greens' 0.01 so shared-edge coast strips don't z-race
 
@@ -46,6 +64,8 @@ function areaNoise(x, z, seed) {
  * @returns {THREE.Mesh[]} 0 or 1 merged mesh (array for uniform handling with greens)
  */
 export function createAreaFeatureMeshes(features, kindName, getElevationAt) {
+  // `?pedareas=0` — see PED_AREAS_ON. Identity diagnostic; beaches are unaffected.
+  if (kindName === 'pedArea' && !PED_AREAS_ON) return [];
   const kind = KINDS[kindName];
   if (!kind || !features?.length) return [];
 
@@ -81,9 +101,26 @@ export function createAreaFeatureMeshes(features, kindName, getElevationAt) {
   geometries.forEach((g) => g.dispose());
   if (!merged) return [];
 
+  // GROUND-COVER-FIX follow-up: a PLAZA IS PANOT, and it was the only paved surface without it.
+  //
+  // These polygons were invisible until D-73 (they rode the 170 m TREE rule on a distance that
+  // includes camera altitude, so from any height every plaza in the city vanished at once). The
+  // moment they appeared, they read as "big sidewalks" — and measured, they are: six polygons
+  // totalling 6,648 m² in the Gran Via tile, the largest 3,143 m² in a 89x89 m footprint. At that
+  // size a flat vertex-coloured field beside the pavement's photographic panot plate reads as a
+  // blob, which is a MATERIAL problem, not a size one. Barcelona lays its pedestrianised plazas in
+  // the same panot as its pavements, so they get the same plate — on the `pedArea` layer, never the
+  // pavement's, or a plaza would paint over the carriageway it touches (R-J4).
+  //
+  // ATTRIBUTION SWITCH, in the house style of `?roadv2=0` / `?treecards=0`: `?plazatex=0` restores
+  // the flat fill. Drive both before arguing about it.
+  const texturedPlaza = kindName === 'pedArea' && PLAZA_TEXTURE;
+
   // Per-vertex colour mottle — flat single-colour polygons read as untextured plastic.
   const pos = merged.getAttribute('position');
-  const base = new THREE.Color(kind.color);
+  // Under a texture the mottle must ride NEAR WHITE, or `map * vertexColor` halves the plate's
+  // brightness and the plaza goes muddy instead of paved. Keep a whisper of the granite tint.
+  const base = new THREE.Color(texturedPlaza ? 0xd8d3c8 : kind.color);
   const colors = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const v = 1 + areaNoise(pos.getX(i), pos.getZ(i), kindName === 'beach' ? 5.0 : 9.0) * kind.noise;
@@ -93,10 +130,12 @@ export function createAreaFeatureMeshes(features, kindName, getElevationAt) {
   }
   merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-  const material = patchAoDarkening(applyGroundLayer(new THREE.MeshLambertMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-  }), kind.layer));
+  const material = texturedPlaza
+    ? getPanotSurfaceMaterial('pedArea')   // shared, cached per layer — already AO- and ground-layered
+    : patchAoDarkening(applyGroundLayer(new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+      }), kind.layer));
 
   const mesh = new THREE.Mesh(merged, material);
   mesh.frustumCulled = true;

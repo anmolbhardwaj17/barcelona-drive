@@ -634,6 +634,30 @@ const VEG_IMPOSTOR_CUT_M = 600;
 const VEG_IMPOSTOR_HOLD_M = 300;   // full impostors until here, then fog takes over
 
 /**
+ * GROUND-COVER-FIX — how far the flat GROUND COVER survives the fog cull.
+ *
+ * THE SAME BUG, A THIRD TIME. Terrain draws to TERRAIN_CUT_M (1500 m) and roads are explicitly kept
+ * "visible into fog for continuity" — but everything that COVERS the ground between them was still
+ * dying at FOG_FULL_DIST (280 m). From a drone this reads as the whole city sitting on a lawn:
+ * roads on bare grass-coloured terrain, with the buildings and plazas that belong there missing.
+ *
+ * P4-02 found this for terrain ("deleting ground that was still ~61% visible") and fixed terrain.
+ * VEG-FIX-1 found the resulting seam for vegetation ("bare ground from 280 m out") and fixed
+ * vegetation. Neither pass extended the built environment, so the ground it uncovered stayed bare.
+ * Measured with `_ddGround()` from the air: greens 0 visible / 31 hidden, plazas 0 / 11, and the
+ * pavement drawn on only 4 of 11 resident tiles.
+ *
+ * 600 m for the reason VEG_IMPOSTOR_CUT_M is 600: that is where FogExp2 at the shipping density of
+ * 0.0025 reaches 89.5%. Past it the ground really is haze and drawing cover would be pure cost.
+ *
+ * ⚠ ONLY the cheap flat cover rides this. Park and plaza polygons are a handful of triangles each,
+ * and `lodBuildingMesh` is the distant-building representation that already exists for this job.
+ * Full building detail, pavements, kerbs and lane paint stay on the 280 m cull — they ARE detail,
+ * they are the expensive half, and the frame budget is the binding constraint (v3: 246/450 draws).
+ */
+const GROUND_COVER_CUT_M = 600;
+
+/**
  * ⚠ THE IMPOSTOR RAMP MUST COMPLEMENT THE 3D FADE, NOT FOLLOW IT.
  *
  * Measured before the fix, total tree presence driving toward a hill ran:
@@ -3004,10 +3028,28 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // ── Fog culling: hide EVERYTHING on tiles fully inside fog ──────────
       // With FogExp2 density 0.006, objects at 250m are ~90% fogged.
       // Skip all per-mesh checks for distant tiles → saves CPU + draw calls.
-      const FOG_FULL_DIST = (_photoMode || !CONFIG.ENABLE_FOG) ? Infinity : 280;
+      // ⚠ Test the ACTUAL fog, not the config flag. `main.js` sets
+      //     scene.fog.density = carDriver ? (...) : 0
+      // so in FLY mode there is no fog AT ALL — yet this cull, reading only `CONFIG.ENABLE_FOG`,
+      // went on deleting everything past 280 m "because it is fogged". Fly mode is how the city is
+      // reviewed (H14), so the one mode with perfect visibility was the one throwing the city away.
+      // Density is also altitude-faded, which is exactly when you can see furthest.
+      const _fogDensity = CONFIG.ENABLE_FOG ? (scene?.fog?.density ?? 0) : 0;
+      const FOG_FULL_DIST = (_photoMode || _fogDensity <= 1e-6) ? Infinity : 280;
       if (nearEdgeDist > FOG_FULL_DIST) {
+        // GROUND-COVER-FIX: park/garden and plaza polygons are flat ground COVER, not detail —
+        // they ride out to GROUND_COVER_CUT_M like the impostors below, or the terrain they are
+        // supposed to hide shows through as a lawn. Everything else in this list still dies here.
+        const coverLives = nearEdgeDist <= GROUND_COVER_CUT_M;
         const hideAll = (meshes) => { if (meshes) for (const m of meshes) m.visible = false; };
-        hideAll(entry.vegetationMeshes);
+        const hideAllButCover = (meshes) => {
+          if (!meshes) return;
+          for (const m of meshes) {
+            const t = m.userData?.type;
+            m.visible = coverLives && (t === 'greens' || t === 'areaFeature');
+          }
+        };
+        hideAllButCover(entry.vegetationMeshes);
         // VEG-FIX-1: BILLBOARD IMPOSTORS SURVIVE THE FOG CULL out to VEG_IMPOSTOR_CUT_M.
         //
         // P4-02 raised the terrain cut to 1500 m while vegetation still ended at this 280 m fog
@@ -3049,15 +3091,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         // Buildings and vegetation ARE detail and stay culled here; the ground is not detail.
         // Terrain visibility + LOD ring are decided by applyTerrainLod() below.
         applyTerrainLod(entry, nearEdgeDist);
-        if (entry.lodBuildingMesh) entry.lodBuildingMesh.visible = false;
+        // GROUND-COVER-FIX: the distant-building LOD exists precisely to stand in for the city at
+        // range; hiding it here is what left whole blocks as bare terrain from the air.
+        if (entry.lodBuildingMesh) entry.lodBuildingMesh.visible = coverLives;
         if (entry.propMesh) entry.propMesh.visible = false;
         if (entry.reflectorGroup) entry.reflectorGroup.visible = false;
         if (entry.crashBarrierMesh) entry.crashBarrierMesh.visible = false;
         if (entry.markingsMesh)     entry.markingsMesh.visible     = false;   // v3 P1-22
         if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = false;
         if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = false;
-        if (entry.bcnSidewalkMesh)  entry.bcnSidewalkMesh.visible  = false;
-        if (entry.bcnCurbMesh)      entry.bcnCurbMesh.visible      = false;
+        // GROUND-COVER-FIX: pavement + kerb ride with the parks — see the pair in the near path.
+        if (entry.bcnSidewalkMesh)  entry.bcnSidewalkMesh.visible  = coverLives;
+        if (entry.bcnCurbMesh)      entry.bcnCurbMesh.visible      = coverLives;
         if (entry.bcnBikeLaneMesh)  entry.bcnBikeLaneMesh.visible  = false;
         if (entry.bcnBikePictoMesh) entry.bcnBikePictoMesh.visible = false;
         if (entry.tramRailMesh)     entry.tramRailMesh.visible     = false;
@@ -3179,16 +3224,31 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
               m.count = Math.max(1, Math.floor(frac * m.userData.maxInstanceCount));
               m.visible = true;
             }
+          } else if (m.userData.type === 'greens' || m.userData.type === 'areaFeature') {
+            // GROUND-COVER-FIX: park/garden and plaza polygons are FLAT GROUND, and they were
+            // riding the tree rule — `dist <= TREE_MAX_DISTANCE` (170 m) on the distance to the
+            // tile CENTRE, which includes the camera's height. From the air every tile centre is
+            // past 170 m, so every park and plaza in the city was hidden at once (measured with
+            // `_ddGround()`: greens 0 visible / 31 hidden, plazas 0 / 11) and the grass-coloured
+            // terrain they should be covering showed through instead.
+            //
+            // Ground cover follows the GROUND: nearest-EDGE distance, like terrain and roads, out
+            // to where fog actually hides it. A park is a few triangles; a tree is not.
+            m.visible = nearEdgeDist <= GROUND_COVER_CUT_M;
           } else {
             m.visible = dist <= treeMaxDist;
           }
         }
       }
       if (entry.propMesh) {
-        entry.propMesh.visible = dist <= treeMaxDist;
+        // Same metric bug as the parks (D-73), one tier down: `dist` is to the tile CENTRE and
+        // includes camera altitude, so props vanished from the tile you were standing in as soon
+        // as you were 170 m from its middle — and from every tile at once in fly mode. The range
+        // is right for a prop; the distance it was measured from was not.
+        entry.propMesh.visible = nearEdgeDist <= treeMaxDist;
       }
       for (const m of entry.clusterMeshes || []) {
-        m.visible = dist <= treeMaxDist;
+        m.visible = nearEdgeDist <= treeMaxDist;
       }
 
       const bldgMaxDist    = _photoMode ? Infinity : (typeof CONFIG.BUILDING_MAX_DISTANCE === 'number' ? CONFIG.BUILDING_MAX_DISTANCE : 180) * altMult;
@@ -3295,15 +3355,28 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
       if (entry.crosswalkMesh)    entry.crosswalkMesh.visible    = showDetail;
       if (entry.onewayArrowMesh)  entry.onewayArrowMesh.visible  = showDetail;
-      // Phase 3: altitude-aware thresholds (altMult from building LOD, same variable)
-      if (entry.bcnSidewalkMesh)  entry.bcnSidewalkMesh.visible  = nearEdgeDist <= 80  * altMult;
-      if (entry.bcnCurbMesh)      entry.bcnCurbMesh.visible      = nearEdgeDist <= 200 * altMult;
-      if (entry.bcnBikeLaneMesh)  entry.bcnBikeLaneMesh.visible  = nearEdgeDist <= 120 * altMult;
-      if (entry.bcnBikePictoMesh) entry.bcnBikePictoMesh.visible = nearEdgeDist <= 50  * altMult;
+      // GROUND-COVER-FIX: THE PAVEMENT AND ITS OWN KERB ARE ONE SURFACE AND MUST SHARE A DISTANCE.
+      //
+      // They did not: the pavement died at 80 m while the kerb that edges it drew to 200 m. So from
+      // 80 m out every street had kerb lines with BARE TERRAIN between them and the buildings — the
+      // green strip along the kerb, which reads as a missing-pavement bug and is really an LOD one.
+      // Measured with `_ddGround()` in PHOTO mode, where every other class is fully drawn:
+      // markings 12/0, crosswalk 12/0, curb 11/1, and sidewalk 5 visible / 7 HIDDEN.
+      //
+      // Two things were wrong. These lines never honoured `_photoMode` (unlike `showDetail` beside
+      // them), so the one mode whose whole purpose is "draw everything" still culled the pavement.
+      // And the pavement is not fine detail — it is flat GROUND COVER, ~480 tris a tile against the
+      // kerb's ~1,000, so it belongs on the ground rule with the parks and plazas, not on an
+      // 80 m detail rule inherited from barriers and bus stops.
+      const kerbLineDist = _photoMode ? Infinity : GROUND_COVER_CUT_M;
+      if (entry.bcnSidewalkMesh)  entry.bcnSidewalkMesh.visible  = nearEdgeDist <= kerbLineDist;
+      if (entry.bcnCurbMesh)      entry.bcnCurbMesh.visible      = nearEdgeDist <= kerbLineDist;
+      if (entry.bcnBikeLaneMesh)  entry.bcnBikeLaneMesh.visible  = _photoMode || nearEdgeDist <= 120 * altMult;
+      if (entry.bcnBikePictoMesh) entry.bcnBikePictoMesh.visible = _photoMode || nearEdgeDist <= 50  * altMult;
       // v3 P0-17: street dressing — ground-floor detail that is unreadable past ~140 m, but was
       // rendering in EVERY loaded tile at EVERY distance (absent from this loop entirely).
       // Altitude-aware like the Phase 3 meshes so drone/fly mode still sees it from above.
-      const dressDist = 140 * altMult;
+      const dressDist = _photoMode ? Infinity : 140 * altMult;
       if (entry.shopSignMesh)   entry.shopSignMesh.visible = nearEdgeDist <= dressDist;
       if (entry.awningMesh)     entry.awningMesh.visible   = nearEdgeDist <= dressDist;
       if (entry.shopfrontMeshes)   for (const m of entry.shopfrontMeshes)   m.visible = nearEdgeDist <= dressDist;
