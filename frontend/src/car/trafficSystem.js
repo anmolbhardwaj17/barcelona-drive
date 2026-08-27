@@ -7,26 +7,18 @@
  * car). Pool of MAX_CARS near the player; spawn in a ring, despawn far / at road end. v1 doesn't chain
  * junctions (recorded follow-up).
  *
- * Visual: the Kenney low-poly city cars (via carModels.js) — a random variant per car, geometry+material
- * shared across cars of that variant, so the fleet is cheap. Frame: physics frame (added to `scene`).
- * World→physics: px = -(wx - origin.x), pz = wz - origin.z. Road point = {x:wx, y:wz}.
+ * Visual: the Kenney low-poly city cars, drawn through the SHARED car pool (carFleet.js) — every
+ * NPC car in the world is one instance in one BatchedMesh, alongside the parked cars. v3 P4-15a
+ * replaced 28 loose Meshes (allocated and spliced into `scene` as cars spawned and despawned, ~2 of
+ * each per frame at cruise) with 28 pre-allocated pool slots that are shown and hidden instead.
+ * Frame: physics frame. World→physics: px = -(wx - origin.x), pz = wz - origin.z. Road point = {x:wx, y:wz}.
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLLISION_GROUP_WORLD, COLLISION_GROUP_VEHICLE } from '../collisionGroups.js';
-import { loadCityCarTemplates } from './carModels.js';
+import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
+import { CANON_LENGTH } from './carModels.js';
 import { audio } from '../audio/audioManager.js';
-
-// Per-car body tint (multiplies the white-based Kenney texture → body takes this colour, while the dark
-// window texels + black wheel vertex-colours stay dark). Bright automotive palette — no greys (read dead).
-const CAR_TINTS = [
-  0xE8433A, 0x2E86DE, 0x27AE60, 0xF39C12, 0xF1C40F,
-  0xEcECEC, 0x8E44AD, 0x16A085, 0xD35400, 0x2C3E50,
-  0xC0392B, 0x3498DB, 0xffffff, 0x1ABC9C, 0xE67E22,
-];
-// Liveried models carry their own paint in the texture (taxi=yellow/black, police, delivery) — leave
-// them white-based so the authored livery shows through instead of being tint-shifted.
-const LIVERIED = new Set(['taxi', 'police', 'delivery']);
 
 const PASS_DIST = 5.5; // m — a traffic car entering this radius fires a pass-by whoosh
 
@@ -41,7 +33,8 @@ const SPEED_BY_TYPE = {
   primary: 14, primary_link: 11, trunk: 16, trunk_link: 12,
 };
 
-const MAX_CARS    = 28;   // full-detail clones — modest bump (watch FPS); busier roads
+const MAX_CARS    = 28;   // pool slots reserved in the shared car fleet
+const CAR_LENGTH  = 3.9;  // m — traffic cars are a hair longer than the parked ones
 const SPAWN_MIN   = 32;
 const SPAWN_MAX   = 185;
 const DESPAWN     = 240;
@@ -60,53 +53,53 @@ const YAXIS3 = new THREE.Vector3(0, 1, 0);
 export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments, getOrigin, contactShadows }) {
   const cars = [];
   let _enabled = true;
-  let _templates = [];
 
-  // Use the model's OWN textured material — the Kenney atlas already paints each car. We used to multiply a
-  // random tint on top, but the full-detail models aren't white-bodied (that assumption was wrong), so the
-  // tint over-tinted the already-coloured bodies into muddy shades. Shared per template (never disposed).
-  function getCarMaterial(_tplIdx, tpl) {
-    return tpl.material;
-  }
+  // ── Shared fleet resources (resolved once the car kit has loaded) ──
+  // `_pool` is the world-wide car BatchedMesh; traffic reserves MAX_CARS slots in it up front and
+  // recycles them, so a spawn is a matrix write and a setVisibleAt — no allocation, no scene churn.
+  let _pool = null;
+  let _dims = [];        // per-variant dims at CAR_LENGTH (pool templates are canonical)
+  let _lightLocals = []; // per-variant head/tail quad transforms, in the car's own space
+  let _freeSlots = [];
+  const CAR_SCALE = CAR_LENGTH / CANON_LENGTH;
+  const _scaleV = new THREE.Vector3(CAR_SCALE, CAR_SCALE, CAR_SCALE);
 
-  // Head/tail lights as TWO shared InstancedMeshes (was 4 loose child meshes per car ≈ 112 draws → 2).
-  // Rebuilt each frame from every car's current pose. Big draw-call cut → less per-frame Three.js churn.
-  const LIGHT_CAP = MAX_CARS * 2 + 4;
-  let headIM = null, tailIM = null, lightLocals = [];
+  // ONE light InstancedMesh: head and tail differ by instance colour, not by being two meshes.
+  const lights = createLightPool({ scene, capacity: MAX_CARS * 4 + 8, width: 0.28, height: 0.14 });
+
   const _carM = new THREE.Matrix4(), _carP = new THREE.Vector3(), _carQ = new THREE.Quaternion();
-  const _one = new THREE.Vector3(1, 1, 1), _lm = new THREE.Matrix4();
+  const _one = new THREE.Vector3(1, 1, 1), _lightBase = new THREE.Matrix4(), _lm = new THREE.Matrix4();
 
-  loadCityCarTemplates('/models/cars/', 3.9)
-    .then((t) => {
-      _templates = t;
-      const lightGeo = new THREE.PlaneGeometry(0.28, 0.14);
-      const headMat = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });
-      const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a12, side: THREE.DoubleSide, fog: true });
-      headIM = new THREE.InstancedMesh(lightGeo, headMat, LIGHT_CAP); headIM.frustumCulled = false; headIM.castShadow = false; headIM.count = 0; scene.add(headIM);
-      tailIM = new THREE.InstancedMesh(lightGeo, tailMat, LIGHT_CAP); tailIM.frustumCulled = false; tailIM.castShadow = false; tailIM.count = 0; scene.add(tailIM);
-      const _tq = new THREE.Quaternion();
-      lightLocals = t.map((tpl) => {
-        const w = tpl.dims.w, h = tpl.dims.h, l = tpl.dims.l, y = h * 0.42;
-        const mk = (x, z, ry) => { const m = new THREE.Matrix4(); _tq.setFromAxisAngle(YAXIS3, ry); m.compose(new THREE.Vector3(x, y, z), _tq, _one); return m; };
-        return { head: [mk(-w * 0.30, l * 0.49, 0), mk(w * 0.30, l * 0.49, 0)], tail: [mk(-w * 0.30, -l * 0.49, Math.PI), mk(w * 0.30, -l * 0.49, Math.PI)] };
-      });
-    })
-    .catch((e) => console.warn('[traffic] car models load failed:', e?.message || e));
-
-  // Rebuild the shared light InstancedMeshes from every car's current pose (called once per update).
-  function updateLights() {
-    if (!headIM || !tailIM) return;
-    let hc = 0, tc = 0;
-    for (const car of cars) {
-      const L = lightLocals[car.tplIdx];
-      if (!L) continue;
-      _carQ.setFromAxisAngle(YAXIS3, car.mesh.rotation.y);
-      _carM.compose(_carP.copy(car.mesh.position), _carQ, _one);
-      for (const lm of L.head) { if (hc < LIGHT_CAP) { _lm.multiplyMatrices(_carM, lm); headIM.setMatrixAt(hc++, _lm); } }
-      for (const lm of L.tail) { if (tc < LIGHT_CAP) { _lm.multiplyMatrices(_carM, lm); tailIM.setMatrixAt(tc++, _lm); } }
+  getCarPool(scene).then((pool) => {
+    if (!pool) return;
+    _pool = pool;
+    const s = CAR_SCALE;
+    _dims = pool.templates.map((t) => ({ w: t.dims.w * s, h: t.dims.h * s, l: t.dims.l * s }));
+    _lightLocals = _dims.map((d) => makeLightLocals(d));
+    for (let i = 0; i < MAX_CARS; i++) {
+      const id = pool.alloc();
+      if (id < 0) break;   // fleet full — traffic simply runs with fewer cars, it does not throw
+      _freeSlots.push(id);
     }
-    headIM.count = hc; tailIM.count = tc;
-    headIM.instanceMatrix.needsUpdate = true; tailIM.instanceMatrix.needsUpdate = true;
+  });
+
+  /**
+   * Publish one car's pose: its instance in the shared BatchedMesh, and its four light quads.
+   *
+   * The car matrix carries CAR_SCALE (the geometry is canonical); the light matrix must NOT, since
+   * the light offsets are already in CAR_LENGTH units — see makeLightLocals.
+   */
+  function placeCar(car, x, y, z, yaw) {
+    if (!_pool) return;
+    _carQ.setFromAxisAngle(YAXIS3, yaw);
+    _carP.set(x, y, z);
+    _carM.compose(_carP, _carQ, _scaleV);
+    _pool.place(car.slot, car.tplIdx, _carM);
+    const L = _lightLocals[car.tplIdx];
+    if (!L) return;
+    _lightBase.compose(_carP, _carQ, _one);
+    for (const lm of L.head) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_HEAD); }
+    for (const lm of L.tail) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_TAIL); }
   }
 
   function groundY(wx, wz) {
@@ -191,7 +184,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
   }
 
   function spawnCar(playerPx, playerPz, origin) {
-    if (!_templates.length) return false;
+    if (!_pool || !_freeSlots.length) return false;
     const segs = getRoadSegments();
     if (!segs || !segs.length) return false;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -214,31 +207,30 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       }
       if (startIdx < 0 || startIdx >= path.pts.length - 1) continue;
 
-      const tplIdx = (Math.random() * _templates.length) | 0;
-      const tpl = _templates[tplIdx];
-      // Shared per-(template,tint) material (no per-car clone). Lights are the shared head/tail IMs,
-      // rebuilt each frame in updateLights() — not per-car child meshes.
-      const mesh = new THREE.Mesh(tpl.geometry, getCarMaterial(tplIdx, tpl));
-      mesh.castShadow = false; // grounded by the fake contact shadow instead
-      scene.add(mesh);
+      const tplIdx = (Math.random() * _dims.length) | 0;
+      const dims = _dims[tplIdx];
+      // No mesh, no material, no scene.add: the car takes one of the pool slots reserved at load
+      // and is published by placeCar(). Despawning hands the slot straight back.
+      const slot = _freeSlots.pop();
 
-      const hw = tpl.dims.w / 2, hh = tpl.dims.h / 2, hl = tpl.dims.l / 2;
-      const sw = tpl.dims.w * 1.08, sl = tpl.dims.l * 1.04;
+      const hw = dims.w / 2, hh = dims.h / 2, hl = dims.l / 2;
+      const sw = dims.w * 1.08, sl = dims.l * 1.04;
       const body = new CANNON.Body({ mass: 0 });
       body.addShape(new CANNON.Box(new CANNON.Vec3(hw, hh, hl)));
       body.collisionFilterGroup = COLLISION_GROUP_WORLD;
       body.collisionFilterMask = COLLISION_GROUP_VEHICLE;
       world.addBody(body);
 
-      cars.push({ mesh, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl, tplIdx });
+      cars.push({ slot, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl, tplIdx });
       return true;
     }
     return false;
   }
 
   function removeCar(car) {
-    scene.remove(car.mesh);
-    // material is the SHARED template material (tpl.material) — do NOT dispose it (other cars reuse it).
+    // Nothing is disposed here on purpose: geometry, material and the pool slot are all SHARED and
+    // outlive the car. The slot is hidden and returned so the next spawn reuses it.
+    if (_pool) { _pool.hide(car.slot); _freeSlots.push(car.slot); }
     world.removeBody(car.body);
   }
 
@@ -249,6 +241,8 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     // Per-frame budgets: cap path-extensions AND total path builds so a burst of spawns/extends can't spike.
     let _extendBudget = 2;
     _buildBudget = 4;   // total buildPath() calls allowed this frame (shared by spawn + extend)
+    // The light buffer is rewritten wholesale every frame from the cars that survive this update.
+    lights.begin();
 
     // Pass 1: current position + heading of every car
     for (const car of cars) {
@@ -271,8 +265,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         const fr = Math.pow(0.12, d);
         car.svx *= fr; car.svz *= fr;
         car._sx += car.svx * d; car._sz += car.svz * d; car.syaw += car.sspin * d;
-        car.mesh.position.set(car._sx, car._sy, car._sz);
-        car.mesh.rotation.y = car.syaw;
+        placeCar(car, car._sx, car._sy, car._sz, car.syaw);
         car.body.position.set(car._sx, car._sy + car.hh, car._sz);
         car.body.quaternion.setFromAxisAngle(YAXIS, car.syaw);
         contactShadows?.add(car._sx, car._sy, car._sz, car.sw, car.sl, car.syaw);
@@ -374,8 +367,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         continue;
       }
 
-      car.mesh.position.set(x, y, z);
-      car.mesh.rotation.y = yaw;
+      placeCar(car, x, y, z, yaw);
       car.body.position.set(x, y + car.hh, z);
       car.body.quaternion.setFromAxisAngle(YAXIS, yaw);
       contactShadows?.add(x, y, z, car.sw, car.sl, yaw);
@@ -387,18 +379,26 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       }
     }
 
-    updateLights(); // rebuild the 2 shared head/tail InstancedMeshes from all cars' current poses
+    lights.commit();   // publish the head/tail quads gathered by placeCar() above
   }
 
   function setEnabled(on) {
     _enabled = on;
     if (!on) {
       for (const car of cars) removeCar(car); cars.length = 0;
-      if (headIM) headIM.count = 0; if (tailIM) tailIM.count = 0; // clear shared lights (no cars left)
+      lights.begin(); lights.commit();   // no cars left → no light quads
     }
   }
   function getCount() { return cars.length; }
-  function dispose() { for (const car of cars) removeCar(car); cars.length = 0; }
+  function dispose() {
+    for (const car of cars) removeCar(car);
+    cars.length = 0;
+    // Hand the reserved slots back to the SHARED fleet — this system is going away, the pool is not.
+    // release() uses the pool's own free list; BatchedMesh.deleteInstance is never called (H3).
+    if (_pool) for (const id of _freeSlots) _pool.release(id);
+    _freeSlots = [];
+    lights.dispose();
+  }
 
   return { update, setEnabled, getCount, dispose };
 }

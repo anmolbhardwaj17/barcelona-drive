@@ -1,15 +1,17 @@
 /**
  * Parked cars — the signature of every Barcelona street: cars along both curbs.
  *
- * Uses the Kenney low-poly city cars: one InstancedMesh PER variant (sedan/suv/van/…), parked cars
- * distributed across them by a deterministic hash → real variety + only ~9 draw calls total. Placement
+ * Uses the Kenney low-poly city cars through the SHARED car pool (carFleet.js): v3 P4-15a replaced
+ * the nine per-variant InstancedMeshes with instances in the ONE BatchedMesh that traffic also draws
+ * from, so variety now costs a geometry id per instance instead of a draw call per variant. Placement
  * marches loaded drivable road centerlines (physics frame), drops a car every SPACING m on each curb
  * (with junction gaps + ~45% empty slots). Rebuilt only when the player moves > REBUILD_DIST. Visual-only.
  *
  * Frame: physics frame (added to `scene`). World→physics: px = -(wx - origin.x), pz = wz - origin.z.
  */
 import * as THREE from 'three';
-import { loadCityCarTemplates } from './carModels.js';
+import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
+import { CANON_LENGTH } from './carModels.js';
 
 // living_street dropped — those are the tight lanes where big parked cars look unrealistic.
 const DRIVABLE = new Set([
@@ -24,76 +26,55 @@ const HALFW_BY_TYPE = {
   primary: 6.5, primary_link: 5,
 };
 
-const CAPACITY_PER = 180;  // per-variant instance capacity
+// Flat instance ceiling across all variants. Was 180 PER VARIANT — 1,620 slots for the ~150-250 cars
+// a dense 200 m radius actually places, so the old number said nothing about the real ceiling. This
+// one does, which is why it is set with headroom and why binding it logs (see put()).
+const CAPACITY     = 512;
+const CAR_LENGTH   = 3.8;  // m
 const SPACING      = 17.5; // m between parked-car slots (widened ~20% → fewer cars, better perf)
 const RANGE        = 200;  // m — place within this radius of the player
 const REBUILD_DIST = 35;   // m — player movement before a rebuild
 const JUNCTION_GAP = 8;    // m — no parking within this of a road's ends (junctions)
 const YAXIS = new THREE.Vector3(0, 1, 0);
-// Per-car tint (multiplies the Kenney texture: white body → this colour, dark glass/wheels stay dark).
-// Bright, cheerful automotive colours — no dark/grey (they read as "off"/dead against the world).
-const TINT = [
-  0xE8433A, // red
-  0x2E86DE, // blue
-  0x27AE60, // green
-  0xF39C12, // orange
-  0xF1C40F, // yellow
-  0xF2F2F2, // white
-  0x9B59B6, // purple
-  0x16A085, // teal
-  0xEC7FB0, // pink
-  0x5DADE2, // sky blue
-  0xE67E22, // pumpkin
-  0x48C9B0, // mint
-  0xEC7063, // coral
-];
 
 export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin }) {
-  let meshes = [];   // InstancedMesh per variant
+  let _pool = null;
   let nVar = 0;
   let _enabled = true;
   let _pending = null;
   let _lastX = Infinity, _lastZ = Infinity;
 
-  // Glowing head/tail lights (so parked cars read at night). Two shared InstancedMeshes; each parked
-  // car contributes 2 white front + 2 red rear quads, transformed by the car matrix.
-  const LIGHT_CAP = 1400;
+  // Pool slots this system owns. Allocated lazily up to CAPACITY and then RECYCLED across rebuilds —
+  // the high-water mark is what the fleet's per-frame cull walk costs, so we never over-reserve.
+  const _slots = [];
+  let _used = 0;        // slots written by the rebuild in progress
+  let _prevUsed = 0;    // slots written by the previous rebuild, to hide the tail we no longer need
+
+  // Glowing head/tail lights (so parked cars read at night). ONE InstancedMesh; head and tail are
+  // told apart by instance colour. Each parked car contributes 2 white front + 2 red rear quads.
+  // 4 quads per car. Head and tail share ONE pool now, so this is 2× the old per-mesh cap, not the
+  // same number — halving it would silently strip the lights off the farther half of the street.
+  const LIGHT_CAP = CAPACITY * 4;
   const BLOB_SIZE_X = 2.1, BLOB_SIZE_Z = 4.4;   // v3 P0-15: a shade wider/longer than a Kenney car body
-  let tailIM = null, headIM = null, lightLocals = [];
-  let tailCount = 0, headCount = 0;
+  const lights = createLightPool({ scene, capacity: LIGHT_CAP, width: 0.24, height: 0.12 });
+  let lightLocals = [];
   const _lm = new THREE.Matrix4();
 
-  loadCityCarTemplates('/models/cars/', 3.8).then((tpls) => {
-    if (!tpls.length) { console.warn('[parkedCars] no car templates loaded'); return; }
-    meshes = tpls.map((t) => {
-      const im = new THREE.InstancedMesh(t.geometry, t.material, CAPACITY_PER);
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      im.frustumCulled = false;
-      im.castShadow = false; // parked cars don't cast shadow-map shadows (pedestrians.js does the same — the shadow pass tanked FPS)
-      im.count = 0;
-      scene.add(im);
-      return im;
-    });
-    nVar = meshes.length;
+  const CAR_SCALE = CAR_LENGTH / CANON_LENGTH;
 
-    // Light instanced meshes + per-variant local light-quad matrices (from each car's dims).
-    const lightGeo = new THREE.PlaneGeometry(0.24, 0.12);
-    const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a12, side: THREE.DoubleSide, fog: true });
-    const headMat = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });
-    tailIM = new THREE.InstancedMesh(lightGeo, tailMat, LIGHT_CAP); tailIM.frustumCulled = false; tailIM.castShadow = false; tailIM.count = 0; scene.add(tailIM);
-    headIM = new THREE.InstancedMesh(lightGeo, headMat, LIGHT_CAP); headIM.frustumCulled = false; headIM.castShadow = false; headIM.count = 0; scene.add(headIM);
-    const _tq = new THREE.Quaternion();
-    lightLocals = tpls.map((t) => {
-      const w = t.dims.w, h = t.dims.h, l = t.dims.l, y = h * 0.42;
-      const mk = (x, z, ry) => { const m = new THREE.Matrix4(); _tq.setFromAxisAngle(YAXIS, ry); m.compose(new THREE.Vector3(x, y, z), _tq, new THREE.Vector3(1, 1, 1)); return m; };
-      return { head: [mk(-w * 0.3, l * 0.49, 0), mk(w * 0.3, l * 0.49, 0)], tail: [mk(-w * 0.3, -l * 0.49, Math.PI), mk(w * 0.3, -l * 0.49, Math.PI)] };
-    });
-
+  getCarPool(scene).then((pool) => {
+    if (!pool) { console.warn('[parkedCars] no car templates loaded'); return; }
+    _pool = pool;
+    nVar = pool.variantCount;
+    // Pool geometry is canonical; these dims (and so the light offsets) are at CAR_LENGTH.
+    lightLocals = pool.templates.map((t) => makeLightLocals({
+      w: t.dims.w * CAR_SCALE, h: t.dims.h * CAR_SCALE, l: t.dims.l * CAR_SCALE,
+    }));
     if (_pending) { rebuild(_pending.x, _pending.z); _pending = null; }
   }).catch((e) => console.warn('[parkedCars] load error', e?.message || e));
 
-  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3(), _col = new THREE.Color();
-  const counts = [];
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(CAR_SCALE, CAR_SCALE, CAR_SCALE), _p = new THREE.Vector3();
+  const _lightBase = new THREE.Matrix4(), _one = new THREE.Vector3(1, 1, 1);
 
   // v3 P0-15: cached blob-shadow transforms. Parked cars are castShadow:false (the shadow pass
   // tanked FPS with 45 instanced casters), so without a contact blob they read as floating. They
@@ -102,23 +83,36 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
   // cached here at placement time and re-pushed each frame by drawShadows().
   const _blobs = [];
 
-  function put(variant, px, py, pz, yaw, colorHex) {
-    if (counts[variant] >= CAPACITY_PER) return;
+  // No per-car tint: the Kenney atlas already colours the body, and multiplying a tint on top of an
+  // already-painted model produced muddy shades. `colorHex` is kept in the signature because the
+  // placement hash still derives one, and dropping it would silently shift every other hashed choice.
+  let _warnedFull = false;
+  function put(variant, px, py, pz, yaw, _colorHex) {
+    if (!_pool) return;
+    if (_used >= CAPACITY) {
+      // Dropping cars is the right failure (better than a stall), but it must not be SILENT — a
+      // street that thins out at one end is otherwise indistinguishable from a placement bug.
+      if (!_warnedFull) { _warnedFull = true; console.warn('[parkedCars] hit the %d-car ceiling — raise CAPACITY', CAPACITY); }
+      return;
+    }
+    if (_used >= _slots.length) {
+      const id = _pool.alloc();
+      if (id < 0) return;   // shared fleet is full — place fewer cars rather than throwing
+      _slots.push(id);
+    }
     _q.setFromAxisAngle(YAXIS, yaw);
     _p.set(px, py, pz);
+    // The car matrix carries CAR_SCALE (the pool's geometry is canonical); the light matrix must not,
+    // because the light offsets are already in CAR_LENGTH units. See makeLightLocals.
     _m.compose(_p, _q, _s);
-    const idx = counts[variant]++;
-    meshes[variant].setMatrixAt(idx, _m);
+    _pool.place(_slots[_used++], variant, _m);
     _blobs.push(px, py, pz, yaw);   // v3 P0-15 — flat quads: x, y, z, yaw
-    // No per-car tint: the Kenney atlas already colours the body. Instance colour stays white so the texture
-    // shows through instead of being multiplied into a muddy over-tint. (colorHex kept for signature compat.)
-    meshes[variant].setColorAt(idx, _col.setHex(0xffffff));
 
-    // Glowing lights, transformed by this car's matrix (_m still holds it).
     const L = lightLocals[variant];
-    if (L && tailIM && tailCount + 2 <= LIGHT_CAP && headCount + 2 <= LIGHT_CAP) {
-      for (const lm of L.head) { _lm.multiplyMatrices(_m, lm); headIM.setMatrixAt(headCount++, _lm); }
-      for (const lm of L.tail) { _lm.multiplyMatrices(_m, lm); tailIM.setMatrixAt(tailCount++, _lm); }
+    if (L) {
+      _lightBase.compose(_p, _q, _one);
+      for (const lm of L.head) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_HEAD); }
+      for (const lm of L.tail) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_TAIL); }
     }
   }
 
@@ -157,8 +151,9 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     const segs = getRoadSegments?.();
     if (!segs) return;
     const origin = getOrigin();
-    for (let v = 0; v < nVar; v++) counts[v] = 0;
-    tailCount = 0; headCount = 0;
+    _prevUsed = _used;
+    _used = 0;
+    lights.begin();
     _blobs.length = 0;   // v3 P0-15: rebuilt in lockstep with the instance buffers
     const rangeSq = RANGE * RANGE;
 
@@ -206,10 +201,8 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
             const y = getGroundY ? (getGroundY(origin.x - cx, cz + origin.z) ?? 0) : 0;
             const vR = ((slot * 13 + seed) % nVar + nVar) % nVar;
             const vL = ((slot * 13 + seed + 4) % nVar + nVar) % nVar;
-            const cR = TINT[((slot * 5 + seed) % TINT.length + TINT.length) % TINT.length];
-            const cL = TINT[((slot * 5 + seed + 6) % TINT.length + TINT.length) % TINT.length];
-            put(vR, cx + rx * offset, y, cz + rz * offset, yawR, cR);
-            put(vL, cx - rx * offset, y, cz - rz * offset, yawR + Math.PI, cL);
+            put(vR, cx + rx * offset, y, cz + rz * offset, yawR, 0);
+            put(vL, cx - rx * offset, y, cz - rz * offset, yawR + Math.PI, 0);
           }
           dist += SPACING;
         }
@@ -217,13 +210,10 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
         roadDistBase += segLen;
       }
     }
-    for (let v = 0; v < nVar; v++) {
-      meshes[v].count = counts[v];
-      meshes[v].instanceMatrix.needsUpdate = true;
-      if (meshes[v].instanceColor) meshes[v].instanceColor.needsUpdate = true;
-    }
-    if (tailIM) { tailIM.count = tailCount; tailIM.instanceMatrix.needsUpdate = true; }
-    if (headIM) { headIM.count = headCount; headIM.instanceMatrix.needsUpdate = true; }
+    // Slots the previous rebuild used and this one did not must be switched OFF, or last frame's
+    // cars stay parked where the player no longer is. Recycled slots are simply overwritten above.
+    for (let i = _used; i < _prevUsed; i++) _pool.hide(_slots[i]);
+    lights.commit();
   }
 
   function update(playerPx, playerPz) {
@@ -235,14 +225,25 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
 
   function setEnabled(on) {
     _enabled = on;
-    for (const m of meshes) { m.visible = on; if (!on) m.count = 0; }
-    if (tailIM) { tailIM.visible = on; if (!on) tailIM.count = 0; }
-    if (headIM) { headIM.visible = on; if (!on) headIM.count = 0; }
+    // The car pool is SHARED with traffic, so this can never hide the mesh — it hides this system's
+    // own instances. Turning it back on costs one rebuild, which the next update() triggers anyway
+    // because _lastX/_lastZ are reset here.
+    if (!on) {
+      if (_pool) for (let i = 0; i < _used; i++) _pool.hide(_slots[i]);
+      _prevUsed = 0; _used = 0; _blobs.length = 0;
+      _lastX = Infinity; _lastZ = Infinity;
+    }
+    lights.setVisible(on);
   }
-  function getCount() { let n = 0; for (const m of meshes) n += m.count; return n; }
+  function getCount() { return _used; }
   function dispose() {
-    for (const m of meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose?.(); }
-    for (const im of [tailIM, headIM]) { if (im) { scene.remove(im); im.geometry.dispose(); im.material.dispose?.(); } }
+    // Geometry and material are SHARED (H6) — this system owns neither, and disposing either would
+    // take the cars out from under traffic. The slots ARE ours, so they go back to the pool's own
+    // free list; BatchedMesh.deleteInstance is never called (H3).
+    if (_pool) for (const id of _slots) _pool.release(id);
+    _slots.length = 0;
+    _used = 0; _prevUsed = 0;
+    lights.dispose();
   }
 
   /**

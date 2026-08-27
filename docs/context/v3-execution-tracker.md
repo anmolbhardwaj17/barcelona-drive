@@ -8,27 +8,27 @@
 
 ## ⏯ RESUME HERE
 
-> **SESSION HANDOFF — 2026-08-27, 47 commits. Read this block, then the ticket list below it.**
+> **SESSION HANDOFF — 2026-08-27 (second session). Read this block, then the ticket list below it.**
 
 | | |
 |---|---|
 | **Branch** | **`v3`** — work directly on it. |
-| **NEXT TASK** | **P4-15a · traffic instancing · ~3 d · risk low · no art, no bake, no dependencies.** |
-| **Owed by the user** | **ONE verification drive** (see below). Nothing is blocked on it — it validates work already shipped. |
-| **Tests** | 232 green. ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently. Re-run before believing it. |
+| **JUST SHIPPED** | **P4-15a ✅ — the shared car fleet.** All cars in the world are now ONE BatchedMesh; 41 draws → 3. See its entry under P4 for the full done-when list. **Unverified in-game.** |
+| **NEXT TASK** | **User's call.** Recommendation: **R-W1** (road WIDTH model) — the tracker already calls it the root of three reported bugs and it unblocks R-J1 + R-V1. It needs a re-bake, which is the reason to start it deliberately rather than drift into it. If you want another no-bake engineering task instead, **#39 residual** (the last ~2/s geometry leak) is the one with a measurement waiting for it. |
+| **Owed by the user** | **ONE verification drive** (see below) — now covering yesterday's barrier/leak work AND P4-15a. Nothing is blocked on it. |
+| **Tests** | 245 green (232 + 13 new in `test/carFleet.test.js`). ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently. Re-run before believing it. |
 
-### ▶ P4-15a — start here
+### ▶ WHAT P4-15a CHANGED, in one paragraph
 
-Largest **measured** frame cost that needs no art. From the 145 s drive of 2026-08-27:
-`traffic` burned **27.6 ms across 9 long frames** (8.3 ms on one) and allocated **22.6 MB**.
-
-- traffic **28 loose Meshes → 2 InstancedMeshes** (30 → ~7 draws)
-- parked cars 11 → ~8
-- shared template cache + single loader registry — kills **9 duplicate GLB parses**, colormap 18 → 1
-- tire smoke **90 Sprites + 90 SpriteMaterials → one InstancedMesh**
-
-Files: `car/trafficSystem.js`, `car/parkedCars.js`, `car/carEffects.js`, `car/carModels.js`.
-Full spec: **P4-15a** below. The art half is **P4-15b** and keeps the `rallyStyle ADR` / P1 deps.
+Traffic and parked cars drew the SAME nine Kenney models out of the SAME atlas through 41 draws and
+37 scene children, and traffic allocated a `THREE.Mesh` and spliced it into `scene` on every spawn —
+about two of each per frame at cruise. Now there is one `carFleet.js` pool: a single `BatchedMesh`
+where a car is an instance with a geometry id, plus one light `InstancedMesh` per system (head and
+tail separated by instance colour, not by being two meshes). Templates are parsed once, share one
+material and one texture, and keep their index buffers. Tire smoke went from 90 Sprites to one
+InstancedMesh with per-instance alpha. **The measured claim P4-15a was scheduled on — `traffic`
+burning 27.6 ms across 9 long frames and allocating 22.6 MB — has NOT been re-measured. Do that
+before banking anything in the ledger.**
 
 ### ▶ THE VERIFICATION DRIVE the user owes
 
@@ -40,13 +40,22 @@ Cool machine, hard reload, ~90 s in Eixample, then **F9**. Closes four questions
 4. **The leak + the lag** — `residency.sameTileCountDrift` should be ~0 (was +79/+98/+76, then
    +19/+10/+44). And long frames dominated by `tiles` = my terrain probe; by `other` = GC/thermal.
 
+5. **P4-15a — the cars.** Parked cars still line both curbs with the same variety and are not
+   floating, sunk, or the wrong SIZE (the shared geometry is canonical now, so a scale bug shows up
+   as cars 5% off). Traffic still drives, still has head/tail lights at night, still gets shoved when
+   you hit one. Drift or drive over ~43 km/h and confirm the dust puffs still fade individually
+   rather than all at once (that would mean the per-instance alpha patch went silent).
+6. **P4-15a — the numbers.** F9 should now show `traffic` well under its 27.6 ms / 9 long frames, and
+   fewer draws and triangles. Parked cars being frustum-culled is the big triangle lever.
+
 ⚠ **No re-bake needed for anything currently shipped.** Reload only.
 
 ### ▶ OPEN TICKETS — everything pending, nothing in flight
 
 | id | what | where | state |
 |---|---|---|---|
-| **P4-15a** | traffic/parked/smoke instancing | tracker, below | **NEXT** |
+| **P4-15a** | traffic/parked/smoke instancing | tracker, below | ✅ **DONE 08-27** — shipped, unverified in-game |
+| **R-V1b** | ~~parked cars read `seg.bridge` / `isRamp` / `layer` / `crossesTrench`, none of which survived `getLoadedRoadSegments`'s projection~~ | `tileManager.js:3416` | ✅ **FIXED 08-27** — the flags are forwarded now, so the "no parking against a guard rail" gate is live for the FIRST time. **This changes what the drive will show.** |
 | **R-W1** | road WIDTH model — lanes × lane-width per Norma 8.2-IC, OSM tag as override | `barcelona-road-system.md` §4 | **the root of 3 reported bugs**: cars on railings, road "seems short", barrier offsets. Needs a re-bake. Unblocks R-J1 + R-V1 |
 | **R-P1** | fall-through — `drivable-surface-implies-floor` is commit-blocking but scoped to `layer<0` tunnels only | §4 | user-reported. Likely the SAME defect as the 4.9% floating road points, from the physics side. Land as `TRENCH_VALIDATOR=report` FIRST |
 | **M1** | implied-bridge — **only 63 bridge segments in all of Barcelona** vs 1,044 tunnels | `osm-repair-layer.md` §2 | root cause of missing railings AND part of the floating roads. Detection is TOPOLOGICAL (2D crossing), not vertical |
@@ -104,6 +113,9 @@ the same shadow saving in planning; do not repeat that in execution.
 | ↳ GPU share at p50 | — | **13.3 of 16.7 ms** — median frame IS GPU-bound, only 3.4 ms spare | — | P2 |
 | Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
 | Draw calls | P0 p95 **261** | post-P1 p95 **246** ✅ (−15, pr-independent) | **450** | ✅ real improvement |
+| ↳ cars + car lights | **41** (28 traffic Meshes + 9 parked IMs + 2+2 lights) | **3** — one BatchedMesh + 2 light IMs (P4-15a). ⚠ counted structurally, NOT yet measured in a drive; and it is 3 only where `WEBGL_multi_draw` exists | — | P4-15a |
+| ↳ tire smoke | up to **90** Sprites / 90 materials | **1** InstancedMesh, 1 material (P4-15a) | — | P4-15a |
+| Parked-car triangles ALWAYS drawn | ~250 × 2,189 ≈ **0.55 M** (nine `frustumCulled = false` InstancedMeshes) | per-instance frustum culled — expect ~⅓ to survive. **UNMEASURED; the single biggest claim in P4-15a** | — | P4-15a |
 | Triangles | P0 p95 **1.88 M** | post-P1 p95 **1.96 M** ⚠ **UP 75k** | **2.6 M** | unexplained — see D-18 |
 | Art library download | 0 | — | **24 MB** | P1-05 |
 | Page weight | ~30 MB disk | — | −14 MB after P0 | P0-10 |
@@ -1165,7 +1177,7 @@ before anything is painted.**
 ## P4 — THE COMPLETION WAVE · 51 days · 18 tasks
 **Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.
 
-**Progress:** 2 / 19 — P4-01 ✅ · P4-02 ✅  ·  (P4-15 split into 15a engineering / 15b art on 08-27)
+**Progress:** 3 / 19 — P4-01 ✅ · P4-02 ✅ · P4-15a ✅  ·  (P4-15 split into 15a engineering / 15b art on 08-27)
 
 > **Vegetation bug-fix run, 2026-08-27** (numbered VEG-FIX-* deliberately — NOT P4-02b/c, which is a
 > real scheduled task riding the v10 bake). Three separate bugs, all surfaced by P4-02 finally making
@@ -1391,7 +1403,7 @@ already owned by Phase 4 of the terrain rework. Different problem, different fix
 - **Full spec:** master plan §4 → P4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P4-15a · ~3d · risk low — **ENGINEERING HALF, SPLIT OUT 2026-08-27**
+### `[x]` P4-15a · ~3d · risk low — **ENGINEERING HALF, SPLIT OUT 2026-08-27 · DONE 2026-08-27**
 **VEHICLES: draws and allocation only. No Blender, no art, no new assets.**
 
 Split from P4-15 because the two halves have different costs, different risks and different payoffs,
@@ -1408,7 +1420,32 @@ Scope, all of it already specified inside P4-15:
 
 - **Depends:** nothing. This is why it was worth splitting — P4-15's `rallyStyle ADR` and `P1 pipeline`
   dependencies belong to the ART half.
-- **Done when:** _(measured: traffic ms across long frames, and draw-call delta)_
+- **Files:** NEW `car/carFleet.js`; `car/carModels.js`, `car/trafficSystem.js`, `car/parkedCars.js`,
+  `car/carEffects.js`, `car/carDriver.js`, `game/policeMode.js`, `map/tileManager.js`, `main.js`;
+  NEW `test/carFleet.test.js` (13 tests).
+- **Done when — SHIPPED, in-game numbers still owed:**
+  - **Draws for all cars + their lights: 41 → 3.** ONE `BatchedMesh` holds every city car in the
+    world (traffic AND parked, nine geometries, one shared material) + one light `InstancedMesh` per
+    system. Was: 28 loose traffic Meshes + 9 parked InstancedMeshes + 2+2 light meshes.
+    ⚠ **Counts as 3 only where `WEBGL_multi_draw` exists** — the same bet `vegPools` already makes.
+  - **Scene children: −37.** Traffic no longer adds/removes a Mesh per spawn/despawn (≈2 of each per
+    frame at cruise = the per-frame allocation the F9 report attributed to `traffic`), and the 90
+    smoke Sprites are gone from the graph entirely.
+  - **Tire smoke: 90 Sprites + 90 SpriteMaterials → 1 InstancedMesh + 1 material.** Per-puff alpha
+    rides an instanced attribute through `patchMaterial` (H9-safe). The 90-slot walk is now gated on
+    activity, so it costs nothing on the frames you are not drifting.
+  - **GLB parses 27 → 9, materials 27 → 1, colormap uploads 27 → 1.** Three consumers asked for three
+    lengths; templates are now canonical + a per-consumer scale. (27, not the 18 the split estimated
+    — `policeMode` was the third caller.)
+  - **Parked-car geometry keeps its index: 59,106 → 31,887 vertices across the kit (−46%)**, measured
+    from the GLBs. `toNonIndexed()` was buying nothing — the vertex colour is per-PART.
+  - **Parked cars are now per-instance frustum culled** (`perObjectFrustumCulled`, ~640 instances).
+    They were `frustumCulled = false` on nine always-drawn InstancedMeshes, i.e. ~250 cars ×2,189 tris
+    ≈ **0.55 M triangles drawn every frame regardless of where the camera pointed**. Expect roughly a
+    third of that to survive culling — **the largest single number here, and the one that most needs
+    the drive report to confirm.**
+  - ⚠ **NOT yet measured in-game:** `traffic` ms across long frames, the real draw/triangle delta, or
+    the allocation delta. All four need one F9 drive. 245 tests green, production build clean.
 
 ### `[ ]` P4-15b · ~16.5d · risk high — **ART HALF (the original P4-15 body)**
 **VEHICLES.** Shared template cache + single loader registry (kills 9 duplicate GLB parses, colormap 18 → 1 resident). Tire smoke 90 Sprites+90 SpriteMaterials → one InstancedMesh. **Blender modular Barcelona kit** — 6 bodies at 1,800–2,800 tris LOD0 + 500–700 LOD1, TRUE dimensions (the `carModels.js:75` squash deleted), one shared UV layout, modelled shutlines/bevels for the normal bake. 2048² albedo with a **paintjob mask** + 1024² normal (UASTC) + 1024² ORM. Rewire traffic 28 loose Meshes → 2 InstancedMeshes (30 → ~7 draws), parked 11 → ~8. **Hero car re-UV** on the existing 9,792-tri geometry, 11 materials →…
@@ -1511,6 +1548,9 @@ the task, with the reason. A silent deviation is indistinguishable from a mistak
 
 | Date | Task | Decision | Why |
 |---|---|---|---|
+| 2026-08-27 | **D-42 · P4-15a — a projection function is a CONTRACT, and this one had been silently voiding a safety gate since the day it was written** | `tileManager.getLoadedRoadSegments()` does not hand out the tile's road objects; it builds a **new object per road** carrying six fields. Yesterday's R-V1 fix gated street parking on `seg.bridge \|\| seg.isRamp \|\| (seg.layer != null && seg.layer > 0) \|\| seg.crossesTrench === true` — and **not one of those four survives the copy.** Every term read `undefined`, the whole condition was permanently false, and the gate did nothing from the moment it shipped. Nothing throws, nothing warns, and the code reads correctly at both ends: `roadRenderer` and `streetlightRenderer` DO see those flags, because they read the tile entry directly rather than through this projection. Fixed by forwarding the four flags, with a comment at the projection saying it is a contract. **Generalise: when a system reads a property off an object it did not construct, find the constructor. A field-by-field copy is a whitelist, and a whitelist that silently answers `undefined` is indistinguishable from a correct read.** Same family as D-23/D-29 — the code ran, the tests were green, and the thing it was written to prevent was never once prevented. |
+| 2026-08-27 | **D-43 · P4-15a — the split's "2 InstancedMeshes" was not reachable, and BatchedMesh was strictly better than the nearest thing that was** | P4-15a inherited "traffic 28 loose Meshes → 2 InstancedMeshes" from the art half, where a Blender kit would have collapsed nine models to a couple of geometries. With no art, nine models means nine geometries, and an InstancedMesh is one geometry — so the honest InstancedMesh answer was **nine** meshes for traffic and nine for parked, and sharing them between the two systems would have meant agreeing on a slice of each instance buffer whose offset moves every time parked cars rebuild, one frame out of step with traffic's per-frame write. `BatchedMesh` gives every instance its own geometry id, so a slot is just a slot: **1 draw for every car in the world, no blocks, no offsets, no ordering requirement between the two update calls** — and `vegPools.js` + `batchedMeshSafe.js` mean the pattern and its traps are already load-bearing here. Also: per-instance frustum culling is turned **ON** in this pool and OFF in vegPools, deliberately — vegPools pays it against 15k+ instances with its own distance LOD; this pool has ~640 instances of 2,189 triangles each and no LOD at all. **The scoped number was a proxy for the goal, not the goal. Beating it by picking a different primitive is not scope creep.** |
+| 2026-08-27 | **D-44 · P4-15a — I did NOT re-measure the number the task was scheduled on** | P4-15a exists because a 145 s drive attributed **27.6 ms across 9 long frames and 22.6 MB** to `traffic`. That lap times `trafficSystem.update()`, which is CPU — and reading it, a large share is `buildPath`'s per-point `getGroundY` sampling and its `pts`/`order` array allocations, not the rendering this task replaced. Instancing removes the per-spawn `Mesh` + `scene.add`/`remove` (≈2 of each per frame) and takes 37 objects out of `projectObject`, which is real and lands partly in `rend` rather than `traffic`. **But nothing here proves the 27.6 ms falls.** Do not write a number into the ledger from this session's reasoning — take it from the drive report. Lesson 3 of 2026-08-27 applies to my own claims: a number from a bad baseline is worse than no number. |
 | 2026-08-24 | — | Tracker created from the 17-agent master plan | State needed to survive session loss |
 | 2026-08-24 | P0 order | Ran P0-07 before P0-13 (sky sweep), against tracker order | Hazard H1 — `patchRoadWash` must be split before anything touches lighting |
 | 2026-08-24 | **D-02 · P0-03** | **The plan's premise is partly wrong and the budget is optimistic.** `carModel.js:169` sets `castShadow` on the hero car, so it IS a dynamic caster. At 80 km/h it moves 22 m/s, so the car trigger fires nearly every frame and **the budgeted −1.35 ms does not materialise at the 80 km/h benchmark.** Landed anyway — it is never slower, and it is a real saving when stationary, slow, or in fly mode. **P0-05 must MEASURE it; do not carry −1.35 ms in the budget as fact.** | Implementing it blind would have silently put a phantom saving into the ledger — the exact failure the ledger exists to prevent |

@@ -906,6 +906,8 @@ spawnTileReady.finally(() => {
           // injection), and this geometry did not provide it. A warm mesh missing a declared
           // attribute does not compile the same program the real mesh will.
           _wg.setAttribute('aAO', new THREE.Float32BufferAttribute([0, 0, 0], 1));
+          // v3 P4-15a: the tire-smoke patch declares `attribute float aOpacity` (instanced-only).
+          _wg.setAttribute('aOpacity', new THREE.Float32BufferAttribute([0, 0, 0], 1));
           const _warmGrp = new THREE.Group();
           // v3 P1-04: warm through the REAL mesh types, not just plain Mesh.
           //

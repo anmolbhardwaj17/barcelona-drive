@@ -4,6 +4,72 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-27 — v3 P4-15a: every city car in the world is now one draw call
+
+**The shape of the problem.** Traffic and parked cars drew the SAME nine Kenney models out of the
+SAME texture atlas, through two entirely separate stacks: 28 loose `THREE.Mesh`es (added to and
+removed from `scene` as cars spawned and despawned — about two of each per frame at cruise), nine
+per-variant `InstancedMesh`es, and a pair of head/tail light meshes each. 41 draws, 37 scene
+children. Tire smoke added 90 `Sprite`s with 90 `SpriteMaterial`s, permanently in the scene graph
+and walked by `projectObject` every frame whether or not a single puff was alive.
+
+**New `car/carFleet.js`** — one `BatchedMesh` holding all nine geometries and every car in the
+world, plus one light `InstancedMesh` per system (head and tail told apart by instance colour rather
+than by being two meshes). **41 draws → 3.**
+
+`BatchedMesh` rather than nine `InstancedMesh`es because an InstancedMesh is one geometry: sharing
+nine of them between two systems means agreeing on a slice of each instance buffer whose offset
+moves every time parked cars rebuild, one frame out of step with traffic's per-frame write. A
+BatchedMesh instance carries its own geometry id, so a slot is just a slot — no blocks, no offsets,
+no ordering requirement between the two `update()` calls. It follows `vegPools.js`' rules exactly
+(never `setInstanceCount`, never `deleteInstance`, geometry swaps through `setGeometryIdSafe`), with
+one deliberate difference: **per-instance frustum culling is ON here.** vegPools turns it off because
+it pays a matrix multiply and sphere test against 15k+ instances that already have a distance LOD;
+this pool holds ~640 instances of ~2,189 triangles each and has no LOD, and the parked cars it
+replaced were nine `frustumCulled = false` meshes drawing **~0.55 M triangles every frame regardless
+of where the camera pointed**.
+
+**`carModels.js` — one parse, one material, one atlas.** Three consumers (traffic 3.9 m, parked
+3.8 m, police 4.4 m) each loaded the whole kit from scratch: **27 GLB fetches, 27 merges, 27
+`MeshStandardMaterial`s and 27 uploads of the same 3,110-byte colormap** — verified identical, every
+GLB embeds one material and one image with md5 `609899c94d3c`. Now the parse is cached per URL, the
+merged geometry is cached per URL at a canonical length, and all nine templates share ONE material;
+a consumer wanting a different length gets a view with a `scale` it folds into its instance matrix.
+That sharing is not a nicety — a BatchedMesh has exactly one material, so it is the enabling
+condition. Also **stopped calling `toNonIndexed()`**: measured across the nine GLBs that takes the
+kit from 31,887 vertices to 59,106 (**+46% vertex-shader work**) and buys nothing, because the wheel
+/ body vertex colour is per-PART and survives shared vertices intact.
+
+**Tire smoke: 90 Sprites → 1 InstancedMesh.** A Sprite is a screen-aligned quad, so the billboard is
+just the camera's world quaternion, read once a frame and shared by every puff. Per-puff opacity is
+the one thing an InstancedMesh has no slot for, so it rides a custom instanced attribute injected
+through `patchMaterial` (never a bare `onBeforeCompile` assignment — H9). The 90-slot walk is gated
+on activity, so it costs nothing on the frames you are neither drifting nor above ~43 km/h.
+
+**A real bug found on the way — and it had never worked.** `parkedCars.computeSegMeta` gates street
+parking on `seg.bridge / isRamp / layer / crossesTrench` ("no parking against a guard rail", R-V1,
+shipped 2026-08-27). But `tileManager.getLoadedRoadSegments()` does not hand out the tile's road
+objects — it builds a **new object per road with six fields**, and not one of those four is among
+them. Every term read `undefined`; the condition was permanently false; the gate did nothing from
+the moment it shipped. Nothing throws and both ends read correctly, which is why it survived: other
+consumers (`roadRenderer`, `streetlightRenderer`) see those flags because they read the tile entry
+directly. The four flags are forwarded now, with a comment at the projection saying it is a
+contract — **so the parking-vs-railing gate is live for the first time, and the next drive will show
+a difference this change is responsible for.**
+
+`test/carFleet.test.js` (13 tests) pins the things that fail SILENTLY: a recycled slot switched to a
+new variant actually reaching the multi-draw buffers, `hide()` really removing an instance, released
+slots never reaching BatchedMesh's freed list, light offsets being in target units, and — the one
+most likely to bite later — that the three anchor strings the tire-smoke patch replaces still exist
+in three's `MeshBasic` source. If a three upgrade renames them the patch becomes a no-op and every
+dust puff renders fully opaque, with nothing in the console.
+
+⚠ **Not measured in-game.** P4-15a was scheduled on a drive that attributed 27.6 ms across 9 long
+frames and 22.6 MB to `traffic`; that lap times `trafficSystem.update()`, and a large share of it is
+`buildPath`'s ground sampling and array allocation rather than the rendering this replaced. 245 tests
+green and the production build is clean, but the frame numbers need one F9 drive before anything goes
+in the ledger.
+
 ## 2026-08-26 — Console cleanup: three real bugs, not just suppression
 - **AudioContext spam was a real bug.** `ctx()` called `resume()` on every access, and the engine
   sound asks for the context every frame — so before any user gesture Chrome refused and logged

@@ -1,17 +1,35 @@
 /**
- * Shared low-poly car-model loader (Kenney Car Kit, CC0) for traffic + parked cars.
+ * Shared low-poly car-model loader (Kenney Car Kit, CC0) for traffic + parked cars + police.
  *
- * Each Kenney car GLB = a body + wheels sharing ONE texture-atlas material. loadCarTemplate merges
- * them into a single geometry, scales to a target length, orients the length axis to +Z, and recentres
- * so the wheels sit at y=0 and the car is centred in X/Z. Returns { geometry, material, dims } that can
- * feed an InstancedMesh (parked cars) or a plain Mesh clone (traffic) — geometry+material are shared,
- * so hundreds of cars stay cheap.
+ * Each Kenney car GLB = a body + wheels sharing ONE texture-atlas material. The canonical template
+ * merges them into a single geometry, scales to CANON_LENGTH, orients the length axis to +Z, and
+ * recentres so the wheels sit at y=0 and the car is centred in X/Z.
+ *
+ * ── v3 P4-15a: ONE PARSE, ONE MATERIAL, ONE ATLAS ─────────────────────────────────────────────
+ * Three consumers used to call loadCityCarTemplates() with three different target lengths
+ * (traffic 3.9, parked 3.8, police 4.4). Nothing was cached, so that was 27 GLB fetches, 27 merges,
+ * 27 MeshStandardMaterials and 27 uploads of the SAME 3,110-byte colormap — verified identical:
+ * every one of the nine GLBs embeds one material and one image with md5 609899c94d3c.
+ *
+ * Now: the GLB parse is cached per URL, the merged geometry is cached per URL at CANON_LENGTH, and
+ * ALL nine templates share ONE material. A consumer that wants a different length gets a cheap
+ * VIEW — same geometry, same material, plus a `scale` it folds into its instance matrix. That is
+ * what lets traffic and parked cars live in one BatchedMesh (see carFleet.js): a BatchedMesh has
+ * exactly one material, so sharing it is not an optimisation here, it is the enabling condition.
+ *
+ * ⚠ `tpl.geometry` and `tpl.material` are SHARED SINGLETONS. Never dispose them from a consumer.
  */
 import * as THREE from 'three';
 import { makeGLTFLoader } from '../loaders.js';
+import { registerMaterial } from '../map/materialRegistry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const _loader = makeGLTFLoader();
+
+/** Every canonical car geometry is built at this length; consumers scale from it. */
+export const CANON_LENGTH = 4.0;
+
+export const CAR_KIT_PATH = '/models/cars/';
 
 // The normal city cars from the kit (skip tractors/karts/race/debris).
 export const CITY_CARS = [
@@ -19,12 +37,57 @@ export const CITY_CARS = [
   'hatchback-sports', 'van', 'taxi', 'police', 'delivery',
 ];
 
+// ── Caches. Keyed by URL, never evicted: the whole kit is 1.7 MB and lives for the session. ──
+const _gltfCache = new Map();   // url -> Promise<gltf>
+const _canonCache = new Map();  // url -> Promise<{ geometry, dims }>
+let _kitMatPromise = null;      // Promise<Material> — ONE material for the whole kit
+
+function loadGLTF(url) {
+  let p = _gltfCache.get(url);
+  if (!p) { p = _loader.loadAsync(url); _gltfCache.set(url, p); }
+  return p;
+}
+
+/**
+ * The ONE material every city car renders with.
+ *
+ * Built from CITY_CARS[0] rather than "whichever template resolved first" so the result does not
+ * depend on network ordering. Registered with the material registry so the boot warm-up compiles
+ * its USE_BATCHING / USE_INSTANCING variants instead of letting the first car on screen do it
+ * mid-drive (the `programs.length` delta gate).
+ */
+function getKitMaterial() {
+  if (_kitMatPromise) return _kitMatPromise;
+  _kitMatPromise = loadGLTF(CAR_KIT_PATH + CITY_CARS[0] + '.glb').then((gltf) => {
+    let src = null;
+    gltf.scene.traverse((c) => { if (!src && c.isMesh && c.material) src = c.material; });
+    if (!src) throw new Error('[carModels] no material in the kit source model');
+    const material = src.clone();
+    if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
+    if (material.color) material.color.setRGB(1, 1, 1); // white base so per-car tint shows
+    if ('metalness' in material) material.metalness = 0.0;
+    if ('roughness' in material) material.roughness = 0.85;
+    material.vertexColors = true; // wheels black / body white baked in prepGeo
+    material.needsUpdate = true;
+    material.userData.sharedMaterial = true;   // ⚠ H6: shared-material disposal defaults to DISPOSE
+    registerMaterial(material, 'cityCar');
+    return material;
+  });
+  return _kitMatPromise;
+}
+
 // Clone + flatten a mesh's geometry to a merge-compatible set (position/normal/uv/color), baking a
 // per-PART vertex colour: wheels → near-black, everything else → white (so a per-car tint colours the
 // body but the tyres stay black regardless of the texture).
-function prepGeo(src, isWheel) {
+//
+// `keepIndex` is decided ONCE for the whole model by the caller: mergeGeometries requires every
+// input to agree. Keeping the index matters: measured over the nine GLBs, toNonIndexed() takes the
+// kit from 31,887 vertices to 59,106 — 1.85×, i.e. 46% more vertex-shader work on the largest
+// instanced population in the scene (~250 parked cars) — and buys nothing, because the vertex
+// colour is per-PART, not per-face, so it survives shared vertices intact.
+function prepGeo(src, isWheel, keepIndex) {
   let g = src.clone();
-  if (g.index) g = g.toNonIndexed();
+  if (g.index && !keepIndex) g = g.toNonIndexed();
   for (const name of Object.keys(g.attributes)) {
     if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
   }
@@ -38,133 +101,83 @@ function prepGeo(src, isWheel) {
   return g;
 }
 
-export async function loadCarTemplate(url, targetLength = 4.4) {
-  const gltf = await _loader.loadAsync(url);
-  const model = gltf.scene;
-  model.updateMatrixWorld(true);
-  const meshes = [];
-  model.traverse((c) => { if (c.isMesh) meshes.push(c); });
-  if (!meshes.length) throw new Error('no meshes in ' + url);
+/** Build (once per URL) the merged, canonically-scaled, recentred geometry for one car. */
+function getCanonicalGeometry(url) {
+  let p = _canonCache.get(url);
+  if (p) return p;
+  p = loadGLTF(url).then((gltf) => {
+    const model = gltf.scene;
+    model.updateMatrixWorld(true);
+    const meshes = [];
+    model.traverse((c) => { if (c.isMesh) meshes.push(c); });
+    if (!meshes.length) throw new Error('no meshes in ' + url);
 
-  const material = (meshes[0].material?.clone?.() || meshes[0].material);
-  if (material) {
-    if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
-    if (material.color) material.color.setRGB(1, 1, 1); // white base so per-car tint shows
-    if ('metalness' in material) material.metalness = 0.0;
-    if ('roughness' in material) material.roughness = 0.85;
-    material.vertexColors = true; // wheels black / body white baked in prepGeo
-    material.needsUpdate = true;
-  }
-  const geos = [];
-  for (const m of meshes) {
-    const isWheel = /wheel/i.test(m.name);
-    const g = prepGeo(m.geometry, isWheel);
-    g.applyMatrix4(m.matrixWorld);
-    geos.push(g);
-  }
-  let merged = mergeGeometries(geos, false);
-  if (!merged) throw new Error('merge failed ' + url);
+    // All-or-nothing: mergeGeometries rejects a mix, and computeVertexNormals on an indexed
+    // geometry would smooth across the hard body creases these models rely on.
+    const keepIndex = meshes.every((m) => m.geometry.index && m.geometry.attributes.normal);
+    const geos = [];
+    for (const m of meshes) {
+      const g = prepGeo(m.geometry, /wheel/i.test(m.name), keepIndex);
+      g.applyMatrix4(m.matrixWorld);
+      geos.push(g);
+    }
+    let merged = mergeGeometries(geos, false);
+    for (const g of geos) g.dispose();   // the merge copied them; the clones are garbage now
+    if (!merged) throw new Error('merge failed ' + url);
 
-  // orient length → Z
-  merged.computeBoundingBox();
-  const size = new THREE.Vector3(); merged.boundingBox.getSize(size);
-  if (size.x > size.z) { merged.rotateY(Math.PI / 2); merged.computeBoundingBox(); merged.boundingBox.getSize(size); }
-  const nativeLen = Math.max(size.x, size.z);
-  const scale = nativeLen > 0.001 ? targetLength / nativeLen : 1;
-  // Non-uniform: slightly narrow + lower the chunky Kenney proportions so they read as cars, not blocks.
-  merged.scale(scale * 0.95, scale * 0.82, scale);
+    // orient length → Z
+    merged.computeBoundingBox();
+    const size = new THREE.Vector3(); merged.boundingBox.getSize(size);
+    if (size.x > size.z) { merged.rotateY(Math.PI / 2); merged.computeBoundingBox(); merged.boundingBox.getSize(size); }
+    const nativeLen = Math.max(size.x, size.z);
+    const scale = nativeLen > 0.001 ? CANON_LENGTH / nativeLen : 1;
+    // Non-uniform: slightly narrow + lower the chunky Kenney proportions so they read as cars, not blocks.
+    merged.scale(scale * 0.95, scale * 0.82, scale);
 
-  // recentre: wheels at y=0, centred in X/Z
-  merged.computeBoundingBox();
-  const bb = merged.boundingBox;
-  merged.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
-  merged.computeBoundingBox();
-  const s2 = new THREE.Vector3(); merged.boundingBox.getSize(s2);
+    // recentre: wheels at y=0, centred in X/Z
+    merged.computeBoundingBox();
+    const bb = merged.boundingBox;
+    merged.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();   // BatchedMesh reads this for per-instance frustum culling
+    const s2 = new THREE.Vector3(); merged.boundingBox.getSize(s2);
+    merged.userData.sharedGeometry = true;
 
-  return { geometry: merged, material, dims: { w: s2.x, h: s2.y, l: s2.z } };
-}
-
-/** Load the whole city-car set (merged, for InstancedMesh). Returns templates (failures skipped). */
-export async function loadCityCarTemplates(basePath = '/models/cars/', targetLength = 4.4) {
-  const out = [];
-  for (const name of CITY_CARS) {
-    try { const t = await loadCarTemplate(basePath + name + '.glb', targetLength); t.name = name; out.push(t); }
-    catch (e) { console.warn('[carModels] failed to load', name, e?.message || e); }
-  }
-  return out;
+    return { geometry: merged, dims: { w: s2.x, h: s2.y, l: s2.z } };
+  });
+  _canonCache.set(url, p);
+  return p;
 }
 
 /**
- * Full-detail scene template (keeps the original textured materials → windows, head/tail lights, body
- * colour as authored). Returns { scene, dims }; clone scene per car. For traffic (few cars, no merge).
- * The returned `scene` origin sits at the wheel-base centre (place at (x, groundY, z), rotate about Y).
+ * A car template at `targetLength`.
+ *
+ * `geometry` and `material` are the SHARED canonical singletons — do NOT dispose them. `scale` is
+ * the uniform factor from CANON_LENGTH to the requested length; a consumer drawing a loose Mesh
+ * must apply it (`mesh.scale.setScalar(tpl.scale)`), an instanced consumer folds it into the
+ * instance matrix. `dims` is already in the requested length's units.
  */
-// Shared glowing-light resources for traffic cars (one geometry + two materials for all clones).
-let _headLightMat = null, _tailLightMat = null, _carLightGeo = null;
-export function addCarLights(outer, dims) {
-  if (!_carLightGeo) {
-    _carLightGeo   = new THREE.PlaneGeometry(0.28, 0.14);
-    _headLightMat  = new THREE.MeshBasicMaterial({ color: 0xfff4d8, side: THREE.DoubleSide, fog: true });
-    _tailLightMat  = new THREE.MeshBasicMaterial({ color: 0xff2a12, side: THREE.DoubleSide, fog: true });
-  }
-  const { w, h, l } = dims;
-  const y = h * 0.42;
-  const add = (mat, x, z, ry) => {
-    const m = new THREE.Mesh(_carLightGeo, mat);
-    m.position.set(x, y, z);
-    m.rotation.y = ry;
-    m.castShadow = false; m.renderOrder = 2;
-    m.userData.sharedGeometry = true; m.userData.sharedMaterial = true;
-    outer.add(m);
+export async function loadCarTemplate(url, targetLength = CANON_LENGTH) {
+  const [canon, material] = await Promise.all([getCanonicalGeometry(url), getKitMaterial()]);
+  const s = targetLength / CANON_LENGTH;
+  return {
+    geometry: canon.geometry,
+    material,
+    scale: s,
+    dims: { w: canon.dims.w * s, h: canon.dims.h * s, l: canon.dims.l * s },
   };
-  add(_headLightMat, -w * 0.30, l * 0.49, 0);          // front-left  (white, faces +Z)
-  add(_headLightMat,  w * 0.30, l * 0.49, 0);          // front-right
-  add(_tailLightMat, -w * 0.30, -l * 0.49, Math.PI);   // rear-left   (red, faces -Z)
-  add(_tailLightMat,  w * 0.30, -l * 0.49, Math.PI);   // rear-right
 }
 
-export async function loadCarSceneTemplate(url, targetLength = 3.8) {
-  const gltf = await _loader.loadAsync(url);
-  const inner = gltf.scene;
-  inner.traverse((c) => {
-    if (!c.isMesh) return;
-    c.castShadow = true;
-    if (c.material) {
-      if (c.material.map) c.material.map.colorSpace = THREE.SRGBColorSpace;
-      if ('metalness' in c.material) c.material.metalness = 0.0;
-      if ('roughness' in c.material) c.material.roughness = 0.8;
-    }
-  });
-  inner.updateMatrixWorld(true);
-  let bb = new THREE.Box3().setFromObject(inner);
-  let size = bb.getSize(new THREE.Vector3());
-  if (size.x > size.z) { inner.rotateY(Math.PI / 2); inner.updateMatrixWorld(true); bb = new THREE.Box3().setFromObject(inner); size = bb.getSize(new THREE.Vector3()); }
-  const nativeLen = Math.max(size.x, size.z);
-  const scale = nativeLen > 0.001 ? targetLength / nativeLen : 1;
-
-  const scaler = new THREE.Group();
-  scaler.scale.set(scale * 0.95, scale * 0.82, scale); // match the merged-template proportions
-  scaler.add(inner);
-  const outer = new THREE.Group();
-  outer.add(scaler);
-  outer.updateMatrixWorld(true);
-  const bb2 = new THREE.Box3().setFromObject(outer);
-  const s2 = bb2.getSize(new THREE.Vector3());
-  // recentre so outer's origin = wheel-base centre
-  scaler.position.set(-(bb2.min.x + bb2.max.x) / 2, -bb2.min.y, -(bb2.min.z + bb2.max.z) / 2);
-  // Glowing head/tail lights so traffic reads at night (outer is unscaled, origin = wheelbase centre;
-  // car travels along +Z so +Z = front/white, -Z = rear/red). Emissive-basic → bright + blooms.
-  addCarLights(outer, { w: s2.x, h: s2.y, l: s2.z });
-  return { scene: outer, dims: { w: s2.x, h: s2.y, l: s2.z } };
-}
-
-export async function loadCitySceneTemplates(basePath = '/models/cars/', targetLength = 3.8) {
-  const out = [];
-  for (const name of CITY_CARS) {
-    try { out.push(await loadCarSceneTemplate(basePath + name + '.glb', targetLength)); }
-    catch (e) { console.warn('[carModels] scene load failed', name, e?.message || e); }
-  }
-  return out;
+/**
+ * Load the whole city-car set. Failures are skipped, so the returned array's INDEX is not a stable
+ * variant id — read `t.name` when you need to identify one.
+ */
+export async function loadCityCarTemplates(basePath = CAR_KIT_PATH, targetLength = CANON_LENGTH) {
+  const settled = await Promise.all(CITY_CARS.map((name) =>
+    loadCarTemplate(basePath + name + '.glb', targetLength)
+      .then((t) => { t.name = name; return t; })
+      .catch((e) => { console.warn('[carModels] failed to load', name, e?.message || e); return null; })));
+  return settled.filter(Boolean);
 }
 
 // ── Real low-poly people (Poly Pizza rigged GLBs) for pedestrians ──

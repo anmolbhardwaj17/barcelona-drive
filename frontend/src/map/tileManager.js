@@ -3426,6 +3426,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           highwayType: road.highwayType || '',
           width: road.width || 0,
           oneway: road.oneway || false,
+          // ⚠ STRUCTURAL FLAGS ARE PART OF THE CONTRACT, not extras.
+          //
+          // This projection is a NEW object per road, so anything not copied here simply does not
+          // exist for the entity systems — silently, as `undefined`. parkedCars.js gates street
+          // parking on exactly these four ("no parking against a guard rail", R-V1) and that gate
+          // had been dead since the day it was written: every term read undefined and the whole
+          // condition was always false. Add a field here whenever a consumer needs one; do not
+          // read a road property in an entity system without checking that it survives this copy.
+          bridge: road.bridge === true,
+          isRamp: road.isRamp === true,
+          layer: road.layer ?? null,
+          crossesTrench: road.crossesTrench === true,
         });
       }
     }

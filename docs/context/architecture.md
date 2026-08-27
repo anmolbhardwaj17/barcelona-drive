@@ -47,7 +47,14 @@ delhi-drive/
 │   │   │   ├── carControls.js    ← Keyboard input with progressive ramping
 │   │   │   ├── carCamera.js      ← Speed-responsive chase camera with lerp
 │   │   │   ├── carModel.js       ← GLB loader, body lean, color panel UI
-│   │   │   ├── carEffects.js     ← Skid marks, tire smoke (InstancedMesh decals)
+│   │   │   ├── carModels.js      ← Kenney city-car kit: cached GLB parse, ONE canonical geometry
+│   │   │   │                        per model at CANON_LENGTH, ONE shared material for all nine
+│   │   │   ├── carFleet.js       ← THE car pool: one BatchedMesh holds EVERY city car in the world
+│   │   │   │                        (traffic + parked), + a light InstancedMesh factory. 41 draws → 3
+│   │   │   ├── trafficSystem.js  ← AI traffic — pool slots, kinematic paths, static box colliders
+│   │   │   ├── parkedCars.js     ← Curb parking — pool slots, rebuilt every REBUILD_DIST metres
+│   │   │   ├── carEffects.js     ← Skid marks, tire smoke (both one InstancedMesh; per-puff alpha
+│   │   │   │                        rides an instanced attribute patched in via patchMaterial)
 │   │   │   ├── carSound.js       ← Web Audio engine sound (RPM-based)
 │   │   │   └── carMouseControls.js ← Stub (mouse orbit disabled, kept for reference)
 │   │   ├── camera/

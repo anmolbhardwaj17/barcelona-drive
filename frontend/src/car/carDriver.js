@@ -35,7 +35,7 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   const controls = createCarControls();
   const carCam   = createCarCamera(camera, _domElement);
   const model    = await createCarModel(scene);
-  const effects  = createCarEffects(scene, model, physics);
+  const effects  = createCarEffects(scene, model, physics, camera);   // camera: the tire-smoke billboard
 
   // Collision sound — the chassis emits a 'collide' event per contact. Play a synth impact scaled by the
   // closing speed along the contact normal; the threshold rejects resting/rolling road contact, and a

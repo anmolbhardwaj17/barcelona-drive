@@ -51,6 +51,9 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
     const g = new THREE.Group();
     const carH = _tpl ? _tpl.dims.h : 1.3;
     const body = _tpl ? new THREE.Mesh(_tpl.geometry, _tpl.material) : new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 4.3), fallbackMat);
+    // v3 P4-15a: car geometry is now SHARED and built once at CANON_LENGTH, so a loose Mesh has to
+    // apply the template's scale itself. Skipping this silently renders cop cars at the wrong size.
+    if (_tpl) body.scale.setScalar(_tpl.scale);
     if (!_tpl) body.position.y = 0.6;
     body.castShadow = false; g.add(body);
     // small flashing roof lights (red + blue) on top of the model's own bar
