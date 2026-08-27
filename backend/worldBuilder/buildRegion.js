@@ -1226,6 +1226,51 @@ async function main() {
   const junctionWidthStats = { approaches: 0, fallbacks: 0 };
   // R-J5 proof-of-work: how much road geometry the render clip removes (D-23).
   const _renderClipStats = { full: 0, clipped: 0 };
+  // P4-17b proof-of-work (D-23): OSM trees dropped for standing in a drawn carriageway.
+  const _treeDropStats = { total: 0, dropped: 0 };
+  const _TREE_DRIVABLE = new Set([
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+    'living_street', 'service',
+    'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+  ]);
+  /**
+   * Remove OSM trees standing inside a same-layer drivable ribbon. `tileRoads` points are
+   * [mercX, yUp, mercZ]; tree points are WORLD [x, z] — so compare in WORLD, converting the road
+   * once per segment rather than the tree once per test.
+   */
+  function dropTreesOnCarriageway(trees, tileRoads) {
+    if (!trees.length || !tileRoads?.length) return trees;
+    const segs = [];
+    for (const r of tileRoads) {
+      if (!_TREE_DRIVABLE.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
+      const pts = r.points;
+      if (!pts || pts.length < 2) continue;
+      // Half the PAVED width, with no skirt: a tree may legitimately stand right at the kerb.
+      const half = (Number(r.kerbToKerbW ?? r.width) || 6) / 2;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = mercatorToWorld(pts[i][0], pts[i][2]);
+        const b = mercatorToWorld(pts[i + 1][0], pts[i + 1][2]);
+        segs.push([a.x, a.z, b.x, b.z, half * half]);
+      }
+    }
+    if (!segs.length) return trees;
+    const kept = trees.filter((t) => {
+      const x = t.point[0], z = t.point[1];
+      for (const sg of segs) {
+        const dx = sg[2] - sg[0], dz = sg[3] - sg[1];
+        const L = dx * dx + dz * dz;
+        let u = L > 0 ? ((x - sg[0]) * dx + (z - sg[1]) * dz) / L : 0;
+        if (u < 0) u = 0; else if (u > 1) u = 1;
+        const qx = sg[0] + u * dx, qz = sg[1] + u * dz;
+        const ddx = x - qx, ddz = z - qz;
+        if (ddx * ddx + ddz * ddz < sg[4]) return false;
+      }
+      return true;
+    });
+    _treeDropStats.total += trees.length;
+    _treeDropStats.dropped += trees.length - kept.length;
+    return kept;
+  }
   for (const tileId of sortedTileIds) {
     const [zStr, xStr, yStr] = tileId.split('_');
     const z = parseInt(zStr, 10);
@@ -1643,7 +1688,13 @@ async function main() {
       marinas:          marinasByTile.get(tileId)  || [],
       trafficSignals:   signalsByTile.get(tileId)  || [],
       streetLamps:      lampsByTile.get(tileId)    || [],
-      trees:            treesByTile.get(tileId)    || [],
+      // P4-17b: OSM `natural=tree` nodes are SURVEYED positions, so when one lands inside a drawn
+      // carriageway the conflict cannot be fixed by moving it — the tree is where the surveyor put
+      // it and the ribbon is where R-W1's width model puts it. Measured before this filter:
+      // **3,745 of 14,597 (25.66%) sat inside a drivable carriageway, 902 well inside it.** Mostly
+      // the medians and lateral verges of Gran Via and Diagonal, which we pave as one ribbon.
+      // Drawing a tree in the road is worse than omitting it, so drop those and count them.
+      trees:            dropTreesOnCarriageway(treesByTile.get(tileId) || [], tileRoads),
       tourismPois:      tourismByTile.get(tileId)  || [],
       metroStations:    metroByTile.get(tileId)    || [],
       healthcare:       healthByTile.get(tileId)   || [],
@@ -1812,6 +1863,11 @@ async function main() {
     const { full, clipped } = _renderClipStats;
     const pct = full ? ((100 * clipped) / full).toFixed(1) : '0.0';
     console.log(`  [RenderClip] road records: ${clipped} rendered / ${full} carried for physics+topology (${pct}%) — the rest were other tiles' roads.`);
+  }
+  {
+    const { total, dropped } = _treeDropStats;
+    const pct = total ? ((100 * dropped) / total).toFixed(2) : '0.00';
+    console.log(`  [Trees] ${dropped} of ${total} OSM trees dropped for standing inside a drawn carriageway (${pct}%).`);
   }
 
   // ── Slice ③: commit-blocking floor validator (drivable-surface-implies-floor) ──

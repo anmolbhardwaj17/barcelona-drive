@@ -55,6 +55,9 @@ const ENABLE_ROADSIDE_TREES = true;
 const ROADSIDE_SPACING_MIN = 2;
 const ROADSIDE_SPACING_MAX = 5;
 const ROADSIDE_TREE_CAP = 4000;
+// Kerb width, mirroring BCN_DIMS.CURB_WIDTH (frontend/src/map/barcelona-constants.js). A street
+// tree is planted BEYOND the kerb, so this is part of the offset, not a rounding allowance.
+const CURB_WIDTH = 0.3;
 
 // Ground road grid
 const GRID_RES = 0.5;
@@ -64,8 +67,10 @@ const GRID_PAD = 5;
 const BUSH_CAP = 3000;
 const BUSH_ROAD_SPACING_MIN = 4;
 const BUSH_ROAD_SPACING_MAX = 8;
-const BUSH_ROAD_OFFSET_MIN = 3;
-const BUSH_ROAD_OFFSET_MAX = 7;
+// P4-17b: superseded by BUSH_KERB_CLEAR_* — these were CENTRELINE offsets and R-W1 moved the
+// kerb out from under them. Kept only so the diff reads: they are no longer referenced.
+const BUSH_KERB_CLEAR_MIN = 0.8;   // metres BEYOND the kerb
+const BUSH_KERB_CLEAR_MAX = 3.5;
 const BUSH_BARRIER_SPACING = 4;
 const BUSH_BARRIER_OFFSET = 1.2;
 
@@ -630,10 +635,32 @@ function getRoadsideTreePositions(tileData, tileKey) {
         const tBase = (dist + longJitter) / segLen;
         const tc = Math.max(0, Math.min(1, tBase));
         const cx = a.x + dx * tc, cz = a.y + dz * tc;
-        const oMin = isLink ? -0.3 : 0.1;
-        const oMax = isLink ? 0.2 : 0.5;
-        const offL = halfW + oMin + seeded(s, 2) * (oMax - oMin) + (seeded(s, 11) - 0.5) * (isLink ? 0.4 : 0.5);
-        const offR = halfW + oMin + seeded(s, 3) * (oMax - oMin) + (seeded(s, 12) - 0.5) * (isLink ? 0.4 : 0.5);
+        // ── P4-17b · PLANT THE TREE IN THE PAVEMENT, NOT ON THE KERB LINE ──────────────────────
+        //
+        // This was `halfW + 0.1..0.5 +/- 0.25`, i.e. the tree pit sat ON the kerb with the jitter
+        // straddling it. That was fine when a residential road was 4 m wide (halfW 2 m, tree at
+        // ~2.3 m, safely in the verge). R-W1 made the same road 10.4 m — halfW 5.2 — so the offset
+        // landed the tree exactly on the carriageway edge and the jitter pushed half of them in.
+        // Measured on the shipped tiles: **27.79% of baked tree positions were inside a drivable
+        // carriageway, 5.88% well inside it.** That is the user report "trees in the middle of the
+        // road", and it is R-W1 fallout: the widths moved, this offset did not follow.
+        //
+        // A Barcelona plane tree stands in the MIDDLE of the pavement, roughly 1.5 m back from the
+        // kerb, so the pit clears both the kerb and the building line. Derive it from the road's own
+        // baked `sidewalkW` (R-W1) rather than a constant — a 3 m pavement and a 4 m one want
+        // different setbacks, and a road with no pavement wants a verge offset instead.
+        const swW = Number.isFinite(Number(road.sidewalkW)) ? Number(road.sidewalkW) : 0;
+        const setback = swW > 0.8
+          ? Math.min(1.6, Math.max(0.9, swW * 0.45))   // mid-pavement, clamped either side
+          : 1.2;                                        // no pavement: sit it in the verge
+        const treeBase = halfW + CURB_WIDTH + setback;
+        // Jitter is kept — a perfectly ruled line of trees reads as fake — but it may no longer
+        // reach back across the kerb. Clamp the whole offset to stay outside the carriageway.
+        const minOff = halfW + CURB_WIDTH + 0.4;
+        const jitL = (seeded(s, 11) - 0.5) * (isLink ? 0.4 : 0.5);
+        const jitR = (seeded(s, 12) - 0.5) * (isLink ? 0.4 : 0.5);
+        const offL = Math.max(minOff, treeBase + jitL);
+        const offR = Math.max(minOff, treeBase + jitR);
 
         if (isNearJunction(cx, cz)) {
           dist += stepSpacing;
@@ -790,6 +817,14 @@ function collectBushPositions(treePositions, tileData, tileKey, vegMask) {
       const segLen = Math.hypot(dx, dz);
       if (segLen < 1e-6) continue;
       const perpX = -dz / segLen, perpZ = dx / segLen;
+      // P4-17b: measured from the KERB, not the centreline — same R-W1 fallout as the roadside
+      // trees. `BUSH_ROAD_OFFSET_MIN/MAX` (3..7 m) were centreline offsets tuned when a residential
+      // road was 4 m wide, so they cleared its 2 m half by 1-5 m. R-W1 made that road 10.4 m and
+      // every bush from 3 m to 5.2 m landed INSIDE the carriageway. Measured before this change:
+      // **5.15% of all procedural bushes sat in a drivable carriageway, 3.13% well inside it** —
+      // 18,162 of them across 120 tiles, which is the bush the user found growing out of Gran Via.
+      const bHalfW = Math.max(3, Number(road.kerbToKerbW ?? road.width) || 6) / 2;
+      const bBase = bHalfW + CURB_WIDTH;
       while (dist < segLen && bushes.length < BUSH_CAP) {
         const s = stepIdx++;
         const spacing = BUSH_ROAD_SPACING_MIN + seeded(s, 30) * (BUSH_ROAD_SPACING_MAX - BUSH_ROAD_SPACING_MIN);
@@ -797,7 +832,9 @@ function collectBushPositions(treePositions, tileData, tileKey, vegMask) {
         const cx = a.x + dx * t, cz = a.y + dz * t;
         for (const side of [1, -1]) {
           if (seeded(s + side, 31) < 0.25) continue;
-          const off = BUSH_ROAD_OFFSET_MIN + seeded(s + side * 3, 32) * (BUSH_ROAD_OFFSET_MAX - BUSH_ROAD_OFFSET_MIN);
+          // Beyond the kerb by the clearance the old constants MEANT (1-5 m over a 4 m road).
+          const off = bBase + BUSH_KERB_CLEAR_MIN
+            + seeded(s + side * 3, 32) * (BUSH_KERB_CLEAR_MAX - BUSH_KERB_CLEAR_MIN);
           const bx = cx + perpX * off * side;
           const bz = cz + perpZ * off * side;
           if (isValid(bx, bz)) {
