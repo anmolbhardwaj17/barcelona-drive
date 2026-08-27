@@ -9,6 +9,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { armReport, noteVariant, noteLongFrame, buildReport, digest } from '../src/ui/driveReport.js';
 
 // A real minified key: a patched material whose customProgramCacheKey tail contains commas.
@@ -81,4 +82,30 @@ test('arming discards anything recorded before it — the count means "while dri
   const r = buildReport();
   assert.equal(r.shaders.compiledWhileDriving, 0, 'pre-arm variants must not survive arming');
   assert.equal(r.frames.longFrames, 0, 'pre-arm long frames must not survive arming either');
+});
+
+
+// ── Both ways of shipping a report must carry the same thing ────────────────────────────────────
+
+test('F9 and window._ddReport go through ONE wrapper, so neither can carry less', () => {
+  // The tile builder's per-phase totals were wired into `window._ddReport` first, and F9 kept
+  // calling `shipReport` directly — so pressing the key would have produced a report missing the
+  // largest cost in the game. Same shape as the two disposal branches (D-56) and the seven
+  // road-field copies (D-46): a fix applied to one of two entry points.
+  const src = fs.readFileSync('src/main.js', 'utf8');
+  const direct = (src.match(/(?<!_reportWith)\bshipReport\s*\(/g) || []).length;
+  assert.equal(direct, 1,
+    `main.js calls shipReport() directly ${direct} times — it must be exactly once, inside the ` +
+    `_reportWithBuild wrapper, with F9 and window._ddReport both routed through that.`);
+  assert.match(src, /F9'\s*\)\s*\{[^}]*_reportWithBuild\(/,
+    'the F9 handler must call _reportWithBuild, not shipReport');
+});
+
+test('the report carries a top-level build section, not a meta field', () => {
+  // Buried in `meta` it reads as a note about the run. It is the biggest cost in the game and it is
+  // ASYNC, so no `sections` entry can ever show it — it needs to be somewhere a reader looks.
+  const src = fs.readFileSync('src/ui/driveReport.js', 'utf8');
+  assert.match(src, /build:\s*\{\s*phases:/, 'buildReport must emit a top-level `build.phases`');
+  assert.match(src, /const \{ buildPhases, \.\.\.restExtra \} = extra/,
+    'buildPhases must be hoisted OUT of extra, or it lands in meta as well');
 });

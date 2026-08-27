@@ -828,6 +828,16 @@ spawnTileReady.finally(() => {
               + '%d queued, %d resident. time-to-drive is measuring this timeout, not the load.',
               _polls, Math.round(_polls * 150), st.inFlight ?? -1, st.pending ?? -1, st.resident ?? -1);
           }
+          // WHERE THE LOAD ACTUALLY WENT. Ungated, for the same reason as the line above: this is the
+          // largest single cost in the game and it has never been reported. `takeBuildOverruns()`
+          // has been exported and unread since it was written; this is its total-per-phase sibling.
+          const phases = tileManager?.getBuildPhaseTotals?.() ?? [];
+          if (phases.length) {
+            const total = phases.reduce((a, p) => a + p.ms, 0);
+            console.warn('[perf] initial load, main-thread time by build phase (%d ms total): %s',
+              Math.round(total),
+              phases.slice(0, 8).map((p) => `${p.phase} ${Math.round(p.ms)}ms/${p.chunks}`).join(' · '));
+          }
         } catch { /* diagnostics must never break the boot */ }
         _hideLoader();
         // Go LIVE behind the title: crossfade the static artwork to the real city + start the cinematic
@@ -1648,10 +1658,19 @@ function setPhotoMode(on) {
   if (speedDisplay?.element) speedDisplay.element.style.display = on ? 'none' : '';
   if (metricsPanel?.element) metricsPanel.element.style.display = on ? 'none' : '';
 }
+// Hand the tile builder's per-phase totals to the report. Nothing read them before: the load is the
+// biggest cost in the game and it is ASYNC, so it can never appear in a frame section.
+//
+// ⚠ BOTH ENTRY POINTS GO THROUGH HERE. F9 and `window._ddReport()` are two ways to ship the same
+// report, and wiring only one of them is how a report silently carries less than the other — the
+// same shape as the two disposal branches (D-56) and the seven road-field copies (D-46).
+const _reportWithBuild = (extra = {}) =>
+  shipReport({ ...extra, buildPhases: tileManager?.getBuildPhaseTotals?.() ?? null });
+
 window.addEventListener('keydown', (e) => {
   if (isInputBlocked() || isTypingTarget(document.activeElement)) return;
   // F9 — ship the drive report. The one keypress that ends "drive and paste the console output".
-  if (e.code === 'F9') { e.preventDefault(); shipReport({ trigger: 'F9' }); return; }
+  if (e.code === 'F9') { e.preventDefault(); _reportWithBuild({ trigger: 'F9' }); return; }
   if (e.code === 'KeyP') { e.preventDefault(); setPhotoMode(!_photoOn); return; }
   if (e.code === 'KeyL') { e.preventDefault(); carDriver?.toggleHeadlights?.(); return; } // headlights: auto→on→off
   // While in Photo Mode, +/- grow/shrink the loaded area (push it up until your machine strains).
@@ -1662,5 +1681,5 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-window._ddReport = shipReport;   // console equivalent of F9
+window._ddReport = _reportWithBuild;   // console equivalent of F9 — same path, same contents
 window._debugWorld = world;

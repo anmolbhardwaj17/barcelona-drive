@@ -261,6 +261,11 @@ function residencySummary() {
 }
 
 export function buildReport(extra = {}) {
+  // `buildPhases` is hoisted out of `extra` into its own top-level section rather than being buried
+  // in `meta`: it is the largest cost in the game (the initial load gives up at a 19.65 s cap with
+  // six tiles built, ~3 s a tile) and it is async, so no `sections` entry can ever show it — the
+  // frame loop's `tiles` lap reads 0.9-2.5 ms while the same work lands in `other` as thousands.
+  const { buildPhases, ...restExtra } = extra;
   const msSorted = _long.map((f) => f.ms).sort((a, b) => a - b);
   // Aggregate blame across every long frame, so one outlier cannot name the cause on its own.
   const blame = {};
@@ -278,8 +283,10 @@ export function buildReport(extra = {}) {
       url: typeof location !== 'undefined' ? location.href : null,
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
       ..._meta,
-      ...extra,
+      ...restExtra,
     },
+    // Total main-thread ms per tile-build phase, and the chunk count each took.
+    build: { phases: buildPhases ?? null },
     shaders: {
       warmAtDriveStart: _warmCount,
       compiledWhileDriving: _variants.length,

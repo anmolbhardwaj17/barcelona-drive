@@ -1471,6 +1471,27 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     return out;
   }
 
+  /**
+   * TOTAL main-thread time per build phase, and how many chunks each took.
+   *
+   * `_buildOverruns` above keeps only the WORST overrun per phase, and it is cleared on read — good
+   * for "what stuttered just now", useless for "where does the load go". And nothing called it: it
+   * has been exported and unread. The load is the largest cost in the game — a boot that gives up
+   * at its 19.65 s cap with SIX tiles built is ~3 s per tile — and the work is async yielded chunks,
+   * so the frame loop's `tiles` lap reads 0.9-2.5 ms while the same work lands in `other` as
+   * 2,000-3,000 ms. This is the only place the split can be seen.
+   *
+   * Accumulated where the chunk actually ENDS (after the budget early-return), because `_lastResume`
+   * only moves on a real yield — adding it before that would count the same span again next call.
+   */
+  const _phaseTotals = Object.create(null);
+  function getBuildPhaseTotals() {
+    const out = [];
+    for (const k in _phaseTotals) out.push({ phase: k, ms: +_phaseTotals[k].ms.toFixed(1), chunks: _phaseTotals[k].chunks });
+    return out.sort((a, b) => b.ms - a.ms);
+  }
+  function resetBuildPhaseTotals() { for (const k in _phaseTotals) delete _phaseTotals[k]; }
+
   // Wall time at which the last yield handed control back. The span between one resume and the next
   // yield is a chunk of uninterrupted main-thread work — the true stutter unit.
   //
@@ -1496,6 +1517,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // This span is ending, so it can be attributed. Named by build phase, so a long frame reports
     // `⟨async: build:buildings 41⟩` instead of an anonymous `other`.
     if (_chunk >= 4) recordChunk('build:' + (_buildPhase || '?'), _chunk, _t);
+    // Every chunk, not only the long ones: the load is death by a thousand 3 ms chunks as much as by
+    // a few 40 ms ones, and only the total can tell those apart.
+    const _pt = (_phaseTotals[_buildPhase] ||= { ms: 0, chunks: 0 });
+    _pt.ms += _chunk; _pt.chunks++;
     // Budget exceeded — yield to the browser for rendering. Do NOT reset _frameBudgetStart here;
     // update() owns the per-frame reset so concurrent tiles keep sharing one budget.
     return new Promise((resolve) => {
@@ -3709,6 +3734,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     isInitialLoadComplete,
     getInitialLoadState,
     takeBuildOverruns,
+    getBuildPhaseTotals,
+    resetBuildPhaseTotals,
     getLoadedRoadSegments,
     injectSpawnTile,
     setPhotoMode,

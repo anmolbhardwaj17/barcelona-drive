@@ -67,6 +67,12 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - **Boot chatter**: `?debug=init` — `[assets] registry`, `[census]`, `[lightgrid] armed`. Off by default. NOT gated (deliberately): `[perf] time-to-drive … shader programs` (a v3 gate metric), `[quality] tier`, and anything reporting a failure.
 - **Console noise, both opt-in**: `?debug=loaf` (per-frame Long-Animation-Frame attribution; the STATS `loaf …` aggregate works without it) · `?debug=winding` (per-tile ring-reversal report).
 - **Road-vs-terrain fit probe**: `?debug=roadfit` — measures drawn road against drawn terrain, prints a burial distribution + slope correlation + worst points with coordinates. Measurement only (renders nothing). Fires 6 s after drive start; re-run from the console with `window._ddRoadFit()`, results on `window._ddRoadFitResult`.
+- **Where the LOAD goes**: printed unasked at the end of the initial tile load, no flag needed —
+  `[perf] initial tile load COMPLETE/GAVE UP …` then `[perf] initial load, main-thread time by build
+  phase (N ms total): p2 buildings 4210ms/812 · …`. **This is the biggest cost in the game and it is
+  ASYNC**, so it can never appear as a frame section: the loop's `tiles` lap reads 0.9-2.5 ms while
+  the same work lands in `other` as 2,000-3,000. The same per-phase totals ride in the F9 report
+  under `build.phases`.
 - **Geometry-leak probe (task #39)**: `?debug=leak` — per-tile-unload accounting. Prints what the
   unload walk HELD, FREED and skipped as shared, alongside what `renderer.info.memory.geometries`
   actually did across the same unload. The two disagree in different ways for different bugs: `held`
