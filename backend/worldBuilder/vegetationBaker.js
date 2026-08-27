@@ -1145,6 +1145,47 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   // Collect zone vegetation
   const zoneResult = collectZoneVegetation(vegTileData, tileKey, vegMask);
 
+  // ⚠ EVERY ARRAY THE RENDERER FADES MUST BE SORTED NEAREST-FIRST.
+  //
+  // The LOD shows the FIRST N instances of a tile's handle and treats that order as nearest-first.
+  // Only the main tree array (~:1121) actually earned the name. Zone trees, zone bushes and the
+  // main bush array all came out in POLYGON order, so "show 56%" meant "show the first few
+  // polygons" — whole clumps appearing and vanishing as the fraction moved, instead of the canopy
+  // thinning evenly. User-reported on the hills.
+  //
+  // It stayed invisible because street trees WERE sorted and hills had ~0 zone trees until P4-02c
+  // gave them 1,077 each. Bushes fade over 45–90 m, so their clumping is close-range and was read
+  // as ordinary pop-in.
+  {
+    const swz = latLonToWorld(tileBounds.south, tileBounds.west);
+    const nez = latLonToWorld(tileBounds.north, tileBounds.east);
+    const zcx = (swz.x + nez.x) / 2, zcz = (swz.z + nez.z) / 2;
+    // Returns the permutation rather than sorting in place, because positions and scales are
+    // PARALLEL arrays — sorting one alone silently swaps every tree's size.
+    const nearestFirst = (arr) => arr
+      .map((pt, i) => ({ i, d: (pt.x - zcx) ** 2 + (pt.y - zcz) ** 2 }))
+      .sort((a, b) => a.d - b.d)
+      .map((o) => o.i);
+
+    if (zoneResult.allTreePositions.length > 0) {
+      const order = nearestFirst(zoneResult.allTreePositions);
+      zoneResult.allTreePositions = order.map((i) => zoneResult.allTreePositions[i]);
+      zoneResult.allTreeScales = order.map((i) => zoneResult.allTreeScales[i]);
+    }
+    if (zoneResult.allBushPositions.length > 0) {
+      const order = nearestFirst(zoneResult.allBushPositions);
+      zoneResult.allBushPositions = order.map((i) => zoneResult.allBushPositions[i]);
+    }
+    if (bushPosArr.length > 0) {
+      const order = nearestFirst(bushPosArr);
+      const sorted = order.map((i) => bushPosArr[i]);
+      for (let i = 0; i < sorted.length; i++) {
+        bushPositions[i * 2] = sorted[i].x;
+        bushPositions[i * 2 + 1] = sorted[i].y;
+      }
+    }
+  }
+
   // Zone tree positions
   const zoneTreePositions = new Float32Array(zoneResult.allTreePositions.length * 2);
   for (let i = 0; i < zoneResult.allTreePositions.length; i++) {
