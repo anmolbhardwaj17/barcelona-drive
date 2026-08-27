@@ -20,27 +20,38 @@ async function mergeBudgeted(geoms, yieldFn) {
 
 // ─── Shared materials (persist across tiles) ────────────────────────────────
 
-let _matSteel, _matRed, _matWhite, _matBrick, _matConcrete, _matWater,
-    _matYellow, _matBlue, _matDarkGray, _matBPBlue, _matBPYellow, _matBPRoof,
-    _matBrown, _matBeige, _matBush, _matRock;
+let _matForecourtBand, _matForecourtTrim, _matForecourtRoof,
+    _matCabinShell, _matCabinRoof, _matCabinDoor,
+    _matSteel, _matRed, _matWhite, _matConcrete, _matWater, _matStone,
+    _matYellow, _matDarkGray,
+    _matBrown, _matBeige;
 
 function matSteel()    { return _matSteel    || (_matSteel    = shared(new THREE.MeshLambertMaterial({ color: 0x888899 }))); }
 function matRed()      { return _matRed      || (_matRed      = shared(new THREE.MeshLambertMaterial({ color: 0xcc3333 }))); }
 function matWhite()    { return _matWhite    || (_matWhite    = shared(new THREE.MeshLambertMaterial({ color: 0xeeeeee }))); }
-function matBrick()    { return _matBrick    || (_matBrick    = shared(new THREE.MeshLambertMaterial({ color: 0x996644 }))); }
 function matConcrete() { return _matConcrete || (_matConcrete = shared(new THREE.MeshLambertMaterial({ color: 0xbbbbbb }))); }
 function matWater()    { return _matWater    || (_matWater    = shared(new THREE.MeshPhongMaterial({ color: 0x2277aa, emissive: 0x0a2233, specular: 0x88ccee, shininess: 90, transparent: true, opacity: 0.75 }))); }
 function matYellow()   { return _matYellow   || (_matYellow   = shared(new THREE.MeshLambertMaterial({ color: 0xeecc22 }))); }
-function matBlue()     { return _matBlue     || (_matBlue     = shared(new THREE.MeshLambertMaterial({ color: 0x3366aa }))); }
 function matDarkGray() { return _matDarkGray || (_matDarkGray = shared(new THREE.MeshLambertMaterial({ color: 0x444444 }))); }
 function matBrown()    { return _matBrown    || (_matBrown    = shared(new THREE.MeshPhongMaterial({ color: 0x8b6b42, specular: 0x221100, shininess: 8 }))); }
 function matBeige()    { return _matBeige    || (_matBeige    = shared(new THREE.MeshLambertMaterial({ color: 0xc8b89a }))); }
-function matBush()     { return _matBush     || (_matBush     = shared(new THREE.MeshLambertMaterial({ color: 0x3d7a3d }))); }
-function matRock()     { return _matRock     || (_matRock     = shared(new THREE.MeshLambertMaterial({ color: 0x8a8a7a }))); }
-// Indian petrol pump colors (Bharat Petroleum style)
-function matBPBlue()   { return _matBPBlue   || (_matBPBlue   = shared(new THREE.MeshStandardMaterial({ color: 0x1a5ba8, emissive: 0x1a5ba8, emissiveIntensity: 0, roughness: 0.6 }))); }
-function matBPYellow() { return _matBPYellow || (_matBPYellow = shared(new THREE.MeshStandardMaterial({ color: 0xf5c518, emissive: 0xf5c518, emissiveIntensity: 0, roughness: 0.6 }))); }
-function matBPRoof()   { return _matBPRoof   || (_matBPRoof   = shared(new THREE.MeshLambertMaterial({ color: 0xd4cfc0 }))); }
+// P4-17a: ornamental fountains were BROWN, which is a north-Indian sandstone. Barcelona's plaza
+// fountains are pale grey Montjuïc stone and granite. `matBrown` stays for the water tower, where
+// a brick tone is right.
+function matStone()    { return _matStone    || (_matStone    = shared(new THREE.MeshLambertMaterial({ color: 0xa9a49b }))); }
+// REMOVED with the Sulabh complex: matBush / matRock / matBlue / matBrick. They existed only to
+// landscape it — 14 bushes and boulders per toilet — and had no other caller. Verified orphaned
+// before deletion (`grep -c "mat: 'bush'"` etc. = 0).
+// P4-17a: the forecourt fascia was BP's blue-and-yellow livery, named for it, on 39 stations.
+// A real brand's colours on a real street is impersonation; these are neutral. Kept EMISSIVE so
+// the night lift in `setUrbanNightMode` still works — a forecourt is a light source after dark.
+function matForecourtBand() { return _matForecourtBand || (_matForecourtBand = shared(new THREE.MeshStandardMaterial({ color: 0xb8352c, emissive: 0xb8352c, emissiveIntensity: 0, roughness: 0.6 }))); }
+function matForecourtTrim() { return _matForecourtTrim || (_matForecourtTrim = shared(new THREE.MeshStandardMaterial({ color: 0xe8e4dc, emissive: 0xe8e4dc, emissiveIntensity: 0, roughness: 0.6 }))); }
+function matForecourtRoof() { return _matForecourtRoof || (_matForecourtRoof = shared(new THREE.MeshLambertMaterial({ color: 0xd4cfc0 }))); }
+// P4-17a: street-toilet cabin — graphite shell, lighter roof, near-black door.
+function matCabinShell()    { return _matCabinShell    || (_matCabinShell    = shared(new THREE.MeshLambertMaterial({ color: 0x4a4f52 }))); }
+function matCabinRoof()     { return _matCabinRoof     || (_matCabinRoof     = shared(new THREE.MeshLambertMaterial({ color: 0x6e7376 }))); }
+function matCabinDoor()     { return _matCabinDoor     || (_matCabinDoor     = shared(new THREE.MeshLambertMaterial({ color: 0x2b2f31 }))); }
 
 function shared(mat) { mat.userData = { sharedMaterial: true }; return mat; }
 
@@ -147,48 +158,66 @@ function getFountainShadowMat() {
   return _fountainShadowMat;
 }
 
-// Sulabh Toilet Complex sign — single shared canvas texture
-let _sulabhSignMat = null;
-function matSulabhSign() {
-  if (!_sulabhSignMat) {
-    const w = 256, h = 64;
+/**
+ * P4-17a · generic WC pictogram for the street toilet cabin.
+ *
+ * REPLACES a canvas that drew "SULABH / TOILET COMPLEX" in a real organisation's blue-and-white
+ * livery — reproducing a real brand, on a Barcelona street, for 206 objects. This draws a plain
+ * pictogram instead: nothing to attribute to anyone.
+ *
+ * Kept from the old material, deliberately: the `emissiveMap` + `emissiveIntensity` pair, so the
+ * plate still lifts at night (`setUrbanNightMode`). A street toilet you cannot find after dark is
+ * worse than an ugly one.
+ *
+ * ⚠ `tex.repeat.x = -1` is the scene X-mirror workaround and P4-11 is going to forbid it outright
+ * in favour of a shader U-flip. Until that lands this must match every other canvas sign in the
+ * codebase, so it stays — flagged, not silently different.
+ */
+let _wcSignMat = null;
+function matWcSign() {
+  if (!_wcSignMat) {
+    const w = 128, h = 88;
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d');
-    // Blue background
-    ctx.fillStyle = '#1a3d8f';
+    ctx.fillStyle = '#1c4e8a';                 // municipal blue plate
     ctx.fillRect(0, 0, w, h);
-    // White border
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(2, 2, w - 4, h - 4);
-    // Text
+    ctx.lineWidth = 2;
+    ctx.strokeRect(3, 3, w - 6, h - 6);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 18px Arial, sans-serif';
-    ctx.fillText('SULABH', w / 2, h * 0.32);
-    ctx.font = 'bold 14px Arial, sans-serif';
-    ctx.fillText('TOILET COMPLEX', w / 2, h * 0.68);
+    ctx.font = 'bold 46px Helvetica, Arial, sans-serif';
+    ctx.fillText('WC', w / 2, h / 2 + 2);
     const tex = new THREE.CanvasTexture(c);
-    tex.repeat.x = -1; tex.offset.x = 1; // scene X-mirror fix
-    _sulabhSignMat = new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0, roughness: 0.5 });
-    _sulabhSignMat.userData = { sharedMaterial: true };
+    tex.repeat.x = -1; tex.offset.x = 1;       // scene X-mirror fix — see the note above
+    _wcSignMat = new THREE.MeshStandardMaterial({
+      map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0, roughness: 0.5,
+    });
+    _wcSignMat.userData = { sharedMaterial: true };
   }
-  return _sulabhSignMat;
+  return _wcSignMat;
 }
 
-/** Toggle fuel station + toilet night illumination. Call from day/night system. */
-export function setFuelStationNightMode(isNight) {
+/**
+ * Toggle urban-feature night illumination. Call from the day/night system.
+ *
+ * Named `setFuelStationNightMode` when it only lit forecourts; it has always also driven the toilet
+ * sign, and P4-17a adds the cabin plate. `setUrbanNightMode` is the honest name — the old one is
+ * kept as an alias because `ui/envToggle.js` imports it and a rename is not worth a broken import.
+ */
+export function setUrbanNightMode(isNight) {
   if (_fuelGlowMat) _fuelGlowMat.opacity = isNight ? 3.0 : 0;
   if (_fuelPoolMat) _fuelPoolMat.opacity = isNight ? 0.5 : 0;
-  // Illuminate blue/yellow fascia strips on petrol pumps
+  // Forecourt fascia bands (neutral livery — see matForecourtBand).
   const emitI = isNight ? 1.5 : 0;
-  if (_matBPBlue) _matBPBlue.emissiveIntensity = emitI;
-  if (_matBPYellow) _matBPYellow.emissiveIntensity = emitI;
-  // Illuminate Sulabh Toilet Complex sign boards
-  if (_sulabhSignMat) _sulabhSignMat.emissiveIntensity = isNight ? 1.2 : 0;
+  if (_matForecourtBand) _matForecourtBand.emissiveIntensity = emitI;
+  if (_matForecourtTrim) _matForecourtTrim.emissiveIntensity = emitI;
+  // Street-toilet WC plate — findable after dark.
+  if (_wcSignMat) _wcSignMat.emissiveIntensity = isNight ? 1.2 : 0;
 }
+export { setUrbanNightMode as setFuelStationNightMode };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -483,7 +512,7 @@ function buildFountain() {
   const poolR = 3.5, poolWallH = 0.45;
   const poolOuter = new THREE.CylinderGeometry(poolR, poolR + 0.15, poolWallH, segs);
   poolOuter.translate(0, poolWallH / 2, 0);
-  geos.push({ geo: poolOuter, mat: 'brown' });
+  geos.push({ geo: poolOuter, mat: 'stone' });
 
   const poolWater = new THREE.CylinderGeometry(poolR - 0.2, poolR - 0.2, 0.05, segs);
   poolWater.translate(0, poolWallH * 0.6, 0);
@@ -492,13 +521,13 @@ function buildFountain() {
   // ── Lower pedestal (tapered column rising from pool center) ──
   const ped1 = new THREE.CylinderGeometry(0.8, 1.1, 1.0, segs);
   ped1.translate(0, poolWallH + 0.5, 0);
-  geos.push({ geo: ped1, mat: 'brown' });
+  geos.push({ geo: ped1, mat: 'stone' });
 
   // ── Middle basin (smaller bowl catching water) ──
   const midR = 1.8, midWallH = 0.35;
   const midBasin = new THREE.CylinderGeometry(midR, midR - 0.1, midWallH, segs);
   midBasin.translate(0, poolWallH + 1.0 + midWallH / 2, 0);
-  geos.push({ geo: midBasin, mat: 'brown' });
+  geos.push({ geo: midBasin, mat: 'stone' });
 
   const midWater = new THREE.CylinderGeometry(midR - 0.15, midR - 0.15, 0.04, segs);
   midWater.translate(0, poolWallH + 1.0 + midWallH * 0.7, 0);
@@ -508,18 +537,18 @@ function buildFountain() {
   const lipRing = new THREE.TorusGeometry(midR, 0.08, 6, segs);
   lipRing.rotateX(Math.PI / 2);
   lipRing.translate(0, poolWallH + 1.0 + midWallH, 0);
-  geos.push({ geo: lipRing, mat: 'brown' });
+  geos.push({ geo: lipRing, mat: 'stone' });
 
   // ── Upper pedestal ──
   const ped2 = new THREE.CylinderGeometry(0.4, 0.65, 0.8, segs);
   ped2.translate(0, poolWallH + 1.0 + midWallH + 0.4, 0);
-  geos.push({ geo: ped2, mat: 'brown' });
+  geos.push({ geo: ped2, mat: 'stone' });
 
   // ── Upper bowl (small top basin) ──
   const topR = 1.0, topH = 0.25;
   const topBowl = new THREE.CylinderGeometry(topR, topR - 0.08, topH, segs);
   topBowl.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH / 2, 0);
-  geos.push({ geo: topBowl, mat: 'brown' });
+  geos.push({ geo: topBowl, mat: 'stone' });
 
   const topWater = new THREE.CylinderGeometry(topR - 0.12, topR - 0.12, 0.03, segs);
   topWater.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH * 0.7, 0);
@@ -528,7 +557,7 @@ function buildFountain() {
   // ── Finial (small pointed top) ──
   const finial = new THREE.ConeGeometry(0.18, 0.6, 6);
   finial.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH + 0.3, 0);
-  geos.push({ geo: finial, mat: 'brown' });
+  geos.push({ geo: finial, mat: 'stone' });
 
   // ── Water jet from finial tip (taller, tapered) ──
   const jet = new THREE.CylinderGeometry(0.02, 0.07, 1.2, 6);
@@ -556,137 +585,93 @@ function buildFountain() {
 }
 
 /**
- * Sulabh Toilet Complex (Indian public toilet):
- * Brown/beige stone-clad building, concrete roof overhang, entry steps,
- * steel railing, blue "SULABH TOILET COMPLEX" sign board,
- * surrounded by scattered bushes and stones.
- * Faces +Z (road side). Caller rotates to face nearest road.
+ * P4-17a · Barcelona automatic street toilet (cabina sanitària).
+ *
+ * WHAT THIS REPLACES, and why it mattered more than any texture would have. The previous builder
+ * was a **Delhi Sulabh toilet complex**: a 6 x 5 x 3.8 m brown-stone building with a two-tone
+ * facade, a concrete entrance canopy, three front steps, steel railings, an emissive sign board
+ * reading "SULABH TOILET COMPLEX", and fourteen scattered bushes and boulders landscaped around it.
+ * OSM tags 206 `amenity=toilets` inside the Barcelona bbox, so the city was carrying 206 Indian
+ * toilet complexes with gardens, standing on Eixample pavements 3-4 m wide.
+ *
+ * A Barcelona street toilet is a single prefabricated cabin: roughly 1.6 x 1.5 m in plan and 2.5 m
+ * tall, graphite/dark-grey panelled, flat roof with a small overhang, one recessed door, and a plain
+ * pictogram plate. No steps, no railings, no landscaping — it stands directly on the panot.
+ *
+ * ⚠ NO BRANDING. The sign is a generic WC pictogram drawn in code. The old one reproduced a real
+ * organisation's name and livery, which is wrong on a Barcelona street twice over.
+ *
+ * Footprint went from 30 m² to 2.4 m², so `EXCLUSION_RADIUS.public_toilet` drops 5 -> 1.6 with it,
+ * or the cabin would keep clearing a 10 m circle of street trees around itself.
  */
 function buildPublicToilet() {
   const geos = [];
-  const w = 6, d = 5, h = 3.8;
+  const w = 1.6, d = 1.5, h = 2.5;
 
-  // Lower wall section (brown stone)
-  const lowerH = 1.8;
-  const lower = new THREE.BoxGeometry(w, lowerH, d);
-  lower.translate(0, lowerH / 2, 0);
-  geos.push({ geo: lower, mat: 'brown' });
+  // Plinth — the cabin sits on a shallow kerb-height base, not on steps.
+  const plinthH = 0.12;
+  const plinth = new THREE.BoxGeometry(w + 0.12, plinthH, d + 0.12);
+  plinth.translate(0, plinthH / 2, 0);
+  geos.push({ geo: plinth, mat: 'concrete' });
 
-  // Upper wall section (beige)
-  const upperH = h - lowerH;
-  const upper = new THREE.BoxGeometry(w, upperH, d);
-  upper.translate(0, lowerH + upperH / 2, 0);
-  geos.push({ geo: upper, mat: 'beige' });
+  // Body — one graphite panelled volume.
+  const bodyH = h - plinthH;
+  const body = new THREE.BoxGeometry(w, bodyH, d);
+  body.translate(0, plinthH + bodyH / 2, 0);
+  geos.push({ geo: body, mat: 'cabinShell' });
 
-  // Brown trim band between lower and upper
-  const trim = new THREE.BoxGeometry(w + 0.06, 0.12, d + 0.06);
-  trim.translate(0, lowerH, 0);
-  geos.push({ geo: trim, mat: 'brown' });
-
-  // Roof slab (concrete overhang on front)
-  const roofOverhang = 0.8;
-  const roof = new THREE.BoxGeometry(w + 0.5, 0.2, d + roofOverhang);
-  roof.translate(0, h + 0.1, roofOverhang / 2);
-  geos.push({ geo: roof, mat: 'concrete' });
-
-  // Entry opening (dark recess on front face, +Z side)
-  const entryW = 1.4, entryH = 2.6;
+  // Panel seams: two shallow reveals down the sides, which is what reads at driving speed.
   for (const side of [-1, 1]) {
-    const door = new THREE.BoxGeometry(entryW, entryH, 0.06);
-    door.translate(side * 1.2, entryH / 2, d / 2 + 0.03);
-    geos.push({ geo: door, mat: 'darkGray' });
+    const seam = new THREE.BoxGeometry(0.03, bodyH * 0.82, 0.04);
+    seam.translate(side * (w / 2 + 0.005), plinthH + bodyH / 2, d / 2 - 0.18);
+    geos.push({ geo: seam, mat: 'darkGray' });
   }
 
-  // Steps (3 steps in front)
-  for (let i = 0; i < 3; i++) {
-    const step = new THREE.BoxGeometry(w + 0.3, 0.15, 0.4);
-    step.translate(0, 0.075 + i * 0.15, d / 2 + roofOverhang + 0.2 - i * 0.4);
-    geos.push({ geo: step, mat: 'concrete' });
-  }
+  // Roof — flat, slight overhang, lighter grey so the silhouette reads against a facade.
+  const roof = new THREE.BoxGeometry(w + 0.16, 0.09, d + 0.16);
+  roof.translate(0, h + 0.045, 0);
+  geos.push({ geo: roof, mat: 'cabinRoof' });
 
-  // Steel railing in front (horizontal bars)
-  const railW = w * 0.35;
-  for (const side of [-1, 1]) {
-    const rx = side * (w / 2 + 0.15 - railW / 2);
-    const rz = d / 2 + 0.6;
-    for (const end of [-1, 1]) {
-      const post = new THREE.CylinderGeometry(0.03, 0.03, 1.1, 4);
-      post.translate(rx + end * railW / 2, 0.55, rz);
-      geos.push({ geo: post, mat: 'steel' });
-    }
-    for (let b = 0; b < 4; b++) {
-      const bar = new THREE.BoxGeometry(railW, 0.03, 0.03);
-      bar.translate(rx, 0.2 + b * 0.25, rz);
-      geos.push({ geo: bar, mat: 'steel' });
-    }
-  }
+  // Door — recessed on the +Z face, full height, with a thin frame.
+  const doorW = w * 0.72, doorH = bodyH * 0.86;
+  const door = new THREE.BoxGeometry(doorW, doorH, 0.05);
+  door.translate(0, plinthH + doorH / 2, d / 2 + 0.005);
+  geos.push({ geo: door, mat: 'cabinDoor' });
+  const frame = new THREE.BoxGeometry(doorW + 0.08, doorH + 0.08, 0.03);
+  frame.translate(0, plinthH + doorH / 2, d / 2 + 0.001);
+  geos.push({ geo: frame, mat: 'darkGray' });
 
-  // Blue sign board ("SULABH TOILET COMPLEX") above entrance
-  const signW = 3.2, signH = 0.8;  // 4:1 ratio to match canvas texture
-  const signBoard = new THREE.PlaneGeometry(signW, signH);
-  signBoard.translate(0, h - 0.1, d / 2 + 0.04);
-  geos.push({ geo: signBoard, mat: 'sulabhSign' });
-  const signBack = new THREE.BoxGeometry(signW, signH, 0.04);
-  signBack.translate(0, h - 0.1, d / 2 + 0.01);
-  geos.push({ geo: signBack, mat: 'blue' });
+  // Handle — a single vertical bar. Small, but it is the one thing that says "door" up close.
+  const handle = new THREE.CylinderGeometry(0.018, 0.018, 0.28, 5);
+  handle.translate(doorW * 0.32, plinthH + doorH * 0.52, d / 2 + 0.05);
+  geos.push({ geo: handle, mat: 'steel' });
 
-  // ── Surrounding landscaping: bushes + stones (scattered around sides & back) ──
-  // Use deterministic positions relative to building
-  const scatterPoints = [
-    // Back side bushes
-    { x: -2.2, z: -d / 2 - 1.2, type: 'bush' },
-    { x:  0.8, z: -d / 2 - 1.5, type: 'bush' },
-    { x:  2.5, z: -d / 2 - 0.8, type: 'bush' },
-    // Left side
-    { x: -w / 2 - 1.0, z: -0.5, type: 'bush' },
-    { x: -w / 2 - 1.3, z:  1.2, type: 'bush' },
-    // Right side
-    { x:  w / 2 + 1.2, z:  0.3, type: 'bush' },
-    { x:  w / 2 + 0.9, z: -1.5, type: 'bush' },
-    // Stones scattered
-    { x: -w / 2 - 0.6, z:  d / 2 + 0.8, type: 'rock' },
-    { x:  w / 2 + 0.7, z:  d / 2 + 0.6, type: 'rock' },
-    { x: -1.8, z: -d / 2 - 0.5, type: 'rock' },
-    { x:  2.0, z: -d / 2 - 1.8, type: 'rock' },
-    { x:  w / 2 + 1.5, z: -0.8, type: 'rock' },
-    // Front corner bushes (smaller, not blocking entrance)
-    { x: -w / 2 - 0.5, z:  d / 2 + 0.4, type: 'bush_small' },
-    { x:  w / 2 + 0.5, z:  d / 2 + 0.3, type: 'bush_small' },
-  ];
-
-  for (const sp of scatterPoints) {
-    if (sp.type === 'bush') {
-      // Low-poly bush: flattened icosphere
-      const bush = new THREE.IcosahedronGeometry(0.6 + Math.abs(sp.x * 0.1), 1);
-      bush.scale(1, 0.6, 1);
-      bush.translate(sp.x, 0.35, sp.z);
-      geos.push({ geo: bush, mat: 'bush' });
-    } else if (sp.type === 'bush_small') {
-      const bush = new THREE.IcosahedronGeometry(0.4, 1);
-      bush.scale(1, 0.55, 1);
-      bush.translate(sp.x, 0.22, sp.z);
-      geos.push({ geo: bush, mat: 'bush' });
-    } else {
-      // Rock: small irregular dodecahedron
-      const rock = new THREE.DodecahedronGeometry(0.2 + Math.abs(sp.z * 0.03), 0);
-      rock.scale(1.2, 0.5, 0.9);
-      rock.translate(sp.x, 0.1, sp.z);
-      geos.push({ geo: rock, mat: 'rock' });
-    }
-  }
+  // Pictogram plate above the door — generic WC, drawn in code, no brand.
+  const signW = 0.44, signH = 0.30;
+  const sign = new THREE.PlaneGeometry(signW, signH);
+  sign.translate(0, plinthH + doorH + 0.20, d / 2 + 0.035);
+  geos.push({ geo: sign, mat: 'wcSign' });
 
   return geos;
 }
 
 /**
- * Indian-style fuel station (Bharat Petroleum inspired):
- * Flat canopy with blue fascia band + yellow accent stripe,
- * 6 round pillars, 3 fuel pump islands, concrete ground slab.
+ * P4-17a · urban fuel forecourt, neutral livery.
+ *
+ * Was "Indian-style fuel station (Bharat Petroleum inspired)" — a real brand's blue-and-yellow
+ * fascia, named for it in the material identifiers, on all 39 stations in the city. Reproducing a
+ * real company's livery is not something to ship, and it is not what a Barcelona forecourt looks
+ * like either. The band is now a neutral red with a bone-white trim: still reads as a forecourt,
+ * attributable to nobody.
+ *
+ * Also SHRUNK. The canopy was 14 x 10 m at 7 m high, which is a highway service station. Barcelona's
+ * are wedged into the street grid, frequently under the building above, so 11 x 7.5 m at 5.4 m is
+ * the urban form — and it stops the canopy from swallowing the pavement it stands on.
  * Built at origin, facing +Z (road side). Caller rotates.
  */
 function buildFuelStation() {
   const geos = [];
-  const canopyW = 14, canopyD = 10, canopyH = 7;
+  const canopyW = 11, canopyD = 7.5, canopyH = 5.4;
 
   // 8 pillars (2 rows of 4)
   for (let row = -1; row <= 1; row += 2) {
@@ -702,7 +687,7 @@ function buildFuelStation() {
   // Canopy roof slab (cream/beige)
   const roof = new THREE.BoxGeometry(canopyW + 0.8, 0.35, canopyD + 0.8);
   roof.translate(0, canopyH, 0);
-  geos.push({ geo: roof, mat: 'bpRoof' });
+  geos.push({ geo: roof, mat: 'forecourtRoof' });
 
   // Blue fascia band on all 4 sides
   const fasciaH = 0.7;
@@ -710,12 +695,12 @@ function buildFuelStation() {
   for (const side of [-1, 1]) {
     const fascia = new THREE.BoxGeometry(canopyW + 0.9, fasciaH, 0.15);
     fascia.translate(0, fasciaY, side * (canopyD / 2 + 0.4));
-    geos.push({ geo: fascia, mat: 'bpBlue' });
+    geos.push({ geo: fascia, mat: 'forecourtBand' });
   }
   for (const side of [-1, 1]) {
     const fascia = new THREE.BoxGeometry(0.15, fasciaH, canopyD + 0.9);
     fascia.translate(side * (canopyW / 2 + 0.4), fasciaY, 0);
-    geos.push({ geo: fascia, mat: 'bpBlue' });
+    geos.push({ geo: fascia, mat: 'forecourtBand' });
   }
 
   // Yellow accent stripe below blue fascia
@@ -724,12 +709,12 @@ function buildFuelStation() {
   for (const side of [-1, 1]) {
     const stripe = new THREE.BoxGeometry(canopyW + 0.9, stripeH, 0.15);
     stripe.translate(0, stripeY, side * (canopyD / 2 + 0.4));
-    geos.push({ geo: stripe, mat: 'bpYellow' });
+    geos.push({ geo: stripe, mat: 'forecourtTrim' });
   }
   for (const side of [-1, 1]) {
     const stripe = new THREE.BoxGeometry(0.15, stripeH, canopyD + 0.9);
     stripe.translate(side * (canopyW / 2 + 0.4), stripeY, 0);
-    geos.push({ geo: stripe, mat: 'bpYellow' });
+    geos.push({ geo: stripe, mat: 'forecourtTrim' });
   }
 
   // 3 fuel pump islands (parallel to road = along X)
@@ -769,7 +754,7 @@ function buildFuelStation() {
 
   const offRoof = new THREE.BoxGeometry(offW + 0.3, 0.25, offD + 0.3);
   offRoof.translate(canopyW / 2 - offW / 2, offH + 0.12, -canopyD / 2 - offD / 2 - 0.8);
-  geos.push({ geo: offRoof, mat: 'bpYellow' });
+  geos.push({ geo: offRoof, mat: 'forecourtTrim' });
 
   // Office door
   const offDoor = new THREE.BoxGeometry(1.2, 2.4, 0.06);
@@ -810,12 +795,13 @@ function buildFireHydrant() {
 // ─── Material lookup ────────────────────────────────────────────────────────
 
 const MAT_MAP = {
-  steel: matSteel, red: matRed, white: matWhite, brick: matBrick,
+  steel: matSteel, red: matRed, white: matWhite, stone: matStone,
   concrete: matConcrete, water: matWater,
-  yellow: matYellow, blue: matBlue, darkGray: matDarkGray,
-  bpBlue: matBPBlue, bpYellow: matBPYellow, bpRoof: matBPRoof,
-  brown: matBrown, beige: matBeige, sulabhSign: matSulabhSign,
-  bush: matBush, rock: matRock, beacon: getBeaconMat,
+  yellow: matYellow, darkGray: matDarkGray,
+  forecourtBand: matForecourtBand, forecourtTrim: matForecourtTrim, forecourtRoof: matForecourtRoof,
+  cabinShell: matCabinShell, cabinRoof: matCabinRoof, cabinDoor: matCabinDoor,
+  brown: matBrown, beige: matBeige, wcSign: matWcSign,
+  beacon: getBeaconMat,
 };
 
 // ─── Builder dispatch ───────────────────────────────────────────────────────
@@ -834,11 +820,13 @@ const ROAD_FACING_TYPES = new Set(['fuel_station', 'public_toilet']);
 
 // Exclusion radius per type (metres) — trees won't spawn within this radius
 const EXCLUSION_RADIUS = {
-  fuel_station: 18,
+  // P4-17a: these must track the FOOTPRINT, or an object clears street trees it never touches.
+  fuel_station: 14,        // canopy 14x10 -> 11x7.5, so the circle comes in with it
   communication_tower: 5,
   water_tower: 6,
   fountain: 5,
-  public_toilet: 5,
+  public_toilet: 1.6,      // was 5, sized for a 6x5 m Sulabh complex. The cabin is 1.6x1.5 m —
+                           // at 5 m it kept punching a 10 m hole in the street trees around it.
   fire_hydrant: 1.5,
 };
 
