@@ -151,8 +151,13 @@ export function resolveRamps(graph) {
             return startTarget + t * (endTarget - startTarget);
           });
           const flat = Math.abs(startTarget - endTarget) < 0.5;
-          result.set(wayId, { isRamp: true, vertexHeights, flattenedShortTunnel: true, flat });
-          flattenedShortTunnels.push({ wayId, lengthM: Math.round(L), startH: +startTarget.toFixed(2), endH: +endTarget.toFixed(2), flat });
+          // Carry the GRADE, not just "is it flat". The profile above is monotonic and matches both
+          // endpoints, so this connector is valid geometry — the only question is whether it is too
+          // steep to keep, and that is a number, not a boolean. Without it the consumer can only ask
+          // "do the ends differ", which deletes a drivable 16% ramp and a vertical crack alike.
+          const gradePct = L > 0 ? +(100 * Math.abs(endTarget - startTarget) / L).toFixed(1) : Infinity;
+          result.set(wayId, { isRamp: true, vertexHeights, flattenedShortTunnel: true, flat, gradePct });
+          flattenedShortTunnels.push({ wayId, lengthM: Math.round(L), startH: +startTarget.toFixed(2), endH: +endTarget.toFixed(2), flat, gradePct });
           caseCFlatten++;
           continue;
         }

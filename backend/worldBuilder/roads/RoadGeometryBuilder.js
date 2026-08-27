@@ -6,6 +6,12 @@
 import { latLonToMercator } from '../../projection.js';
 import { resolveBaseHeight } from './LayerResolver.js';
 
+// Steepest Case-C connector kept rather than deleted. 30% is deliberately above the measured worst
+// (27.3%) so all four recoverable ways survive, and far below the >60% cliff backstop. Override with
+// CASE_C_KEEP_GRADE_PCT to re-tighten without a code change.
+const CASE_C_KEEP_GRADE_PCT = Number.isFinite(parseFloat(process.env.CASE_C_KEEP_GRADE_PCT))
+  ? parseFloat(process.env.CASE_C_KEEP_GRADE_PCT) : 30;
+
 /**
  * Build road geometry with per-vertex heights.
  * @param {object[]} ways - Each { id, nodeIds, points or lat/lon from nodes }
@@ -58,9 +64,21 @@ export function buildRoadGeometry(ways, nodeMap, rampResult) {
       name: way.name || '',
       closedLoop: way.closedLoop,
       isRamp,
-      // Mangled Case-C short tunnel between surface roads at DIFFERENT layers (RampResolver gave
-      // up fitting a dip → steep monotonic connector with broken lines). Precise broken-ramp signal.
-      brokenRamp: ramp?.flattenedShortTunnel === true && ramp?.flat === false,
+      // Case-C short tunnel between surface roads at DIFFERENT layers — RampResolver could not fit a
+      // dip, so it gave the way a MONOTONIC linear profile matching both endpoint heights. That is
+      // valid, connected geometry; the only question is whether it is too steep to drive.
+      //
+      // It used to be `flattenedShortTunnel && !flat`, i.e. "delete it if the ends differ at all".
+      // The P-R1 census measured what that discards: FOUR ways, at 16.2 / 22 / 26.5 / 27.3 percent.
+      // Barcelona has public streets steeper than that. Deleting them leaves a hole where a
+      // connector belongs — the "road missing where one obviously should be" the user reported —
+      // and a steep ramp beats no ramp.
+      //
+      // The >60% profile backstop in buildRegion is untouched and still catches the real cracks:
+      // the census puts its median at 94% and its tail at 3181%, and 305 of those 358 are stairs,
+      // footways, corridors and service passages, which SHOULD be dropped.
+      brokenRamp: ramp?.flattenedShortTunnel === true && ramp?.flat === false
+                  && !(Number.isFinite(ramp?.gradePct) && ramp.gradePct <= CASE_C_KEEP_GRADE_PCT),
     });
   }
 

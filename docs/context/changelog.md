@@ -2105,3 +2105,38 @@ Two probes were added getting here and both are worth keeping: `_ddVegCount()` n
 **allocated from DRAWN** (`BatchedMesh.instanceCount` is allocation, not visibility), and
 `_ddVegLod()` reports per-tile band, both fractions, and visible/total per handle kind — the total
 alone could never say *which* tile was bare.
+
+## 2026-08-27 — P-R1 acted on: keep drivable Case-C ramps, and what the census actually proved
+
+**The census overturned my own hypothesis, which is what it was for.** I had suggested the 332
+deleted roads might be recoverable by simply not deleting them. Measured, that is wrong for the bulk:
+
+```
+by rule:  profile-backstop 358  ·  caseC-flag 4
+backstop PROFILE grade %:  min 60 · p10 65.9 · p50 94.2 · p90 196.7 · max 3181
+                           at or below 25%: 0 of 358      at or below 50%: 0 of 358
+```
+
+And the type breakdown is the real result — **most "missing roads" are staircases**:
+
+| service | steps | corridor | footway | residential | tertiary+ / links |
+|---|---|---|---|---|---|
+| 124 | 114 | 43 | 24 | 26 | ~28 |
+
+`steps` at 650–750% grade *is* a staircase. Deleting 305 stairs/footways/corridors/service passages
+is correct, not a defect. That leaves ~54 drivable ways, not 332.
+
+**What changed:** the Case-C path. `brokenRamp` was `flattenedShortTunnel && !flat` — "delete if the
+ends differ at all". RampResolver had already given those ways a **monotonic profile matching both
+endpoint heights**: valid, connected geometry, its own comment calling it "a short ramp, which may be
+steep". The census measured exactly four such ways, at **16.2 / 22 / 26.5 / 27.3 %**. Barcelona has
+public streets steeper than that, and a steep ramp beats a hole where a connector belongs.
+
+Now gated on grade (`CASE_C_KEEP_GRADE_PCT`, default 30 — above the measured worst, far below the
+cliff backstop). The >60% backstop is untouched.
+
+**Still open, and now correctly scoped:** ~50 drivable roads dropped at >60%, including a `primary`
+at **3181%**. A primary road cannot be that steep — the road is not the defect, its height data is.
+That is V3 layer-conflict or V5 terrain-conflict upstream, and the backstop is correctly catching a
+symptom whose cause is elsewhere. It needs the P-R1b detector, which is also what the user's
+"floating roads" complaint needs.
