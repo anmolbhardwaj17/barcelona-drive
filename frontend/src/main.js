@@ -117,6 +117,125 @@ const { scene, camera, renderer, world, groundBody, groundMesh, worldGroup, spaw
 
 setRendererAnisotropy(renderer.capabilities.getMaxAnisotropy());
 window._ddRenderer = renderer; // expose for env map generation in carModel
+window._ddScene = scene;       // diagnostics: `_ddGround()` below needs a scene handle
+/**
+ * What is actually being DRAWN on the ground, by class, split visible/hidden.
+ *
+ * Bare terrain showing through the city is always one of two things — geometry that was never
+ * built, or geometry that was built and is not visible (LOD, frustum, a `visible = false`). The
+ * tile data can be measured offline; this is the only way to tell which of the two is happening on
+ * screen, and guessing it from a screenshot cost a round trip.
+ */
+/**
+ * `_ddPick(x, y)` — WHAT IS THAT THING ON SCREEN?
+ *
+ * Raycast at a screen pixel (defaults to the centre of the viewport) and name every surface under
+ * it, nearest first: the mesh's `userData.type`, its material, its colour, and its ground-layer
+ * depth bias. Positions are world XZ so a finding can be re-measured against the tile data offline.
+ *
+ * WHY THIS EXISTS. Identifying a surface from a screenshot is guesswork, and guessing wrong is
+ * expensive: in one session "big beige shapes" were attributed to pavement, then to plazas, and a
+ * dark region to water — each wrong, each costing a round trip and a re-bake. A raycast answers it
+ * in one call. Point the camera at the thing and run `_ddPick()`.
+ */
+window._ddPick = (x, y) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const px = x == null ? rect.width / 2 : x;
+  const py = y == null ? rect.height / 2 : y;
+  const ndc = new THREE.Vector2((px / rect.width) * 2 - 1, -(py / rect.height) * 2 + 1);
+  const ray = new THREE.Raycaster();
+  ray.params.Points.threshold = 0.5;
+  ray.setFromCamera(ndc, camera);
+  // Only visible meshes — an invisible hit would answer a question nobody asked.
+  const targets = [];
+  scene.traverse((o) => {
+    if (!(o.isMesh || o.isInstancedMesh || o.isBatchedMesh)) return;
+    for (let p = o; p; p = p.parent) if (!p.visible) return;
+    targets.push(o);
+  });
+  const hits = ray.intersectObjects(targets, false).slice(0, 8);
+  const rows = hits.map((h) => {
+    const m = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+    // The INTRINSIC tint of the surface, before any lighting. This is what tells a LOD swap
+    // ("beige far, grey near" = two different meshes) apart from a lighting difference
+    // ("the same mesh, warm sun vs cool shadow"). Guessing between those two cost a round trip.
+    // The BAKED per-vertex sky-AO actually applied to this surface. Road/pavement/kerb carry it as
+    // `aAO` and the shader does `diffuseColor.rgb *= (1.0 - vAoDark * uAoScale)`, so it is the one
+    // number that makes two pieces of the SAME material render at different brightness. Read it off
+    // the geometry rather than re-deriving it from world coordinates — the scene is X-MIRRORED
+    // (`worldGroup.scale.x = -1`, CLAUDE.md line 1) and sampling the tile grid by hand got the
+    // wrong tile twice.
+    //
+    // ⚠ `aAO` CARRIES TWO OPPOSITE CONVENTIONS UNDER ONE NAME, so the raw value is not comparable
+    // between surfaces and reporting it raw actively misleads:
+    //   · terrain   — a MULTIPLIER    (1 = open sky):  rgb *= (1.0 - (1.0 - vAo) * uAoScale)
+    //   · road/kerb — a DARKENING amt (0 = open sky):  rgb *= (1.0 - vAoDark * uAoScale)
+    // Each has its own matching shader, so both are correct in situ. But printed side by side,
+    // terrain 0.838 read as "6x darker" than pavement 0.135 when the two are in fact 0.838 vs 0.865
+    // BRIGHTNESS — practically identical. Report the resulting brightness, which IS comparable.
+    let ao = null, aoRaw = null;
+    const aoAttr = h.object.geometry?.getAttribute?.('aAO');
+    if (aoAttr && h.face) {
+      const v = [h.face.a, h.face.b, h.face.c].map((i) => aoAttr.getX(i));
+      aoRaw = +(v.reduce((x, y) => x + y, 0) / 3).toFixed(3);
+      // Terrain is the multiplier convention; everything else stores darkening.
+      const isTerrain = (m0) => !!m0?.userData?._patchTags?.includes('terrain');
+      const mm = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+      ao = +(isTerrain(mm) ? aoRaw : 1 - aoRaw).toFixed(3);
+    }
+    let vcol = null;
+    const ca = h.object.geometry?.getAttribute?.('color');
+    if (ca && h.face) {
+      const i = h.face.a;
+      const to255 = (v) => Math.round(Math.min(1, Math.max(0, v)) * 255);
+      vcol = '#' + [ca.getX(i), ca.getY(i), ca.getZ(i)].map((v) => to255(v).toString(16).padStart(2, '0')).join('');
+    }
+    return {
+      what: h.object.userData?.type || h.object.name || h.object.constructor.name,
+      dist: +h.distance.toFixed(1),
+      x: +h.point.x.toFixed(1), z: +h.point.z.toFixed(1), y: +h.point.y.toFixed(2),
+      material: m?.type,
+      colour: m?.color ? '#' + m.color.getHexString() : null,
+      // ⚠ `map` alone LIES for the road. Asphalt v2 binds its plate to a custom uniform
+      // (`uAsphalt`) and deliberately sets no `material.map` — D-30: three's `vMapUv` only exists
+      // under USE_MAP. Reporting "NO TEXTURE" for a textured road cost a false bug report, so ask
+      // the shader uniforms too.
+      map: m?.map ? (m.map.name || 'map') : (m?.userData?._patchTags?.length ? 'via shader patch: ' + m.userData._patchTags.join('+') : 'NO TEXTURE'),
+      depthBias: m?.polygonOffsetUnits ?? null,
+      vertexTint: vcol,                       // intrinsic colour — unlit
+      aoBrightness: ao,                       // 1 = unshaded, lower = darker. COMPARABLE across surfaces
+      aoRaw,                                  // the attribute as stored — convention differs, see above
+      lit: m?.type !== 'MeshBasicMaterial',   // Basic ignores lights, so it cannot shade with distance
+      shared: !!h.object.userData?.sharedMaterial,
+    };
+  });
+  console.table(rows);
+  if (!rows.length) console.log('[pick] nothing under that pixel — is the camera looking at sky?');
+  return rows;
+};
+
+window._ddGround = () => {
+  const by = new Map();
+  scene.traverse((o) => {
+    if (!o.isMesh && !o.isInstancedMesh && !o.isBatchedMesh) return;
+    const k = o.userData?.type || o.name || o.constructor.name;
+    const e = by.get(k) || { visible: 0, hidden: 0, tris: 0 };
+    // `visible` is per-object; an ancestor can still hide it, so walk up.
+    let shown = true;
+    for (let p = o; p; p = p.parent) if (!p.visible) { shown = false; break; }
+    e[shown ? 'visible' : 'hidden']++;
+    const g = o.geometry;
+    if (shown && g?.index) e.tris += g.index.count / 3;
+    by.set(k, e);
+  });
+  const rows = [...by.entries()]
+    .sort((a, b) => (b[1].visible + b[1].hidden) - (a[1].visible + a[1].hidden))
+    .map(([k, v]) => ({ mesh: k, visible: v.visible, hidden: v.hidden, tris: Math.round(v.tris) }));
+  console.table(rows);
+  console.log('[ground] camera Y', camera.position.y.toFixed(1),
+    '| draws', renderer.info.render.calls, '| tris', renderer.info.render.triangles);
+  return rows;
+};
 // v3 P1-01: one KTX2Loader + one MeshoptDecoder for the whole app. MUST run before any asset
 // load — KTX2Loader cannot pick a transcode target without detectSupport(renderer).
 initAssetRegistry(renderer);
