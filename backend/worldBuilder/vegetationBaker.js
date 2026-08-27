@@ -1053,12 +1053,37 @@ function collectZoneVegetation(tileData, tileKey, vegMask) {
  * Convert the tile road data from [[x, yUp, z], ...] to [{x, y}, ...] format
  * matching the frontend's convention where y = world Z.
  */
+/**
+ * N-7 · Road points arrive in MERCATOR and everything else here is WORLD. Convert.
+ *
+ * This read `{ x: p[0], y: p[2] }` — the raw payload point, which is Mercator. Probed:
+ *
+ *     road pt (240672.7, 5069787.3)   |   mask SW world (3661.3, 3903.0)
+ *
+ * ~240 km apart. Three things followed, none of them visible as an error:
+ *   1. `buildVegetationMask` rasterised every road outside its own grid, where
+ *      `isVegetationAllowed` returns TRUE unconditionally — so the ROAD MASK BLOCKED NOTHING.
+ *      Every "vegetation avoids roads" guarantee in this file was fiction.
+ *   2. `getRoadsideTreePositions` and the road-edge bush loop derived their output FROM these
+ *      points, so they emitted Mercator positions that were then dropped as out-of-tile. Those
+ *      two paths produced nothing at all; the trees on screen are building-perimeter and zone
+ *      trees plus OSM nodes.
+ *   3. It is silent. Buildings (`buildingNormalize`) and greens are already world, so only the
+ *      road half was wrong, and a road mask that blocks nothing looks exactly like a road mask
+ *      whose margins are slightly generous.
+ *
+ * ⚠ Fixing this CHANGES VEGETATION EVERYWHERE — the mask starts rejecting, and the two dead
+ * placement paths start producing. Expect a different city, and re-measure rather than assume.
+ */
 function convertRoadsForVeg(roads) {
   if (!roads || roads.length === 0) return [];
   return roads.map(r => ({
     ...r,
     points: (r.points || []).map(p => {
-      if (Array.isArray(p)) return { x: p[0], y: p[2] };
+      if (Array.isArray(p)) {
+        const w = mercatorToWorld(p[0], p[2]);
+        return { x: w.x, y: w.z };
+      }
       return p; // already in object form
     }),
   }));
@@ -1123,6 +1148,11 @@ function convertWaterForVeg(water) {
 export function bakeVegetation(tileData, elevation, tileBounds) {
   // Convert data formats to match frontend worker expectations
   const vegRoads = convertRoadsForVeg(tileData.roads);
+  if (process.env.VEG_PROBE && vegRoads[0]?.points?.[0]) {
+    const p0 = vegRoads[0].points[0];
+    const swp = latLonToWorld(tileBounds.south, tileBounds.west);
+    console.log(`[VEG_PROBE] road pt (${p0.x.toFixed(1)}, ${p0.y.toFixed(1)}) | mask SW world (${swp.x.toFixed(1)}, ${swp.z.toFixed(1)})`);
+  }
   const vegBuildings = convertBuildingsForVeg(tileData.buildings);
   const vegGreens = convertGreensForVeg(tileData.greens);
   const vegWater = convertWaterForVeg(tileData.water);
