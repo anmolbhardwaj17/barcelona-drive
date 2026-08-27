@@ -3278,15 +3278,34 @@ function guardRailWidth(road) {
 const LATERAL_DROP_M = 1.5;    // fall beside the lane that warrants an edge
 const LATERAL_PROBE_M = 3.0;   // how far past the kerb to look
 
+// A lane narrower than this does not get a crash barrier. A cycleway or a footpath beside a lawn is
+// not a carriageway with a fall, and dressing one with steel reads absurdly — user-reported: "on
+// such a thin road?". A tagged BRIDGE still gets its parapet at any width, because a footbridge
+// genuinely needs one; this floor gates the INFERRED case only.
+const LATERAL_DROP_MIN_WIDTH_M = 4.0;
+const LATERAL_DROP_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+  'unclassified', 'residential', 'living_street', 'service', 'busway',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link']);
+
 function hasLateralDrop(road, options, heights) {
   const getElevationAt = options?.getElevationAt;
   const pts = road.points;
   if (!getElevationAt || !pts || pts.length < 2) return false;
+  // Inferred protection is for CARRIAGEWAYS. Paths, cycleways, steps and pavements are excluded by
+  // class, and anything under 4 m by width — both, because OSM width is often absent on a path.
+  if (!LATERAL_DROP_CLASSES.has(road.highwayType)) return false;
+  if ((guardRailWidth(road) || 0) < LATERAL_DROP_MIN_WIDTH_M) return false;
   const hVals = heights || getRoadPointHeights(road, options);
   if (!hVals) return false;
   const scale = vertExag();
   const halfW = (guardRailWidth(road) || 6) / 2;
-  const step = Math.max(1, Math.floor(pts.length / 12));   // ~12 probes, not one per vertex
+  // 6 stations, both sides = 12 terrain samples per road, and it returns on the FIRST hit.
+  //
+  // This runs on the tile-BUILD path, so it is streaming cost, not frame cost — but it is still
+  // cost. Measured across the region before the class/width gate above: 51,574 roads reached here,
+  // 1.24 M terrain samples. The gate took that to 11,144 roads, and halving the stations takes it to
+  // ~134 k. A fall beside a road is tens of metres long; six stations along a way cannot miss one.
+  const step = Math.max(1, Math.floor(pts.length / 6));
   for (let i = 0; i < pts.length; i += step) {
     const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
     let dx = b.x - a.x, dy = b.y - a.y;
@@ -3719,6 +3738,17 @@ export function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms,
     bg.setAttribute('color', styleColorAttr(beamPos2.length / 3, style.postC));
     bg.setIndex(beamIdx2);
     bg.computeVertexNormals();
+    // ⚠ A BEAM IS ONLY SELF-SUPPORTING IF SOMETHING HOLDS IT UP.
+    //
+    // The post LOD keeps beams and drops posts past 80 m, which is right for a guardrail — its beam
+    // still sits on a 0.45 m concrete wall. It is WRONG for a pedestrian railing, which has no wall
+    // at all: dropping its posts leaves a bar hanging in mid-air at 1.05 m with nothing beneath it.
+    // Shipped exactly that; user-reported as "no connection from ground".
+    //
+    // So a wall-less beam is tagged, and the merge groups it with the posts rather than with the
+    // supported beams — past the LOD distance the whole railing goes, which at 80 m+ is invisible
+    // anyway. Cheaper than the bug, and still no extra draw call.
+    bg.userData.needsPosts = !(style.wallH > 0);
     beamGeoms.push(bg);
   }
 }
@@ -3797,9 +3827,13 @@ function buildBridgeGuardRailGeometry(roads, options) {
   // switch. Same trick as the terrain LOD rings: one buffer, a different slice of it.
   let railingMesh = null;
   if (railingGeoms.length > 0 || beamGeoms.length > 0) {
-    const ordered = [...beamGeoms, ...railingGeoms];
+    // [supported beams..., | posts + unsupported beams...] — the drawRange cut goes at the bar.
+    // A beam whose style has no wall is NOT in the keep-set: without its posts it would float.
+    const supported = beamGeoms.filter((g) => !g.userData.needsPosts);
+    const floating = beamGeoms.filter((g) => g.userData.needsPosts);
+    const ordered = [...supported, ...floating, ...railingGeoms];
     let beamIndexCount = 0;
-    for (const g of beamGeoms) beamIndexCount += g.getIndex() ? g.getIndex().count : 0;
+    for (const g of supported) beamIndexCount += g.getIndex() ? g.getIndex().count : 0;
     const merged2 = mergeGeometries(ordered);
     ordered.forEach((g) => g.dispose());
     if (merged2) {
