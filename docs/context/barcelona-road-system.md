@@ -484,13 +484,187 @@ three "mirror of roadRenderer" comments failed to be. It caught a hand-typed err
 ⚠ **The drawn ribbon is `kerbToKerbW`, not `carriagewayW`.** A parking bay is asphalt. Drawing the
 carriageway leaves a strip of bare terrain where every street's parking lane should be.
 
-### R-J1 · Junction and merge geometry
-**Today:** junction handling lives in `worldBuilder/junctions/`; ways meet at shared nodes and the
-carriageways are drawn independently, so merges and forks overlap rather than blending.
-**Wanted:** proper merge geometry — tapers where a slip road joins, correct chamfer at Eixample
-corners (§2.156 already specifies this), no z-fighting where two carriageways of different width
-meet at a node.
-**Depends:** R-W1. Merging carriageways of inconsistent width just moves the seam.
+### R-J1 · Junction and merge geometry — ✅ **DONE 2026-08-27**
+
+**The ticket's premise was stale, and measuring it first is what found the real bug.** R-J1 said
+"carriageways are drawn independently, so merges and forks overlap rather than blending". All three
+of its wanted items were already built. This is the third ticket in two days to die on
+re-measurement (M1, R-P1, R-B2's framing) — and, like R-B1, it had a working implementation nobody
+had checked for.
+
+**What was already there, measured on the shipped v10 tiles:**
+
+| wanted | state | measured |
+|---|---|---|
+| tapers where a slip road joins | **built, and TWICE** | gore geometry runs bake → binary → parser → `buildGoreMeshes`. 492 of 486 distinct merge nodes carry one; only **12 drivable nodes** city-wide have none |
+| Eixample chamfer | **built** | `isChamferEligibleJunction` + `chamferPolygonVertices`, plus chamfer sidewalks and kerbs. 2,233 junctions eligible |
+| no step where widths differ | **built** | a 20 m smoothstep width taper. 2,956 in-tile endpoint clusters step in width; every one of them tapers |
+
+**The real defect, which the premise hid.** Junction enrichment in `buildRegion.js` built its
+`wayId → width` lookup from `subset` — the spatial query for the CURRENT tile. But a junction is
+kept if it lands within 30 m of the tile, so its arms routinely belong to ways whose bbox never
+intersects that tile. Every one of those hit a `?? 6` fallback:
+
+| | before | after |
+|---|---|---|
+| approach widths fabricated at 6 m | **5,454 / 35,386 (15.4%)** | **~0** (region-wide lookup) |
+| junctions with a wrong `radius` | **2,278 / 11,101 (20.5%)** | — |
+| ↳ of those, exactly the 6 m fallback | 2,226 (97.7%) | — |
+| worst single error | baked r=6 against a true 22 m (residential/residential/primary) | — |
+
+`radius` and `approaches` are the *only* thing the baked junction record is read for, and all four
+consumers take both: the chamfer fill, its sidewalk, its kerb, and gore eligibility. Effect on
+screen: **33 chamfers missing entirely** (radius fell under the ≥ 8 m gate) and **327 drawn with the
+wrong polygon** — median vertex error 2.2 m, worst 12.2 m. The same per-tile lookup also explains
+48 of the 83 missing gores.
+
+**Fix:** one region-wide `wayWidthById` built before the tile loop, from `simplified`. A width is a
+property of the WAY, not of the tile that happens to be looking at it. The bake now prints
+`[Junctions] approach widths: N/M resolved …` (D-23 proof-of-work) so a silent regression is
+visible; a non-zero residual means a way the junction graph knows about but the road pipeline
+dropped.
+
+**Second finding — the taper exists twice.** `roadBaker.js` (bake, 260 of 433 tiles) and
+`roadRenderer.js` (runtime, the other 173) each carry their own copy of `buildJunctionWidthMap` +
+`computeTaperedWidths`. They agree today; nothing made them. That is exactly the R-W1 situation —
+and note the split is by TILE, so the same street tapers through one path or the other depending
+only on where the tile grid fell. Guarded by `frontend/test/widthTaper.test.js`, which runs both
+against the real Barcelona width steps and fails on any divergence.
+
+**Left open, deliberately — a judgement call, not a defect.** The taper flares the NARROW arm up to
+the wider neighbour over 20 m. R-W1 took residential from 4 m to 10.4 m, which created **219 nodes
+where a 4 m `living_street` now balloons 2.6× at its mouth**. A real kerb flare is ~5 m, not 20.
+Nothing is broken and it has not been looked at on screen; if alley mouths read as funnels, the
+fix is a per-class taper length, not a change to the widths.
+
+### R-J3 · The junction clip was eating the pavement — ✅ **FIXED 2026-08-27**
+
+**Reported from the driver's seat:** bare green terrain along kerb lines and around corners, and
+pavement appearing "where it shouldn't". Both are the same bug seen from two sides — the pavement
+was being clipped so far back from every junction that what survived read as stranded fragments,
+and the strip between the asphalt and the buildings had nothing drawn in it at all.
+
+**TWO COMPOUNDING GEOMETRY ERRORS**, in `buildSidewalks`/`buildCurbs` and their bake twin:
+
+1. **Full width where a half was meant.** `junctionClipRadius` returns the widest paved width at the
+   node as the along-road clip depth. The kerb the pavement must stop at is **half** a width from
+   the node. R-J2 had already worked this out for tees (`teeWidth / 2 + 1.5`) and fixed only that
+   branch; the crossroads branch kept the doubled value.
+2. **A sum where a hypotenuse was meant.** `clipPolylineNearJunctions` measures distance to the
+   node, so the clip is a **circle**. The pavement runs `offset` to the side of the centreline, and
+   a circle of radius `R` meets it at `√(R² − offset²)`, not at `R`. Both call sites used
+   `depth + offset`, which cuts at `√(depth² + 2·depth·offset)` — always further out than intended.
+
+For an Eixample crossroads (14.15 m secondaries, 3.5 m pavements) the two together cut **21.3 m**
+of pavement per arm where **8.6 m** is correct.
+
+**Measured over the shipped v10 tiles, 10,713 roads that should carry a pavement:**
+
+| | before | after |
+|---|---|---|
+| pavement cut per road (both ends), median | **21.4 m** | **9.7 m** |
+| roads whose pavement is clipped away **entirely** | **1,669 (15.6%)** | **578 (5.4%)** |
+| kerb line restored city-wide | — | **≈138 km** |
+
+**Fix:** `junctionApronDepth()` (half the paved width + the 1.5 m kerb allowance, for tee and
+crossroads alike) and `offsetClipRadius(depth, offset)` = `hypot(depth, offset)`, replacing
+`junctionClipRadius(...) + offset` at both the pavement and the kerb call sites.
+
+**This is a THIRD copy-pair.** The logic lives in `roadRenderer.js` (runtime ribbon path, 173 of
+433 tiles) and `sidewalkBaker.js` (bake path, the other 260) — and **the bake half had never
+received R-J2's tee fix at all**, so it over-clipped every tee in the city for a whole session while
+the runtime did not. `frontend/test/sidewalkClip.test.js` (7 tests) now pins the two together.
+
+> ⚠ **This supersedes a decisions-log entry.** 2026-05-29 recorded "`junction.radius` = max road
+> width at junction = clip-zone depth on each approach". That was calibrated when a residential road
+> was **4 m** wide, so the rule cost ~4 m of pavement; R-W1 made the same road **10.4 m** and the
+> identical rule started costing ~21 m. The decision was not wrong when written — its units moved
+> under it. **Lane paint deliberately keeps the old rule**: over-clipping paint shortens a line, it
+> does not expose terrain.
+
+### R-J4 · A pavement may not lie ON a carriageway — ✅ **FIXED 2026-08-27**
+
+**Reported:** "some roads got sidewalks which looks bad, on the left it's covering the road almost."
+
+**Cause.** Every road with a pavement emits a ribbon at `half + curb + swW/2` to each side, and
+nothing ever checked whether that lands on a **different** road. On a boulevard with lateral service
+roads — Gran Via is the canonical case — the lateral's pavement lands squarely on the main
+carriageway. It then draws **on top of it**, because `GROUND_LAYERS.sidewalk` (-6) deliberately beats
+`road` (-4): the asphalt loses the depth test to a pavement that should not be there at all.
+
+| measured on the shipped v10 tiles | |
+|---|---|
+| pavement vertices inside a live carriageway | **14.3%** |
+| ↳ deeper than 0.5 m | **4.0%** |
+| ↳ deeper than 1 m | 2.4% |
+| worst penetration | **5.55 m** |
+
+**Why the existing clamp did not do it.** `clampSidewalkVerticesOutsideRoads` pushes offending
+VERTICES sideways to the kerb line, and it is the wrong tool twice: it moves vertices only, so a
+triangle EDGE still crosses the asphalt; and where a pavement genuinely runs down the middle of an
+avenue, shoving its vertices to the edge yields a **squashed, distorted ribbon** rather than removing
+something that does not exist in the real street. That distortion is itself what reads as a
+"z-index" artifact. It is kept as the final centimetre-level tidy.
+
+**Fix.** `buildCarriagewayGrid()` + `clipRunOutsideCarriageways()` — the same rule
+`roads/pathCoverageClipper.js` already applies to footpaths at bake Phase 1, one level out. Two
+details that are load-bearing:
+
+- **`selfId` exempts the pavement's own road.** A pavement is *supposed* to abut its own kerb;
+  without the exemption, inflating the test would delete every legitimate pavement in the city. It
+  earns its keep on curves, where the inside-of-bend offset swings toward its own centreline.
+- **`extra` inflates by half the ribbon's width**, because the test runs on the CENTRELINE while the
+  surface reaches either side of it. Centreline-only still left the inner edge on the asphalt.
+
+**Result (tile 16_33161_24477):** vertices >0.5 m inside a carriageway **4.0% → 1.65%**, worst
+**5.55 m → 1.19 m**. The residual is miter overshoot at sharp bends.
+
+> ⚠ **The clip must REMOVE, never densify.** The obvious implementation — resample at a fixed step,
+> keep the uncovered samples — took the baked pavement from **1,968 to 20,670** position floats on
+> one tile, a 10× geometry cost for a clip. Sampling is used to FIND transitions; the run is rebuilt
+> from the source vertices plus the boundary points.
+
+**This is the third copy-pair** (`sidewalkBaker.js` bakes 207 of 433 tiles, `roadRenderer.js`
+generates the rest). Pinned by `frontend/test/sidewalkClip.test.js`, which caught a real divergence
+on its first run: the two `buildCarriagewayGrid`s returned different SHAPES (object vs function).
+
+### R-J5 · Every road near a tile edge was drawn TWICE — ✅ **FIXED 2026-08-27**
+
+**The unified cause of three separate user reports**: "roads look darker in places", "z-index issues
+on roads", and "sidewalks coming too wide". Found with `window._ddPick()`, which returned
+**`sidewalk` twice and the road twice at identical world coordinates**.
+
+**Cause.** The bake runs `noClipTileStrategy: true` — *"write full way geometry for each road. No
+clipping, no splitting. Ways may exist in multiple tiles when bbox intersects. Guarantees continuous
+roads."* That is the right call for the DATA (topology, physics, the road graph) and the wrong one
+for the PICTURE, because every tile then draws its neighbours' roads on top of theirs.
+
+| measured over the shipped v10 tiles | |
+|---|---|
+| ways written into more than one tile | **5,308 of 38,813 (13.7%)** |
+| road centreline DRAWN across all tiles | **4,146 km** |
+| road centreline if each way were drawn once | **2,578 km** |
+| **duplicate geometry** | **37.8% of everything drawn** |
+
+**Why the duplicates are VISIBLE and not merely wasteful.** Two identical coplanar copies would
+show nothing. These differ: `createAoSampler` **clamps** its lookup to its own grid, and **24.6% of
+road vertices are drawn outside their own tile's AO grid** (median 24.4%, p90 43%). Those vertices
+take the AO of the tile EDGE, while the neighbouring tile that properly contains them computes the
+true value. Two coplanar surfaces carrying different AO fight for the depth test — which copy wins
+varies per pixel and per camera angle. The pavement compounds it: each tile generates its own from
+its own road subset, with its own tapers and its own junction set, so two near-identical pavements
+read as one wider, messier band.
+
+**Fix.** `payload.renderRoads` — the tile's roads clipped to its own bounds, used ONLY by
+`bakeRoadSurfaces` and `bakeSidewalks`. `payload.roads` stays whole, so the continuity guarantee
+`noClipTileStrategy` exists for is untouched. **Rendering needs COVERAGE, not duplication.** The
+clip is `clipRoadsForTile` — the same routine the non-no-clip path already used, so this is reuse,
+not a new clipper. `renderRoads` is never written to the binary. The bake prints
+`[RenderClip] road records: N rendered / M carried …` (D-23 proof-of-work): a ratio of 1.00 means
+the clip has stopped firing and every tile is drawing its neighbours again.
+
+> **This did not require reverting `noClipTileStrategy`.** The strategy's stated goal is continuous
+> road DATA; it was only ever the RENDER that needed clipping. Both are now true at once.
 
 ### R-B1 · Edge protection by RULE, not by tag
 **Today:** `pbfBarriers.js` parses `barrier=guard_rail|wall|fence|hedge|retaining_wall` and
@@ -682,6 +856,12 @@ it had been reading four fields that `getLoadedRoadSegments` never copied (D-42)
 **Also in scope (user, 2026-08-27):** traffic and parked-car *density and placement* should follow
 road class. See `v3-execution-tracker.md` **P4-15a** for the engineering half of vehicles.
 
-> **Sequencing:** ~~R-W1 →~~ R-J1 is now UNBLOCKED (R-W1 done 2026-08-27), and
-> R-B1 → R-B2 (place before styling). R-B1 is the one the user notices most — missing railings on
-> elevated roads — and is the least dependent on the others, so it is the sensible entry point.
+> **Sequencing:** ~~R-W1 →~~ ~~R-J1~~ both DONE 2026-08-27. ~~R-B1~~ closed as already-implemented;
+> its real content re-filed as **M1_implied_bridge** (topological, belongs with the OSM repair
+> layer — see `osm-repair-layer.md` §2). **R-B2 is all that is left of this programme**, and its own
+> row warns it is a FEATURE, not a defect: there are currently zero sharp-bend barriers and nothing
+> is wrong on screen. Read that row before scheduling it.
+>
+> **Three of this programme's four tickets died on re-measurement.** R-W1 was the only one whose
+> premise survived contact with the shipped tiles. The pattern is consistent enough to plan around:
+> these tickets were written from reading the code, and the code had moved.

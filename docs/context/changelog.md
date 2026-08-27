@@ -4,6 +4,271 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-27 — P4-17a: 206 Indian toilet complexes removed from Barcelona
+
+**P4-17 turned out to be blocked, and the premise check is what found it.** Its stated dependency
+`signAtlas.js` does not exist — nor `map/signage/`, nor `scripts/build-sign-atlas.mjs`. The producer
+is **P4-11, 7 days, risk high, not started**. A 2-day task on an unbuilt 7-day foundation.
+
+The check also showed the task text does not match the code: it promises "fountains, kiosks,
+monuments and glazed bus shelters", but `BUILDERS` has **no kiosks and no monuments**. Censused over
+433 tiles, "urban features" is six types and 905 objects — **fire_hydrant 527 · public_toilet 206 ·
+fountain 114 · fuel_station 39 · communication_tower 17 · water_tower 2** — plus 1,295 bus stops.
+
+**P4-17a is the half that needs no atlas: the Delhi content still standing in Barcelona.**
+
+- **Public toilet (206) rebuilt.** It was a *Sulabh complex* — 6 × 5 × 3.8 m brown-stone building,
+  entrance canopy, three steps, steel railings, an emissive **"SULABH TOILET COMPLEX"** board and
+  **14 scattered bushes and boulders** landscaped around it, on 3–4 m Eixample pavements. Now a
+  1.6 × 1.5 × 2.5 m graphite street cabin. **30 m² → 2.4 m².**
+- **Fuel forecourt (39) neutralised.** "Bharat Petroleum inspired", carrying BP's blue-and-yellow
+  livery and named for it in the identifiers. Now neutral red/bone. Canopy 14×10×7 m → 11×7.5×5.4.
+- **Fountains (114)** — brown north-Indian sandstone → pale grey Montjuïc stone.
+- **`EXCLUSION_RADIUS` re-sized with the footprints.** It feeds `vegetationRenderer:613` at RUNTIME,
+  so a 1.6 m cabin had been clearing a **10 m** circle of street trees. No re-bake needed.
+- **Four orphaned materials deleted**, verified 0 callers first.
+
+**Left alone deliberately:** the fire hydrant (527, the most numerous). Its form is a defensible
+European *hidrante de columna*. A pillar/underground split is impossible today — **the bake ships
+`tags: {}` on every urban feature**, so `fire_hydrant:type` never survives. Filed as **N-5**;
+`amenity=drinking_water` (Barcelona's cast-iron *fonts*) isn't imported at all — **N-6**.
+
+354 tests green, build clean. A material-map validator caught one dangling reference before ship.
+⚠ Not yet seen on screen.
+
+## 2026-08-27 — 37.8% of every road was drawn twice, and the clipper that should have prevented it was broken
+
+Three user reports — "roads darker in places", "z-index issues on roads", "sidewalks too wide" —
+turned out to be **one bug**. `window._ddPick()` (added this session because identifying a surface
+from a screenshot had already failed three times) returned **`sidewalk` twice and the road twice at
+identical world coordinates**.
+
+**Cause.** `noClipTileStrategy: true` writes each way IN FULL to every tile its bbox touches
+("Guarantees continuous roads") — right for the DATA, ruinous for the PICTURE:
+
+| | |
+|---|---|
+| ways in more than one tile | **5,308 of 38,813 (13.7%)** |
+| road centreline drawn | **4,146 km** |
+| unique | **2,578 km** |
+| **duplicate** | **37.8%** |
+
+**Why the copies were VISIBLE and not merely wasteful:** `createAoSampler` clamps outside its own
+grid, and **24.6% of road vertices are drawn outside their tile's AO grid** (p90 43%). They take the
+tile-EDGE AO while the neighbour computes the true value — two coplanar surfaces with different AO,
+fighting per-pixel.
+
+**Fix (R-J5):** `payload.renderRoads`, the tile's roads clipped to its own bounds, feeds
+`bakeRoadSurfaces` + `bakeSidewalks`; `payload.roads` stays whole for physics and topology. The
+strategy did not need reverting — rendering needs COVERAGE, not duplication. Cross-tile geometry
+**24.6% → 2.92%** (the residual is ribbon half-width overhanging the edge, which is required).
+
+**And underneath it, a second bug (D-81).** Verifying R-J5, 9 tiles rendered no roads despite
+containing them. `clipRoadToTile` discarded the whole accumulated run whenever a road LEFT the tile
+— so a road that enters, crosses and exits produced nothing. A 103-point path with 42 segments fully
+inside clipped to ZERO runs, while a 2-point road from the same polyline clipped fine. One line to
+fix; the bake's `[RenderClip]` figure went **90.0% → 98.9%**.
+
+**This is very likely why `noClipTileStrategy` was ever set.** With the clipper eating roads, not
+clipping was the only setting that gave a complete city — a latent bug in one module silently
+dictated a pipeline-wide strategy, at a cost of 37.8% duplicate geometry.
+
+Also added: `window._ddPick()` (raycast and name every surface under a pixel) and `?pedareas=0`.
+**354 tests green**, incl. `test/tileClip.test.js` (6) — 0 real coverage holes, verified.
+
+See `barcelona-road-system.md` §4 R-J5 and tracker D-79 / D-80 / D-81.
+
+## 2026-08-27 — R-J4: the pavement was being drawn ON the carriageway, and winning
+
+**Reported:** "some roads got sidewalks which looks bad — it's covering the road almost."
+
+Every road with a pavement emits a ribbon to each side and **nothing checked whether it lands on a
+different road**. On a boulevard with lateral service roads (Gran Via) the lateral's pavement lands
+on the main carriageway — and `GROUND_LAYERS.sidewalk` (-6) deliberately beats `road` (-4), so the
+asphalt loses the depth test to a pavement that should not be there at all.
+
+| | before | after |
+|---|---|---|
+| pavement vertices inside a live carriageway | **14.34%** | **5.73%** |
+| ↳ deeper than 0.5 m | 3.97% | **2.07%** |
+| ↳ deeper than 2 m | 0.74% | **0.19%** |
+| worst penetration | 5.55 m | 1.19 m (probe tile) |
+
+The existing `clampSidewalkVerticesOutsideRoads` could not do this: it moves VERTICES only (an edge
+still crosses), and where a pavement genuinely lies on an avenue, shoving its vertices to the kerb
+yields a squashed ribbon rather than removing something that does not exist in the real street —
+which is itself the "z-index" artifact reported. Fixed by clipping the ribbon out of carriageway
+coverage, the rule `pathCoverageClipper` already applies to footpaths one level down.
+
+⚠ **A clip must REMOVE, never densify.** The obvious resample-and-keep-uncovered version took the
+baked pavement from **1,968 to 20,670 floats on one tile**. Sampling finds the transitions; the run
+is rebuilt from source vertices.
+
+**Also this session:** the terrain's `roadDistGrid` — a full spatial grid stamped per road segment,
+built on **every** tile and **read by nothing** — deleted (D-76), along with the stale comment 400
+lines away that kept it looking alive.
+
+**And a measurement trap worth knowing (D-77/H15):** verifying in Chrome, the load reported
+`p1 physics 26,527 ms` against a historical 752 ms. It is not a regression — with every frontend
+change stashed the same run reported **51,643 ms**, worse. Chrome throttles rAF to ~1 Hz in an
+unfocused tab and this load is yield-bound by design. **Automation can verify geometry and
+visibility; never timing.**
+
+See `barcelona-road-system.md` §4 R-J4 and tracker D-75 / D-76 / D-77 / H15.
+
+## 2026-08-27 — The kerb drew 2.5x further than the pavement it edges
+
+Found from a `_ddGround()` reading in PHOTO mode, where everything should be drawn: markings 12/0,
+crosswalk 12/0, curb 11/1 — and **sidewalk 5 visible / 7 hidden**.
+
+`bcnSidewalkMesh` was culled at `80 * altMult`; `bcnCurbMesh` at `200 * altMult`. **The pavement and
+its kerb are one surface.** From 80 m out, every street rendered kerb lines with bare terrain between
+them and the buildings — the green strip along the kerb. It is an LOD bug that looks exactly like a
+geometry bug, which is why it survived the whole R-J3 junction-clip investigation: both faults strip
+pavement, and on screen they are indistinguishable.
+
+Also: none of the Phase-3 ground lines honoured `_photoMode`, unlike `showDetail` directly above
+them — so the one mode meant to draw everything still culled the pavement. Fixed, along with
+`dressDist`. Pavement and kerb now share `GROUND_COVER_CUT_M`.
+
+Cost, measured off the reading: ~515 tris/tile pavement + ~1,006 kerb → **~14k tris, +18 draws**
+over 9 resident tiles, against 2.6 M / 450.
+
+**When two halves of one physical object carry two different LOD numbers, the object is wrong at
+every distance between them.**
+
+See tracker D-74.
+
+## 2026-08-27 — The city was culled at 280 m while the ground under it drew to 1500 m
+
+**Reported from the air:** roads and crosswalks floating on a grass-green lawn, whole blocks of
+buildings absent. It was **not** missing data — the tile measured **113.9% covered** (buildings
+46.4%, roads 37.9%, pavement 15.6%). It was geometry that exists and was not being drawn.
+
+Diagnosing it from screenshots had already cost a round trip, so `window._ddGround()` went in first:
+a table of every ground mesh class split visible/hidden. One reading named it —
+**greens 0 visible / 31 hidden · plazas 0 / 11 · pavement drawn on 4 of 11 resident tiles.**
+
+**Two causes, and both are the same fix applied to everything except the city.**
+
+1. `FOG_FULL_DIST = 280` hides everything on a far tile. But **terrain** was lifted out of that cull
+   to 1500 m by P4-02, and **roads** are explicitly "kept visible into fog for continuity". So the
+   two things that read as *ground* survive to 1500 m and everything that **covers** them dies at
+   280 m. P4-02 diagnosed this exact miscalibration for terrain ("deleting ground that was still
+   ~61% visible"); VEG-FIX-1 hit the resulting seam for vegetation ("bare ground from 280 m out")
+   and lifted impostors to 600 m. Neither pass extended the built environment.
+   → `GROUND_COVER_CUT_M = 600`, the same constant and the same reason as `VEG_IMPOSTOR_CUT_M`
+   (FogExp2 at the shipping 0.0025 reaches 89.5% there), now carries park/plaza polygons and
+   `lodBuildingMesh` past the cull.
+
+2. Parks and plazas were being LOD'd **as trees**: the near path's fall-through was
+   `m.visible = dist <= treeMaxDist`, where `TREE_MAX_DISTANCE` is **170 m** and `dist` is distance
+   to the tile *centre* — which includes camera altitude. Above ~170 m every park and plaza in the
+   city vanishes at once; at street level a park in your own tile pops out at 170 m. They are flat
+   polygons of a few triangles that inherited a rule written for 12 m plane trees by falling off the
+   end of an `else if` chain. Now on nearest-edge distance out to `GROUND_COVER_CUT_M`.
+
+**Deliberately NOT extended:** full building detail, pavement, kerbs and lane paint stay culled at
+280 m. They are the expensive half and the frame budget binds. Greens merge per type (~3 meshes per
+tile) and plazas to one per tile, so the change is ≈**+42 draws** against 246/450 — checked before
+shipping, and the reason only the cheap half moved.
+
+See tracker D-72 / D-73.
+
+## 2026-08-27 — R-J3: the junction clip was eating the pavement (138 km of it)
+
+**User-reported, from the driver's seat:** bare green terrain along kerb lines and around corners,
+plus pavement "appearing where it shouldn't". One bug, seen from two sides — the pavement was
+clipped so far back from every junction that the survivors read as stranded fragments, and the strip
+between the asphalt and the buildings had nothing drawn in it.
+
+**Two compounding geometry errors** in `buildSidewalks`/`buildCurbs` and their bake twin:
+
+1. **A full width where a half was meant.** The crossroads branch of `junctionClipRadius` used the
+   widest paved width at the node as the along-road clip depth. The kerb the pavement must stop at
+   is *half* a width away. R-J2 had already derived the right rule (`teeWidth / 2 + 1.5`) and fixed
+   only the tee branch.
+2. **A sum where a hypotenuse was meant.** The clip is a *circle* about the node, and the pavement
+   runs `offset` to the side, so the circle meets it at `√(R² − offset²)` — not at `R`. Both sites
+   used `depth + offset`, cutting at `√(depth² + 2·depth·offset)`.
+
+Eixample crossroads: **21.3 m** cut per arm where **8.6 m** is correct.
+
+| over 10,713 roads that should carry a pavement | before | after |
+|---|---|---|
+| pavement cut per road, median | **21.4 m** | **9.7 m** |
+| pavement clipped away **entirely** | **1,669 (15.6%)** | **578 (5.4%)** |
+| kerb line restored | — | **≈138 km** |
+
+Fixed with `junctionApronDepth()` and `offsetClipRadius() = hypot(depth, offset)`. Re-baked and
+verified on the output: **+21.1% baked pavement/kerb geometry** (1,036,386 → 1,255,524 position
+floats) and the median junction now has pavement within **8.2 m** of it, against the 8.6 m target.
+
+**A latent bug detonated by a correct change.** The 2026-05-29 decision "`junction.radius` = max
+road width = clip-zone depth" was fine when a residential road was 4 m; R-W1 made it 10.4 m and the
+unchanged rule started costing 21 m. Lane paint deliberately keeps the old rule — over-clipped paint
+shortens a line, it does not expose terrain.
+
+**A third copy-pair, already diverged.** The clip lives in `roadRenderer.js` (runtime, 173 tiles)
+and `sidewalkBaker.js` (bake, 260) — and the bake half had **never received R-J2's tee fix**, so it
+over-clipped every tee in the city while the runtime did not. The baker's header already demanded a
+mirror in prose; it did not work. `frontend/test/sidewalkClip.test.js` (7 tests) now enforces it.
+
+**Also corrected:** R-J1's chamfer work cannot be seen — `ENABLE_CHAMFER_FILLS/SIDEWALKS/CURBS` are
+all `false`. The data fix stands but is not observable; **H13** records what must be re-derived
+before the chamfer is ever switched on, since R-J3 moved the pavement's stopping point.
+
+**Still open:** roads reading darker in places, from the same screenshots. Not diagnosed — the AO
+sampler is properly bilinear, so it is not blocky by construction.
+
+See `barcelona-road-system.md` §4 R-J3 and tracker D-70 / D-71 / H12 / H13.
+
+## 2026-08-27 — R-J1: the ticket was already built, and proving that found the real bug
+
+R-J1 asked for merge tapers, a correct Eixample chamfer, and no step where two carriageways of
+different width meet. **All three already existed.** Measured on the shipped v10 tiles before
+writing anything:
+
+- **gore geometry** runs end to end — bake → binary → parser → `buildGoreMeshes`. Of 486 distinct
+  merge nodes, only **12 drivable ones** city-wide have no gore.
+- **the chamfer** exists with sidewalks and kerbs; 2,233 junctions are eligible.
+- **the width taper** exists — and *twice*. Every one of the 2,956 in-tile width steps tapers.
+
+**The actual defect was underneath the premise.** Junction enrichment in `buildRegion.js` built its
+`wayId → width` lookup from `subset`, the spatial query for the current tile. But a junction is kept
+if it lands within 30 m of the tile, so its arms routinely belong to ways whose bbox never intersects
+that tile — and each hit a `?? 6` fallback:
+
+| | before | after |
+|---|---|---|
+| approach widths fabricated at 6 m | **5,454 / 35,386 (15.4%)** | region-wide lookup |
+| junctions with a wrong `radius` | **2,278 / 11,101 (20.5%)** | — |
+| ↳ exactly the 6 m fallback | 2,226 (97.7%) | — |
+| worst case | baked r=6 against a true 22 m | — |
+
+`radius` and `approaches` are the only fields the baked junction record is read for, and all four
+consumers take both. On screen: **33 chamfers missing entirely** (radius fell under the ≥ 8 m gate)
+and **327 drawn with the wrong polygon** — median vertex error 2.2 m, worst 12.2 m. The same lookup
+also explains 48 of the 83 missing gores.
+
+**Fix:** one region-wide `wayWidthById` built before the tile loop. A width is a property of the WAY,
+not of the tile looking at it. The bake now prints `[Junctions] approach widths: N/M resolved …`
+(D-23 proof-of-work). Verified on an Eixample test bake: **20.5% → 9.2% wrong**, residual entirely
+the `--area` clip boundary; full re-bake follows.
+
+**Also found: the taper is duplicated**, `roadBaker.js` (260 of 433 tiles) against `roadRenderer.js`
+(the other 173). They agree today and nothing made them — and because the two paths are chosen per
+TILE, a drift would read as a seam moving with the tile grid. Both exported and pinned by
+`frontend/test/widthTaper.test.js` (4 tests, run against the real measured Barcelona steps).
+
+**Left open deliberately:** the taper flares a narrow arm to its widest neighbour over 20 m, and
+R-W1's residential 4 → 10.4 m made that a 2.6× flare at **219 `living_street` mouths**. A real kerb
+flare is ~5 m. Not a defect, not yet looked at on screen; the fix would be a per-class taper length.
+
+⚠ The re-bake did **not** bump the tile version — the next drive needs `window._clearTileCache()`.
+
+See `barcelona-road-system.md` §4 R-J1 and tracker D-68 / D-69.
+
 ## 2026-08-27 — The load was never work-bound: 16.2 s → 4.35 s
 
 **`other` had been the largest number in every drive report** — 2,007–3,087 ms against `rend`'s
