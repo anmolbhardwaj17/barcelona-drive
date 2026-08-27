@@ -8,6 +8,7 @@
  * No Delhi-era chevron curbs, guardrails, or arched canopies.
  */
 import * as THREE from 'three';
+import { kerbOffset } from './roadWidths.js';   // R-W1: a tunnel's paved width is kerb-to-kerb
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
@@ -152,7 +153,7 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
 
-    const roadHalf = (road.width || 6) / 2;
+    const roadHalf = kerbOffset(road);
     const halfW    = roadHalf + WALL_EXTRA_WIDTH;
     const roadName = road.name || null;
     if (!signGeosMap.has(roadName)) signGeosMap.set(roadName, []);
@@ -330,7 +331,7 @@ export function buildTunnelFloor(tunnelRoads, getGroundY) {
     // (same condition as its tunnel-paint guard) — there this dark Lambert deck only showed
     // as a 1m dark band proud of the road on each side. Covered tunnels still need the deck.
     if (road.layer != null && road.layer < 0) continue;
-    const halfW = (road.width || 6) / 2 + WALL_EXTRA_WIDTH;
+    const halfW = kerbOffset(road) + WALL_EXTRA_WIDTH;
 
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
@@ -446,7 +447,7 @@ export function buildPortalApproaches(tunnelRoads, getGroundY) {
   for (const road of tunnelRoads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const roadHalfW = (road.width || 6) / 2;
+    const roadHalfW = kerbOffset(road);
 
     const buildTrench = (portalPt, nextPt) => {
       const dx = portalPt.x - nextPt.x, dz = portalPt.y - nextPt.y;
@@ -566,7 +567,7 @@ export function buildRetainingWalls(wallApproachRoads, getGroundY) {
   for (const road of wallApproachRoads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const half = (road.width || 6) / 2;
+    const half = kerbOffset(road);
 
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
@@ -626,7 +627,7 @@ function buildTrenchSegList(roads) {
   for (const road of roads || []) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const hw = (road.width || 6) / 2;
+    const hw = kerbOffset(road);
     for (let i = 0; i < pts.length - 1; i++) segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw, road);
   }
   return segs;
@@ -659,7 +660,7 @@ export function buildTrenchRetainingWalls(trenchRoads, getGroundY) {
   for (const road of trenchRoads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const half = (road.width || 6) / 2;
+    const half = kerbOffset(road);
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
       const eA = _normTunnelElev(a.elevation) ?? 0;
@@ -827,7 +828,7 @@ export function buildTrenchPortals(trenchRoads, getGroundY) {
   for (const road of trenchRoads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const half = (road.width || 6) / 2;
+    const half = kerbOffset(road);
     // Per-point depth below the natural bank.
     const depth = pts.map((p, i) => {
       const j = Math.min(i + 1, pts.length - 1);

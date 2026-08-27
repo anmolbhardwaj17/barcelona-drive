@@ -182,9 +182,9 @@ export function buildVegetationMask(roads, buildings, waterAreas, tileBounds, ne
       const pts = road.points || [];
       if (pts.length < 2) continue;
 
-      const dataW = Number.isFinite(Number(road.width)) ? Math.max(6, Math.min(30, Number(road.width))) : 0;
-      const typeW = corridorWidth(road);
-      const w = Math.max(dataW, typeW);
+      // R-W1: was `max(dataW, typeW)`. The corridor is by definition >= the paved width, so taking
+      // the larger of a raw `road.width` and a type guess only re-introduced a second reading.
+      const w = corridorWidth(road);
       const half = w / 2 + BRIDGE_INFLATE;
 
       for (let i = 0; i < pts.length - 1; i++) {

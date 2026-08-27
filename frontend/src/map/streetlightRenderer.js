@@ -46,10 +46,7 @@ const LIGHT_ROAD_TYPES = new Set([
   'residential','unclassified','living_street',
 ]);
 
-const ROAD_WIDTHS_BY_TYPE = {
-  motorway: 15, trunk: 12, primary: 10, secondary: 8,
-  tertiary: 7, residential: 6, service: 5, unclassified: 6,
-};
+// R-W1: ROAD_WIDTHS_BY_TYPE deleted — dead once getRoadWidth() started reading the baked section.
 
 // Convex mirror constants
 const MIRROR_ROAD_TYPES = new Set(['residential', 'living_street', 'service']);

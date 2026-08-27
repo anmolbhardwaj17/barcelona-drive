@@ -53,10 +53,7 @@ function normRoadElev(rawElev) {
   return (rawElev - off) * vEx;
 }
 
-const ROAD_WIDTHS_BY_TYPE = {
-  motorway: 15, trunk: 12, primary: 10, secondary: 8,
-  tertiary: 7, residential: 6, service: 5, unclassified: 6,
-};
+// R-W1: ROAD_WIDTHS_BY_TYPE deleted — dead once getRoadWidth() started reading the baked section.
 
 const SPEED_LIMITS = {
   motorway: 100, trunk: 80, primary: 60, secondary: 50,

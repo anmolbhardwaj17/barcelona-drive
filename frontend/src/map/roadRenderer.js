@@ -4,7 +4,7 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
-import { pavedWidth, carriagewayWidth, kerbOffset, sidewalkWidth } from './roadWidths.js';   // R-W1
+import { pavedWidth, kerbOffset } from './roadWidths.js';   // R-W1: never re-derive a width
 import { getKTX2TextureSync } from '../loaders.js';
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -823,9 +823,7 @@ function buildJunctionWidthMap(roads, tol) {
   for (const road of roads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const w = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const w = pavedWidth(road);   // R-W1
     for (const p of [pts[0], pts[pts.length - 1]]) {
       const h = hashPoint(p.x, p.y, tol);
       if (!byHash.has(h)) byHash.set(h, { maxW: w, minW: w });
@@ -849,9 +847,7 @@ function buildJunctionWidthMap(roads, tol) {
 function computeTaperedWidths(road, junctionWidthMap, tol) {
   const pts = road.points;
   if (!pts || pts.length < 2) return null;
-  const ownW = Number.isFinite(Number(road.width))
-    ? Math.max(3, Math.min(30, Number(road.width)))
-    : pavedWidth(road);
+  const ownW = pavedWidth(road);   // R-W1: same number the ribbon is drawn at, or the taper fights it
 
   const startHash = hashPoint(pts[0].x, pts[0].y, tol);
   const endHash = hashPoint(pts[pts.length - 1].x, pts[pts.length - 1].y, tol);
@@ -1079,11 +1075,7 @@ export function createRoadMesh(road, options, taperedWidths) {
   // no ribbon. They live INSIDE the carriageway; the zebra decals come from buildCrosswalks and
   // the polyline stays available to gameplay systems.
   if (road.crossing) return null;
-  const widthOrWidths = taperedWidths || (
-    Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road)
-  );
+  const widthOrWidths = taperedWidths || pavedWidth(road);   // R-W1
   const heights = getRoadPointHeights(road, options);
   const yOffsetOrHeights = heights || ROAD_OFFSET;
   // Apply priority-based Y micro-offset: wider roads sit fractionally higher
@@ -2913,9 +2905,7 @@ function buildBridgeSlabGeometry(roads, options) {
     const atVals = getAboveTerrainHeights(road, options, heights) || hVals;
     const atMax  = atVals.length ? Math.max(...atVals) : 0;
 
-    const roadWidth = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const roadWidth = pavedWidth(road);   // R-W1
     const edges = getRibbonEdgeVerts(pts, roadWidth, heights);
     if (!edges) continue;
 
@@ -3013,9 +3003,7 @@ function computeJunctionSkips(roads) {
     const road = roads[ri];
     const pts = road.points;
     if (!pts || pts.length < 2) { info.push(null); continue; }
-    const w = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const w = pavedWidth(road);   // R-W1
     const layer = (road.layer != null && Number.isFinite(road.layer)) ? road.layer : 0;
     info.push({
       sx: pts[0].x, sz: pts[0].y,
@@ -3115,9 +3103,7 @@ function detectSharedBridgeEdges(roads) {
   for (let ri = 0; ri < (roads || []).length; ri++) {
     const road = roads[ri];
     if (!road.bridge || !road.points || road.points.length < 2) continue;
-    const roadWidth = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const roadWidth = pavedWidth(road);   // R-W1
     const layer = road.layer ?? 1;
     const pts = road.points;
     // Sample 3 points along centerline with normals
@@ -3214,10 +3200,20 @@ const GUARD_RAIL_JUNCTION_PAD = 3;     // m — beyond a junction node's radius
 const GUARD_RAIL_ROUNDABOUT_PROX = 22; // m — beyond a roundabout's outer radius
 const GUARD_RAIL_DEDUP_DIST = 1.6;     // m — coincident-edge merge distance
 
+/**
+ * R-W1: THE function at the heart of the reported bug, and the whole reason this ticket exists.
+ *
+ * It used to clamp `road.width` to [3,30] and put the rail at `halfW` — reading `width` as the
+ * CARRIAGEWAY edge — while `parkedCars` read the same field as kerb-to-kerb and parked at
+ * `halfW - 0.2`. Twenty centimetres apart, so cars landed on the barrier. Neither was wrong; the
+ * field had no defined meaning.
+ *
+ * The rail belongs at the KERB, which is `kerbOffset()` = half the paved width. Both this and the
+ * parking bay are now derived from the same baked section, and `test/roadWidths.test.js` asserts a
+ * bay's outer edge can never pass the kerb, for any road class.
+ */
 function guardRailWidth(road) {
-  return Number.isFinite(Number(road.width))
-    ? Math.max(3, Math.min(30, Number(road.width)))
-    : pavedWidth(road);
+  return pavedWidth(road);
 }
 
 /**
@@ -3992,9 +3988,7 @@ function buildBridgeShadowMesh(roads, options) {
     // Above-terrain rise drives the height-based shadow fade.
     const atVals = getAboveTerrainHeights(road, options, heights) || hVals;
 
-    const roadWidth = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const roadWidth = pavedWidth(road);   // R-W1
     const isRampOrLink = road.isRamp || (road.highwayType && road.highwayType.endsWith('_link'));
     const extraW = isRampOrLink ? 1 : BRIDGE_SHADOW_EXTRA_WIDTH; // narrower shadow for ramps
     const shadowHalf = roadWidth / 2 + extraW;
@@ -4271,9 +4265,7 @@ function buildBridgeBillboards(roads, options) {
     }
     if (totalLen < BILLBOARD_MIN_BRIDGE_LEN) continue;
 
-    const roadWidth = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const roadWidth = pavedWidth(road);   // R-W1
     const halfW = roadWidth / 2;
 
     const startDist = 15;
@@ -4449,9 +4441,7 @@ function buildDebugRoadWireframes(roads, options) {
   for (const road of roads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const roadWidth = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : pavedWidth(road);
+    const roadWidth = pavedWidth(road);   // R-W1
     const half = roadWidth / 2;
     const heights = getRoadPointHeights(road, options);
     const hex = getDebugWireColor(road);

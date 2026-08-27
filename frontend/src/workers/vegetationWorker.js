@@ -503,7 +503,7 @@ function buildVegetationMask(roads, buildings, waterAreas, tileBounds, neighborR
       const pts = road.points || [];
       if (pts.length < 2) continue;
       const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-      const typeW = ROAD_RENDER_WIDTH[road.highwayType] ?? 6;
+      const typeW = corridorWidth(road);
       const w = Math.max(dataW, typeW);
       const half = w / 2 + ROAD_INFLATE;
       for (let i = 0; i < pts.length - 1; i++) {
@@ -520,7 +520,7 @@ function buildVegetationMask(roads, buildings, waterAreas, tileBounds, neighborR
       const pts = road.points || [];
       if (pts.length < 2) continue;
       const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-      const typeW = ROAD_RENDER_WIDTH[road.highwayType] ?? 6;
+      const typeW = corridorWidth(road);
       const w = Math.max(dataW, typeW);
       endpoints.push({ x: pts[0].x, z: pts[0].y, w });
       endpoints.push({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].y, w });
@@ -557,10 +557,7 @@ function buildVegetationMask(roads, buildings, waterAreas, tileBounds, neighborR
       if (!road.bridge && (road.layer == null || road.layer <= 0)) continue;
       const pts = road.points || [];
       if (pts.length < 2) continue;
-      const dataW = Number.isFinite(Number(road.width))
-        ? Math.max(6, Math.min(30, Number(road.width))) : 0;
-      const typeW = ROAD_RENDER_WIDTH[road.highwayType] ?? 12;
-      const w = Math.max(dataW, typeW);
+      const w = corridorWidth(road);   // R-W1: the corridor already covers the paved surface
       const half = w / 2 + BRIDGE_INFLATE;
       for (let i = 0; i < pts.length - 1; i++) {
         rasterizeSegment(blocked, gridW, gridH, minX, minZ, VEG_MASK_RESOLUTION,
