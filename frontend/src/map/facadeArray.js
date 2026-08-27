@@ -50,6 +50,7 @@
  */
 
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, STOREY_H } from '../buildingConstants.js';
+import { getKTX2Texture } from '../loaders.js';   // the SHARED KTX2 loader — see loadFacadeArray
 
 /** Metres one layer spans horizontally. Both arrays share it so u repeats stay consistent. */
 export const LAYER_W_M = 2 * STOREY_H;   // 7.0 m
@@ -324,7 +325,6 @@ export function createFacadeArrays(THREE) {
 
 /** Load one authored 8-layer array. Resolves null if the art is absent, keeping the placeholder. */
 async function loadFacadeArray(THREE, file) {
-  const { KTX2Loader } = await import('three/examples/jsm/loaders/KTX2Loader.js');
   // WAIT for the renderer rather than giving up on it. createFacadeArrays runs lazily on the first
   // tile build, which can land BEFORE boot hands the renderer over — and the first version simply
   // returned null there, permanently. The symptom was the placeholder rendering forever with no
@@ -334,10 +334,15 @@ async function loadFacadeArray(THREE, file) {
     console.warn('[facadeArray] no renderer after 20s — authored facades NOT loaded, placeholder stands');
     return null;
   }
-  const loader = new KTX2Loader()
-    .setTranscoderPath('/basis/')
-    .detectSupport(renderer);
-  const tex = await loader.loadAsync(`/art/v1/facades/${file}.ktx2`);
+  // ⚠ USE THE SHARED LOADER. This built its own `new KTX2Loader()` — and three warns about exactly
+  // that: "Multiple active KTX2 loaders may cause performance issues." Each instance spins up its
+  // OWN transcoder worker pool and re-fetches the 576 KB transcoder, which is the precise problem
+  // `loaders.js` exists to prevent (see its header: "Naive KTX2 wiring would have made that worse —
+  // a transcoder fetch and a worker pool PER LOADER").
+  //
+  // Reported from a drive console, alongside the facade arrays loading. Two pools were live: this
+  // one and the registry's.
+  const tex = await getKTX2Texture(`/art/v1/facades/${file}.ktx2`, { noVariant: true, srgb: true });
   tex.wrapS = THREE.RepeatWrapping;
   // Repeat on BOTH axes even for the ground array. Its v never leaves 0..1 by construction (the
   // ground band is addressed once), so the wrap mode is unreachable there — and setting it to

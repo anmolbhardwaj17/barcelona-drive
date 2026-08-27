@@ -2007,7 +2007,7 @@ vacuously if the orphans are ever tidied away.
   boundary cannot oscillate. The test walks a viewer back and forth across it 200 times and asserts
   zero flips.
 
-## 2026-08-27 — P4-02b: the tree LOD handover had a hole and a cliff
+## 2026-08-27 — VEG-FIX-1: the tree LOD handover had a hole and a cliff
 
 User-reported: *"I see trees on the far, but when I move closer they just disappear and I see a
 random hilly plane"* — and the reverse, *"I don't see any trees at all, but they immediately come."*
@@ -2038,7 +2038,7 @@ single `greens` polygon and no baked trees. So the ridge renders as green-tinted
 the bbox decision already flagged in the P4-01 re-bake note — the fix is to widen the bbox and
 re-bake, not to touch the LOD.
 
-## 2026-08-27 — P4-02c: hills were bare because OSM tags a wooded hill and a plaza garden the same
+## 2026-08-27 — VEG-FIX-2: hills were bare because OSM tags a wooded hill and a plaza garden the same
 
 User-reported: *"the hill still is empty… nothing much coming on the hill, makes it very bare and plain."*
 

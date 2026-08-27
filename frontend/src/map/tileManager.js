@@ -617,7 +617,7 @@ const TERRAIN_CUT_M      = 1500;
 const TERRAIN_LOD_HYST_M = 60;
 
 /**
- * v3 P4-02b — billboard-impostor count fraction at `d`, ramping from full where the 3D trees give
+ * VEG-FIX-1 — billboard-impostor count fraction at `d`, ramping from full where the 3D trees give
  * out to zero at VEG_IMPOSTOR_CUT_M.
  *
  * This used to be clamped to FOG_FULL_DIST (280 m), which was correct while terrain died there too.
@@ -2919,7 +2919,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (nearEdgeDist > FOG_FULL_DIST) {
         const hideAll = (meshes) => { if (meshes) for (const m of meshes) m.visible = false; };
         hideAll(entry.vegetationMeshes);
-        // v3 P4-02b: BILLBOARD IMPOSTORS SURVIVE THE FOG CULL out to VEG_IMPOSTOR_CUT_M.
+        // VEG-FIX-1: BILLBOARD IMPOSTORS SURVIVE THE FOG CULL out to VEG_IMPOSTOR_CUT_M.
         //
         // P4-02 raised the terrain cut to 1500 m while vegetation still ended at this 280 m fog
         // boundary, which left ~1200 m of bare ground on screen and a hard line where trees popped
@@ -3000,7 +3000,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         const frac = nearEdgeDist <= treeFullDist ? 1
           : nearEdgeDist >= treeMaxDist ? 0
           : 1 - (nearEdgeDist - treeFullDist) / treeFadeRange;
-        // v3 P4-02b: one ramp, shared with the fog-culled branch above — see impostorFrac.
+        // VEG-FIX-1: one ramp, shared with the fog-culled branch above — see impostorFrac.
         const bbFrac = impostorFrac(nearEdgeDist, treeFullDist, treeMaxDist);
         // Bushes fade FAR nearer than trees. They rode the tree band (full to TREE_FULL_DISTANCE,
         // gone by TREE_MAX_DISTANCE), which is right for a 12 m plane tree and pure waste for a 1 m

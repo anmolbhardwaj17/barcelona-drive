@@ -70,7 +70,7 @@ const BUSH_BARRIER_SPACING = 4;
 const BUSH_BARRIER_OFFSET = 1.2;
 
 // Zone vegetation
-// Raised from 800 (v3 P4-02c). Not a performance limit — a flat Eixample tile already bakes and
+// Raised from 800 (VEG-FIX-2). Not a performance limit — a flat Eixample tile already bakes and
 // renders 3,812 trees from OSM street-tree nodes, so 800 for a whole wooded hillside was arbitrary.
 const MAX_ZONE_TREES_PER_TILE = 3000;
 const MAX_ZONE_BUSHES_PER_TILE = 600;
@@ -101,7 +101,7 @@ const ZONE_RULES = {
   },
 };
 /**
- * v3 P4-02c — WOODEDNESS BY AREA. User-reported: hills read as bare.
+ * VEG-FIX-2 — WOODEDNESS BY AREA. User-reported: hills read as bare.
  *
  * Measured on the Montjuïc tile: its greens are 236,238 m2 of `park` against just 16,372 m2 of
  * `forest`, and `park` density is 1/500 m2 — one tree per 22 m of spacing. That rule describes a
@@ -1153,7 +1153,7 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   // polygons" — whole clumps appearing and vanishing as the fraction moved, instead of the canopy
   // thinning evenly. User-reported on the hills.
   //
-  // It stayed invisible because street trees WERE sorted and hills had ~0 zone trees until P4-02c
+  // It stayed invisible because street trees WERE sorted and hills had ~0 zone trees until VEG-FIX-2
   // gave them 1,077 each. Bushes fade over 45–90 m, so their clumping is close-range and was read
   // as ordinary pop-in.
   {
