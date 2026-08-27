@@ -2006,3 +2006,34 @@ vacuously if the orphans are ever tidied away.
 - 60 m **asymmetric** hysteresis band: the flip point differs by direction, so a tile sitting on a
   boundary cannot oscillate. The test walks a viewer back and forth across it 200 times and asserts
   zero flips.
+
+## 2026-08-27 — P4-02b: the tree LOD handover had a hole and a cliff
+
+User-reported: *"I see trees on the far, but when I move closer they just disappear and I see a
+random hilly plane"* — and the reverse, *"I don't see any trees at all, but they immediately come."*
+
+**Measured total tree presence driving toward a hill, before the fix:**
+
+| 400 m | 250 m | 171 m | **169 m** | 120 m | 80 m |
+|---|---|---|---|---|---|
+| 0.47 | 0.81 | 1.00 | **0.01** | 0.56 | 1.00 |
+
+The 3D trees fade their COUNT out across 80–170 m, but impostors did not begin until 170 m. So that
+band was a **hole**, and 170 m was a **100% → 1% cliff** the instant you crossed it going inward.
+Pre-existing — P4-02 only made it visible, by finally showing the distance it happens at.
+
+- `impostorFrac` now **complements** the 3D fade instead of following it: it rises 0→1 across 80–170
+  as the 3D count falls 1→0 (summing to 1), holds at 1 to 300 m, then fades to 0 by 600 m.
+  Total presence is flat 1.00 from 0–300 m and the largest step over a 1 m move is < 0.02.
+- Impostors also now **survive the 280 m fog cull** out to 600 m. P4-02 took terrain to 1500 m while
+  vegetation still died at 280, leaving ~1200 m of bare ground. 600 m is where FogExp2 at 0.0025
+  reaches 89.5% — past that vegetation cannot be seen, so going further would be cost with no image.
+  Only `billboard` handles survive; 3D trees and bushes stay culled (a bush is a couple of pixels at
+  that range and there are thousands per tile).
+
+⚠ **SEPARATE, STILL OPEN — Collserola has no vegetation at all.** Median baked tree count on hilly
+tiles (relief > 80 m) is **0**, against **217.5** on flat ones. The zero-tree hill tiles are exactly
+the 12 **orphans outside the region bbox** (lat 41.416–41.424): June-era, never re-baked, carrying a
+single `greens` polygon and no baked trees. So the ridge renders as green-tinted bare ground. This is
+the bbox decision already flagged in the P4-01 re-bake note — the fix is to widen the bbox and
+re-bake, not to touch the LOD.

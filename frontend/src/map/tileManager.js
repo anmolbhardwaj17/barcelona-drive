@@ -616,6 +616,41 @@ const TERRAIN_LOD_MID_M  = 900;
 const TERRAIN_CUT_M      = 1500;
 const TERRAIN_LOD_HYST_M = 60;
 
+/**
+ * v3 P4-02b — billboard-impostor count fraction at `d`, ramping from full where the 3D trees give
+ * out to zero at VEG_IMPOSTOR_CUT_M.
+ *
+ * This used to be clamped to FOG_FULL_DIST (280 m), which was correct while terrain died there too.
+ * P4-02 took terrain to 1500 m and turned that clamp into a visible seam: bare ground from 280 m
+ * out, with trees appearing and vanishing as tiles crossed the line. The cut is 600 m because that
+ * is where FogExp2 at the shipping density of 0.0025 reaches 89.5% — vegetation past it cannot be
+ * seen, so rendering it would be pure cost.
+ */
+const VEG_IMPOSTOR_CUT_M = 600;
+const VEG_IMPOSTOR_HOLD_M = 300;   // full impostors until here, then fog takes over
+
+/**
+ * ⚠ THE IMPOSTOR RAMP MUST COMPLEMENT THE 3D FADE, NOT FOLLOW IT.
+ *
+ * Measured before the fix, total tree presence driving toward a hill ran:
+ *   400 m 0.47 -> 250 m 0.81 -> 171 m 1.00 -> **169 m 0.01** -> 120 m 0.56 -> 80 m 1.00
+ * The 3D trees fade their COUNT out across 80-170 m while impostors did not begin until 170, so
+ * that band was a hole and 170 m was a 100%->1% cliff the instant you crossed it going in. Trees
+ * vanished as you approached and sprang back as you left. User-reported from a drive.
+ *
+ * So the ramp now rises where the 3D trees fall (80-170, summing to ~1), holds while the mid-field
+ * is still clearly visible, and only then fades with the fog.
+ */
+function impostorFrac(d, treeFullDist, treeMaxDist) {
+  if (d <= treeFullDist || d >= VEG_IMPOSTOR_CUT_M) return 0;
+  // rising: fills in exactly what the 3D count fade is removing
+  if (d < treeMaxDist) return (d - treeFullDist) / Math.max(1, treeMaxDist - treeFullDist);
+  // holding: 3D trees are gone, impostors carry the canopy alone
+  if (d <= VEG_IMPOSTOR_HOLD_M) return 1;
+  // falling: FogExp2 at 0.0025 is 46% at 300 m and 89.5% at 600 m, so this fade hides inside the haze
+  return 1 - (d - VEG_IMPOSTOR_HOLD_M) / (VEG_IMPOSTOR_CUT_M - VEG_IMPOSTOR_HOLD_M);
+}
+
 function applyTerrainLod(entry, nearEdgeDist) {
   const mesh = entry.terrainMesh;
   if (!mesh) return;
@@ -2829,7 +2864,26 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       if (nearEdgeDist > FOG_FULL_DIST) {
         const hideAll = (meshes) => { if (meshes) for (const m of meshes) m.visible = false; };
         hideAll(entry.vegetationMeshes);
-        if (entry.vegPoolHandles) for (const h of entry.vegPoolHandles) h.pool.setVisibleCount(h, 0);
+        // v3 P4-02b: BILLBOARD IMPOSTORS SURVIVE THE FOG CULL out to VEG_IMPOSTOR_CUT_M.
+        //
+        // P4-02 raised the terrain cut to 1500 m while vegetation still ended at this 280 m fog
+        // boundary, which left ~1200 m of bare ground on screen and a hard line where trees popped
+        // in and out. The mismatch was invisible before only because terrain died at 280 m too.
+        //
+        // Impostors, not 3D trees: a tree past 170 m is already a billboard, and the per-tile count
+        // ramps to zero by the cut, so a far tile contributes a handful of quads rather than a
+        // canopy. 600 m is where FogExp2 at 0.0025 reaches 89.5% — past that the ground is haze and
+        // vegetation on it cannot be seen, so extending further would be pure cost.
+        if (entry.vegPoolHandles) {
+          const bbF = impostorFrac(nearEdgeDist, treeFullDist, treeMaxDist);
+          for (const h of entry.vegPoolHandles) {
+            // Only 'billboard' survives out here. 3D trees and bushes stay culled — a bush is a
+            // couple of pixels at this range and there are thousands of them per tile.
+            const target = (h.kind === 'billboard' && bbF > 0)
+              ? Math.max(1, Math.floor(bbF * h.count)) : 0;
+            h.pool.setVisibleCount(h, target);
+          }
+        }
         hideAll(entry.buildingMeshes);
         hideAll(entry.roadInfraMeshes);
         hideAll(entry.barrierMeshes);
@@ -2890,13 +2944,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         const frac = nearEdgeDist <= treeFullDist ? 1
           : nearEdgeDist >= treeMaxDist ? 0
           : 1 - (nearEdgeDist - treeFullDist) / treeFadeRange;
-        const bbStart = treeMaxDist;          // where the 3D trees are fully gone
-        // v3 P3-10(c): fade out exactly where fog culls the tile, not 300 m past it. The old
-        // +300 spread the fade across 170-470 m while everything beyond FOG_FULL_DIST is hidden
-        // outright — so impostors never reached full count in the only band they are visible in.
-        const bbEnd = Math.min(treeMaxDist + 300, FOG_FULL_DIST);
-        const bbFrac = (nearEdgeDist <= bbStart || nearEdgeDist >= bbEnd) ? 0
-          : 1 - (nearEdgeDist - bbStart) / (bbEnd - bbStart);
+        // v3 P4-02b: one ramp, shared with the fog-culled branch above — see impostorFrac.
+        const bbFrac = impostorFrac(nearEdgeDist, treeFullDist, treeMaxDist);
         // Bushes fade FAR nearer than trees. They rode the tree band (full to TREE_FULL_DISTANCE,
         // gone by TREE_MAX_DISTANCE), which is right for a 12 m plane tree and pure waste for a 1 m
         // shrub: at 100 m a bush is a couple of pixels tall, and there are ~3,000 of them per tile

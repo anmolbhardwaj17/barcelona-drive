@@ -75,3 +75,55 @@ test('hysteresis is asymmetric, so a tile on a boundary cannot oscillate', () =>
   assert.equal(step('full', F + h + 1), 'mid', 'crossing the band steps down');
   assert.equal(step('mid', F - h - 1), 'full', 'coming back steps up');
 });
+
+test('vegetation reach matches terrain reach closely enough to hide the seam', () => {
+  // v3 P4-02b. P4-02 took terrain to 1500 m while vegetation still ended at the 280 m fog cull,
+  // leaving ~1200 m of bare ground and a hard line where trees popped in and out. User-reported.
+  const cut = num('VEG_IMPOSTOR_CUT_M');
+  assert.ok(cut > 280, 'impostors must outlive the old FOG_FULL_DIST clamp');
+  // Past ~600 m FogExp2 at 0.0025 is 89.5%+, so vegetation genuinely cannot be seen — extending
+  // beyond that is cost with no image. Guard both directions.
+  assert.ok(cut >= 500 && cut <= 900, `${cut} m is outside the band fog makes worthwhile`);
+  const fogAt = (r) => 1 - Math.exp(-((0.0025 * r) ** 2));
+  assert.ok(fogAt(cut) > 0.85, 'the cut sits where fog has already hidden the ground');
+});
+
+test('total tree presence has no hole and no cliff across the LOD handover', () => {
+  // THE BUG THIS PINS. Measured before the fix, driving toward a hill:
+  //   400 m 0.47 -> 250 m 0.81 -> 171 m 1.00 -> 169 m 0.01 -> 120 m 0.56 -> 80 m 1.00
+  // The 3D trees faded their count out over 80-170 m while impostors did not start until 170, so
+  // the band was a hole and 170 m was a 100%->1% cliff. Trees vanished as you drove closer.
+  const F = 80, M = 170;                       // TREE_FULL_DISTANCE / TREE_MAX_DISTANCE
+  const HOLD = num('VEG_IMPOSTOR_HOLD_M'), CUT = num('VEG_IMPOSTOR_CUT_M');
+  const tree = (d) => (d <= F ? 1 : d >= M ? 0 : 1 - (d - F) / (M - F));
+  const imp = (d) => (d <= F || d >= CUT ? 0
+    : d < M ? (d - F) / (M - F)
+    : d <= HOLD ? 1
+    : 1 - (d - HOLD) / (CUT - HOLD));
+
+  // no hole anywhere the canopy should read as full
+  for (let d = 0; d <= HOLD; d += 5) {
+    const total = tree(d) + imp(d);
+    assert.ok(Math.abs(total - 1) < 1e-9, `presence ${total.toFixed(3)} at ${d} m — should be 1`);
+  }
+  // and no cliff: the biggest step over a 1 m move must stay small
+  let worst = 0, worstAt = 0;
+  for (let d = 0; d < CUT; d += 1) {
+    const step = Math.abs((tree(d + 1) + imp(d + 1)) - (tree(d) + imp(d)));
+    if (step > worst) { worst = step; worstAt = d; }
+  }
+  assert.ok(worst < 0.02, `presence jumps ${worst.toFixed(3)} at ${worstAt} m — that is a visible pop`);
+});
+
+test('impostors hand over exactly where the 3D trees give out', () => {
+  const F = 80, M = 170, CUT = num('VEG_IMPOSTOR_CUT_M');
+  const imp = (d) => (d <= F || d >= CUT ? 0
+    : d < M ? (d - F) / (M - F)
+    : d <= num('VEG_IMPOSTOR_HOLD_M') ? 1
+    : 1 - (d - num('VEG_IMPOSTOR_HOLD_M')) / (CUT - num('VEG_IMPOSTOR_HOLD_M')));
+  assert.equal(imp(F), 0, 'no impostors while every 3D tree is drawn — they would double up');
+  assert.ok(Math.abs(imp(M) - 1) < 1e-9, 'exactly full where the 3D trees reach zero');
+  assert.equal(imp(CUT), 0);
+  const fogAt = (r) => 1 - Math.exp(-((0.0025 * r) ** 2));
+  assert.ok(fogAt(CUT) > 0.85, 'the cut sits where fog has already hidden the ground');
+});
