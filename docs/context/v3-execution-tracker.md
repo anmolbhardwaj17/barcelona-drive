@@ -347,7 +347,11 @@ Ground the parked cars (re-add the blob list inside the existing `contactShadows
 ## P1 — THE ASSET PIPELINE AND THE FRAME · 24.0 days · 27 tasks
 **Goal.** Build the thing that does not exist: an asset layer. Nothing textured can ship before it, and every asset authored before the quality tier exists has to be re-emitted, so the tier lands here too.
 
-**Progress:** 0 / 25
+**Progress:** ✅ **26 / 26 — P1 COMPLETE.** (This line read `0 / 25` until 2026-08-27 while every one
+of its 26 task boxes was ticked and the work was demonstrably shipped — `loaders.js` "v3 P1-01",
+`materialRegistry.js` "v3 P1-03", `quality.js` "v3 P1-08". A summary that disagrees with the boxes
+under it is worse than no summary: this file is THE STATE, and someone reading the header could have
+rebuilt a finished phase.)
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
