@@ -80,6 +80,56 @@ function isBrokenRampRoad(r, demSampler) {
   // acted on: 12% is a normal Barcelona street, 600% is a vertical crack. P-R1 needs the number.
   return maxGrade > _BROKEN_RAMP_GRADE ? { reason: 'profile-backstop', gradePct: +(maxGrade * 100).toFixed(1) } : null;
 }
+/**
+ * P-R1b · V5 TERRAIN-CONFLICT DETECTOR — does a road's surface agree with the ground under it?
+ *
+ * WHY IT HAD TO EXIST. `[FloorGap]` reports 5 roads, from a HAND-WRITTEN list. The real rate was
+ * measured at **8.8% of sampled road points** by the runtime `?debug=roadfit` probe. So the census
+ * could only ever report a number it knew was wrong, and the user's standing "roads look floating"
+ * complaint had nothing behind it. Detection only — this deletes nothing.
+ *
+ * Only SURFACE roads are judged. A bridge is supposed to be above the terrain and a tunnel below;
+ * flagging those would bury the real signal in correct-by-design cases. `layer != 0` is excluded for
+ * the same reason.
+ *
+ * Sign matters and is kept: POSITIVE deviation is a road floating above the ground, NEGATIVE is one
+ * buried in it. They look different to a driver and they have different causes — floating usually
+ * means bad layer/height data, buried usually means the terrain was smoothed or carved under a road
+ * that was never re-fitted.
+ */
+const _V5_TOL_M = Number.isFinite(parseFloat(process.env.V5_TOL_M)) ? parseFloat(process.env.V5_TOL_M) : 0.5;
+
+function scanTerrainConflict(r, demSampler) {
+  if (!demSampler || r.bridge || r.tunnel || (r.layer != null && r.layer !== 0)) return null;
+  const pts = r.points;
+  if (!pts || pts.length < 2) return null;
+  let bad = 0, n = 0, worst = 0, sum = 0;
+  for (const p of pts) {
+    const abs = (p.length >= 4 && Number.isFinite(p[3])) ? p[3] : null;
+    if (abs === null) continue;
+    const lon = (p[0] / _BR_R_EARTH) * (180 / Math.PI);
+    const lat = (2 * Math.atan(Math.exp(p[2] / _BR_R_EARTH)) - Math.PI / 2) * (180 / Math.PI);
+    const dem = demSampler.sampleElevation(lat, lon);
+    if (!Number.isFinite(dem)) continue;
+    const dev = abs - dem;
+    n++; sum += dev;
+    if (Math.abs(dev) > _V5_TOL_M) { bad++; if (Math.abs(dev) > Math.abs(worst)) worst = dev; }
+  }
+  if (!n || !bad) return null;
+  // ⚠ RECORD isRamp RATHER THAN EXCLUDING IT BLIND.
+  //
+  // The first run reported 564 conflicts, 498 of them "buried" — at deviations of exactly -6, -12,
+  // -18 and -24 m. Those are exact multiples of LAYER_STEP (6), which a genuinely misplaced road
+  // would never produce: they are RAMPS descending into tunnels, whose deepest point legitimately
+  // reaches a layer depth. The scan excluded bridge/tunnel/layer!=0 but not isRamp.
+  //
+  // Tagging instead of dropping keeps both numbers from one bake: the raw class, and the class with
+  // the legitimate descents removed. Reporting only the filtered figure would hide the fact that
+  // ramps dominate it, which is itself the finding.
+  return { id: r.id, type: r.highwayType, pts: n, bad, badPct: +(100 * bad / n).toFixed(1),
+           worstDevM: +worst.toFixed(2), meanDevM: +(sum / n).toFixed(2), isRamp: !!r.isRamp };
+}
+
 import { parsePbfHighways } from './pbfHighways.js';
 import { parsePbfBuildings } from './pbfBuildings.js';
 import { parsePbfGreens } from './pbfGreens.js';
@@ -101,6 +151,8 @@ import { buildFromWays } from './roads/RoadGraph.js';
 import { resolveRamps } from './roads/RampResolver.js';
 let _censusFlattened = [];   // P-R1: Case-C flattened short tunnels, for the defect census
 const _censusDropped = [];   // P-R1: every dropped road with WHY and its measured grade
+const _censusV5 = [];        // P-R1b: surface roads whose height disagrees with the DEM
+const _censusV5Seen = new Set();   // a way is split across tiles — count each road once
 import { resolveBridgeToBridge } from './roads/BridgeToBridgeResolver.js';
 import { fixOsmData } from './roads/OsmDataFixer.js';
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
@@ -1377,6 +1429,8 @@ async function main() {
       nodes: tileNodes,
       roads: tileRoadsFinal.filter((r) => {
         // Skip broken/incomplete-ramp roads — never baked (no mangled half-ramps / broken lines).
+        const v5 = scanTerrainConflict(r, demSampler);
+        if (v5 && !_censusV5Seen.has(r.id)) { _censusV5Seen.add(r.id); _censusV5.push(v5); }
         const brk = isBrokenRampRoad(r, demSampler);
         if (brk) {
           droppedRampIds.add(r.id);
@@ -1743,21 +1797,59 @@ async function main() {
             worstBackstop: (byReason['profile-backstop'] || []).sort((a, b) => b.gradePct - a.gradePct).slice(0, 10),
           };
         })(),
-        // V5 terrain-conflict — hand-listed today, NOT a detector. The measured buried-road rate is
-        // 8.8% of sampled points, so this count is a floor and not the class.
-        V5_terrain_conflict_known: { count: droppedFloorGapIds.size, ids: [...droppedFloorGapIds],
-          note: 'hand-listed KNOWN_FLOOR_GAP_ROADS only — the real V5 class needs the P-R1b detector' },
+        // V5 terrain-conflict — MEASURED (P-R1b). Replaces the hand-listed count, which reported 5
+        // against a real rate of 8.8% of sampled road points.
+        V5_terrain_conflict: (() => {
+          const floating = _censusV5.filter((x) => x.worstDevM > 0);
+          const buried = _censusV5.filter((x) => x.worstDevM < 0);
+          const devs = _censusV5.map((x) => Math.abs(x.worstDevM)).sort((a, b) => b - a);
+          const pctOf = (q) => (devs.length ? devs[Math.min(devs.length - 1, Math.floor(devs.length * q))] : null);
+          const byType = {};
+          for (const x of _censusV5) byType[x.type || '?'] = (byType[x.type || '?'] || 0) + 1;
+          const real = _censusV5.filter((x) => !x.isRamp);
+          const realDevs = real.map((x) => Math.abs(x.worstDevM)).sort((a, b) => b - a);
+          return {
+            count: _censusV5.length,
+            toleranceM: _V5_TOL_M,
+            // Ramps descend into tunnels BY DESIGN and reach exact LAYER_STEP depths. They are the
+            // bulk of the raw count and are not defects; `excludingRamps` is the real class.
+            ramps: _censusV5.length - real.length,
+            excludingRamps: {
+              count: real.length,
+              floating: real.filter((x) => x.worstDevM > 0).length,
+              buried: real.filter((x) => x.worstDevM < 0).length,
+              worstDevM: realDevs[0] ?? null,
+              p50DevM: realDevs.length ? realDevs[Math.floor(realDevs.length / 2)] : null,
+              worst: real.sort((a, b) => Math.abs(b.worstDevM) - Math.abs(a.worstDevM)).slice(0, 10),
+            },
+            // Sign kept apart on purpose: floating and buried look different and have different
+            // causes — floating is usually bad layer/height data, buried is usually terrain smoothed
+            // or carved under a road that was never re-fitted.
+            floating: floating.length,
+            buried: buried.length,
+            worstDevM: { max: devs[0] ?? null, p90: pctOf(0.1), p50: pctOf(0.5), min: devs[devs.length - 1] ?? null },
+            byHighwayType: byType,
+            worstFloating: floating.sort((a, b) => b.worstDevM - a.worstDevM).slice(0, 10),
+            worstBuried: buried.sort((a, b) => a.worstDevM - b.worstDevM).slice(0, 10),
+          };
+        })(),
+        V5_hand_listed_floorgap: { count: droppedFloorGapIds.size, ids: [...droppedFloorGapIds] },
         // Unclassified shortfall between what was parsed and what reached a tile.
         unaccounted_ways: { parsed: totalWaysParsed, rendered: totalWaysRendered,
           count: Math.max(0, totalWaysParsed - totalWaysRendered) },
       },
       // Not counted because nothing looks: way stitching is disabled ([3/8] Skipping way stitching),
       // so an H3 count of zero would be a lie. Unknown is the honest value.
+      // V5 left this list on 2026-08-27 — it now has a real detector.
       unmeasured: ['H1_dangling_end', 'H2_near_miss_junction', 'H3_split_not_stitched',
                    'M1_implied_bridge', 'M2_implied_tunnel', 'M3_missing_connector'],
     };
     fs.writeFileSync(censusPath, JSON.stringify(census, null, 2));
+    const v5c = census.classes.V5_terrain_conflict;
     console.log(`  [Census] wrote ${censusPath} — V4 ${census.classes.V4_unresolvable_ramp.count} deleted ramps, ` +
+                `V5 ${v5c.excludingRamps.count} terrain conflicts excl. ramps ` +
+                `(${v5c.excludingRamps.floating} floating / ${v5c.excludingRamps.buried} buried, ` +
+                `worst ${v5c.excludingRamps.worstDevM} m; ${v5c.ramps} legitimate ramp descents ignored), ` +
                 `${census.classes.unaccounted_ways.count} unaccounted ways`);
   } catch (e) {
     console.warn('  [Census] could not write defect census:', e.message);
