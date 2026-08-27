@@ -4,6 +4,66 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-27 — The load was never work-bound: 16.2 s → 4.35 s
+
+**`other` had been the largest number in every drive report** — 2,007–3,087 ms against `rend`'s
+237–415 — and was filed as "GC/thermal". It is neither. Every top-`other` frame is in the first
+12 seconds, with no async attribution and no allocation; after ~30 s of driving there are no long
+frames at all. **`other` was the load.**
+
+**And time-to-drive was never a load time.** The boot polls `isInitialLoadComplete()` every 150 ms
+and gives up after 130 polls — a 19.5 s cap. Measured boots sat at 19.4 / 20.0 / 21.3 / 21.6 s. A
+number that lands on its own timeout is usually the timeout, and instrumenting it confirmed:
+`GAVE UP at the 131-poll cap — still 3 in flight, 5 queued, 6 resident`. The loading screen was
+lifting on a timeout with six tiles built.
+
+**Then the per-phase totals, from an instrument that already existed and had never been called.**
+`takeBuildOverruns()` labels thirteen build phases and nothing has ever read it, so the load has been
+unattributable while the data to attribute it was collected and thrown away. Given a total-per-phase
+sibling and printed at the end of the load, it said:
+
+```
+initial tile load COMPLETE after 108 polls (~16200 ms), 14 tiles resident
+main-thread time by build phase (3095 ms total): p1 physics 752ms/132 ·
+  p4 clusters 589ms/124 · p2 buildings 465ms/163 · p4 urban 389ms/263 · ...
+```
+
+**Three seconds of work. Sixteen seconds of wall time.** ~1,180 chunks averaging 2.63 ms — exactly
+`FRAME_BUDGET_MS = 3` — each ending in a yield costing a full 16.7 ms frame. The main thread was idle
+for ~84% of the load. **No build phase was worth optimising:** `p1 physics` tops the list at 752 ms,
+and eliminating it entirely would have saved 0.75 s of a 16 s load.
+
+The 3 ms cap is right while DRIVING — it exists so tile work never piles onto a frame already missing
+60 fps. It is simply wrong behind a loading overlay, where there is no car and nothing to keep
+smooth. `LOAD_BUDGET_MS = 12`, on a one-way latch that drops back to 3 ms the instant the first ring
+completes.
+
+**A second mechanism turned up only on reflection, and it is worse than the first.** The adaptive
+rule shrinks the budget by 0.6 ms whenever a frame exceeds 20 ms — and during a load frames always
+exceed 20 ms, *because loading is what is making them long*. So it walked the build budget toward
+`BUDGET_MIN = 1.0` precisely when the load needed it most: the symptom of loading was throttling the
+loading. Gating it behind the latch was not tidiness; without it a bigger budget would have been
+eroded within a second.
+
+| | before | after |
+|---|---|---|
+| initial load | 16,200 ms | **4,350 ms** (3.7×) |
+| time-to-drive | 18,444 ms | **6,329 ms** (2.9×) |
+| build chunks | 1,177 | **334** |
+| average chunk | 2.63 ms | **10.1 ms** |
+| tiles resident | 14 | 14 |
+| build work done | 3,095 ms | 3,362 ms |
+
+Predicted 4.3 s from the arithmetic, measured 4.35 s. It also **restores and beats the ledger's
+6.94 s**, unexplained since P4-01 — so that figure was real, and this is what had been lost.
+
+`test/loadBudget.test.js` pins the direction that matters: the latch is one-way, the adaptive drive
+budget is gated behind it, and completing the load restores the 3 ms budget in the same statement. If
+the load budget ever leaked into a drive, every tile streaming in at 80 km/h would get 12 ms of build
+time and the stutter the 3 ms cap exists to prevent would return in the regime the benchmark measures.
+
+328 tests green.
+
 ## 2026-08-27 — Task #39: two more disposal leaks, and a call that never did anything
 
 **Two disposal branches, and the fix only ever landed on one.** Tile unload branched: a Group was
