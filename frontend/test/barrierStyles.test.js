@@ -110,3 +110,31 @@ test('style selection is deterministic and matches Barcelona practice', async ()
   // nothing random, nothing time-dependent — R-0
   assert.doesNotMatch(fn, /Math\.random|Date\.now/, 'selection must be deterministic');
 });
+
+test('every barrier colour sits inside its SURFACE CLASS band, not merely near an anchor', async () => {
+  // The mistake this pins, made three times now (toldos, shop signs, and these): a colour can pass
+  // ΔE against an anchor and still be plainly wrong, because ΔE does not catch a value that is too
+  // dark or too bright. The pedestrian ironwork shipped at ΔE 6.51 against `carriageway_grey` while
+  // sitting at L* 26.4 — eighteen points below the `metal` floor of 44 — and read as near-black.
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/map/roadRenderer.js', 'utf8'));
+  const block = src.slice(src.indexOf('const BARRIER_STYLES = {'), src.indexOf('function pickBarrierStyle'));
+
+  // sRGB -> L*, enough to check the band without pulling in a colour library.
+  const toL = ([r, g, b]) => {
+    const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    const Y = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return Y > 0.008856 ? 116 * Math.cbrt(Y) - 16 : 903.3 * Y;
+  };
+  const triples = [...block.matchAll(/(wallC|postC):\s*\[([\d.]+),\s*([\d.]+),\s*([\d.]+)\]/g)]
+    .map((m) => ({ kind: m[1], rgb: [+m[2], +m[3], +m[4]] }));
+  assert.ok(triples.length >= 5, `expected every style's colour, found ${triples.length}`);
+
+  for (const t of triples) {
+    const L = toL(t.rgb);
+    // wallC is concrete (sidewalk class 62±9); postC is steel/iron (metal class 58±14). Widened by
+    // a few points because these are PRE-GRADED values, which sit slightly below their target.
+    const [lo, hi] = t.kind === 'wallC' ? [49, 75] : [40, 76];
+    assert.ok(L >= lo && L <= hi,
+      `${t.kind} at L* ${L.toFixed(1)} is outside ${lo}..${hi} — too ${L < lo ? 'DARK' : 'BRIGHT'} for its class`);
+  }
+});

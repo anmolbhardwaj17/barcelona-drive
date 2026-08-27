@@ -3523,8 +3523,17 @@ function guardRailKeepRuns(keep, n) {
  * Selection is a pure function of fields the tile already carries — deterministic, so the same road
  * gets the same barrier on every load (R-0). No new bake data.
  *
- * Colours are art-bible normalized and pre-graded, every one inside ΔE 15 of a palette anchor
- * (worst 6.55). The shop signs are the cautionary tale: six of eight eyeballed colours failed.
+ * ⚠ COLOURS ARE CHECKED AGAINST THEIR SURFACE CLASS, NOT JUST AGAINST AN ANCHOR.
+ * These first shipped ΔE-checked and still wrong, because ΔE alone does not catch a value that is
+ * simply too dark or too bright: the pedestrian ironwork passed at ΔE 6.51 against `carriageway_grey`
+ * while sitting at **L* 26.4, eighteen points below the `metal` class floor of 44** — user-reported
+ * as "these railings look too dark". The concrete was the same mistake inverted, at L* 73-76 against
+ * a `sidewalk` ceiling of 71.
+ *
+ * Now: steel and ironwork inside `metal` (L* 58 ±14), concrete inside `sidewalk` (L* 62 ±9), chroma
+ * capped at 8 because none of these is a coloured object, then step-6 pre-graded. Worst ΔE 6.48.
+ * The same class-band check the toldos and the shop signs each needed — that is three for three,
+ * so check the BAND, not only the anchor.
  *
  * `wallH` 0 means no concrete at all — a pedestrian railing is posts and rails, nothing else.
  * `posts` false means no post/beam pass, which is most of the triangle budget.
@@ -3539,20 +3548,20 @@ function styleColorAttr(vertexCount, rgb) {
 
 const BARRIER_STYLES = {
   // Bridge deck: solid, waist-high, no railing on top. What you see on a Barcelona viaduct edge.
-  parapet:    { wallH: 1.05, wallC: [0.722, 0.706, 0.678], posts: false, postC: null,
+  parapet:    { wallH: 1.05, wallC: [0.641, 0.628, 0.604], posts: false, postC: null,
                 beamH: 0,    postSpacing: 0 },
   // Ronda / fast dual carriageway + central reservations. New Jersey profile, no posts.
-  jersey:     { wallH: 0.81, wallC: [0.749, 0.733, 0.702], posts: false, postC: null,
+  jersey:     { wallH: 0.81, wallC: [0.662, 0.649, 0.622], posts: false, postC: null,
                 beamH: 0,    postSpacing: 0 },
   // Ramps and elevated single carriageways: low kerb-wall + galvanized W-beam on posts.
-  guardrail:  { wallH: 0.45, wallC: [0.561, 0.545, 0.522], posts: true,
-                postC: [0.431, 0.416, 0.400], beamH: 0.30, postSpacing: 4.0 },
+  guardrail:  { wallH: 0.45, wallC: [0.558, 0.545, 0.528], posts: true,
+                postC: [0.429, 0.415, 0.402], beamH: 0.30, postSpacing: 4.0 },
   // City street / median: NO concrete, slim dark-iron uprights. Barcelona street furniture is
   // RAL 7016-ish, not galvanized — that is the tell that separates a street from a ronda.
   // 1.05 m: a Barcelona street railing is chest-high — the sandbox first built it at 0.42 m, which
   // is a trip hazard rather than a barrier, and only a measured profile caught that.
   pedestrian: { wallH: 0,    wallC: null, posts: true,
-                postC: [0.231, 0.247, 0.259], beamH: 1.05, postSpacing: 2.2 },
+                postC: [0.424, 0.439, 0.450], beamH: 1.05, postSpacing: 2.2 },
 };
 
 /**
