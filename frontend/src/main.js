@@ -88,7 +88,8 @@ import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
 import { getHeadlightRig } from './car/headlightRig.js';   // built before the warm-up — see D-39
 import { probeRoadFit } from './ui/roadFitProbe.js';   // ?debug=roadfit — measurement only
-import { armReport, noteVariant, noteLongFrame, shipReport } from './ui/driveReport.js';   // F9 → one file, see below
+import { armReport, noteVariant, noteLongFrame, noteResidency, shipReport } from './ui/driveReport.js';   // F9 → one file, see below
+let _lastResidencySample = 0;   // task #39: residency series is sampled on a timer, not per frame
 import { initLightGrid, setLights, updateLightGrid, patchLightGrid, lightGridABTick, lightGridUniforms, lightGridStats, assertLightingVisible, CELL_M, GRID_DIM } from './map/lightGrid.js';   // v3 P2
 import { createFreeCameraController, getStreamPositionFromCamera } from './camera/freeCameraController.js';
 import { createCarDriver } from './car/carDriver.js';
@@ -1438,6 +1439,21 @@ function animate(time = 0) {
   warmupEnd();
   gpuTimer.end();
   cpuTimer.lap('rend');
+  // ── Task #39 residency sample (every ~2 s, not per frame) ──────────────────────────────────────
+  // The GC half of #39 cannot be answered with performance.memory alone: it is coarse and moves when
+  // the collector decides to, so per-tile heap deltas are mostly noise. renderer.info.memory holds
+  // EXACT live counts, and the leak question is whether they climb while the resident tile count is
+  // flat. D-37 already said "climbing geom/tex is a LEAK" — nothing had ever recorded the series.
+  if (time - _lastResidencySample > 2000) {
+    _lastResidencySample = time;
+    noteResidency({
+      t: time,
+      tiles: tileManager.getDebugMetrics ? (tileManager.getDebugMetrics({})?.activeTiles ?? -1) : -1,
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures,
+      heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
+    });
+  }
   watchShaderVariants();   // D-38: name late-compiling variants (no-op unless the count grew) // CPU cost of submitting draws (not GPU exec — that's the gpuTimer)
   if (perfLogger.recording) {
     perfLogger.sample({

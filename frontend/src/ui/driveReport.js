@@ -198,6 +198,44 @@ function groupVariants() {
   return [...groups.values()].sort((a, b) => b.count - a.count);
 }
 
+
+/**
+ * RESIDENCY SAMPLER — the GC-independent half of task #39.
+ *
+ * `performance.memory.usedJSHeapSize` is coarse and moves when the collector feels like it, so a
+ * per-tile heap delta is mostly noise. `renderer.info.memory.geometries` and `.textures` are EXACT
+ * counts of live GPU resources, and they answer the leak question directly: if they climb while the
+ * resident tile count is flat, tiles are not releasing what they allocated. D-37 said as much —
+ * "climbing geom/tex is a LEAK" — but nothing ever recorded the series.
+ *
+ * Sampled on a timer rather than per frame: this is about drift over a drive, not per-frame cost.
+ */
+const _res = [];
+export function noteResidency({ tiles, geometries, textures, heapMB, t }) {
+  if (_armedAt == null) return;
+  _res.push({ t: Math.round(t), tiles, geometries, textures, heapMB });
+}
+
+/** first/last + per-tile normalisation, which is what makes a leak legible. */
+function residencySummary() {
+  if (_res.length < 2) return null;
+  const a = _res[0], b = _res[_res.length - 1];
+  const span = Math.max(1, (b.t - a.t) / 1000);
+  const perTile = (v, s) => (s.tiles > 0 ? +(v / s.tiles).toFixed(1) : null);
+  return {
+    samples: _res.length,
+    seconds: Math.round(span),
+    tiles: { first: a.tiles, last: b.tiles },
+    // The leak signal. Flat tiles + climbing geometries = tiles are not releasing.
+    geometries: { first: a.geometries, last: b.geometries, delta: b.geometries - a.geometries,
+                  perSec: +((b.geometries - a.geometries) / span).toFixed(2),
+                  perTileFirst: perTile(a.geometries, a), perTileLast: perTile(b.geometries, b) },
+    textures: { first: a.textures, last: b.textures, delta: b.textures - a.textures },
+    heapMB: { first: a.heapMB, last: b.heapMB, perSec: +(((b.heapMB ?? 0) - (a.heapMB ?? 0)) / span).toFixed(2) },
+    series: _res.filter((_, i) => i % Math.max(1, Math.floor(_res.length / 24)) === 0),
+  };
+}
+
 export function buildReport(extra = {}) {
   const msSorted = _long.map((f) => f.ms).sort((a, b) => a - b);
   // Aggregate blame across every long frame, so one outlier cannot name the cause on its own.
@@ -225,6 +263,7 @@ export function buildReport(extra = {}) {
       capped: _variants.length >= MAX_VARIANTS,
       byCause: groupVariants(),
     },
+    residency: residencySummary(),
     frames: {
       longFrames: _long.length,
       capped: _long.length >= MAX_LONG,
