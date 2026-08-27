@@ -2073,3 +2073,35 @@ at `openstreetmap.org/way/<id>`. P-R1 budgeted 1.5 d for detectors; this half ne
 Also records `unmeasured: [H1, H2, H3, M1, M2, M3]` — **way stitching is switched off**
 (`[3/8] Skipping way stitching`), so reporting `H3: 0` would be a lie. Unknown is the honest value.
 V5 is labelled a floor, not the class: 5 hand-listed roads against a measured 8.8% of buried points.
+
+## 2026-08-27 — The tree pop was an LOD *timing* bug, not an LOD *distance* bug
+
+User-reported: *"trees came there after I cross the place… when I came near them they disappear"*,
+and decisively: *"when I drive fast I don't see, but if I slow down and move around I see them."*
+
+`_ddVegLod()` showed the fade maths was already correct at every distance —
+`tree 955/3332 + billboard 2375/3332` at 144 m, summing to the total everywhere. So the distances
+were never the problem.
+
+**The cause:** `_lastLodX = -Infinity` (the LOD invalidation) fires when the tile ENTRY is created —
+the *start* of the build. Vegetation is materialized at the *end*, many awaits later, by which time
+that forced pass has run and moved on. Tree handles are added `startVisible = true`, so until an LOD
+pass touches them **every tree in the tile draws at full density regardless of distance** — and the
+pass only runs once the viewer has moved 15 m (`LOD_THRESHOLD_SQ`).
+
+That produces a pop in both directions, which is why it read as a distance problem:
+- cross into a tile → it finishes building → the whole canopy appears at once
+- move 15 m → the LOD finally runs → it thins to the correct fraction
+
+And it explains the speed dependence exactly: **driving fast keeps the LOD running constantly, so
+you only ever saw the correct density. The lush version was the bug.**
+
+Fix: re-invalidate after the vegetation handles are pushed. Both invalidation points are needed —
+one covers meshes built early, the other vegetation built late. `frontend/test/vegLodTiming.test.js`
+pins it, including that trees keep `startVisible = true`: "fixing" it by adding them hidden would
+leave a tile built between passes showing *nothing* for 15 m, which is worse.
+
+Two probes were added getting here and both are worth keeping: `_ddVegCount()` now separates
+**allocated from DRAWN** (`BatchedMesh.instanceCount` is allocation, not visibility), and
+`_ddVegLod()` reports per-tile band, both fractions, and visible/total per handle kind — the total
+alone could never say *which* tile was bare.

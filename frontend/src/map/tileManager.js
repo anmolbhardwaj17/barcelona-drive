@@ -2248,6 +2248,24 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             (zoneResult.poolHandles || []).forEach((h) => entry.vegPoolHandles.push(h));
           }
 
+          // ⚠ RE-INVALIDATE THE LOD *AFTER* VEGETATION LANDS.
+          //
+          // `_lastLodX = -Infinity` is already set when the tile entry is created — but that is the
+          // START of the build, and vegetation is materialized at the END, many awaits later. The
+          // forced LOD pass has long since run and moved on by the time these handles exist.
+          //
+          // Tree handles are added with startVisible = TRUE, so until an LOD pass touches them
+          // every tree in the tile draws at full density regardless of distance. The pass only runs
+          // once the viewer has moved 15 m (LOD_THRESHOLD_SQ), so the tile sits over-populated until
+          // then and visibly thins the moment it is corrected.
+          //
+          // User-reported exactly this, in both directions: "trees came there after I cross the
+          // place" (the tile finished building and showed everything) and "when I came near them
+          // they disappear" (15 m later the LOD ran and faded them to the correct fraction). Driving
+          // fast keeps the LOD running constantly, which is why the canopy looked THINNER at speed —
+          // that was the correct density, and the lush version was the bug.
+          _lastLodX = -Infinity;
+
           // v3 P2-05: the per-instance vegetation "urban glow" wash is DELETED along with the rest
           // of the fake-night stack. It cost a washAt (~900 distance checks) AND a colour-texture
           // needsUpdate PER INSTANCE, across every tree and bush in a tile — the 'p3 veg-wash'
