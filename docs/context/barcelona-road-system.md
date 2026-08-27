@@ -613,7 +613,7 @@ and none of these do.
 > looked almost right and behaved inconsistently as the viewer moved. Inference rules fail the same
 > way, and only determinism plus a test makes them safe.
 
-### R-P1 · FALL-THROUGH — generalise drivable-surface-implies-floor beyond tunnels · NEW 2026-08-27
+### R-P1 · FALL-THROUGH — generalise drivable-surface-implies-floor beyond tunnels · ✅ MEASURED 2026-08-27
 
 **Symptom (user):** "there are roads in some places from where I fall."
 
@@ -622,16 +622,29 @@ and none of these do.
 (`layer < 0` whitelist), sampled at 2 m, has carved grid within tolerance of `roadY − 0.15`. It
 throws and fails the bake. Nothing applies the same test to a **surface or elevated** road.
 
-**And it is probably the same defect as the floating roads, seen from the physics side.** P-R1b
-measured **4.9% of drivable road points sitting above the shipped terrain**, worst 24 m. Terrain
-physics is a Heightfield built from that same grid, so wherever the visual road floats, the collider
-under it is at terrain level — the car drives on ground that is metres below what it can see, or
-drops the moment the visual deck ends. One cause, two symptoms:
+**⚠ MEASURED 2026-08-27 — THE PREMISE NO LONGER HOLDS. The surface half of the validator shipped in
+report mode and the census says the floating roads are gone.**
 
-| symptom | seen in | measured |
-|---|---|---|
-| road looks floating | render | 4.9% of drivable points, worst 24 m |
-| car falls through | physics | user-reported, unmeasured |
+The ticket was written on P-R1b's figure of **4.9% of drivable road points above the shipped terrain,
+worst 24 m**, and explicitly anticipated this: *"Fixing the heights may close most of this on its own,
+so measure before writing repair logic."* It did. Full-region bake, **357,178 samples at 2 m spacing,
+drop range −3.22 … 2.21 m**:
+
+| drop above the collider | samples | roads | share |
+|---|---|---|---|
+| > 0.5 m | 1,720 | 147 | 0.48% |
+| > 1 m | 339 | 33 | 0.09% |
+| > 2 m | 4 | **1** | 0.00% |
+| > 5 m | **0** | 0 | — |
+
+The worst road in the city is **2.2 m**, on `34099200` — which this validator's own header already
+names as one of the two known pre-existing native-dip roads. **Nothing is 24 m in the air any more,
+and 2.2 m is a bump, not a fall-through.** The terrain rework (Phases 0–2) closed it.
+
+So the render symptom is fixed and the physics symptom has no systemic cause left in this data. If
+the car still falls somewhere, it is a LOCAL defect — a missing collider at a tile seam, or a trench
+deck — and it needs a location: **note the `?spawn=lat,lon` where it happens.** The census stays in
+the bake as the regression guard, with the table above as the baseline.
 
 **Scope:** extend the validator from `layer < 0` to **every drivable road**, and make its tolerance
 the thing the wheels actually rest on — the Heightfield sample, not the DEM. Then the bake cannot

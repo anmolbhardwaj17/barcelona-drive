@@ -138,3 +138,157 @@ export function reportTunnelFloorValidation(violations, { blocking = true, white
   }
   console.error(`[FloorValidator] (report mode — not blocking; set TRENCH_VALIDATOR=block to enforce.)`);
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// R-P1 · THE SAME INVARIANT FOR SURFACE ROADS — and it points the OTHER WAY
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// "A drivable surface implies a floor, wherever it is." The tunnel check above is one half of it.
+// The other half cannot be had by widening that whitelist, because the failure is mirrored:
+//
+//   TUNNEL   the carved floor must be UNDER the road, so the violation is the grid too HIGH —
+//            terrain rising into the roadway. `gap = gridY - expectedFloor`.
+//
+//   SURFACE  the terrain IS the floor, and it is what the wheels rest on (the physics heightfield
+//            is built from this same grid). The violation is the grid too LOW — the visual asphalt
+//            hanging in the air with the collider metres beneath it. `drop = roadY - gridY`.
+//            **That is the user's "there are roads in some places from where I fall":** the car is
+//            on the collider the whole time; it is the road that is not where it looks.
+//
+// Widening the tunnel scope without flipping the sign would have flagged BURIED roads — a cosmetic
+// problem you drive over — and missed every floating one, which is the problem you fall through.
+//
+// ELEVATED ROADS ARE EXCLUDED, and that is not a loophole. A bridge, a ramp, an `layer > 0` deck and
+// an Option-L trench crossing are all SUPPOSED to sit above the terrain; each gets its own deck
+// collider in tileManager. The gate is the same four booleans the guard-rail and street-parking
+// gates lead with, deliberately — three systems, one definition of "this road carries its own
+// surface", so they cannot drift apart.
+//
+// REPORTING, NOT BLOCKING. `barcelona-road-system.md` R-P1 is explicit: land it in report mode and
+// read the count first, because P-R1b already measured 4.9% of drivable road points above the
+// shipped terrain and a commit-blocking assert over that would fail every bake forever.
+
+/** Buckets, in metres of drop, so the report says whether this is a handful of spots or systemic. */
+export const SURFACE_DROP_BUCKETS = [0.5, 1.0, 2.0, 5.0, 10.0];
+
+/** A road that carries its own deck is meant to be above the terrain. Same booleans as R-B1 / R-V1. */
+function carriesOwnDeck(road) {
+  return road.bridge === true
+    || road.isRamp === true
+    || (road.layer != null && road.layer > 0)
+    || road.crossesTrench === true;
+}
+
+/**
+ * Drop between a surface road and the terrain the wheels actually rest on, sampled every 2 m.
+ *
+ * @returns {Array<{tileId,roadId,hwy,roadY,gridY,drop}>} one entry per sample over the smallest bucket
+ */
+export function collectSurfaceFloorViolations(tileId, tileRoads, data, bounds, grid, stats = null) {
+  const { south, west, north, east } = bounds;
+  const minDrop = Number(process.env.RP1_MIN_DROP) > 0 ? Number(process.env.RP1_MIN_DROP) : SURFACE_DROP_BUCKETS[0];
+  const out = [];
+  for (const road of tileRoads || []) {
+    if (!DRIVABLE_TUNNEL_TYPES.has(road.highwayType)) continue;
+    if (road.tunnel) continue;              // the other half of the invariant covers these
+    if (carriesOwnDeck(road)) continue;     // has its own collider, see the note above
+    const pts = road.points;
+    if (!pts || pts.length < 2) continue;
+    const yOf = (p) => (p.length >= 4 && Number.isFinite(p[3]) ? p[3] : p[1]);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const segLen = Math.hypot(b[0] - a[0], b[2] - a[2]) * K_UNSTRETCH;
+      const n = Math.max(1, Math.round(segLen / SAMPLE_SPACING));
+      const yA = yOf(a), yB = yOf(b);
+      for (let s = 0; s <= n; s++) {
+        const f = s / n;
+        const mx = a[0] + f * (b[0] - a[0]);
+        const mz = a[2] + f * (b[2] - a[2]);
+        const roadY = yA + f * (yB - yA);
+        if (!Number.isFinite(roadY)) continue;
+        const ll = mercToLatLon(mx, mz);
+        if (ll.lat < south || ll.lat > north || ll.lon < west || ll.lon > east) continue;
+        // MAX of the adjacent cells, the mirror of gridFloorAt's MIN: for "is there ground under
+        // this point", the highest nearby cell is the most generous reading, so a road flagged here
+        // is floating above EVERY cell around it — not just above the lowest one.
+        const gy = gridCeilAt(data, grid, south, west, north, east, ll.lat, ll.lon);
+        if (!Number.isFinite(gy)) continue;
+        const drop = roadY - gy;
+        // PROOF OF WORK (D-23). A brand-new check reporting "0 violations" is indistinguishable from
+        // a check that sampled nothing — the light-grid A/B already reported a false PASS this way.
+        // So the collector counts what it looked at and the extremes it saw, and the report prints
+        // them even on success. A green line with 0 samples is a broken check, not a clean city.
+        if (stats) {
+          stats.samples++;
+          if (drop > stats.maxDrop) stats.maxDrop = drop;
+          if (drop < stats.minDrop) stats.minDrop = drop;
+        }
+        if (drop > minDrop) out.push({ tileId, roadId: road.id, hwy: road.highwayType, roadY, gridY: gy, drop });
+      }
+    }
+  }
+  return out;
+}
+
+/** MAX of the four adjacent grid cells — the most generous "is there ground here" reading. */
+function gridCeilAt(data, grid, south, west, north, east, lat, lon) {
+  const rf = Math.max(0, Math.min(grid - 1, ((lat - south) / (north - south)) * (grid - 1)));
+  const cf = Math.max(0, Math.min(grid - 1, ((lon - west) / (east - west)) * (grid - 1)));
+  const r0 = Math.floor(rf), c0 = Math.floor(cf);
+  const r1 = Math.min(grid - 1, r0 + 1), c1 = Math.min(grid - 1, c0 + 1);
+  let max = -Infinity;
+  for (const r of [r0, r1]) for (const c of [c0, c1]) {
+    const v = data[r * grid + c];
+    if (Number.isFinite(v) && v > max) max = v;
+  }
+  return Number.isFinite(max) ? max : NaN;
+}
+
+/**
+ * R-P1 census. NEVER blocking — see the note above; this is a measurement, and the count decides
+ * whether repair logic is worth writing at all (the same P-R1 gate that closed M1).
+ */
+export function reportSurfaceFloorValidation(violations, { stats = null } = {}) {
+  const sampleCount = stats?.samples ?? 0;
+  const workLine = stats
+    ? `   ${sampleCount.toLocaleString()} samples taken · drop range `
+      + `${Number.isFinite(stats.minDrop) ? stats.minDrop.toFixed(2) : 'n/a'} … `
+      + `${Number.isFinite(stats.maxDrop) ? stats.maxDrop.toFixed(2) : 'n/a'} m`
+    : '   ⚠ no stats collected — this report cannot tell you whether it measured anything';
+  if (!violations.length) {
+    if (!sampleCount) {
+      console.error('[FloorValidator/surface] ⚠ R-P1 VOID — 0 samples taken. This is NOT "no '
+        + 'violations"; it means the check looked at nothing. Fix it before trusting a green line.');
+      return;
+    }
+    console.log('[FloorValidator/surface] ✅ R-P1: no drivable surface road sits more than '
+      + `${SURFACE_DROP_BUCKETS[0]} m above the terrain under it.`);
+    console.log(workLine);
+    return;
+  }
+  const byBucket = new Map(SURFACE_DROP_BUCKETS.map((b) => [b, 0]));
+  const roadsByBucket = new Map(SURFACE_DROP_BUCKETS.map((b) => [b, new Set()]));
+  const worstByRoad = new Map();
+  let worst = 0, worstRoad = null;
+  for (const v of violations) {
+    for (const b of SURFACE_DROP_BUCKETS) {
+      if (v.drop > b) { byBucket.set(b, byBucket.get(b) + 1); roadsByBucket.get(b).add(v.roadId); }
+    }
+    if (v.drop > (worstByRoad.get(v.roadId) || 0)) worstByRoad.set(v.roadId, v.drop);
+    if (v.drop > worst) { worst = v.drop; worstRoad = v; }
+  }
+  console.log('');
+  console.log('[FloorValidator/surface] R-P1 — drivable SURFACE roads above the terrain they rest on');
+  console.log(workLine);
+  for (const b of SURFACE_DROP_BUCKETS) {
+    const n = byBucket.get(b);
+    const pct = sampleCount ? ` (${((n / sampleCount) * 100).toFixed(2)}% of samples)` : '';
+    console.log(`   drop > ${String(b).padStart(4)} m : ${String(n).padStart(7)} samples on ${String(roadsByBucket.get(b).size).padStart(5)} roads${pct}`);
+  }
+  if (worstRoad) {
+    console.log(`   worst: road ${worstRoad.roadId} (${worstRoad.hwy}) — road ${worstRoad.roadY.toFixed(1)} m vs terrain ${worstRoad.gridY.toFixed(1)} m = ${worst.toFixed(1)} m`);
+  }
+  const top = [...worstByRoad.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  console.log(`   worst roads: ${top.map(([id, d]) => `${id}(${d.toFixed(1)}m)`).join(', ')}`);
+  console.log('   (REPORT ONLY — R-P1 says read the count before writing any repair.)');
+}

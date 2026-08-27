@@ -24,7 +24,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { REGION_CONFIG } from './config.js';
 import { buildTrenchCorridors, carveTrenchesIntoGrid, flagTrenchCrossings, flagFloatersOverCarve } from './terrain/trenchAuthor.js';
-import { collectTunnelFloorViolations, reportTunnelFloorValidation } from './terrain/validateTunnelFloors.js';
+import { collectTunnelFloorViolations, reportTunnelFloorValidation,
+         collectSurfaceFloorViolations, reportSurfaceFloorValidation } from './terrain/validateTunnelFloors.js';   // R-P1
 
 // ── Broken/incomplete-ramp road skip (vibe > survey accuracy; user-approved 2026-06-30) ──
 // A layered/ramp road whose ramp couldn't be resolved (RampResolver Case-C "flattened" short
@@ -1194,7 +1195,10 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
   let written = 0;
   let totalRoadSegmentsWritten = 0;
-  const floorViolations = []; // slice ③ commit-blocking floor validator (drivable-surface-implies-floor)
+  const floorViolations = [];          // slice ③ commit-blocking floor validator (tunnels)
+  const surfaceFloorViolations = [];   // R-P1 — the SURFACE half, report only
+  // Proof-of-work counters (D-23): a green line with 0 samples is a broken check, not a clean city.
+  const surfaceStats = { samples: 0, maxDrop: -Infinity, minDrop: Infinity };
   const droppedRampIds = new Set(); // broken/incomplete-ramp roads skipped (vibe > survey accuracy)
   // Slice ③ KNOWN floor-gap roads: layer-1 ways tagged tunnel but with native terrain rising
   // 3.6–8.3 m straight through the roadway (mis-tagged / un-carveable — not real drivable
@@ -1413,6 +1417,8 @@ async function main() {
       if (tr.cellsCut > 0) console.log(`  [Trench] ${tileId}: cut ${tr.cellsCut} cells (max depth ${tr.maxCut.toFixed(1)}m)`);
       // Slice ③: validate drivable-surface-implies-floor on the CARVED grid with the DRAPED roads.
       floorViolations.push(...collectTunnelFloorViolations(tileId, tileRoadsFinal, data, { south, west, north, east }, TERRAIN_GRID));
+      // R-P1: the SURFACE half of drivable-surface-implies-floor. Report only — never blocking.
+      surfaceFloorViolations.push(...collectSurfaceFloorViolations(tileId, tileRoadsFinal, data, { south, west, north, east }, TERRAIN_GRID, surfaceStats));
     }
 
     const tileBuildings = buildingsByTile.get(tileId) || [];
@@ -1746,6 +1752,9 @@ async function main() {
 
   const _validatorBlocking = process.env.TRENCH_VALIDATOR !== 'report';
   reportTunnelFloorValidation(floorViolations, { blocking: _validatorBlocking, whitelist: KNOWN_FLOOR_GAP_ROADS });
+  // R-P1 census — never blocking. The count decides whether repair logic is worth writing, which is
+  // the same P-R1 gate that closed M1 as not-a-defect.
+  reportSurfaceFloorValidation(surfaceFloorViolations, { stats: surfaceStats });
 
   const byType = {};
   let bridgeCount = 0;
