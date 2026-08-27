@@ -8,93 +8,66 @@
 
 ## ⏯ RESUME HERE
 
-> **SESSION HANDOFF — 2026-08-27 (second session). Read this block, then the ticket list below it.**
+> **SESSION HANDOFF — 2026-08-27, second session. Read this block, then the ticket table. Nothing
+> below is in flight; the tree is clean and 332 tests are green.**
 
 | | |
 |---|---|
 | **Branch** | **`v3`** — work directly on it. |
-| **JUST SHIPPED** | **P4-15a ✅ — the shared car fleet.** All cars in the world are now ONE BatchedMesh; 41 draws → 3. See its entry under P4 for the full done-when list. **Unverified in-game.** |
-| **JUST SHIPPED (2)** | **R-W1 ✅ — the road width model.** ELEVEN disagreeing width tables → ONE model, baked into v10 tiles as a named section. Residential paving 4 m → 10.4 m. **Full region re-bake done: 433/444 tiles v10, 47,782 roads, 0 missing the section** (the 339 that lack it are all in the 11 pre-existing v7 stragglers — H7 had 17, now 11 — and they fall back to a table a test keeps in step with the model). Verified end to end through the running server: a residential road arrives as `{width:10.4, carriagewayW:6, kerbToKerbW:10.4, parkingLeftW:2.2, parkingRightW:2.2, sidewalkW:3, corridorW:16.4}`. **Unverified ON SCREEN — this is the biggest visual change in weeks.** |
-| **NEXT TASK** | **User's call.** Recommendation: **R-W1** (road WIDTH model) — the tracker already calls it the root of three reported bugs and it unblocks R-J1 + R-V1. It needs a re-bake, which is the reason to start it deliberately rather than drift into it. If you want another no-bake engineering task instead, **#39 residual** (the last ~2/s geometry leak) is the one with a measurement waiting for it. |
-| **Owed by the user** | **ONE verification drive** (see below) — now covering yesterday's barrier/leak work AND P4-15a. Nothing is blocked on it. |
-| **Tests** | 245 green (232 + 13 new in `test/carFleet.test.js`). ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently. Re-run before believing it. |
+| **Tile format** | **v10.** Full region re-baked twice today. The browser cache now invalidates itself on a version bump (`peekBinaryVersion`), so a plain reload is enough. |
+| **Tests** | **332 green.** `npm test` in `frontend/`. ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently — re-run before believing it. |
+| **Verified on screen** | R-W1 widths, R-J2 junctions, the barrier fixes, P4-15a cars, and the authored facades — **the user checked all of it and it looks right.** |
+| **NEXT TASK** | **R-J1 · junction/merge geometry** — the last big road ticket, unblocked by R-W1. See the table below for the alternatives. |
 
-### ▶ WHAT P4-15a CHANGED, in one paragraph
+### ▶ WHAT TO KNOW BEFORE PICKING ANYTHING UP
 
-Traffic and parked cars drew the SAME nine Kenney models out of the SAME atlas through 41 draws and
-37 scene children, and traffic allocated a `THREE.Mesh` and spliced it into `scene` on every spawn —
-about two of each per frame at cruise. Now there is one `carFleet.js` pool: a single `BatchedMesh`
-where a car is an instance with a geometry id, plus one light `InstancedMesh` per system (head and
-tail separated by instance colour, not by being two meshes). Templates are parsed once, share one
-material and one texture, and keep their index buffers. Tire smoke went from 90 Sprites to one
-InstancedMesh with per-instance alpha. **The measured claim P4-15a was scheduled on — `traffic`
-burning 27.6 ms across 9 long frames and allocating 22.6 MB — has NOT been re-measured. Do that
-before banking anything in the ledger.**
+**Three tickets died on re-measurement today** (M1, R-P1, and R-B2's framing), and two of them said
+"count first" in their own text. Before committing days to any remaining item, spend an hour checking
+its premise still holds. **A number recorded months ago describes the codebase of months ago.**
 
-### ▶ THE VERIFICATION DRIVE the user owes
+**Assume a second call site.** Four separate defects today were "the fix landed on one of two paths":
+two tile-disposal branches (D-56), seven road-field copies (D-46), `getLoadedRoadSegments` (D-50),
+and F9 vs `window._ddReport` (D-64). When you fix something, go and look for the other one.
 
-Cool machine, hard reload, ~90 s in Eixample, then **F9**. Closes four questions at once:
-1. **Barrier styles** — ronda = low concrete, bridge = solid parapet, ramp = steel W-beam on posts,
-   city street = slim ironwork. Four visibly different things.
-2. **Floating-bar fix** — no railing should hang in mid-air with nothing under it.
-3. **Bike-lane fix** — no barriers on cycleways/footpaths.
-4. **The leak + the lag** — `residency.sameTileCountDrift` should be ~0 (was +79/+98/+76, then
-   +19/+10/+44). And long frames dominated by `tiles` = my terrain probe; by `other` = GC/thermal.
+**Two adaptive controllers made the same mistake in one day** (D-66, D-67): both read the LOAD
+transient as a steady-state fault and throttled themselves against it. If you meet a third
+controller, check when it measures before you check what it measures.
 
-5. **R-W1 — the streets, and this is the big one.** Every road in the city is wider. An Eixample
-   residential street should now read as a real street: two lanes of running asphalt with a parked
-   row against each kerb, all on ONE continuous paved surface — **no strip of bare terrain between
-   the driving lane and the parked cars** (that would mean something is drawing `carriagewayW`
-   instead of `kerbToKerbW`, see D-47). Pavements should look like pavements, not 4 m ribbons.
-   Check a narrow Gràcia street too: it should NOT have swallowed its own pavement.
-6. **R-W1 — the bug that started it.** No car parked on a guard rail, anywhere. Rails sit at the
-   kerb; bays sit inside it.
-7. **P4-15a — the cars.** Parked cars still line both curbs with the same variety and are not
-   floating, sunk, or the wrong SIZE (the shared geometry is canonical now, so a scale bug shows up
-   as cars 5% off). Traffic still drives, still has head/tail lights at night, still gets shoved when
-   you hit one. Drift or drive over ~43 km/h and confirm the dust puffs still fade individually
-   rather than all at once (that would mean the per-instance alpha patch went silent).
-8. **P4-15a — the numbers.** F9 should now show `traffic` well under its 27.6 ms / 9 long frames, and
-   fewer draws and triangles. Parked cars being frustum-culled is the big triangle lever.
+### ▶ WHAT SHIPPED TODAY
 
-⚠ **A FULL RE-BAKE HAS HAPPENED** (v9 → v10). The browser cache now invalidates itself — that is
-new, see D-48 — so a plain reload should be enough. If anything looks stale, `window._clearTileCache()`
-and hard-reload is still the hammer.
+| | result |
+|---|---|
+| **initial load** | **16,200 → 4,350 ms** (3.7×). It was yield-bound, not work-bound: 3.1 s of work spread over 16 s at 3 ms a frame |
+| **time-to-drive** | **18,444 → 6,329 ms** (2.9×) — restores and beats the ledger's long-unexplained 6.94 s |
+| **`other`** (largest report section) | attributed: it **was** the load. Should collapse with it — **not yet re-measured** |
+| **R-W1** road width model | eleven disagreeing width tables → one baked SECTION. Residential paving 4 → 10.4 m |
+| **R-J2** T-junction clipping | side-aware; paint, kerbs and pavements stop crossing 11,934 side-street mouths |
+| **P4-15a** car fleet | 41 draws → 3; allocation −60%, max frame −53% |
+| **facadeArray** | a `ReferenceError` swallowed by a `.catch()` meant the **authored facades had NEVER rendered**. Fixed |
+| **adaptRes** | armed only once drivable — it had been probing during the load and locking out every drive |
+| **#39**, **R-P1**, **P3 gate**, **M1** | all measured and closed — see the ticket table |
+
+### ▶ MEASUREMENT OWED (cheap, none of it blocking)
+
+1. **One F9 drive** — `other` should have collapsed with the load. Nothing else is unverified.
+2. **One `?debug=leak` drive** — two leak causes were fixed blind; this says whether a residual remains.
+3. If the car ever falls through a road again: **capture the `?spawn=lat,lon`**. The R-P1 census says
+   nothing systemic is left (worst road in the city sits 2.2 m above its collider, 0 over 5 m), so
+   anything remaining is local and needs a location, not another aggregate.
 
 ### ▶ OPEN TICKETS — everything pending, nothing in flight
 
 | id | what | where | state |
 |---|---|---|---|
-| **P4-15a** | traffic/parked/smoke instancing | tracker, below | ✅ **DONE 08-27** — shipped, unverified in-game |
-| **R-V1b** | ~~parked cars read `seg.bridge` / `isRamp` / `layer` / `crossesTrench`, none of which survived `getLoadedRoadSegments`'s projection~~ | `tileManager.js:3416` | ✅ **FIXED 08-27** — the flags are forwarded now, so the "no parking against a guard rail" gate is live for the FIRST time. **This changes what the drive will show.** |
-| **R-W1** | road WIDTH model — lanes × lane-width per Norma 8.2-IC, OSM tag as override | `barcelona-road-system.md` §4 | ✅ **DONE 08-27.** Ten width tables → one baked SECTION (v10 tiles). Residential paved 4 m → 10.4 m. Full re-bake done. **Unverified in-game.** Unblocks R-J1 + R-V1 |
-| **R-P1** | fall-through — the SURFACE half of `drivable-surface-implies-floor` | §4 | ✅ **SHIPPED IN REPORT MODE 08-27, and the census says there is nothing systemic left.** 357,178 samples, drop range −3.22…2.21 m: **0 roads over 5 m, 1 road over 2 m, worst 2.2 m** — against the 24 m the ticket was written on. The terrain rework closed it. **Still open only as a LOCAL bug: the next time the car falls, capture the `?spawn=lat,lon`.** The check stays in the bake as the regression guard |
-| ~~**M1**~~ | implied-bridge | `osm-repair-layer.md` §2 | ❌ **CLOSED 08-27 — NOT A REAL DEFECT CLASS.** Counted before writing a rule, as P-R1 requires: **2 unexplained road×road crossings and 35 road×rail in the whole city**, and several of the 35 are legitimate street-level TRAM crossings. The 18:1 tunnel:bridge ratio is REAL — Barcelona grade-separates by going under (Ronda trenches, Gran Via tunnels), not over. `backend/tools/crossingCensus.mjs` |
-| ~~**#39 residual**~~ | geometry leak at constant tile count | ledger | ✅ **MEASURED CLEAN 08-27** with `?debug=leak`: **`held == freed` on every unload, and in steady state `freed == released`** (2 freed → −2 geometries, four unloads running). The walk holds nothing back. ⚠ The probe's `UNACCOUNTED 8` is NOT a leak — it all landed on the FIRST unload and never grew: `renderer.info.memory.geometries` only counts geometries it has UPLOADED, so disposing a never-drawn one drops nothing. Reword that label before anyone reads it as a leak. Two real causes were fixed on the way — see below. |
-| ~~#39 (superseded row)~~ | | ledger | **08-27: two more causes found and fixed, plus a probe.** The unload path had TWO disposal branches and the Group one never learned what the flat one had — it walked only `child.isMesh` (so every LineSegments inside `reflectorGroup` / `tunnelMeshGroup` / `canopyMeshGroup` leaked, the same defect already fixed once on the other branch), it ignored `sharedGeometry` (freeing pooled geometry out from under other tiles), and it skipped instance buffers. **And the instance-buffer call was a no-op everywhere: `instanceMatrix.dispose` does not exist on a BufferAttribute in three 0.183, and `?.()` swallowed it.** Now ONE routine in `map/tileDisposal.js`, extracted so it can be exercised — 14 tests. **Whether any residual remains needs one drive with `?debug=leak`.** |
-| **R-J1** | junction/merge geometry | §4 | **UNBLOCKED** — R-W1 done. Carriageways now agree on width, so a merge seam is worth fixing |
-| ~~**R-J2**~~ | lane paint, sidewalks and kerbs ran straight through T-junction mouths | `roadRenderer.js` | ✅ **DONE 08-27.** Side-aware, not radial: `junctionsForSide()` opens only the side the street is on, `junctionClipRadius()` sizes a tee gap to the SIDE street (a widest-road radius would cut ~35 m out of a primary per side street), and `crossroadsOnly()` keeps the centre line and lane dividers unbroken at a T. Measured on the baked tiles: tees are +80% more junctions, and **46.8% of tee clips are now one-sided where a radial clip would have holed both**. 16 tests. **Unverified in-game.** |
-| **R-V1** | parked cars vs kerb line | §4 | ✅ **RESOLVED 08-27 by R-W1** — cars park in a baked BAY, the kerb is outside it by construction, and a test asserts the bay never passes `kerbOffset()` for any class |
-| **R-B2 leftovers** | sharp-bend barriers | §4 | ⚠ **THIS IS A FEATURE, NOT A DEFECT — re-read before scheduling it.** `isElevatedGuardRailRoad` has NO bend clause, so there are currently **zero** sharp-bend barriers in the world; nothing is wrong on screen. Measured 08-27 (`tools/edgeAudit.mjs`): 3,309 unguarded sharp bends (R < 60 m) with no drop, 898 on "fast" roads — but that set is **452 tertiary + 243 secondary**, which in Barcelona are ordinary Eixample grid streets. The genuinely defensible set is primary + links ≈ **203**. Modest payoff; and if the gate slips, ~695 barriers appear on grid corners, which is the exact bug class the user has been reporting |
-| ~~**P3 gate**~~ | draws ≤450, triangles ≤2.6 M | gate table | ✅ **MEASURED AND PASSED 08-27.** Steady-state console read: **202 draws · 1,014k triangles** against caps of 450 / 2.6 M — roughly half the budget on both. Worst-frame p50 is lower still (174 / 674k). The drive report's `info` line carries `calls`/`tris` per long frame, so no STATS overlay was needed after all |
-
-### ▶ WHAT SHIPPED TODAY, UNVERIFIED IN-GAME
-
-KTX2 world textures (VRAM 153.3 → 34.7 MiB) · tile store 567 → 177 MB (terrain generated at load) ·
-terrain visible to 1500 m · three vegetation LOD fixes · hills 0 → 1,077 trees median · defect
-census (V4 + V5) · tile-leak fix · barrier styles + FrontSide + post LOD · barrier colours re-derived
-into their class bands · Barcelona masonry instead of Indian precast walls.
-
-### ▶ THREE STANDING LESSONS FROM THIS SESSION
-
-1. **Check the CLASS BAND, not just ΔE.** Missed three times — toldos (L\* 21-32 vs floor 45), shop
-   signs (C\* 53 vs ceiling 42), barrier ironwork (L\* 26 vs floor 44). ΔE cannot see "too dark".
-   `test/barrierStyles.test.js` now asserts the band.
-2. **Measure the BUILD cost, not only the draw cost.** The lateral-drop probe shipped costing
-   1.24 M terrain samples on the tile-build path; triangles were checked, streaming was not.
-3. **A number from a bad baseline is worse than no number.** The residency probe reported a leak
-   that was not there (first sample taken mid-load), and four separate causes were proposed for the
-   floating roads before measurement killed all of them.
+| **R-J1** | junction / merge geometry — tapers where a slip road joins, correct Eixample chamfer, no z-fighting where two carriageways of different width meet | `barcelona-road-system.md` §4 | **NEXT.** Unblocked by R-W1: carriageways finally agree on width, so a merge seam is worth fixing. The last big road ticket |
+| **P2-01** | `staticPools` — per-instance LOD | P2, 6 d | Deferred by **D-19b**: the frame is CPU-bound, not GPU-bound, so measure before spending six days on GPU headroom |
+| **P4-17** | urban features + bus stops become atlas clients of the signage pool | P4, 2 d | Smallest remaining P4 item, visible, low risk |
+| **P4-18** | tunnel + trench interiors — the Ronda trench and Gran Via tunnels are the project's signature corridors | P4, 3 d | Depends on the splat shader + lightGrid |
+| **P4-14** | road furniture — Barcelona bollards from the v8 sidewalk polygons, `BatchedMesh` post pool | P4, 11 d | High risk on its P4h half only |
+| **P4-15b** | vehicle ART — Blender modular Barcelona kit, hero car re-UV | P4, 16.5 d | The engineering half (P4-15a) is done. Keeps the `rallyStyle ADR` / P1 deps |
+| **P4-16** | HUD + progression, garage, district map, landmarks | P4, 14 d | Depends on P1 theme tokens + the vehicle kit |
+| **R-B2 leftovers** | sharp-bend barriers | §4 | ⚠ **A FEATURE, NOT A DEFECT — read its row before scheduling.** There are currently ZERO sharp-bend barriers; nothing is wrong on screen. ~203 defensible bends, and a slipped gate puts ~695 on Eixample grid corners |
+| **#39 residual** | geometry leak | ledger | Measured **clean** in steady state (`held == freed`, `freed == released`). One `?debug=leak` drive would confirm no residual |
 
 ### Status legend
 `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` cut/skipped (say why)
@@ -119,7 +92,7 @@ the same shadow saving in planning; do not repeat that in execution.
 | ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ still unproven — needs an A/B, not a single capture | — | P0-03 |
 | **frame p95** | — | **33.4 ms** (37% of frames miss vsync → 30 fps) ⚠ pre-KTX2; not re-measured | 16.7 | P1-08 / task #39 |
 | **`other` — was the largest section in every report** | 2,007–3,087 ms across 40 long frames, vs `rend` 237–415 | **08-27: attributed — it is BOOT, not GC** (every top-`other` frame inside the first 12 s, no async work, no allocation). The load that produced it is now 3.7× shorter, so this should fall with it. **Not yet re-measured — needs one F9 drive** | — | D-61 |
-| **time-to-drive** | ledger: **6.94 s** after P4-01 | ⚠ **NOT A LOAD TIME — CONFIRMED 08-27.** The boot printed: `GAVE UP at the 131-poll cap (~19650 ms) — still 3 in flight, 5 queued, 6 RESIDENT`. The loader lifts on a timeout with **6 tiles built**, fewer than a 3×3 ring, and the world keeps streaming behind the title. So ~6 tiles in 19.65 s ≈ **3 s per tile** — and the ledger's 6.94 s cannot have been the same measurement. Every drive today and on 08-26 hit this, so it predates R-W1 and R-J2 | +1.5 s | **NEXT** |
+| **time-to-drive — historic note** | ledger: 6.94 s after P4-01, then 18-22 s for weeks | ✅ **6,329 ms.** The 18-22 s band was the boot polling `isInitialLoadComplete()` and **giving up at its own 19.5 s cap** with 6 tiles built. Fixed by LOAD_BUDGET_MS (D-65/D-66); the 6.94 s figure was real all along | +1.5 s | ✅ |
 | **initial load — was the biggest cost in the game** | **16,200 ms** wall for 3,095 ms of work | ✅ **4,350 ms — 3.7× faster, MEASURED 08-27.** Same 14 tiles resident, same ~3.4 s of work; chunks **1,177 → 334**, average chunk **2.63 ms → 10.1 ms**. It was YIELD-bound, never work-bound. Predicted 4.3 s, measured 4.35 s | — | ✅ D-65/D-66 |
 | **time-to-drive** | **18,444 ms** (and 19.4-21.6 s across five earlier boots) | ✅ **6,329 ms — 2.9× faster.** This also **restores and beats the ledger's long-unexplained 6.94 s**, so that figure was real and this is what had been lost | +1.5 s | ✅ |
 | **long frames per SECOND of driving** | 26-08 pre-KTX2: ~1.9/s | KTX2: **0.133/s** · post-P4-01 re-bake: **0.062/s** (9 over a 144.8 s drive; 4 of them after the first 30 s) | — | P3-GATE-01, P4-01 |
