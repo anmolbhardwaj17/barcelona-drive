@@ -25,20 +25,35 @@ function readTile(file) {
   return { header, ab };
 }
 
+/**
+ * Tiles that still carry a `bakedTerrain` mesh to compare against.
+ *
+ * Since the P4-01 re-bake the pipeline no longer emits that section, so the references are the
+ * ORPHAN tiles left from older bakes with a wider bbox. They must be SELECTED, not sampled: a blind
+ * stride across all 445 tiles found exactly one, because ~12 of 445 still have a bake.
+ */
 function tileFiles(limit) {
-  const out = [];
+  const all = [];
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith('.bin')) out.push(p);
+      else if (e.name.endsWith('.bin')) all.push(p);
     }
   };
   if (!fs.existsSync(TILES)) return [];
   walk(TILES);
-  out.sort();
-  const stride = Math.max(1, Math.floor(out.length / limit));
-  return out.filter((_, i) => i % stride === 0).slice(0, limit);
+  all.sort();
+  const withBake = [];
+  for (const f of all) {
+    if (withBake.length >= limit) break;
+    try {
+      const { header } = readTile(f);
+      const bt = header.bakedTerrain;
+      if (bt && bt.gridSize === 128 && header.elevation?.elevationsOffset !== undefined) withBake.push(f);
+    } catch { /* citymap.bin and friends are not tiles */ }
+  }
+  return withBake;
 }
 
 const files = tileFiles(12);
@@ -76,7 +91,15 @@ test('the runtime generator reproduces the baked mesh bit-for-bit', { skip: !fil
     }
     checked++;
   }
-  assert.ok(checked > 0, `no comparable tiles (${stale} stale)`);
+  // ⚠ FAIL LOUDLY RATHER THAN VACUOUSLY. Since the P4-01 re-bake, tiles no longer carry a
+  // `bakedTerrain` section — the only remaining references are 12 ORPHAN tiles left over from older
+  // bakes with a wider bbox (June/July, outside the current lon 2.1198..2.2230 / lat 41.3580..41.4130).
+  // If someone tidies those away, this test would find nothing to compare and silently pass while
+  // asserting nothing, which is worse than not having it. Three is the floor.
+  assert.ok(checked >= 3,
+    `only ${checked} tiles had a baked mesh to compare against (${stale} stale). The reference data ` +
+    `is the pre-P4-01 orphan tiles; if they are gone, regenerate a reference with ` +
+    `\`node backend/tools/terrainRegenProof.mjs\` against an older tile store, or this test is vacuous.`);
 });
 
 test('indices fit Uint16 — the reason the bake can drop to half-width', { skip: !files.length && 'no baked tiles on disk' }, () => {

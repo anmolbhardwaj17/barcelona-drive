@@ -1966,3 +1966,23 @@ double-applies.
 - ⚠ **The re-bake has NOT been run.** The saving only lands when tiles are rewritten; the runtime
   ignores the sections either way, so nothing is broken by waiting. Deferred so the terrain render
   is confirmed on one drive first — otherwise a fault means two 10–30 min bakes instead of one.
+
+## 2026-08-27 — P4-01 re-bake: tile store 567 MB → 177 MB (−69%)
+
+Full region re-bake in 489.7 s, exit 0. `bakedTerrain` and `bakedPhysicsTerrain` are no longer
+emitted; the elevation grid (55.5 MB) is untouched and every in-bbox tile still carries it.
+
+⚠ **12 ORPHAN TILES remain, and they are pre-existing, not a bake failure.** All 12 sit OUTSIDE the
+current region bbox (lon 2.1198–2.2230, lat 41.3580–41.4130) and are dated **June/July** — leftovers
+from earlier bakes with a wider bbox that `build:region` no longer regenerates. They still carry the
+old baked sections (9.1 MB total). They are harmless: the parser generates a mesh from their grid
+and the stale bake is ignored. But note the tension — **CLAUDE.md recommends `?spawn=41.4180,2.1150`
+(Collserola) for hillside checks, and that is outside the bbox**, so those tiles can never be
+refreshed by a re-bake. Either the bbox should grow to cover Collserola or that recommendation
+should change; it is a decision, not a bug, so nothing was deleted.
+
+`frontend/test/terrainGrid.test.js` had to change with the re-bake: its reference data WAS every
+tile's baked mesh, and now only ~12 of 445 have one. A blind stride sample found exactly **one**
+comparable tile, so the bit-equality test was on the verge of passing while asserting almost nothing.
+It now SELECTS tiles that carry a bake, and asserts a floor of 3 — failing loudly rather than
+vacuously if the orphans are ever tidied away.
