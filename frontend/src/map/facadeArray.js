@@ -352,7 +352,17 @@ async function loadFacadeArray(THREE, file) {
   tex.magFilter = THREE.LinearFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
-  loader.dispose();
+  // ⚠ `loader.dispose()` USED TO BE HERE, and it is why the authored facades never once rendered.
+  //
+  // When this function built its own `new KTX2Loader()`, disposing it was right. The refactor to the
+  // SHARED loader deleted the variable and left the call — so every load threw
+  // `ReferenceError: loader is not defined` AFTER the texture had downloaded and transcoded fine,
+  // the enclosing `.catch()` turned that into `[facadeArray] authored body array FAILED to load
+  // (loader is not defined) — placeholder stands`, and the placeholder stood. In every building in
+  // the city, on every drive, for as long as the shared-loader refactor has been in.
+  //
+  // And disposing it would be wrong now even if the variable existed: `getKTX2Texture` hands back a
+  // PROMISE-CACHED texture from the one registry loader that the rest of the app is still using.
   return tex;
 }
 

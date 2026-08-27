@@ -191,3 +191,77 @@ test('no file reads an ALL_CAPS module constant it never declared or imported', 
     'readers were missed, or it needs importing. Both are ReferenceErrors at runtime, on the ' +
     'first frame that reaches the line.');
 });
+
+/**
+ * ── THIRD CHECK: a STALE IDENTIFIER left behind by a refactor ────────────────────────────────────
+ *
+ * Added 2026-08-27, after a drive console showed
+ * `[facadeArray] authored body array FAILED to load (loader is not defined) — placeholder stands`.
+ *
+ * `loadFacadeArray` used to build its own `new KTX2Loader()` and dispose it at the end. The refactor
+ * to the shared registry loader deleted the variable and left `loader.dispose()` behind. Every call
+ * threw ReferenceError AFTER the texture had downloaded and transcoded fine; the enclosing `.catch()`
+ * turned that into a warning, and the placeholder facades stood in every building in the city for as
+ * long as the refactor had been in.
+ *
+ * Neither check above could see it: the name is lower-case (so the constant check skips it) and it is
+ * a METHOD call on an identifier, not a call to a project export.
+ *
+ * THE HEURISTIC, and why it is narrow enough to keep. A name that is genuinely local gets written
+ * somewhere as well as read — a declaration, a parameter, an import, an assignment. A leftover from a
+ * deleted declaration appears exactly ONCE in the whole file. So: an identifier that occurs exactly
+ * once, is not in scope, and is being USED (a call, a member access, or an argument) is a stale
+ * reference with very little else it could be.
+ */
+test('no file uses a lower-case identifier that appears exactly once and is never bound', () => {
+  const root = path.resolve('src');
+  const files = walk(root);
+
+  // Names that are legitimately read-only and unbound: browser and platform globals.
+  const GLOBALS = new Set([
+    'window', 'document', 'console', 'navigator', 'location', 'performance', 'globalThis', 'self',
+    'localStorage', 'sessionStorage', 'indexedDB', 'fetch', 'setTimeout', 'clearTimeout',
+    'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame', 'queueMicrotask',
+    'structuredClone', 'crypto', 'atob', 'btoa', 'alert', 'process', 'require', 'module', 'exports',
+    'undefined', 'null', 'true', 'false', 'this', 'super', 'arguments', 'import', 'new', 'typeof',
+    'instanceof', 'void', 'delete', 'in', 'of', 'let', 'const', 'var', 'function', 'class', 'return',
+    'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'try', 'catch',
+    'finally', 'throw', 'async', 'await', 'yield', 'export', 'default', 'extends', 'static', 'get',
+    'set', 'isNaN', 'isFinite', 'parseInt', 'parseFloat', 'encodeURIComponent', 'decodeURIComponent',
+    'reportError', 'onmessage', 'postMessage', 'close', 'name', 'top', 'length', 'status',
+    'screen', 'history', 'caches', 'matchMedia', 'devicePixelRatio', 'innerWidth', 'innerHeight',
+  ]);
+
+  const problems = [];
+  for (const f of files) {
+    const raw = fs.readFileSync(f, 'utf8');
+    const src = stripNonCode(raw);
+    const scope = inScope(raw);
+    const self = path.relative(root, f);
+
+    // How many times each bare identifier occurs at all (not after a dot, not an object key).
+    const occurrences = new Map();
+    for (const m of src.matchAll(/(^|[^.\w$'"])([a-z_$][\w$]*)\b(?!\s*:)/gm)) {
+      occurrences.set(m[2], (occurrences.get(m[2]) || 0) + 1);
+    }
+    // ONLY a MEMBER ACCESS — `name.something`. The first attempt also accepted `name(`, `name,`
+    // and `name)`, and drowned in object-literal shorthand and method definitions: every
+    // `return { master, carBus }` and every `alloc() {...}` inside an object read as a stale
+    // reference. That is the failure this file's header warns about — a check that cries wolf gets
+    // switched off, and then it catches nothing. A member access on an unbound name occurring
+    // exactly once cannot be a shorthand property or a method definition, and it is the shape the
+    // real bug had: `loader.dispose()`.
+    for (const m of src.matchAll(/(^|[^.\w$'"])([a-z_$][\w$]*)\s*\./gm)) {
+      const name = m[2];
+      if (GLOBALS.has(name)) continue;
+      if (scope.has(name)) continue;
+      if (occurrences.get(name) !== 1) continue;   // a real local is written as well as read
+      problems.push(`${self}: \`${name}\` is used once and never declared, imported or bound`);
+    }
+  }
+
+  assert.deepEqual([...new Set(problems)], [],
+    'A leftover from a deleted declaration. It throws ReferenceError the first time the line runs — ' +
+    'and if that line sits inside a try/catch or a promise chain, it becomes a warning nobody reads ' +
+    'while the feature silently does nothing.');
+});
