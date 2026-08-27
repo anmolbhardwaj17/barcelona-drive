@@ -2037,3 +2037,39 @@ the 12 **orphans outside the region bbox** (lat 41.416–41.424): June-era, neve
 single `greens` polygon and no baked trees. So the ridge renders as green-tinted bare ground. This is
 the bbox decision already flagged in the P4-01 re-bake note — the fix is to widen the bbox and
 re-bake, not to touch the LOD.
+
+## 2026-08-27 — P4-02c: hills were bare because OSM tags a wooded hill and a plaza garden the same
+
+User-reported: *"the hill still is empty… nothing much coming on the hill, makes it very bare and plain."*
+
+Measured before: **Montjuïc 332 trees vs a flat Eixample tile's 3,812** — the hill was 11× sparser
+than the city. Cause: Montjuïc's greens are **236,238 m² of `park`** against only 16,372 m² of
+`forest`, and the `park` rule is **1 tree / 500 m²** (22 m spacing) — a description of a formal city
+square. OSM uses `leisure=park` for both a 20×20 m plaza garden and an entire wooded hill.
+
+- **Woodedness by area.** No new data needed: below 1 ha the authored density stands; at or above
+  10 ha it reaches a wooded target (park 1/60, grass 1/120, scrub 1/90); between, it interpolates on
+  **log(area)**, because the step from 1 to 10 ha is not perceptually linear. Applied to park/grass/
+  scrub only — `garden` is formal by definition, `forest` was already dense.
+- `MAX_ZONE_TREES_PER_TILE` **800 → 3000**. Never a performance limit: a flat tile already baked and
+  rendered 3,812 trees, so 800 for a whole hillside was arbitrary. `park.treeCap` 250 → 1800.
+- **Result:** hilly tiles (relief > 80 m) go from a median of **0** to **1,077** trees; flat tiles
+  sit at 230. Hills now carry 4.7× the vegetation of flat city, which is the right way round.
+  Tile store 177 → 178 MB.
+
+⚠ Diagnostic note for future work: `bakedVegetation` carries **`treeCount` AND `zoneTreeCount` as
+separate sets**. Reading `treeCount` alone shows no change from a zone-density edit and looks like a
+failed fix — it was misread exactly that way during this task.
+
+## 2026-08-27 — P-R1a: persist the defect census the bake already computes
+
+`buildRegion.js` now writes `data/regions/<region>/defect-census.json`. Detection only, zero repairs.
+
+The bake already knew which roads it deleted — `droppedRampIds` holds **332** — and printed a count
+while discarding the list. Those are not parse failures: they parse fine, are judged unusable by
+`isBrokenRampRoad`, and are deleted. The census persists **every OSM way id**, so each is checkable
+at `openstreetmap.org/way/<id>`. P-R1 budgeted 1.5 d for detectors; this half needed none.
+
+Also records `unmeasured: [H1, H2, H3, M1, M2, M3]` — **way stitching is switched off**
+(`[3/8] Skipping way stitching`), so reporting `H3: 0` would be a lie. Unknown is the honest value.
+V5 is labelled a floor, not the class: 5 hand-listed roads against a measured 8.8% of buried points.

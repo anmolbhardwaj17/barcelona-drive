@@ -1644,6 +1644,8 @@ async function main() {
   // so the in-scope count is 0 and any NEW carve regression hard-fails the bake. TRENCH_VALIDATOR=report
   // downgrades to a loud-but-non-fatal sentinel during diagnosis.
   if (droppedFloorGapIds.size) console.log(`  [FloorGap] dropped ${droppedFloorGapIds.size} known floor-gap roads (terrain through roadway) — not baked.`);
+
+
   const _validatorBlocking = process.env.TRENCH_VALIDATOR !== 'report';
   reportTunnelFloorValidation(floorViolations, { blocking: _validatorBlocking, whitelist: KNOWN_FLOOR_GAP_ROADS });
 
@@ -1664,6 +1666,49 @@ async function main() {
   console.log('  Highway type counts:', JSON.stringify(byType, null, 0));
   console.log('  Bridge roads:', bridgeCount);
   console.log('  Tunnel roads:', tunnelCount);
+
+  // ── P-R1a · DEFECT CENSUS (osm-repair-layer.md §6) ────────────────────────────────────────────
+  //
+  // The bake already KNOWS which roads it threw away — `droppedRampIds` holds 332 of them — and
+  // until now it printed a count and dropped the list on the floor. That list is the answer to
+  // "why is there no road here when there obviously should be": these are not parse failures, they
+  // are roads that parsed fine, were judged unusable by isBrokenRampRoad, and were deleted.
+  //
+  // P-R1 budgeted 1.5 days to build detectors. This half needed none of it: persisting a Set the
+  // bake already holds turns the largest defect class from a number into an addressable list, and
+  // every id here can be looked up on openstreetmap.org/way/<id>.
+  //
+  // Detection only, zero repairs — that is P-R1's whole contract.
+  try {
+    // alongside the PBF/DEM the census describes
+    const censusPath = path.join(path.dirname(cfg.pbfPath), 'defect-census.json');
+    const census = {
+      generatedBy: 'buildRegion.js P-R1a',
+      region: cfg.name,
+      bbox,
+      classes: {
+        // V4 unresolvable-ramp — DELETED roads. The big one.
+        V4_unresolvable_ramp: { count: droppedRampIds.size, ids: [...droppedRampIds] },
+        // V5 terrain-conflict — hand-listed today, NOT a detector. The measured buried-road rate is
+        // 8.8% of sampled points, so this count is a floor and not the class.
+        V5_terrain_conflict_known: { count: droppedFloorGapIds.size, ids: [...droppedFloorGapIds],
+          note: 'hand-listed KNOWN_FLOOR_GAP_ROADS only — the real V5 class needs the P-R1b detector' },
+        // Unclassified shortfall between what was parsed and what reached a tile.
+        unaccounted_ways: { parsed: totalWaysParsed, rendered: totalWaysRendered,
+          count: Math.max(0, totalWaysParsed - totalWaysRendered) },
+      },
+      // Not counted because nothing looks: way stitching is disabled ([3/8] Skipping way stitching),
+      // so an H3 count of zero would be a lie. Unknown is the honest value.
+      unmeasured: ['H1_dangling_end', 'H2_near_miss_junction', 'H3_split_not_stitched',
+                   'M1_implied_bridge', 'M2_implied_tunnel', 'M3_missing_connector'],
+    };
+    fs.writeFileSync(censusPath, JSON.stringify(census, null, 2));
+    console.log(`  [Census] wrote ${censusPath} — V4 ${census.classes.V4_unresolvable_ramp.count} deleted ramps, ` +
+                `${census.classes.unaccounted_ways.count} unaccounted ways`);
+  } catch (e) {
+    console.warn('  [Census] could not write defect census:', e.message);
+  }
+
   console.log('  Total road segments written to tiles:', totalRoadSegmentsWritten);
   if (written > 0) {
     const avgPerTile = (totalRoadSegmentsWritten / written).toFixed(1);
