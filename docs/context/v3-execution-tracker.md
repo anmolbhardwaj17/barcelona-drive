@@ -8,54 +8,71 @@
 
 ## ⏯ RESUME HERE
 
+> **SESSION HANDOFF — 2026-08-27, 47 commits. Read this block, then the ticket list below it.**
+
 | | |
 |---|---|
-| **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
-| **Current phase** | **P3 CLOSED 2026-08-27** on a user visual sign-off after a drive ("i have driven its all good"). **P4 IS OPEN.** See the gate table for what was and was not measured. |
-| **Next task** | **P-R1b · the V5 terrain-conflict detector.** P-R1a is DONE — `data/regions/barcelona/defect-census.json` now ships from every bake with the dropped-road ids, the rule that killed each one and its measured grade. What is still unmeasured is the user's *other* standing complaint, roads that look **floating**: `[FloorGap]` counts 5 hand-listed roads against a measured **8.8% of road points** off the surface, so V5 has no real detector. **Task #39 has been RE-AIMED (2026-08-27)** — see the ledger. Its premise, D-37's "the allocator is `rend`, 7–13 MB every frame", is dead: 8 of 9 long frames now allocate **zero** there, almost certainly fixed by P3-GATE-01 removing mid-drive texture upload and mipgen. The heap still grows 328→572 MB over 145 s, so the GC pressure is real but has MOVED — ~1.7 MB/s across a continuously-streaming drive points at tile streaming allocation/retention, not the render loop. **Do not resume the render-loop hunt; measure streaming first.** |
-| **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
-| **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
-| **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). The two art gates are now CLOSED: jacaranda **17.01 → 11.49** on the new P11 violet anchor (restricted to foliage, so a violet facade still fails), and washingtonia's clip is absorbed by a hue-preserving highlight rolloff in `colorGradePass.js` rather than by dulling the asset. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
+| **Branch** | **`v3`** — work directly on it. |
+| **NEXT TASK** | **P4-15a · traffic instancing · ~3 d · risk low · no art, no bake, no dependencies.** |
+| **Owed by the user** | **ONE verification drive** (see below). Nothing is blocked on it — it validates work already shipped. |
+| **Tests** | 232 green. ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently. Re-run before believing it. |
 
-### ▶ DO THIS FIRST — the P3 exit drive. It is the only thing between here and P4.
+### ▶ P4-15a — start here
 
-**Everything measurable from the repo now passes.** Four caps need the car moving; see the gate
-table in the P3 section. Ticking boxes is not the gate.
+Largest **measured** frame cost that needs no art. From the 145 s drive of 2026-08-27:
+`traffic` burned **27.6 ms across 9 long frames** (8.3 ms on one) and allocated **22.6 MB**.
 
-**P2 is done.** P2-04 signed off (console + visual, light grid now ON by default); P2-08 code-complete
-with 12 invariant tests. `staticPools` stays deferred per D-19b.
+- traffic **28 loose Meshes → 2 InstancedMeshes** (30 → ~7 draws)
+- parked cars 11 → ~8
+- shared template cache + single loader registry — kills **9 duplicate GLB parses**, colormap 18 → 1
+- tire smoke **90 Sprites + 90 SpriteMaterials → one InstancedMesh**
 
-**PARKED — recorded, owned, none of them blocking P3.** Each has a written finding; resuming any of
-them is a decision, not a default:
+Files: `car/trafficSystem.js`, `car/parkedCars.js`, `car/carEffects.js`, `car/carModels.js`.
+Full spec: **P4-15a** below. The art half is **P4-15b** and keeps the `rallyStyle ADR` / P1 deps.
 
-| what | where | state |
-|---|---|---|
-| **Falling THROUGH roads** — `drivable-surface-implies-floor` is commit-blocking but scoped to tunnels only; nothing checks a surface/elevated road has ground under it | **`barcelona-road-system.md` §4, R-P1** | filed 2026-08-27. Likely the SAME defect as the measured 4.9% of floating road points, seen from the physics side — terrain physics is a Heightfield off the same grid |
-| Road realism programme — width/scale, junction merges, edge protection by rule, barrier type | **`barcelona-road-system.md` §4, tickets R-W1/R-J1/R-B1/R-B2** | filed 2026-08-27 on user request, none started. R-B1 (railings inferred from bridge/ramp/height rather than only where OSM tags them) is the most visible and least dependent |
-| Surface roads buried in terrain | `terrain-tunnel-rework-plan.md` | measured: 8.8% of points, but p50 is −0.079 m — a TAIL, not systematic. Needs the by-road-class table from one more `?debug=roadfit` run |
-| Buildings sliced by the trench carve | **now P4-02b** | scheduled — rides the single v10 re-bake window (P4-03) rather than triggering its own |
-| Túnel Glòries has no roof | — | **NOT A BUG.** Option L, deferred to Phase 4 by design |
-| OSM defect-repair layer | `osm-repair-layer.md` | designed, P-R1..P-R6. Recommendation stands: census only, AFTER P3 |
-| P2-08 drive check | P2-08 below | one drive; does not block P3 |
+### ▶ THE VERIFICATION DRIVE the user owes
 
-**Why the warning:** every one of those came from looking at the game and finding something real, which
-is how bugs get found — but the v3 list is what moves the *look*, and a session of it produced two
-tasks off that list. Both things are worth doing; only one of them is the plan.
+Cool machine, hard reload, ~90 s in Eixample, then **F9**. Closes four questions at once:
+1. **Barrier styles** — ronda = low concrete, bridge = solid parapet, ramp = steel W-beam on posts,
+   city street = slim ironwork. Four visibly different things.
+2. **Floating-bar fix** — no railing should hang in mid-air with nothing under it.
+3. **Bike-lane fix** — no barriers on cycleways/footpaths.
+4. **The leak + the lag** — `residency.sameTileCountDrift` should be ~0 (was +79/+98/+76, then
+   +19/+10/+44). And long frames dominated by `tiles` = my terrain probe; by `other` = GC/thermal.
 
-### ▶ P3-01 · per-building proportional triangle budgets · 1.5 d · risk medium
-Replace first-come `BALCONY_VERT_CAP` / `COMMERCIAL_VERT_CAP` / `BOUNDARY_VERT_CAP` racing in tile
-order. Measured: the median tile delivers detail to **26.6%** of eligible buildings, p10 **14.6%**,
-worst tiles 8.5–12.4%, and **127 of 158 dense tiles sit below 50%**. Compute a per-tile allowance,
-divide by eligible count, redistribute unspent slices. Full spec: master plan §4 → P3.
+⚠ **No re-bake needed for anything currently shipped.** Reload only.
 
-### If you are a fresh session, do exactly this
-1. Read [v3-brief.md](v3-brief.md) — the intent and the two rules that govern everything.
-2. Read this file's **RESUME HERE** block and the current phase's task list below.
-3. Read the matching phase section in [v3-master-plan.md](v3-master-plan.md) for the full spec of
-   the next task. **Do not act from this tracker alone** — the tracker is deliberately terse.
-4. Do the task. Update its checkbox and the **Tasks done** count. Commit.
-5. If you finish a phase, run its **exit gate** below before starting the next one. A phase is not
-   done because its boxes are ticked; it is done when its gate passes.
+### ▶ OPEN TICKETS — everything pending, nothing in flight
+
+| id | what | where | state |
+|---|---|---|---|
+| **P4-15a** | traffic/parked/smoke instancing | tracker, below | **NEXT** |
+| **R-W1** | road WIDTH model — lanes × lane-width per Norma 8.2-IC, OSM tag as override | `barcelona-road-system.md` §4 | **the root of 3 reported bugs**: cars on railings, road "seems short", barrier offsets. Needs a re-bake. Unblocks R-J1 + R-V1 |
+| **R-P1** | fall-through — `drivable-surface-implies-floor` is commit-blocking but scoped to `layer<0` tunnels only | §4 | user-reported. Likely the SAME defect as the 4.9% floating road points, from the physics side. Land as `TRENCH_VALIDATOR=report` FIRST |
+| **M1** | implied-bridge — **only 63 bridge segments in all of Barcelona** vs 1,044 tunnels | `osm-repair-layer.md` §2 | root cause of missing railings AND part of the floating roads. Detection is TOPOLOGICAL (2D crossing), not vertical |
+| **#39 residual** | geometry leak ~2/s at constant tile count (was ~6/s) | ledger | the `streetlightWireMesh` leak is FIXED; something smaller remains |
+| **R-J1** | junction/merge geometry | §4 | depends on R-W1 |
+| **R-V1** | parked cars vs kerb line | §4 | physical case fixed (no parking on bridges/ramps); general case needs R-W1 |
+| **R-B2 leftovers** | sharp-bend barriers | §4 | ~204 link/primary bends are defensible; the other ~700 are city-grid corners and must NOT get barriers |
+| **P3 gate** | draws ≤450, triangles ≤2.6 M | gate table | STILL never measured — F9 does not record them; needs the STATS overlay |
+
+### ▶ WHAT SHIPPED TODAY, UNVERIFIED IN-GAME
+
+KTX2 world textures (VRAM 153.3 → 34.7 MiB) · tile store 567 → 177 MB (terrain generated at load) ·
+terrain visible to 1500 m · three vegetation LOD fixes · hills 0 → 1,077 trees median · defect
+census (V4 + V5) · tile-leak fix · barrier styles + FrontSide + post LOD · barrier colours re-derived
+into their class bands · Barcelona masonry instead of Indian precast walls.
+
+### ▶ THREE STANDING LESSONS FROM THIS SESSION
+
+1. **Check the CLASS BAND, not just ΔE.** Missed three times — toldos (L\* 21-32 vs floor 45), shop
+   signs (C\* 53 vs ceiling 42), barrier ironwork (L\* 26 vs floor 44). ΔE cannot see "too dark".
+   `test/barrierStyles.test.js` now asserts the band.
+2. **Measure the BUILD cost, not only the draw cost.** The lateral-drop probe shipped costing
+   1.24 M terrain samples on the tile-build path; triangles were checked, streaming was not.
+3. **A number from a bad baseline is worse than no number.** The residency probe reported a leak
+   that was not there (first sample taken mid-load), and four separate causes were proposed for the
+   floating roads before measurement killed all of them.
 
 ### Status legend
 `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` cut/skipped (say why)
