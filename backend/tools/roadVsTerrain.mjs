@@ -20,6 +20,12 @@ const DRIVABLE = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary
   'residential', 'living_street', 'service', 'motorway_link', 'trunk_link', 'primary_link',
   'secondary_link', 'tertiary_link', 'busway']);
 const driv = { pts: 0, bad: 0, devs: [] };
+// Smoothing happens at DEM LOAD (demLoader.js:187), so demSampler already returns the smoothed
+// surface and roads are fitted to it — which is why the median deviation is exactly 0.000. Anything
+// that modifies the TILE grid afterwards (trench carve, water sink) lowers it and leaves the road
+// hanging. Both lower, and every measured deviation is positive, so attribute per tile.
+const tileStats = new Map();
+let overWater = 0;
 
 function readTile(f) {
   const b = fs.readFileSync(f);
@@ -64,6 +70,27 @@ for (const f of files) {
          + (g(y1, x0) * (1 - tx) + g(y1, x1) * tx) * ty;
   };
 
+  // Point-in-polygon against the tile's CLOSED water bodies. The sink only lowers cells inside
+  // those, so if a floating road point sits inside one, the road is crossing water — an untagged
+  // bridge (defect class M1_implied_bridge), not a terrain-fitting error.
+  const waterPolys = [];
+  for (const w of (h.water || [])) {
+    if (w.polygonOffset === undefined || !w.polygonCount || w.polygonCount < 3) continue;
+    waterPolys.push(new Float32Array(ab, w.polygonOffset, w.polygonCount * 2));
+  }
+  const inWater = (mx, my) => {
+    for (const poly of waterPolys) {
+      let inside = false;
+      const n = poly.length / 2;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = poly[i * 2], yi = poly[i * 2 + 1], xj = poly[j * 2], yj = poly[j * 2 + 1];
+        if ((yi > my) !== (yj > my) && mx < ((xj - xi) * (my - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    return false;
+  };
+
   for (const r of roads) {
     if (r.bridge || r.tunnel || (r.layer != null && r.layer !== 0) || r.isRamp) continue;
     if (r.pointsOffset === undefined || !r.pointCount) continue;
@@ -88,6 +115,10 @@ for (const f of files) {
         // Split out what the DRIVER can actually reach. Pedestrian infrastructure dominates the raw
         // count, and a floating footbridge is a different problem from a floating carriageway.
         if (drivable) { driv.bad++; driv.devs.push(dev); }
+        if (inWater(f32[j], f32[j + 2])) overWater++;
+        const k = path.relative(ROOT, f);
+        const st = tileStats.get(k) || { bad: 0, water: (h.water || []).length };
+        st.bad++; tileStats.set(k, st);
       }
     }
   }
@@ -105,4 +136,14 @@ console.log(`\nDRIVABLE roads only : ${driv.pts.toLocaleString()} points, ` +
             `${driv.bad.toLocaleString()} beyond ${TOL} m (${(100 * driv.bad / Math.max(driv.pts, 1)).toFixed(1)}%)` +
             (driv.devs.length ? `  worst ${driv.devs[0].toFixed(2)} m  median-bad ${driv.devs[Math.floor(driv.devs.length / 2)].toFixed(2)} m` : ''));
 worst.sort((a, b) => Math.abs(b.dev) - Math.abs(a.dev));
+const tiles = [...tileStats.entries()].sort((a, b) => b[1].bad - a[1].bad);
+const withWater = tiles.filter(([, v]) => v.water > 0);
+const badInWaterTiles = withWater.reduce((a, [, v]) => a + v.bad, 0);
+const badTotal = tiles.reduce((a, [, v]) => a + v.bad, 0);
+console.log(`\nfloating points INSIDE a water polygon: ${overWater.toLocaleString()} / ${bad.toLocaleString()} ` +
+            `(${(100 * overWater / Math.max(bad, 1)).toFixed(0)}%) -> untagged bridges (M1), not fitting errors`);
+console.log(`\ntiles with floating points : ${tiles.length}  of which have water: ${withWater.length}`);
+console.log(`floating points in water-bearing tiles: ${badInWaterTiles} / ${badTotal} ` +
+            `(${(100 * badInWaterTiles / Math.max(badTotal, 1)).toFixed(0)}%)`);
+console.log('worst tiles:'); for (const [k, v] of tiles.slice(0, 6)) console.log(`   ${k}  ${v.bad} bad pts  water polys ${v.water}`);
 console.log('worst points:'); for (const w of worst.slice(0, 8)) console.log(`   id ${String(w.id).padStart(11)} ${String(w.type).padEnd(13)} ${w.dev > 0 ? '+' : ''}${w.dev} m`);

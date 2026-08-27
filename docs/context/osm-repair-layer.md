@@ -262,7 +262,34 @@ So a road agrees with a surface that no longer exists and disagrees with the one
 - Pedestrian ways dominate the raw count (footway 3,689 + pedestrian 998 = 60%), so the headline
   3.9% overstates what a driver meets. **Drivable-only is 4.9% of points**, worst 24.31 m.
 
-### The fix is a choice between two, and it is not obvious
+### Three hypotheses tested and DISPROVEN — do not re-run these
+
+Recorded so the next person does not repeat them. Each looked convincing and each failed on evidence.
+
+1. **"Terrain smoothing runs after road fitting."** FALSE. `demLoader.js:187` smooths at DEM *load*,
+   so `demSampler` already returns the smoothed surface and roads ARE fitted to it — which is exactly
+   why the median deviation is **0.000 m**.
+2. **"The water sink lowers the grid under roads."** WEAK. 99% of affected tiles carry water, but the
+   **base rate is 64%** — elevated, not causal. And `WATER_SINK_DELTA` is 2.5 m, which cannot produce
+   the observed +25 m.
+3. **"They are untagged bridges over water (M1)."** FALSE. Point-in-polygon against each tile's closed
+   water bodies puts only **68 of 7,862 (1%)** of floating points inside one.
+
+### What is established, and what is not
+
+**Established** (reproducible, read-only, `backend/tools/roadVsTerrain.mjs`): 3.9% of road points and
+**4.9% of drivable-road points** float above the shipped terrain; **nothing is buried**; the median is
+0.000 m so it is a TAIL; it is concentrated in **72 of 444 tiles**; worst is +25.11 m; p99 is 6.37 m,
+suspiciously close to one `LAYER_STEP` (6).
+
+**Not established:** the cause. P-R1's contract is *detection only* and that is now met — the class has
+a number, a distribution, a per-tile concentration and a tool to re-measure it. Attributing it belongs
+to P-R3/P-R4, with the p99≈LAYER_STEP coincidence as the strongest remaining lead.
+
+⚠ **Do not write a repair yet.** The two fixes previously proposed here both assumed hypothesis 1,
+which is disproven; building either now would be fixing a cause that has been ruled out.
+
+### (SUPERSEDED — both premised on the disproven hypothesis 1) The fix is a choice between two
 
 1. **Re-fit roads to the smoothed grid** after smoothing. Correct by construction, but roads are
    already baked by then — an ordering change in the pipeline.
