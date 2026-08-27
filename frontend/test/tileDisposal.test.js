@@ -19,6 +19,7 @@ test('every mesh-ish tile-entry field is disposed, aliased, or pool-managed', ()
   const exempt = {
     laneArrowMesh: 'alias into entry.roadInfraMeshes, which IS disposed',
     markingsMesh: 'alias into roadMeshes, which IS disposed',
+    metalRailingMesh: 'alias into roadMeshes, which IS disposed — held for the post drawRange LOD',
     vegPoolHandles: 'released via h.pool.remove(h) — pool slots, not owned geometry',
   };
   const leaks = [...new Set(assigned)].filter((f) => !DISPOSAL.includes(`entry.${f}`) && !exempt[f]);

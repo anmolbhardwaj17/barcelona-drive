@@ -126,6 +126,18 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
   // segment can never hold parked cars (not drivable, too narrow, or too short).
   function computeSegMeta(seg) {
     if (!DRIVABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) return null;
+    // ⚠ NO STREET PARKING AGAINST A GUARD RAIL.
+    //
+    // User-reported: cars parked ON the railings. Both systems derive their offset from
+    // `road.width`, and they disagree about what it means — the rail sits at `halfW` (treating width
+    // as the carriageway edge) while parking sits at `halfW - 0.2` (treating it as including the
+    // parking lane). Twenty centimetres apart, so the cars land on the barrier.
+    //
+    // Resolving WHICH reading is right is R-W1 and needs a re-bake. But the physical world settles
+    // this case on its own: a bridge deck, a ramp or an elevated carriageway with a barrier against
+    // it does not have street parking there. Gate on the same cheap booleans the rail gate leads
+    // with, so the two can never disagree about a road they both act on.
+    if (seg.bridge || seg.isRamp || (seg.layer != null && seg.layer > 0) || seg.crossesTrench === true) return null;
     const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
     if (halfW * 2 < MIN_PARK_WIDTH) return null; // tight street → no parked cars
     const pts = seg.points;

@@ -615,6 +615,9 @@ const TERRAIN_LOD_FULL_M = 500;
 const TERRAIN_LOD_MID_M  = 900;
 const TERRAIN_CUT_M      = 1500;
 const TERRAIN_LOD_HYST_M = 60;
+// Distance past which guard-rail POSTS are dropped and only the beam line is drawn. 80 m: at the
+// shipping fog density a 0.12 m post is already sub-pixel well before it, so this is conservative.
+const RAIL_POST_DIST = 80;
 
 /**
  * VEG-FIX-1 — billboard-impostor count fraction at `d`, ramping from full where the 3D trees give
@@ -1932,6 +1935,8 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Track crosswalk mesh separately for 80m LOD culling (Phase 1 Barcelona road overhaul).
     // The crosswalk mesh is already in scene via the forEach above; we just keep a reference.
     entry.markingsMesh     = roadMeshes.find(m => m.userData?.type === 'markings')       || null;
+    // Alias into roadMeshes (disposed with them). Held so the LOD can cut its posts by drawRange.
+    entry.metalRailingMesh = roadMeshes.find(m => m.userData?.type === 'metalRailing')   || null;
     entry.crosswalkMesh    = roadMeshes.find(m => m.userData?.type === 'crosswalk')      || null;
     entry.onewayArrowMesh  = roadMeshes.find(m => m.userData?.type === 'onewayArrows')  || null;
     // Phase 3 Barcelona
@@ -3164,6 +3169,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // Most of this task's saving is the frustum culling enabled in roadRenderer, not this gate;
       // if paint ever pops on a long straight like Gran Via, raise this before disabling it.
       if (entry.markingsMesh)     entry.markingsMesh.visible     = nearEdgeDist <= 220 * altMult;
+      // Guard-rail POST LOD. The merged railing geometry is ordered [beams..., posts...], so cutting
+      // the posts is a draw-range change on the same buffer — no second mesh, no extra draw call.
+      // Past RAIL_POST_DIST a 0.12 m post is sub-pixel and only the beam line reads; the posts are
+      // ~1,656 triangles per 100 m of guarded road and there are 658 guarded segments.
+      if (entry.metalRailingMesh) {
+        const g = entry.metalRailingMesh.geometry;
+        const beams = g?.userData?.beamIndexCount;
+        if (beams > 0) {
+          const total = g.getIndex() ? g.getIndex().count : 0;
+          g.setDrawRange(0, nearEdgeDist > RAIL_POST_DIST ? beams : total);
+        }
+      }
       // ?debug=paint — answers "why did the arrows vanish when I got close?" definitively rather
       // than by inference. For the tile the car is IN, reports whether each paint mesh EXISTS at
       // all (some street classes bake with no markings), whether the LOD gate passed, and whether

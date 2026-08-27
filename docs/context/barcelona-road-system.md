@@ -581,6 +581,29 @@ and none of these do.
 > looked almost right and behaved inconsistently as the viewer moved. Inference rules fail the same
 > way, and only determinism plus a test makes them safe.
 
+### R-V1 · Parked cars, road width, and who owns the kerb line — NEW TICKET 2026-08-27
+
+**Symptom the user reported:** cars parked ON the guard rails, and the road "seeming short".
+
+**Cause, and it is R-W1 wearing a different hat.** Both systems derive their offset from
+`road.width` and disagree about what it means:
+- `guardRailWidth()` puts the rail at `halfW` — width as the **carriageway edge**
+- `parkedCars.computeSegMeta()` puts cars at `halfW - 0.2` — width as **including the parking lane**
+
+Twenty centimetres apart, so the cars land on the barrier. Neither is wrong in isolation; the width
+model is ambiguous and nothing arbitrates it. **Fixed for the physical case only** — no street
+parking on a bridge, ramp, or `layer > 0` carriageway, gated on the same booleans the rail gate
+leads with so the two can never disagree about a road they both act on.
+
+**Still open, and needs R-W1 first:** the general case. A width model that states what it measures
+(carriageway, kerb-to-kerb, or corridor) is the only thing that lets the rail, the parking lane, the
+kerb, the sidewalk and the markings agree. Every one of those currently re-derives its own offset
+from the same ambiguous number. That is also why the road "seems short" — the drivable ribbon and
+the furniture beside it are computed from different readings of one field.
+
+**Also in scope (user, 2026-08-27):** traffic and parked-car *density and placement* should follow
+road class. See `v3-execution-tracker.md` **P4-15a** for the engineering half of vehicles.
+
 > **Sequencing:** R-W1 → R-J1 (geometry must be consistent before merges are worth fixing), and
 > R-B1 → R-B2 (place before styling). R-B1 is the one the user notices most — missing railings on
 > elevated roads — and is the least dependent on the others, so it is the sensible entry point.

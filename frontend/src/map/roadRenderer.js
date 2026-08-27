@@ -3661,6 +3661,7 @@ function buildBridgeGuardRailGeometry(roads, options) {
           atMax,
           railGeoms,
           railingGeoms,
+          beamGeoms,
         );
       }
     }
@@ -3680,13 +3681,25 @@ function buildBridgeGuardRailGeometry(roads, options) {
     }
   }
 
-  // Red metal railing mesh
+  // ── Metal railing mesh, ordered [beams..., posts...] for a zero-cost distance LOD ─────────────
+  //
+  // Posts are the entire cost of a rail: one box every 3 m, both sides, ~1,656 triangles per 100 m
+  // of guarded road across 658 guarded segments. Past ~80 m a post is sub-pixel and only the beam
+  // line reads, so drawing them out there buys nothing.
+  //
+  // Merging beams FIRST means the posts occupy a contiguous tail of the index buffer, and dropping
+  // them is `setDrawRange(0, beamIndexCount)` — no second mesh, no extra draw call, no material
+  // switch. Same trick as the terrain LOD rings: one buffer, a different slice of it.
   let railingMesh = null;
-  if (railingGeoms.length > 0) {
-    const merged2 = mergeGeometries(railingGeoms);
-    railingGeoms.forEach((g) => g.dispose());
+  if (railingGeoms.length > 0 || beamGeoms.length > 0) {
+    const ordered = [...beamGeoms, ...railingGeoms];
+    let beamIndexCount = 0;
+    for (const g of beamGeoms) beamIndexCount += g.getIndex() ? g.getIndex().count : 0;
+    const merged2 = mergeGeometries(ordered);
+    ordered.forEach((g) => g.dispose());
     if (merged2) {
       railingMesh = new THREE.Mesh(merged2, getRailingMaterial());
+      merged2.userData.beamIndexCount = beamIndexCount;   // read by the LOD in tileManager
       railingMesh.castShadow = false;
       railingMesh.receiveShadow = false;
       railingMesh.frustumCulled = true;
