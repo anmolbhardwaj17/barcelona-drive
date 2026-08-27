@@ -1143,7 +1143,7 @@ before anything is painted.**
 ## P4 — THE COMPLETION WAVE · 51 days · 18 tasks
 **Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.
 
-**Progress:** 0 / 18
+**Progress:** 1 / 18 — P4-01 ✅
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 
@@ -1159,7 +1159,7 @@ before anything is painted.**
 </details>
 
 
-### `[~]` P4-01 · 3.0d · **risk high → LOW-MEDIUM, the proof passed** · ⚠ **RE-BAKE**
+### `[x]` P4-01 · 3.0d · **DONE 2026-08-27 — re-baked, drive-confirmed on Montjuïc**
 
 > **STEP 1-2 DONE 2026-08-27 — the "prove" half of prove-then-delete. Harnesses:
 > `backend/tools/terrainBakeCensus.mjs` and `backend/tools/terrainRegenProof.mjs` (read-only).**
@@ -1187,9 +1187,12 @@ before anything is painted.**
 > ⚠ **The spec's "4 known NaN-normal sea tiles" no longer exist** — 0 of 444 tiles carry a NaN
 > normal. That clause is stale; do not go looking for them.
 >
-> **Remaining (the "delete" half):** move generation into `tileParserWorker`, Uint16 indices,
-> repoint `getElevationAt` at the grid, and delete the second runtime water dip
-> (`terrainRenderer.js:225-260`) **in the same commit or it double-applies**.
+> **Done when:** ✅ **Tile store 567 MB → 177 MB (−69%).** Terrain generated in `tileParserWorker`
+> from the grid (`map/terrainGrid.js`, Uint16 indices, measured **1.0 ms p50 / 1.8 ms p95 per tile**,
+> in the worker not the frame). The runtime fallback mesh and its water dip deleted together.
+> `bakedPhysicsTerrain` dropped too — 15.0 MB, zero consumers since P0-12. Re-baked in 489.7 s and
+> confirmed on a Montjuïc drive (167 m relief, sea-to-summit). 12 orphan tiles outside the bbox keep
+> their old sections and are ignored at runtime — see changelog for the Collserola bbox tension.
 
 
 **TERRAIN: prove-then-delete the terrain bake.** Harness regenerating positions/uvs/indices from the elevation grid, bit-equal against `bakedTerrain` on 20 sampled tiles **including the 4 known NaN-normal sea tiles and 2 trench-carved tiles**. Only then move generation into the parser worker (Uint16 indices, computed smooth normals) and repoint `getElevationAt` at the grid. **Delete the second runtime water dip (`terrainRenderer.js:225-260`) in the SAME commit or it double-applies.** −369 MB of tile payload.
