@@ -2803,14 +2803,21 @@ function getSlabMaterial() {
 let sharedGuardRailMaterial = null;
 function getGuardRailMaterial() {
   if (sharedGuardRailMaterial) return sharedGuardRailMaterial;
-  sharedGuardRailMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true });
+  // Lambert, not Basic. An unlit barrier is the same brightness at noon, at dusk and under a
+  // flyover — the same fault the shop signs had, and the reason concrete reads as a flat cutout
+  // rather than a solid object. Lambert costs no extra draw call (still one merged mesh per tile)
+  // and picks up the sun and the P2-04 light grid, so a rail under a street lamp is brighter than
+  // one between two. vertexColors is preserved — the wall carries its concrete tone per-vertex.
+  sharedGuardRailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true });
   return sharedGuardRailMaterial;
 }
 
 let sharedRailingMaterial = null;
 function getRailingMaterial() {
   if (sharedRailingMaterial) return sharedRailingMaterial;
-  sharedRailingMaterial = new THREE.MeshBasicMaterial({ color: 0x707070, side: THREE.DoubleSide }); // galvanized grey steel (Barcelona motorway standard)
+  // Lambert for the same reason as the wall above. Galvanized steel is the one material in the road
+  // kit whose whole read is a specular-ish sheen changing along its length; unlit it is a grey stick.
+  sharedRailingMaterial = new THREE.MeshLambertMaterial({ color: 0x707070, side: THREE.DoubleSide }); // galvanized grey steel (Barcelona motorway standard)
   return sharedRailingMaterial;
 }
 

@@ -526,6 +526,20 @@ level up: **a drivable surface above ground implies an edge**.
 carriageways and central reservations, metal guardrail on rural/elevated single carriageways, a solid
 parapet on a bridge deck, kerb-only in a 30 km/h zone. Barcelona uses all four and the difference is
 legible at driving speed.
+**Measured 2026-08-27, before any of this is built:**
+- Both rail materials were **`MeshBasicMaterial` — unlit**, the same fault the shop signs had. Fixed
+  to Lambert (no extra draw call; still one merged mesh per tile). Galvanized steel in particular is
+  a material whose entire read is a sheen changing along its length; unlit it is a grey stick.
+- **Cost:** posts every `RAILING_POST_SPACING` = 3.0 m, each a full box, both sides. That is ~1,656
+  triangles per 100 m of guarded road. Across 658 guarded segments it is not free, and posts are the
+  whole of it — the wall is one box.
+- **Both materials are `DoubleSide`.** Every piece is a closed box, so the back faces are pure waste,
+  but flipping to FrontSide needs the winding verified first (P3-03 did this for buildings). Cheap
+  win, not free to assume.
+- **The obvious LOD is missing:** posts are drawn individually at every distance. Past ~80 m the
+  posts are sub-pixel and only the beam line reads — dropping to beam-only there would remove most
+  of the triangle count with no visible change. Nothing currently varies with distance.
+
 **Depends:** R-B1 places them; this decides what they are. Art-bible palette applies — the recorded
 mistake to avoid is eyeballed hex, which failed gate 4 on six of eight shop-sign colours.
 

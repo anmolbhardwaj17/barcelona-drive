@@ -100,7 +100,11 @@ for (const f of files) {
       else {
         unprotected++;
         byType[r.highwayType] = (byType[r.highwayType]||0)+1;
-        worst.push({ id: r.id, type: r.highwayType, drop: +roadDrop.toFixed(1) });
+        // keep a coordinate so the spot can actually be driven to — an id alone is not findable
+        const mid = Math.floor(r.pointCount/2)*3;
+        const ll = toLL(f32[mid], f32[mid+2]);
+        worst.push({ id: r.id, type: r.highwayType, drop: +roadDrop.toFixed(1),
+                     lat: +ll.lat.toFixed(5), lon: +ll.lon.toFixed(5) });
       }
     }
     // A crash barrier is a FAST-ROAD object. A tight service yard or a residential corner does not
@@ -123,4 +127,4 @@ console.log('   sharp-bend fast roads by type:', sharpByType);
 console.log('\nunprotected drops by road type:', Object.fromEntries(Object.entries(byType).sort((a,b)=>b[1]-a[1]).slice(0,10)));
 worst.sort((a,b)=>b.drop-a.drop);
 console.log('\nworst unprotected drops:');
-for (const w of worst.slice(0,10)) console.log(`   id ${String(w.id).padStart(11)}  ${String(w.type).padEnd(14)} ${w.drop} m`);
+for (const w of worst.slice(0,12)) console.log(`   ${String(w.drop).padStart(5)} m  ${String(w.type).padEnd(13)} ?spawn=${w.lat},${w.lon}   (way ${w.id})`);
