@@ -182,3 +182,44 @@ still reproduces the same tiles.
 
 Revisit if the census reports a defect count high enough that the city cannot read as "professional
 and covered" at ship. That is a number, so the decision will be made on evidence rather than feel.
+
+
+---
+
+## 6. P-R1 PARTIAL — what today's full bake already reports (2026-08-27)
+
+**No new code.** These numbers were already printed by the 2026-08-27 full re-bake and simply never
+added up. They are the free half of the census and they change the priority order in §5.
+
+| what the bake says | count | class |
+|---|---|---|
+| `[BrokenRamp] skipped … not baked` | **332 roads DELETED** | **V4 unresolvable-ramp** |
+| `Path-coverage clip … dropped` | **1,809 paths** | (by design — P1 clipping) |
+| `Skipped … elevated/underground pedestrian ways` | **1,404** | V1/V2 adjacent |
+| `[FloorGap] dropped … terrain through roadway` | **5** | **V5 terrain-conflict** |
+| `Rendered ways < parsed ways` | **264 unaccounted** | unclassified |
+| `OSM fixer: { rule5: 8748, rule6: 7, rule1: 0, rule4: 0 }` | 8,755 fires | H-class, already covered |
+| `[3/8] Skipping way stitching` | **DISABLED** | **H3 split-not-stitched — 0% covered** |
+
+### What this already settles
+
+- **V4 is the big one, and it is a DELETION: 332 roads.** The user reports "a road is missing where
+  common sense says one should be there, like a flyover". 332 deleted ramps is the mechanism. These
+  are not failures to parse — they are parsed, judged unusable, and dropped by `isBrokenRampRoad`
+  (`buildRegion.js:47`). Reconstructing even a fraction is the single highest-value repair rule, and
+  it needs no detector work: **the bake already knows exactly which ids it dropped**
+  (`droppedRampIds`), it just throws the list away. Writing that Set to the census file is a
+  ~5-line change, not 1.5 days.
+- **H3 is not merely uncovered, way stitching is switched OFF** (`[3/8] Skipping way stitching`). Any
+  H3 count is currently zero because nothing looks. That must be stated as unknown, not as zero.
+- **V5 reports only 5**, which contradicts the buried-road measurement of 8.8% of points in
+  `terrain-tunnel-rework-plan.md`. `[FloorGap]` counts a narrow hand-listed case, not the class. V5
+  genuinely needs the detector P-R1 describes.
+- `rule5` firing **8,748** times means the H-class fixer is doing heavy lifting already — so the
+  remaining horizontal defects are the ones it cannot see, not the ones it handles.
+
+### Revised P-R1 scope
+
+Split it. **P-R1a (hours, not days):** persist what the bake already knows — dropped ramp ids, floor-gap
+ids, the unaccounted-way delta — to `data/regions/barcelona/defect-census.json`. **P-R1b:** write
+detectors only for the classes nothing counts today (H1, H2, H3, V5, M1–M3).

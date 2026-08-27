@@ -70,7 +70,9 @@ const BUSH_BARRIER_SPACING = 4;
 const BUSH_BARRIER_OFFSET = 1.2;
 
 // Zone vegetation
-const MAX_ZONE_TREES_PER_TILE = 800;
+// Raised from 800 (v3 P4-02c). Not a performance limit — a flat Eixample tile already bakes and
+// renders 3,812 trees from OSM street-tree nodes, so 800 for a whole wooded hillside was arbitrary.
+const MAX_ZONE_TREES_PER_TILE = 3000;
 const MAX_ZONE_BUSHES_PER_TILE = 600;
 
 const ZONE_RULES = {
@@ -80,7 +82,7 @@ const ZONE_RULES = {
     clearingBushDensity: 1 / 8, treeScaleRange: [0.7, 1.3],
   },
   park: {
-    treeDensity: 1 / 500, treeCap: 250, bushDensity: 1 / 200, bushCap: 250,
+    treeDensity: 1 / 500, treeCap: 1800, bushDensity: 1 / 200, bushCap: 250,
     bushClusterSize: [3, 5], boundaryTrees: true, boundarySpacing: [6, 10],
     boundaryInset: [2, 3], treeScaleRange: [0.8, 1.2],
   },
@@ -98,6 +100,34 @@ const ZONE_RULES = {
     treeScaleRange: [0.4, 0.8],
   },
 };
+/**
+ * v3 P4-02c — WOODEDNESS BY AREA. User-reported: hills read as bare.
+ *
+ * Measured on the Montjuïc tile: its greens are 236,238 m2 of `park` against just 16,372 m2 of
+ * `forest`, and `park` density is 1/500 m2 — one tree per 22 m of spacing. That rule describes a
+ * formal city square, and OSM uses `leisure=park` for BOTH a 20x20 m plaza garden AND an entire
+ * wooded hill. The baker treated them identically, so the hill got 332 trees while a flat Eixample
+ * tile got 3,812 from real street-tree nodes. The hill was 11x sparser than the city.
+ *
+ * Area is the signal that separates them, and it needs no new data: a park of a few thousand square
+ * metres is landscaped and sparse; one of tens of hectares is woodland with paths through it.
+ * Below ONE hectare nothing changes. Above TEN, density reaches the wooded target. In between it
+ * interpolates on log(area), because the perceptual step from 1 to 10 ha is not linear.
+ *
+ * Applied to park/grass/scrub only. `garden` is formal by definition and `forest` is already dense.
+ */
+const WOODED_MIN_AREA = 10_000;      // 1 ha — below this, the authored density stands
+const WOODED_FULL_AREA = 100_000;    // 10 ha — at or above this, full wooded density
+const WOODED_DENSITY = { park: 1 / 60, grass: 1 / 120, scrub: 1 / 90 };
+
+function woodedDensity(type, baseDensity, areaM2) {
+    const target = WOODED_DENSITY[type];
+    if (!target || !(areaM2 > WOODED_MIN_AREA)) return baseDensity;
+    if (areaM2 >= WOODED_FULL_AREA) return target;
+    const t = Math.log(areaM2 / WOODED_MIN_AREA) / Math.log(WOODED_FULL_AREA / WOODED_MIN_AREA);
+    return baseDensity + (target - baseDensity) * t;
+}
+
 const DEFAULT_ZONE_RULE = {
   treeDensity: 1 / 600, treeCap: 150, bushDensity: 1 / 200, bushCap: 200,
   treeScaleRange: [0.6, 1.0],
@@ -934,7 +964,8 @@ function collectZoneVegetation(tileData, tileKey, vegMask) {
       const cap = Math.min(rule.treeCap, remaining);
       const [sLo, sHi] = rule.treeScaleRange;
       const clearings = generateClearings(poly, rule, zoneSeed);
-      const scattered = zoneScatterInPolygon(poly, rule.treeDensity, zoneSeed, cap * 2, bbox);
+      const density = woodedDensity(green.type, rule.treeDensity, polygonAreaXZ(poly));
+      const scattered = zoneScatterInPolygon(poly, density, zoneSeed, cap * 2, bbox);
       for (const p of scattered) {
         if (allTreePositions.length >= MAX_ZONE_TREES_PER_TILE) break;
         if (clearings.length > 0 && isInClearing(p.x, p.y, clearings)) continue;
