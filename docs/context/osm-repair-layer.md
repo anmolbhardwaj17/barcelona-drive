@@ -86,7 +86,12 @@ Grounded in what has actually been observed, not invented for completeness.
   terrain-aware in a way `OsmDataFixer` is forbidden to be.
 
 **Missing structure**
-- `M1 implied-bridge` — a road crosses water/rail/a road below with no bridge tag
+- ~~`M1 implied-bridge`~~ — **COUNTED AND CLOSED 2026-08-27, see `backend/tools/crossingCensus.mjs`.**
+  Of 19,312 road pairs crossing in 2D across the baked city, 19,032 are at-grade junctions, 278 of
+  the other 280 are already explained by a bridge or tunnel tag, and **2 are unexplained**. Road×rail
+  adds 35, several of which are legitimate street-level tram crossings. The 47-bridges-to-864-tunnels
+  ratio that motivated the ticket is REAL: Barcelona grade-separates by going under, not over.
+  **This is P-R1 working — the count said the rule was not worth writing.**
 - `M2 implied-tunnel` — a road passes under terrain that is above it
 - `M3 missing-connector` — a slip road that must exist for the junction to function
 
