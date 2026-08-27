@@ -10,6 +10,8 @@
  * Zones are registered per-tile and unregistered on tile unload.
  */
 
+import { kerbOffset } from './map/roadWidths.js';   // R-W1: one width, one meaning
+
 const _zones = [];  // { minX, maxX, minZ, maxZ, tileKey }
 /**
  * Register trigger zones for approach/tunnel roads in a tile.
@@ -27,8 +29,10 @@ export function registerTunnelZones(roads, tileKey, physicsOrigin) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
 
-    // Road half-width + buffer for the car to be slightly off-center and still trigger
-    const roadHalfW = (road.width || 6) / 2;
+    // Road half-width + buffer for the car to be slightly off-center and still trigger.
+    // R-W1: this is an "am I inside the tunnel" test, so it wants the PAVED surface (kerb to kerb) —
+    // the same number the ribbon is drawn at — not the running lanes.
+    const roadHalfW = kerbOffset(road);
     const margin = roadHalfW + 5;  // road edge + 5m buffer
 
     let minX = Infinity, maxX = -Infinity;

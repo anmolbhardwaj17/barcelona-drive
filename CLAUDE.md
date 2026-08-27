@@ -53,7 +53,7 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - **Spawn**: **Gran Via at Plaça Universitat — dense Eixample** — `spawnConfig.js` DEFAULT_SPAWN `{lat:41.3866, lon:2.1640}`. Deliberately the same place as the v3 performance benchmark (P0-05) and the start of `bench/benchRoute.js`: the densest thing the renderer has to survive. **Frame lag is a p95 problem and p95 lives here** — measuring stream-in anywhere quieter measures the wrong thing. For hillside vegetation use `?spawn=41.4180,2.1150` (Collserola) rather than moving the default.
 - **Mode**: default `ENABLE_CAR: false` (fly/free camera). **Override per-load via URL** — see toggles below.
 - **Fog**: ON — `ENABLE_FOG: true` (the pre-ship re-enable already happened)
-- **Tile format**: v9 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`)
+- **Tile format**: v10 — v7 (10 feature types) + v8 (baked sidewalks, path clipping) + v9 (baked sky-visibility AO grid; strength dials in `frontend/src/map/aoSampler.js`) + **v10 (R-W1 road width SECTION: `carriagewayW` / `parkingLeftW` / `parkingRightW` / `shoulderW` / `kerbToKerbW` / `sidewalkW` / `corridorW`; `width` is an alias of `kerbToKerbW`). Read it through `frontend/src/map/roadWidths.js` — never re-derive a width.**
 - **Ocean**: No global plane — water renders via per-polygon OSM water meshes only (ocean plane reverted)
 - **Unit model**: Unstretch-X COMPLETE (Stage 1) — 1 world unit = 1 real metre on all axes (ADR D-11). Any elevation/coord/scale change is atomic: code + full re-bake + browser cache flush (see vertical-model-foundation-spec §6).
 
@@ -70,7 +70,10 @@ BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
 - **Tunnel debug overlay**: `?debug=tunnel` — physics-collider wireframes, tile-seam markers, per-body Y labels (`tunnelDebugOverlay.js`). Off by default, zero cost when absent.
 - Combine freely, e.g. `http://localhost:4040/?mode=car&debug=tunnel`.
 - **Drive report (perf work)**: press **F9** while driving — or `window._ddReport()` — to write a compact report of the drive to `backend/debug-reports/drive-report-<ts>.json` (dev server only; falls back to a download). It aggregates long frames and late-compiling shader variants and names WHICH feature each late variant differs by. The old per-event `[frame]` / `[variant]` console lines are gone: they were unreadable and could not be copied out of DevTools. See `frontend/src/ui/driveReport.js`.
-- **Re-bake cache note**: after any re-bake, run `window._clearTileCache()` in the console + hard-reload, or the browser serves stale (pre-rebake) tiles.
+- **Re-bake cache note**: a re-bake that BUMPS the tile version now invalidates the browser cache by
+  itself (`peekBinaryVersion` in `tileParserWorker.js`, added with v10 — before that the binary path
+  never checked, which is why this was a manual step). A re-bake at the SAME version still needs
+  `window._clearTileCache()` + hard-reload.
 
 > **Port note:** The backend answers CORS from an allowlist — `ALLOWED_ORIGINS` in `backend/server.js`,
 > defaulting to `http://localhost:4040` (`npm run dev`) **and** `http://localhost:4044` (`npm run preview`,

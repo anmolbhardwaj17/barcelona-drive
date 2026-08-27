@@ -4,6 +4,7 @@
  * Supports terrain via getElevationAt and tunnel/bridge/layer.
  */
 import * as THREE from 'three';
+import { pavedWidth, carriagewayWidth, kerbOffset, sidewalkWidth } from './roadWidths.js';   // R-W1
 import { getKTX2TextureSync } from '../loaders.js';
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -93,18 +94,8 @@ const LAYER_HEIGHT_PER_LEVEL = LAYER_HEIGHT_STEP;
 // v3 P2-08: SIDEWALK_Y_OFFSET (terrain + 0.08) removed — it had ZERO call sites and disagreed with
 // the live convention (road surface + kerb = terrain + 0.17) by 9 cm. Two conventions for one
 // height is how paint ends up floating; a dead one is a trap for whoever wires it up next.
-/** Sidewalk width (m) by road type, total per side. 0 = no sidewalk. Do not exceed these values. */
-const SIDEWALK_WIDTH_BY_TYPE = {
-  motorway: 0,
-  trunk: 0,
-  primary: 2.5,
-  secondary: 2.0,
-  tertiary: 1.5,
-  residential: 1.2,
-  service: 0.8,
-  unclassified: 1.2,
-};
-const DEFAULT_SIDEWALK_WIDTH = 1.2;
+// R-W1: SIDEWALK_WIDTH_BY_TYPE deleted — dead since v8 baked sidewalk polygons, and its numbers
+// (residential 1.2 m against a real Eixample 5 m) were never right. Live widths come from the bake.
 /** Norma 8.2-IC road marking constants. All longitudinal lines are 0.10 m wide. */
 const CENTER_LINE_WIDTH       = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10 m
 const MARKING_EDGE_LINE_WIDTH = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10 m
@@ -169,36 +160,13 @@ const RAILING_BEAM_HALF = 0.07;
 /** Metal railing: beam depth (across-road thickness) (m). */
 const RAILING_BEAM_DEPTH = 0.10;
 
-function getSidewalkWidthForRoad(highwayType) {
-  const w = SIDEWALK_WIDTH_BY_TYPE[highwayType];
-  return w !== undefined ? w : DEFAULT_SIDEWALK_WIDTH;
-}
 
 // v3 P1-10: COLOR_BY_TYPE deleted with its only consumer.
 
-/** Road width (m) by highway type. Used when road.width is not set.
- *  Values scaled so one lane ≈ 4 m (fits car ~2 m wide with margin).
- *  Dual-carriageway types get ×2 lanes. Link ramps get one lane less. */
-const WIDTH_BY_TYPE = {
-  motorway:        30,  // 4 lanes each direction
-  trunk:           26,  // 3 lanes each direction
-  primary:         20,  // 2-3 lanes each direction
-  secondary:       16,  // 2 lanes each direction
-  tertiary:        13,  // 2 lanes
-  motorway_link:   15,  // 3-lane ramp
-  trunk_link:      13,  // 2-lane ramp
-  primary_link:    11,  // 2-lane ramp
-  secondary_link:  10,  // 2-lane connector
-  tertiary_link:    9,  // 1-2 lane connector
-  residential:     10,  // 2 lanes
-  service:          7,
-  unclassified:    10,
-  living_street:    8,
-  track:            5,
-  path:             2,
-  footway:          2,
-  cycleway:         2,
-};
+// R-W1: WIDTH_BY_TYPE deleted. It was unreachable — the bake always set `road.width`, so the
+// `(osmW > 0) ? osmW : WIDTH_BY_TYPE[...]` fallback never fired — and three other files carried a
+// comment claiming to mirror it while holding different numbers. `roadWidths.js` is the one answer,
+// and it reads what the bake derived rather than deriving anything here.
 
 // Stored max anisotropy value — applied to panot texture at creation and on update
 let _maxAnisotropy = 4;
@@ -807,14 +775,14 @@ function hashPoint(x, z, tol) {
   return `${Math.floor(x * g)}_${Math.floor(z * g)}`;
 }
 
+/**
+ * R-W1: the drawn asphalt ribbon is the PAVED width, kerb to kerb — a parking bay is asphalt too.
+ * Was `road.width` clamped to [4,30] against a local WIDTH_BY_TYPE table that could never fire,
+ * because the bake always set `width`. Measured result: 73% of residential streets drew at 4 m.
+ * Service subtypes are handled inside the model now, not re-applied here.
+ */
 function getRoadWidth(road) {
-  const osmW = Number(road.width);
-  let w = (osmW > 0) ? Math.max(4, Math.min(30, osmW)) : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
-  if (road.highwayType === 'service' && road.serviceSubtype) {
-    if (road.serviceSubtype === 'alley')         w = 3;
-    else if (road.serviceSubtype === 'driveway') w = 3.5;
-  }
-  return w;
+  return pavedWidth(road);
 }
 
 /** Endpoints shared by at least two road segments. Returns [{ x, z, radius }] where radius = max(roadWidth) at junction. */
@@ -857,7 +825,7 @@ function buildJunctionWidthMap(roads, tol) {
     if (!pts || pts.length < 2) continue;
     const w = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     for (const p of [pts[0], pts[pts.length - 1]]) {
       const h = hashPoint(p.x, p.y, tol);
       if (!byHash.has(h)) byHash.set(h, { maxW: w, minW: w });
@@ -883,7 +851,7 @@ function computeTaperedWidths(road, junctionWidthMap, tol) {
   if (!pts || pts.length < 2) return null;
   const ownW = Number.isFinite(Number(road.width))
     ? Math.max(3, Math.min(30, Number(road.width)))
-    : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+    : pavedWidth(road);
 
   const startHash = hashPoint(pts[0].x, pts[0].y, tol);
   const endHash = hashPoint(pts[pts.length - 1].x, pts[pts.length - 1].y, tol);
@@ -1114,7 +1082,7 @@ export function createRoadMesh(road, options, taperedWidths) {
   const widthOrWidths = taperedWidths || (
     Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6)
+      : pavedWidth(road)
   );
   const heights = getRoadPointHeights(road, options);
   const yOffsetOrHeights = heights || ROAD_OFFSET;
@@ -1335,7 +1303,7 @@ async function buildRoadMarkings(roads, options, yieldFn) {
     // fully-covered tunnels (tunnel && layer >= 0); daylighted layer<0 corridors get proper paint.
     if (road.tunnel && !(road.layer != null && road.layer < 0)) continue;
 
-    const roadWidth = Math.max(4, Math.min(30, Number(road.width) || (WIDTH_BY_TYPE[type] ?? 6)));
+    const roadWidth = pavedWidth(road);   // R-W1
     const half = roadWidth / 2;
     const roadHeights = getRoadPointHeights(road, options);
 
@@ -1511,7 +1479,7 @@ async function buildCrosswalks(roads, options, yieldFn) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
 
-    const roadWidth = Math.max(4, Math.min(30, Number(road.width) || (WIDTH_BY_TYPE[type] ?? 6)));
+    const roadWidth = pavedWidth(road);   // R-W1
     const heights = getRoadPointHeights(road, options);
 
     // Compute total polyline length for the short-road guard
@@ -2682,7 +2650,7 @@ function buildGroundRoadSegments(roads) {
     const layer = (road.layer != null && Number.isFinite(road.layer)) ? road.layer : 0;
     if (layer !== 0) continue;
     const pts = road.points || [];
-    const hw = ((WIDTH_BY_TYPE[road.highwayType] ?? 6) / 2) + 1; // half-width + margin
+    const hw = kerbOffset(road) + 1; // R-W1: kerb + margin
     for (let i = 0; i < pts.length - 1; i++) {
       segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw);
     }
@@ -2701,7 +2669,7 @@ function buildTrenchCorridorSegments(roads) {
   for (const road of roads || []) {
     if (!road.tunnel) continue;
     const pts = road.points || [];
-    const hw = ((WIDTH_BY_TYPE[road.highwayType] ?? 6) / 2) + TRENCH_PILLAR_SKIP_MARGIN;
+    const hw = kerbOffset(road) + TRENCH_PILLAR_SKIP_MARGIN;   // R-W1
     for (let i = 0; i < pts.length - 1; i++) {
       segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw);
     }
@@ -2947,7 +2915,7 @@ function buildBridgeSlabGeometry(roads, options) {
 
     const roadWidth = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     const edges = getRibbonEdgeVerts(pts, roadWidth, heights);
     if (!edges) continue;
 
@@ -3047,7 +3015,7 @@ function computeJunctionSkips(roads) {
     if (!pts || pts.length < 2) { info.push(null); continue; }
     const w = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     const layer = (road.layer != null && Number.isFinite(road.layer)) ? road.layer : 0;
     info.push({
       sx: pts[0].x, sz: pts[0].y,
@@ -3149,7 +3117,7 @@ function detectSharedBridgeEdges(roads) {
     if (!road.bridge || !road.points || road.points.length < 2) continue;
     const roadWidth = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     const layer = road.layer ?? 1;
     const pts = road.points;
     // Sample 3 points along centerline with normals
@@ -3249,7 +3217,7 @@ const GUARD_RAIL_DEDUP_DIST = 1.6;     // m — coincident-edge merge distance
 function guardRailWidth(road) {
   return Number.isFinite(Number(road.width))
     ? Math.max(3, Math.min(30, Number(road.width)))
-    : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+    : pavedWidth(road);
 }
 
 /**
@@ -4026,7 +3994,7 @@ function buildBridgeShadowMesh(roads, options) {
 
     const roadWidth = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     const isRampOrLink = road.isRamp || (road.highwayType && road.highwayType.endsWith('_link'));
     const extraW = isRampOrLink ? 1 : BRIDGE_SHADOW_EXTRA_WIDTH; // narrower shadow for ramps
     const shadowHalf = roadWidth / 2 + extraW;
@@ -4305,7 +4273,7 @@ function buildBridgeBillboards(roads, options) {
 
     const roadWidth = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     const halfW = roadWidth / 2;
 
     const startDist = 15;
@@ -4483,7 +4451,7 @@ function buildDebugRoadWireframes(roads, options) {
     if (!pts || pts.length < 2) continue;
     const roadWidth = Number.isFinite(Number(road.width))
       ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+      : pavedWidth(road);
     const half = roadWidth / 2;
     const heights = getRoadPointHeights(road, options);
     const hex = getDebugWireColor(road);

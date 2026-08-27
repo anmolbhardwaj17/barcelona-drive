@@ -10,16 +10,16 @@
  */
 import * as THREE from 'three';
 import { loadPeopleWalkTemplates } from './carModels.js';
+import { kerbOffset, sidewalkWidth } from '../map/roadWidths.js';   // R-W1
 import { audio } from '../audio/audioManager.js';
 
 const WALKABLE = new Set([
   'residential', 'living_street', 'unclassified', 'pedestrian', 'footway',
   'tertiary', 'tertiary_link', 'secondary', 'secondary_link', 'primary', 'primary_link',
 ]);
-const HALFW_BY_TYPE = {
-  residential: 4, living_street: 3.5, unclassified: 4, pedestrian: 2, footway: 1.5,
-  tertiary: 4.5, tertiary_link: 4, secondary: 5.5, secondary_link: 4.5, primary: 6.5, primary_link: 5,
-};
+// R-W1: the second HALFW_BY_TYPE is gone with the first. Pedestrians walk on the SIDEWALK, which
+// the width model now sizes and places explicitly — its inner edge is the kerb, and it is the same
+// kerb the rail and the parking bay hang off, so they cannot drift apart.
 
 const FRAMES       = 8;
 const PED_CAP      = 168;  // trimmed ~20% for perf (instanced flipbook)
@@ -84,10 +84,15 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
   // Cache a segment's invariant walk metadata once (on seg._pedMeta). null = not walkable.
   function computePedMeta(seg) {
     if (!WALKABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) return null;
-    const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
+    // Walk down the MIDDLE of the sidewalk: kerb + half the sidewalk. Where there is no sidewalk
+    // (a shared-surface living_street, a footway that IS the path), fall back to a small pad off
+    // the kerb rather than inventing a width.
+    const kerb = kerbOffset(seg);
+    const sw = sidewalkWidth(seg);
+    const off = sw > 0.5 ? kerb + sw / 2 : kerb + SIDEWALK_PAD;
     let minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
     for (const p of seg.points) { if (p.x < minWx) minWx = p.x; if (p.x > maxWx) maxWx = p.x; if (p.y < minWy) minWy = p.y; if (p.y > maxWy) maxWy = p.y; }
-    return { off: halfW + SIDEWALK_PAD, minWx, maxWx, minWy, maxWy };
+    return { off, minWx, maxWx, minWy, maxWy };
   }
   function reassign(playerPx, playerPz) {
     const segs = getRoadSegments?.();

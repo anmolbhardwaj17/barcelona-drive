@@ -15,6 +15,11 @@ import { latLonToMercator } from '../projection.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const KEEP_TAGS = ['highway', 'bridge', 'tunnel', 'layer', 'lanes', 'surface', 'incline', 'name', 'service', 'junction',
+                   // R-W1: `width` was NOT on this list, so `getWidth()`'s first branch — which read
+                   // `tags.width` and was documented as the primary width source — had never once
+                   // fired. 4.41% of drivable ways carry it, and on a pre-Cerda Gracia street it is
+                   // the only thing that knows the street is 5.5 m and not the derived 10.4 m.
+                   'width', 'lanes:forward', 'lanes:backward',
                    'oneway', 'sidewalk', 'cycleway', 'maxspeed',
                    'footway', 'path', 'crossing',   // marked-crossing detection (bake-surface-clipping.md Phase 1)
                    'parking:lane:left', 'parking:lane:right', 'parking:lane:both',   // Phase 4A: no-parking stripes

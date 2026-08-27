@@ -162,6 +162,17 @@ export function roadsForTileNoClip(roads, tileId = null) {
       nodeIds: road.nodeIds ? [...road.nodeIds] : [],
       points: pointsCopy,
       width: road.width,
+      // ⚠ R-W1 / D-42: this is a FIELD-BY-FIELD COPY, i.e. a whitelist. Anything not named here
+      // ceases to exist downstream, silently, as `undefined`. The width section must survive the
+      // tile split or every consumer falls back to guessing again.
+      carriagewayW:  road.carriagewayW,
+      parkingLeftW:  road.parkingLeftW,
+      parkingRightW: road.parkingRightW,
+      shoulderW:     road.shoulderW,
+      kerbToKerbW:   road.kerbToKerbW,
+      sidewalkW:     road.sidewalkW,
+      corridorW:     road.corridorW,
+      lanes:         road.lanes,
       bridge: road.bridge,
       tunnel: road.tunnel,
       layer: road.layer,
@@ -204,6 +215,17 @@ export function clipRoadsForTile(roads, bounds, tileId = null) {
         nodeIds: road.nodeIds ? [...road.nodeIds] : [],
         points: seg,
         width: road.width,
+      // ⚠ R-W1 / D-42: this is a FIELD-BY-FIELD COPY, i.e. a whitelist. Anything not named here
+      // ceases to exist downstream, silently, as `undefined`. The width section must survive the
+      // tile split or every consumer falls back to guessing again.
+      carriagewayW:  road.carriagewayW,
+      parkingLeftW:  road.parkingLeftW,
+      parkingRightW: road.parkingRightW,
+      shoulderW:     road.shoulderW,
+      kerbToKerbW:   road.kerbToKerbW,
+      sidewalkW:     road.sidewalkW,
+      corridorW:     road.corridorW,
+      lanes:         road.lanes,
         bridge: road.bridge,
         tunnel: road.tunnel,
         layer: road.layer,
@@ -253,6 +275,28 @@ export function splitRoadsByTile(roads, bbox, zoom) {
             nodeIds: road.nodeIds ? [...road.nodeIds] : [],
             points: seg,
             width: road.width,
+            // ⚠ R-W1 / D-42: this is a FIELD-BY-FIELD COPY, i.e. a whitelist. Anything not named here
+            // ceases to exist downstream, silently, as `undefined`. The width section must survive the
+            // tile split or every consumer falls back to guessing again.
+            carriagewayW:  road.carriagewayW,
+            parkingLeftW:  road.parkingLeftW,
+            parkingRightW: road.parkingRightW,
+            shoulderW:     road.shoulderW,
+            kerbToKerbW:   road.kerbToKerbW,
+            sidewalkW:     road.sidewalkW,
+            corridorW:     road.corridorW,
+            lanes:         road.lanes,
+      // ⚠ R-W1 / D-42: this is a FIELD-BY-FIELD COPY, i.e. a whitelist. Anything not named here
+      // ceases to exist downstream, silently, as `undefined`. The width section must survive the
+      // tile split or every consumer falls back to guessing again.
+      carriagewayW:  road.carriagewayW,
+      parkingLeftW:  road.parkingLeftW,
+      parkingRightW: road.parkingRightW,
+      shoulderW:     road.shoulderW,
+      kerbToKerbW:   road.kerbToKerbW,
+      sidewalkW:     road.sidewalkW,
+      corridorW:     road.corridorW,
+      lanes:         road.lanes,
             bridge: road.bridge,
             tunnel: road.tunnel,
             layer: road.layer,

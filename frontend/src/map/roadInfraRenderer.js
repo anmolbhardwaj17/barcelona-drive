@@ -17,6 +17,7 @@
  *   want local +X = (−tz, 0, tx) → same θ = atan2(−tx, −tz)
  */
 import * as THREE from 'three';
+import { pavedWidth, kerbOffset } from './roadWidths.js';   // R-W1
 import { applyGroundLayer, roadDeckY, groundLift } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -85,10 +86,9 @@ let sharedPoleShadowMat = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** R-W1: one baked number, one meaning — the paved surface, kerb to kerb. */
 function getRoadWidth(road) {
-  const osm = Number(road.width);
-  if (osm > 0) return Math.min(30, osm);
-  return ROAD_WIDTHS_BY_TYPE[road.highwayType] || 6;
+  return pavedWidth(road);
 }
 
 function hashPoint(x, z, tol) {

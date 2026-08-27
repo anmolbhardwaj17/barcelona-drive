@@ -758,7 +758,10 @@ export function bakeSidewalks(payload) {
 
     // NOTE: buildSidewalks/buildCurbs use this width formula (NOT getRoadWidth) —
     // ported verbatim from roadRenderer.js:1591 / 1696.
-    const roadWidth = Math.max(4, Math.min(30, Number(road.width) || 6));
+    // R-W1: was a NINTH width reading — `max(4, min(30, road.width || 6))`, its own clamp, disagreeing
+    // with the ribbon it is supposed to sit beside. The kerb is one number now, and the sidewalk's
+    // inner edge, the guard rail and the parking bay all hang off it.
+    const roadWidth = Number(road.kerbToKerbW ?? road.width) || 6;
     const half = roadWidth / 2;
 
     // Raw DEM heights per road point (bake-side replacement for the runtime
@@ -770,10 +773,16 @@ export function bakeSidewalks(payload) {
                   sidewalkSide === 'right' ? [+1] : [-1, +1];
 
     // ── Sidewalk ribbons (roadRenderer.js buildSidewalks:1554) ───────────────
-    let swWidth;
-    if (roadWidth >= 25) swWidth = BCN_DIMS.SIDEWALK_WIDTH_BOULEVARD;
-    else if (roadWidth < 12) swWidth = BCN_DIMS.SIDEWALK_WIDTH_NARROW;
-    else swWidth = BCN_DIMS.SIDEWALK_WIDTH_EIXAMPLE;
+    // R-W1: the width model states the sidewalk per road class, so use it. The roadWidth BANDS below
+    // stay as the fallback for a road that reached here without a section — but note they are now
+    // fed kerb-to-kerb rather than a 4 m carriageway, so they band differently than they used to.
+    let swWidth = Number(road.sidewalkW);
+    if (!Number.isFinite(swWidth) || swWidth <= 0) {
+      if (roadWidth >= 25) swWidth = BCN_DIMS.SIDEWALK_WIDTH_BOULEVARD;
+      else if (roadWidth < 12) swWidth = BCN_DIMS.SIDEWALK_WIDTH_NARROW;
+      else swWidth = BCN_DIMS.SIDEWALK_WIDTH_EIXAMPLE;
+    }
+    if (swWidth <= 0.05) continue;   // motorways and shared surfaces have no sidewalk at all
 
     const baseY = heights.map((h) => h + SIDEWALK_Y_ABOVE);
 

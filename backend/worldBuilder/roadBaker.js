@@ -38,26 +38,10 @@ const ROAD_PRIORITY_Y_BUMP = {
   cycleway:       0.001,
 };
 
-const WIDTH_BY_TYPE = {
-  motorway:        30,
-  trunk:           26,
-  primary:         20,
-  secondary:       16,
-  tertiary:        13,
-  motorway_link:   15,
-  trunk_link:      13,
-  primary_link:    11,
-  secondary_link:  10,
-  tertiary_link:    9,
-  residential:     10,
-  service:          7,
-  unclassified:    10,
-  living_street:    8,
-  track:            5,
-  path:             2,
-  footway:          2,
-  cycleway:         2,
-};
+// R-W1: the bake's own WIDTH_BY_TYPE is gone. It was UNREACHABLE — buildRegion always set
+// `road.width`, so the `(osmW > 0) ? ... : WIDTH_BY_TYPE[...]` fallback below never fired — and its
+// numbers were a different scale again (motorway 30 against buildRegion's 16). The one width model
+// now runs in buildRegion and its output is on the road record.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -66,14 +50,14 @@ function hashPoint(x, z, tol) {
   return `${Math.floor(x * g)}_${Math.floor(z * g)}`;
 }
 
+/**
+ * R-W1: the DRAWN asphalt ribbon is the paved surface, kerb to kerb — a parking bay is asphalt too.
+ * `kerbToKerbW` is authoritative; `width` is its alias and the fallback for a road that somehow
+ * reached here without the section. Service subtypes are handled inside the model now.
+ */
 function getRoadWidth(road) {
-  const osmW = Number(road.width);
-  let w = (osmW > 0) ? Math.max(4, Math.min(30, osmW)) : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
-  if (road.highwayType === 'service' && road.serviceSubtype) {
-    if (road.serviceSubtype === 'alley')         w = 3;
-    else if (road.serviceSubtype === 'driveway') w = 3.5;
-  }
-  return w;
+  const w = Number(road.kerbToKerbW ?? road.width);
+  return Number.isFinite(w) && w > 0 ? w : 6;
 }
 
 // ─── Junction width map ─────────────────────────────────────────────────────
@@ -83,9 +67,7 @@ function buildJunctionWidthMap(roads, tol) {
   for (const road of roads) {
     const pts = road.points;
     if (!pts || pts.length < 2) continue;
-    const w = Number.isFinite(Number(road.width))
-      ? Math.max(3, Math.min(30, Number(road.width)))
-      : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+    const w = getRoadWidth(road);   // R-W1: same number the ribbon is drawn at, or the taper fights it
     for (const p of [pts[0], pts[pts.length - 1]]) {
       const h = hashPoint(p.x, p.y, tol);
       if (!byHash.has(h)) byHash.set(h, { maxW: w, minW: w });
@@ -105,9 +87,7 @@ function buildJunctionWidthMap(roads, tol) {
 function computeTaperedWidths(road, junctionWidthMap, tol) {
   const pts = road.points;
   if (!pts || pts.length < 2) return null;
-  const ownW = Number.isFinite(Number(road.width))
-    ? Math.max(3, Math.min(30, Number(road.width)))
-    : (WIDTH_BY_TYPE[road.highwayType] ?? 6);
+  const ownW = getRoadWidth(road);   // R-W1
 
   const startHash = hashPoint(pts[0].x, pts[0].y, tol);
   const endHash = hashPoint(pts[pts.length - 1].x, pts[pts.length - 1].y, tol);
@@ -440,7 +420,7 @@ function createRoadRibbon(road, taperedWidths) {
         : filteredHeightsIdx.map(i => taperedWidths[i]))  // remap tapered widths
     : (Number.isFinite(Number(road.width))
         ? Math.max(3, Math.min(30, Number(road.width)))
-        : (WIDTH_BY_TYPE[road.highwayType] ?? 6));
+        : getRoadWidth(road));
 
   const rawHeights = getRoadPointHeights(road);
   let finalY;

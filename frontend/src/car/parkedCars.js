@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
+import { parkingBayOffset, parkingBayWidth, kerbOffset } from '../map/roadWidths.js';   // R-W1
 import { CANON_LENGTH } from './carModels.js';
 
 // living_street dropped — those are the tight lanes where big parked cars look unrealistic.
@@ -19,12 +20,11 @@ const DRIVABLE = new Set([
   'tertiary', 'tertiary_link', 'secondary', 'secondary_link',
   'primary', 'primary_link',
 ]);
-const MIN_PARK_WIDTH = 6.5; // m — skip parked cars on roads narrower than this (tight streets)
-const HALFW_BY_TYPE = {
-  residential: 4, unclassified: 4,
-  tertiary: 4.5, tertiary_link: 4, secondary: 5.5, secondary_link: 4.5,
-  primary: 6.5, primary_link: 5,
-};
+// R-W1: HALFW_BY_TYPE is gone. It was a THIRD width scale — half-widths, with numbers matching
+// neither of the two full-width tables — and reading `seg.width / 2` as "the kerb" is what parked
+// cars on the guard rails. Whether a road has a bay, how wide it is and where its centre sits are
+// now decided once, in the bake's width model, and read through roadWidths.js.
+const MIN_BAY_WIDTH = 1.8;   // m — narrower than this is a kerb stripe, not a parking space
 
 // Flat instance ceiling across all variants. Was 180 PER VARIANT — 1,620 slots for the ~150-250 cars
 // a dense 200 m radius actually places, so the old number said nothing about the real ceiling. This
@@ -120,20 +120,24 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
   // segment can never hold parked cars (not drivable, too narrow, or too short).
   function computeSegMeta(seg) {
     if (!DRIVABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) return null;
-    // ⚠ NO STREET PARKING AGAINST A GUARD RAIL.
+    // ⚠ NO STREET PARKING AGAINST A GUARD RAIL — now settled by the width model (R-W1).
     //
-    // User-reported: cars parked ON the railings. Both systems derive their offset from
-    // `road.width`, and they disagree about what it means — the rail sits at `halfW` (treating width
-    // as the carriageway edge) while parking sits at `halfW - 0.2` (treating it as including the
-    // parking lane). Twenty centimetres apart, so the cars land on the barrier.
+    // The original bug: the rail sat at `halfW` (reading `width` as the carriageway edge) and
+    // parking at `halfW - 0.2` (reading it as INCLUDING the parking lane). Twenty centimetres
+    // apart, so the cars landed on the barrier. Neither reading was wrong on its own; the field
+    // had no defined meaning and nothing arbitrated it.
     //
-    // Resolving WHICH reading is right is R-W1 and needs a re-bake. But the physical world settles
-    // this case on its own: a bridge deck, a ramp or an elevated carriageway with a barrier against
-    // it does not have street parking there. Gate on the same cheap booleans the rail gate leads
-    // with, so the two can never disagree about a road they both act on.
+    // Now the bake emits a parking BAY — a width and a side — and the same model puts the kerb
+    // (and so the rail) outside it by construction. `test/roadWidths.test.js` asserts the bay's
+    // outer edge never passes `kerbOffset`, so this specific bug cannot come back silently.
+    //
+    // The physical gate stays, and it is still load-bearing: the model zeroes the bay on a bridge,
+    // ramp, elevated deck or tunnel, but only if those flags REACH it. They now do — see
+    // tileManager.getLoadedRoadSegments, which had been dropping all four (D-42).
     if (seg.bridge || seg.isRamp || (seg.layer != null && seg.layer > 0) || seg.crossesTrench === true) return null;
-    const halfW = (seg.width && seg.width > 1) ? seg.width / 2 : (HALFW_BY_TYPE[seg.highwayType] ?? 4);
-    if (halfW * 2 < MIN_PARK_WIDTH) return null; // tight street → no parked cars
+    const bayL = parkingBayWidth(seg, 'left');
+    const bayR = parkingBayWidth(seg, 'right');
+    if (bayL < MIN_BAY_WIDTH && bayR < MIN_BAY_WIDTH) return null;   // no bay → no parked cars
     const pts = seg.points;
     let totalLen = 0, minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
     for (let s = 0; s < pts.length; s++) {
@@ -143,7 +147,13 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
       if (py < minWy) minWy = py; if (py > maxWy) maxWy = py;
     }
     if (totalLen < JUNCTION_GAP * 2 + SPACING) return null;
-    return { halfW, offset: halfW - 0.2, totalLen, minWx, maxWx, minWy, maxWy };
+    // Two offsets now, not one — a road can have a bay on one side only (OSM `parking:left=no`).
+    return {
+      offsetL: bayL >= MIN_BAY_WIDTH ? parkingBayOffset(seg, 'left') : 0,
+      offsetR: bayR >= MIN_BAY_WIDTH ? parkingBayOffset(seg, 'right') : 0,
+      kerb: kerbOffset(seg),
+      totalLen, minWx, maxWx, minWy, maxWy,
+    };
   }
 
   function rebuild(playerPx, playerPz) {
@@ -174,7 +184,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
       const ddy = Math.max(meta.minWy - pwy, 0, pwy - meta.maxWy);
       if (ddx * ddx + ddy * ddy > rangeSq) continue;
 
-      const halfW = meta.halfW, offset = meta.offset, totalLen = meta.totalLen;
+      const offsetL = meta.offsetL, offsetR = meta.offsetR, totalLen = meta.totalLen;
       const pts = seg.points;
       let seed = (seg.id | 0) % 997; if (seed < 0) seed += 997;
       let acc = (seed % 5) / 5 * SPACING;
@@ -201,8 +211,9 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
             const y = getGroundY ? (getGroundY(origin.x - cx, cz + origin.z) ?? 0) : 0;
             const vR = ((slot * 13 + seed) % nVar + nVar) % nVar;
             const vL = ((slot * 13 + seed + 4) % nVar + nVar) % nVar;
-            put(vR, cx + rx * offset, y, cz + rz * offset, yawR, 0);
-            put(vL, cx - rx * offset, y, cz - rz * offset, yawR + Math.PI, 0);
+            // Each side is placed only if that side actually has a bay.
+            if (offsetR) put(vR, cx + rx * offsetR, y, cz + rz * offsetR, yawR, 0);
+            if (offsetL) put(vL, cx - rx * offsetL, y, cz - rz * offsetL, yawR + Math.PI, 0);
           }
           dist += SPACING;
         }

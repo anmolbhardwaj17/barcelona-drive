@@ -6,6 +6,7 @@
  * Building perimeter trees for coverage near structures.
  */
 import * as THREE from 'three';
+import { corridorWidth } from './roadWidths.js';   // R-W1
 import { patchMaterial } from './materialRegistry.js';   // v3 P1-03
 import { injectTreeWind, updateTreeWind } from './treeWind.js';
 import { buildTreeCardGeometries, getTreeCardMaterial, getTreeCardAtlas, TREE_CARD_SPECIES,
@@ -298,14 +299,8 @@ function polygonAreaXZ(polygon) {
   return Math.abs(area) / 2;
 }
 
-/** Road total widths by highway type (metres), matching roadRenderer WIDTH_BY_TYPE exactly. */
-const ROAD_WIDTH_BY_TYPE = {
-  motorway: 30, motorway_link: 15, trunk: 26, trunk_link: 13,
-  primary: 20, primary_link: 11, secondary: 16, secondary_link: 10,
-  tertiary: 13, tertiary_link: 9,
-  residential: 10, service: 7, unclassified: 10, living_street: 8,
-  track: 5, path: 2, footway: 2, cycleway: 2,
-};
+// R-W1: another "matching roadRenderer WIDTH_BY_TYPE exactly" table, which did not. Tree placement
+// clears the CORRIDOR, and the bake states it per road now.
 
 // ---------------------------------------------------------------------------
 // Road-surface overlap check — removes trees that land on the actual road
@@ -353,7 +348,7 @@ export function buildGroundRoadGrid(roads) {
     const pts = road.points || [];
     if (pts.length < 2) continue;
     const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-    const typeW = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
+    const typeW = corridorWidth(road);
     // Shrink inward — only reject trees whose trunk center is well inside road.
     // Scale inset with road width so wide roads (trunk/primary) leave room
     // between parallel carriageways for trees.
@@ -424,7 +419,7 @@ function getRoadsideTreePositions(tileData, tileKey, neighborRoads = []) {
       const pts = road.points || [];
       if (pts.length < 2) continue;
       const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-      const typeW = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
+      const typeW = corridorWidth(road);
       const w = Math.max(dataW, typeW);
       allEndpoints.push({ x: pts[0].x, z: pts[0].y, w });
       allEndpoints.push({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].y, w });
@@ -468,7 +463,7 @@ function getRoadsideTreePositions(tileData, tileKey, neighborRoads = []) {
           const d2 = distSqToSeg(ep.x, ep.z, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
           if (d2 < T_JUNCTION_DIST_SQ && d2 > 0.5) { // >0.5 avoids self-endpoint match
             const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-            const typeW = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
+            const typeW = corridorWidth(road);
             const w = Math.max(dataW, typeW, ep.w);
             const clearance = Math.min(JUNCTION_TREE_CLEARANCE + w * 0.3, 18);
             junctions.push({ x: ep.x, z: ep.z, rSq: clearance * clearance });
@@ -491,7 +486,7 @@ function getRoadsideTreePositions(tileData, tileKey, neighborRoads = []) {
     const pts = road.points || [];
     if (pts.length < 2) continue;
     const dataW3 = Number.isFinite(Number(road.width)) ? Math.max(3, Math.min(20, Number(road.width))) : 0;
-    const typeW3 = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
+    const typeW3 = corridorWidth(road);
     const roadWidth = Math.max(dataW3, typeW3);
     const halfW = roadWidth / 2;
     const ht = road.highwayType || '';

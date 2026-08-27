@@ -6,6 +6,7 @@
  * coords (used by the dynamic PointLight pool in main.js).
  */
 import * as THREE from 'three';
+import { pavedWidth, kerbOffset } from './roadWidths.js';   // R-W1
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
@@ -57,10 +58,9 @@ const MIRROR_HEIGHT = 3.5;        // height on pole where mirror is mounted
 const MIRROR_OFFSET = 0.4;       // offset outward from pole to avoid collision
 const MIRROR_JUNCTION_DIST = 18;  // max distance from junction to place mirror
 
+/** R-W1: one baked number, one meaning — the paved surface, kerb to kerb. */
 function getRoadWidth(road) {
-  const osm = Number(road.width);
-  if (osm > 0) return Math.min(30, osm);
-  return ROAD_WIDTHS_BY_TYPE[road.highwayType] || 6;
+  return pavedWidth(road);
 }
 
 // ---------------------------------------------------------------------------

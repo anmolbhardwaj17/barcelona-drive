@@ -71,6 +71,32 @@ function packLite(roads, water, greens, beaches) {
   };
 }
 
+/**
+ * The binary tile format this build understands (v10: + the R-W1 width section).
+ *
+ * ⚠ THIS IS THE CACHE KEY THAT WAS MISSING. The JSON fallback path has always compared versions,
+ * but the BINARY path parsed whatever IndexedDB held and served it — forever. That is precisely why
+ * CLAUDE.md tells every player to run `window._clearTileCache()` by hand after a re-bake: the
+ * manual step existed because the code did not do it, and forgetting it means driving a stale city
+ * with no warning. `peekBinaryVersion` closes that, so a re-bake now invalidates itself.
+ *
+ * Bump this whenever convertToBinary.js' `header.version` changes; they must move together.
+ */
+const BINARY_TILE_VERSION = 10;
+
+/** Read just the version out of a binary tile, without parsing the rest. */
+function peekBinaryVersion(buffer) {
+  try {
+    const headerLen = new DataView(buffer, 0, 4).getUint32(0, true);
+    const bytes = new Uint8Array(buffer, 4, headerLen);
+    let end = headerLen;
+    while (end > 0 && bytes[end - 1] === 0) end--;
+    return JSON.parse(textDecoder.decode(new Uint8Array(buffer, 4, end))).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function parseBinaryTile(buffer, originX, originY, lite = false) {
   const headerView = new DataView(buffer, 0, 4);
   const headerLen = headerView.getUint32(0, true); // includes padding to 4-byte boundary
@@ -302,9 +328,19 @@ function readRoads(rawRoads, buffer, binOffset, ox, oy) {
     const points = readFloat32Triples(buffer, binOffset, r.pointsOffset, r.pointCount, ox, oy);
     out[i] = {
       id: r.id,
-      width: r.width,
+      width: r.width,          // R-W1: alias of kerbToKerbW — the DRAWN paved surface
       highwayType: r.highwayType,
       points,
+      // R-W1: the width SECTION (v10). Copied unconditionally, not behind `!== undefined`, so a
+      // pre-v10 tile yields explicit `undefined` and roadWidths.js' fallback fires — rather than
+      // the field quietly not existing, which is how nine consumers ended up each inventing one.
+      carriagewayW:  r.carriagewayW,
+      parkingLeftW:  r.parkingLeftW,
+      parkingRightW: r.parkingRightW,
+      shoulderW:     r.shoulderW,
+      kerbToKerbW:   r.kerbToKerbW,
+      sidewalkW:     r.sidewalkW,
+      corridorW:     r.corridorW,
     };
     if (r.bridge !== undefined) out[i].bridge = r.bridge;
     if (r.crossesTrench !== undefined) out[i].crossesTrench = r.crossesTrench; // OPTION L: deck colliders over daylighted corridors
@@ -1005,9 +1041,15 @@ self.onmessage = async (e) => {
     if (cached) {
       try {
         if (cached.ct === 'binary') {
-          const result = parseBinaryTile(cached.data, originX, originY, lite);
-          postResult(id, result);
-          return;
+          // Reject a tile baked by an older format rather than silently serving the stale city.
+          const v = peekBinaryVersion(cached.data);
+          if (v !== BINARY_TILE_VERSION) {
+            idbDel(cacheKey);
+          } else {
+            const result = parseBinaryTile(cached.data, originX, originY, lite);
+            postResult(id, result);
+            return;
+          }
         } else if (cached.ct === 'json') {
           const data = JSON.parse(cached.data);
           if (data.version === tileVersion) {

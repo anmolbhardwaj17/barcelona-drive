@@ -116,7 +116,13 @@ export function convertTile(jsonData) {
   }
 
   const header = {
-    version: 9,   // v9: + aoGrid (baked sky-visibility AO; absent → frontend treats sky as fully
+    version: 10,  // v10: + the R-W1 width section on every road (carriagewayW / parkingLeftW /
+                  //     parkingRightW / shoulderW / kerbToKerbW / sidewalkW / corridorW). `width`
+                  //     is kept as an alias of kerbToKerbW so an unmigrated consumer reads the
+                  //     paved surface rather than silently changing meaning.
+                  //     ⚠ Must move in lockstep with BINARY_TILE_VERSION in tileParserWorker.js —
+                  //     that is what makes a re-bake invalidate the browser cache by itself.
+                  // v9: + aoGrid (baked sky-visibility AO; absent → frontend treats sky as fully
                   //     open). v8: + bakedSidewalks (frontend falls back to the runtime generator
                   //     when the section is absent — older tiles keep working).
     tileId: jsonData.tileId,
@@ -166,7 +172,17 @@ export function convertTile(jsonData) {
       const ref  = pushF32(flat);
       const entry = {
         id:          road.id,
-        width:       road.width,
+        width:       road.width,   // R-W1: alias of kerbToKerbW — the DRAWN paved surface
+        // R-W1: the width SECTION, so the frontend reads a named field instead of halving `width`
+        // and guessing what it measured. Written unconditionally: an absent field is how the old
+        // ambiguity crept back in, and `null` is a louder failure than a missing key.
+        carriagewayW:  road.carriagewayW ?? null,
+        parkingLeftW:  road.parkingLeftW ?? null,
+        parkingRightW: road.parkingRightW ?? null,
+        shoulderW:     road.shoulderW ?? null,
+        kerbToKerbW:   road.kerbToKerbW ?? null,
+        sidewalkW:     road.sidewalkW ?? null,
+        corridorW:     road.corridorW ?? null,
         bridge:      road.bridge     || false,
         tunnel:      road.tunnel     || false,
         layer:       road.layer      || 0,

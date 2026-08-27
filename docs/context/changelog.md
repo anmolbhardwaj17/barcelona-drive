@@ -4,6 +4,62 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-27 — R-W1: one road width model, and the streets were a third of their width
+
+**The ticket said OSM's `width=*` tag is unreliable. The measurement found the code never read it.**
+`getWidth()` checked `tags.width` first, but `pbfHighways.js` KEEP_TAGS never included `width`, so it
+was stripped before the bake could see it — that branch had **never once fired** in the project's
+life. Its `WIDTH_BY_TYPE` fallback was unreachable too (it needs `lanes == null`; `getLanes()` always
+returns ≥ 1). So every width in Barcelona was `clamp(lanes × 3.5, 4, 20)`, and read straight off the
+shipped tiles that put **73% of residential streets, 99% of living_street, 97% of service and 100% of
+footway/pedestrian/steps at exactly 4 m** — the MIN_WIDTH clamp, enforced on things that are not
+carriageways. The user's report that the road "seems short" was neither perception nor length: the
+streets were a third of their width, and every pavement in the city was baked as a 4 m ribbon.
+
+**New `backend/worldBuilder/roads/roadWidthModel.js`** — one model, lane count × class per Norma
+8.2-IC, with the OSM tag as a **bound** rather than a source (a tagged 5.5 m Gràcia street caps the
+section and loses its parking bays before its lane; a tagged 25 m one is inert). It emits a named
+SECTION, baked into the v10 tile, so nothing downstream re-derives anything:
+
+    |<------------------------- corridorW ------------------------->|
+    |         |<------------- kerbToKerbW ------------->|           |
+    |         |      |<----- carriagewayW ----->|       |           |
+    | sidewalk | park |  lane  |  lane  |  lane | park  | sidewalk  |
+
+**Ten width tables deleted.** Nine were known; a tenth turned up inside `vegetationWorker.js`. Three
+of them carried the comment "mirror of roadRenderer WIDTH_BY_TYPE" and none of them matched it — and
+two were a half-width scale with different numbers again. The frontend now reads
+`map/roadWidths.js`, whose fallback table `test/roadWidths.test.js` re-derives from the bake model
+and fails on drift. That guard caught a hand-typed error on its very first run.
+
+**Measured, baked (Eixample, 1,512 roads, 0 missing the section):** residential paved **4 m → 10.4 m**
+(16.4 m corridor, 67% with parking bays) · tertiary 7 → 10.4 · secondary 10.5 → 14.15 · footway
+4 → 2 · steps 4 → 1.5 · living_street stays 4 (correct: shared surface). Motorways stay ~14 m, which
+is the one case the old code got right — OSM splits dual carriageways per direction, so `lanes=3`
+means three lanes one way, and adding a median would have doubled the network's footprint.
+
+⚠ **The drawn ribbon is `kerbToKerbW`, not `carriagewayW`** — a parking bay is asphalt. Drawing the
+running lanes would leave a 2.2 m strip of bare terrain down both sides of every street, exactly
+where its parking lane belongs.
+
+**The whitelist defect, twice more.** A road is copied field by field at six points between PBF and
+renderer. The section was added to five, a six-minute bake ran, and **all 2,148 road records came out
+with the section absent** — `deepCloneRoad` did not carry it. Fixed, looked again, found
+`RoadGeometryBuilder` did not either. All 19 width-model unit tests were green throughout. This is
+the third occurrence (D-42 killed a safety gate for its entire life), so it is now a test:
+`test/roadFieldPipeline.test.js` reads the source of all six copy sites and fails if any drops a
+field — verified by removing one and watching it fail.
+
+**Also fixed: the binary tile cache never checked its version.** CLAUDE.md tells players to run
+`window._clearTileCache()` after a re-bake because the browser serves stale tiles. Cause: the JSON
+path compared versions, the BINARY path parsed whatever IndexedDB held and served it forever. The
+manual step existed because the code did not do it. `peekBinaryVersion()` now evicts a mismatch, so a
+re-bake invalidates itself; a network-fetched older tile still parses via the fallback rather than
+blanking, so a partial bake degrades instead of breaking.
+
+281 tests green. Full region re-bake run. **Unverified in-game — this is the largest visual change
+in weeks, and every kerb, sidewalk, tree line and parked car in the city moves with it.**
+
 ## 2026-08-27 — v3 P4-15a: every city car in the world is now one draw call
 
 **The shape of the problem.** Traffic and parked cars drew the SAME nine Kenney models out of the

@@ -60,6 +60,9 @@ delhi-drive/
 │   │   ├── camera/
 │   │   │   └── freeCameraController.js ← Orbit camera for ENABLE_CAR=false mode
 │   │   ├── map/
+│   │   │   ├── roadWidths.js     ← R-W1: THE width accessor. Reads the v10 baked SECTION
+│   │   │   │                        (carriageway / parking bays / kerb-to-kerb / sidewalk /
+│   │   │   │                        corridor). NEVER re-derive a road width anywhere else
 │   │   │   ├── tileManager.js    ← Tile streaming core (2346 lines — the engine heart)
 │   │   │   ├── mapLoader.js      ← Fetches tiles via tileParserWorker + in-flight dedup
 │   │   │   ├── tileParserWorker.js ← Web Worker: binary v6 + JSON v5 + IndexedDB cache

@@ -131,6 +131,7 @@ function scanTerrainConflict(r, demSampler) {
 }
 
 import { parsePbfHighways } from './pbfHighways.js';
+import { computeRoadWidths } from './roads/roadWidthModel.js';   // R-W1: THE width model
 import { parsePbfBuildings } from './pbfBuildings.js';
 import { parsePbfGreens } from './pbfGreens.js';
 import { parsePbfWater } from './pbfWater.js';
@@ -177,18 +178,10 @@ const DRIVABLE = new Set([
   'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
   'residential', 'service', 'unclassified',
 ]);
-const MIN_WIDTH = 4;
-const MAX_WIDTH = 20;
-const WIDTH_BY_TYPE = {
-  motorway: 16, trunk: 14, primary: 12, secondary: 10, tertiary: 8,
-  motorway_link: 10, trunk_link: 10, primary_link: 8, secondary_link: 8, tertiary_link: 6,
-  residential: 6, service: 4, unclassified: 6,
-};
-const LANES_BY_TYPE = {
-  motorway: 4, trunk: 3, primary: 2, secondary: 2, tertiary: 2,
-  motorway_link: 2, trunk_link: 2, primary_link: 1, secondary_link: 1, tertiary_link: 1,
-  residential: 1, service: 1, unclassified: 1,
-};
+// R-W1: the width tables that used to live here are gone. Both of their branches were unreachable
+// (see roadWidthModel.js' header for the measurement), and having a second set of numbers here was
+// half of why nine places disagreed about how wide a road is. `roadWidthModel` is now the only
+// answer, and its output is BAKED INTO THE TILE so the frontend reads fields instead of re-deriving.
 
 function getTag(tags, key, def = '') {
   return tags && tags[key] != null ? String(tags[key]).trim() : def;
@@ -202,21 +195,6 @@ function parseNumeric(str, fallback) {
   if (str == null || str === '') return fallback;
   const m = String(str).match(/^[\d.]+/);
   return m ? parseFloat(m[0]) : fallback;
-}
-function getWidth(tags, highwayType, lanes) {
-  const widthTag = getTag(tags, 'width');
-  if (widthTag) {
-    const w = parseNumeric(widthTag, null);
-    if (w != null && w > 0) return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w));
-  }
-  const lanesTag = parseIntStrict(getTag(tags, 'lanes'), null);
-  const L = lanesTag != null ? lanesTag : lanes;
-  if (L != null && L > 0) return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, L * 3.5));
-  return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, WIDTH_BY_TYPE[highwayType] ?? 6));
-}
-function getLanes(tags, highwayType) {
-  const lanesTag = parseIntStrict(getTag(tags, 'lanes'), null);
-  return lanesTag != null && lanesTag > 0 ? lanesTag : (LANES_BY_TYPE[highwayType] ?? 1);
 }
 
 function polylineLength(pts) {
@@ -253,12 +231,34 @@ function parseCliBbox(cfg) {
   return null;
 }
 
+/**
+ * ⚠ THE FOURTH FIELD-BY-FIELD COPY IN THIS PIPELINE, AND THEY ALL BEHAVE THE SAME WAY.
+ *
+ * A road crosses `deepCloneRoad` → `clipRoadsForTile` → the tile-record map → `convertToBinary`,
+ * and every one of those is a WHITELIST. A field missing from any single one ceases to exist from
+ * that point on — silently, as `undefined`, with no error anywhere. R-W1's width section was added
+ * to the other three and still arrived at the tiles empty in all 2,148 road records, because of
+ * this one. (Same defect as D-42, where `getLoadedRoadSegments` dropped four structural flags and
+ * killed a safety gate for its entire life.)
+ *
+ * If you add a per-road field, grep for `road.width` and put it beside EVERY occurrence.
+ * `scripts/checkRoadFieldPipeline.mjs` fails the build if these copies fall out of step.
+ */
 function deepCloneRoad(road) {
   return {
     id: road.id,
     nodeIds: road.nodeIds ? [...road.nodeIds] : [],
     points: road.points.map((p) => [...p]),
     width: road.width,
+    // R-W1 width section — see the warning above.
+    lanes: road.lanes,
+    carriagewayW: road.carriagewayW,
+    parkingLeftW: road.parkingLeftW,
+    parkingRightW: road.parkingRightW,
+    shoulderW: road.shoulderW,
+    kerbToKerbW: road.kerbToKerbW,
+    sidewalkW: road.sidewalkW,
+    corridorW: road.corridorW,
     bridge: road.bridge,
     tunnel: road.tunnel,
     layer: road.layer,
@@ -592,16 +592,34 @@ async function main() {
 
   advancePhase(); // Phase 0 (PBF) done → Phase 1 (graph)
 
+  // R-W1: ONE width model, computed once, here. `width` is kept as an alias of kerbToKerbW so that
+  // any consumer not yet migrated reads the PAVED surface — the closest thing to what it used to get
+  // — rather than silently switching meaning under it. Everything migrated reads the named field.
   const enriched = drivableRoads.map((road) => {
-    const lanes = getLanes(road.tags, road.highwayType);
-    const width = getWidth(road.tags, road.highwayType, lanes);
     const junctionTag = road.tags?.junction || '';
+    const bridge = !!road.bridge;
+    const tunnel = !!road.tunnel;
+    const layer = road.layer != null && Number.isFinite(road.layer) ? road.layer : 0;
+    const w = computeRoadWidths({
+      tags: road.tags,
+      highwayType: road.highwayType,
+      oneway: road.tags?.oneway === 'yes',
+      serviceSubtype: road.serviceSubtype,
+      bridge, tunnel, layer,
+    });
     return {
       ...road,
-      width,
-      bridge: !!road.bridge,
-      tunnel: !!road.tunnel,
-      layer: road.layer != null && Number.isFinite(road.layer) ? road.layer : 0,
+      width: w.kerbToKerbW,   // the DRAWN asphalt: a parking bay is paved too
+      lanes: w.lanes,
+      carriagewayW: w.carriagewayW,
+      parkingLeftW: w.parkingLeftW,
+      parkingRightW: w.parkingRightW,
+      shoulderW: w.shoulderW,
+      kerbToKerbW: w.kerbToKerbW,
+      sidewalkW: w.sidewalkW,
+      corridorW: w.corridorW,
+      widthSource: w.widthSource,
+      bridge, tunnel, layer,
       highwayType: road.highwayType || 'unclassified',
       closedLoop: !!road.closedLoop,
       isRoundabout: junctionTag.toLowerCase() === 'roundabout',
@@ -1454,7 +1472,16 @@ async function main() {
           nodeIds: r.nodeIds || [],
           points: r.points.map((p) => [p[0], p[1], p[2]]),
           elevation: r.points.map((p) => p[3]),
-          width: r.width,
+          width: r.width,          // R-W1: alias of kerbToKerbW — the DRAWN paved surface
+          // R-W1: the width SECTION. Consumers read the field they mean instead of halving `width`
+          // and guessing what it measured. See roadWidthModel.js for the diagram.
+          carriagewayW:  r.carriagewayW,
+          parkingLeftW:  r.parkingLeftW,
+          parkingRightW: r.parkingRightW,
+          shoulderW:     r.shoulderW,
+          kerbToKerbW:   r.kerbToKerbW,
+          sidewalkW:     r.sidewalkW,
+          corridorW:     r.corridorW,
           bridge: r.bridge,
           tunnel: r.tunnel,
           layer: r.layer,
@@ -1468,7 +1495,7 @@ async function main() {
           crossing: crossingIds.has(r.id) || null,
           // Phase 2 OSM fields via phase2ById lookup
           oneway:   p2.oneway   ?? null,
-          lanes:    p2.lanes    ?? null,
+          lanes:    r.lanes ?? p2.lanes ?? null,   // R-W1: the model resolved this once already
           sidewalk: p2.sidewalk ?? null,
           cycleway: p2.cycleway ?? null,
           surface:  p2.surface  ?? null,

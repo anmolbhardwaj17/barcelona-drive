@@ -441,16 +441,48 @@ it says a way is `highway=primary` with `bridge=yes`, not how wide it is, where 
 protecting, or what the protection is made of. Everything below is inference the game must do for
 itself. None is started; each states what exists today so the work is not re-discovered.
 
-### R-W1 · Road width and scale consistency
-**Today:** width comes from `r.width` when OSM carries it and a per-highway-type default otherwise
-(`roadTexturePack`/`roadBaker`). OSM `width=*` is sparsely tagged and inconsistently means
-carriageway, kerb-to-kerb, or the whole corridor. Lane counts (`lanes=*`) are parsed but not used to
-derive width.
-**Wanted:** one width model — lanes × lane-width + shoulders + medians, per Norma 8.2-IC §2, with the
-OSM tag as an override rather than the primary source, so a two-lane tertiary is the same width
-everywhere in the city.
-**Watch:** width changes move kerbs, sidewalks and parking, so this lands with a re-bake and probably
-invalidates the P3-09 kerb fit.
+### R-W1 · Road width and scale consistency — ✅ **DONE 2026-08-27**
+
+**What was actually wrong, measured before anything was written:**
+1. `getWidth()` read `tags.width` first — but `pbfHighways.js` KEEP_TAGS never included `width`, so
+   the tag was stripped before the bake could see it. **That branch had never once fired.** (4.41%
+   of drivable ways carry it, median 5.5 m.)
+2. Its `WIDTH_BY_TYPE` fallback was unreachable too — it fires only when `lanes` is null, and
+   `getLanes()` always returns ≥ 1.
+3. So every width in the city was `clamp(lanes × 3.5, 4, 20)`. Read off the shipped tiles: **73% of
+   residential, 99% of living_street, 97% of service and 100% of footway/pedestrian/steps sat at
+   exactly 4 m** — the MIN_WIDTH clamp, applied to things that are not carriageways. Against an
+   Eixample archetype of a 10 m roadway in a 20 m corridor. **The road never "seemed short" — it
+   was a third of its width.**
+
+**What shipped:** `backend/worldBuilder/roads/roadWidthModel.js` — ONE model, derived from lane count
+and class per Norma 8.2-IC, with the OSM tag as a **bound** rather than a source (a tagged 5.5 m
+Gràcia street caps the section; a tagged 25 m one is inert). It emits a named SECTION, baked into the
+v10 tile, so nothing downstream re-derives anything:
+
+    |<------------------------- corridorW ------------------------->|
+    |         |<------------- kerbToKerbW ------------->|           |
+    |         |      |<----- carriagewayW ----->|       |           |
+    | sidewalk | park |  lane  |  lane  |  lane | park  | sidewalk  |
+
+**Ten width tables deleted** (nine, plus a fourth "mirror of roadRenderer" copy found inside
+`vegetationWorker.js`). The frontend reads `map/roadWidths.js`, which reads baked fields and falls
+back to a table that `test/roadWidths.test.js` re-derives from the model — the anti-drift guard that
+three "mirror of roadRenderer" comments failed to be. It caught a hand-typed error on its first run.
+
+**Measured result, baked (Eixample, 1,512 roads, 0 missing the section):**
+
+| type | old paved | new paved | new corridor |
+|---|---|---|---|
+| residential | 4 m | **10.4 m** | 16.4 m |
+| tertiary | 7 m | **10.4 m** | 16.4 m |
+| secondary | 10.5 m | **14.15 m** | 21.15 m |
+| footway | 4 m | **2 m** | — |
+| steps | 4 m | **1.5 m** | — |
+| living_street | 4 m | 4 m (correct — shared surface) | — |
+
+⚠ **The drawn ribbon is `kerbToKerbW`, not `carriagewayW`.** A parking bay is asphalt. Drawing the
+carriageway leaves a strip of bare terrain where every street's parking lane should be.
 
 ### R-J1 · Junction and merge geometry
 **Today:** junction handling lives in `worldBuilder/junctions/`; ways meet at shared nodes and the
@@ -628,15 +660,15 @@ model is ambiguous and nothing arbitrates it. **Fixed for the physical case only
 parking on a bridge, ramp, or `layer > 0` carriageway, gated on the same booleans the rail gate
 leads with so the two can never disagree about a road they both act on.
 
-**Still open, and needs R-W1 first:** the general case. A width model that states what it measures
-(carriageway, kerb-to-kerb, or corridor) is the only thing that lets the rail, the parking lane, the
-kerb, the sidewalk and the markings agree. Every one of those currently re-derives its own offset
-from the same ambiguous number. That is also why the road "seems short" — the drivable ribbon and
-the furniture beside it are computed from different readings of one field.
+**Resolved 2026-08-27 by R-W1.** The bake now emits a parking BAY (a width and a side) and puts the
+kerb outside it by construction; `test/roadWidths.test.js` asserts the bay's outer edge never passes
+`kerbOffset()`, for every road class, so this specific bug cannot return silently. The physical gate
+(no parking on a bridge/ramp/elevated deck/tunnel) stays and is now load-bearing for the first time —
+it had been reading four fields that `getLoadedRoadSegments` never copied (D-42).
 
 **Also in scope (user, 2026-08-27):** traffic and parked-car *density and placement* should follow
 road class. See `v3-execution-tracker.md` **P4-15a** for the engineering half of vehicles.
 
-> **Sequencing:** R-W1 → R-J1 (geometry must be consistent before merges are worth fixing), and
+> **Sequencing:** ~~R-W1 →~~ R-J1 is now UNBLOCKED (R-W1 done 2026-08-27), and
 > R-B1 → R-B2 (place before styling). R-B1 is the one the user notices most — missing railings on
 > elevated roads — and is the least dependent on the others, so it is the sensible entry point.

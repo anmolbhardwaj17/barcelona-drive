@@ -9,28 +9,13 @@
  * Junctions where multiple roads meet get additional widening.
  */
 import { latLonToWorld } from '../projection.js';
+import { corridorWidth } from './roadWidths.js';   // R-W1
 
-// Mirror of roadRenderer WIDTH_BY_TYPE — actual rendered road widths
-const ROAD_RENDER_WIDTH = {
-  motorway:        30,
-  trunk:           26,
-  primary:         20,
-  secondary:       16,
-  tertiary:        13,
-  motorway_link:   15,
-  trunk_link:      13,
-  primary_link:    11,
-  secondary_link:  10,
-  tertiary_link:    9,
-  residential:     10,
-  service:          7,
-  unclassified:    10,
-  living_street:    8,
-  track:            5,
-  path:             2,
-  footway:          2,
-  cycleway:         2,
-};
+// R-W1: the "mirror of roadRenderer WIDTH_BY_TYPE" table that used to live here is gone. It was one
+// of THREE files carrying that comment, none of which actually matched roadRenderer — and it was a
+// third scale again (residential 10 m against a road drawn at 4 m), which is why the city had a ring
+// of cleared-but-unpaved ground around every street. Clearing vegetation wants the CORRIDOR, which
+// the bake now states outright: kerb-to-kerb plus both sidewalks.
 
 const RESOLUTION = 0.5; // metres per grid cell (was 1m, now 0.5m for less aliasing)
 const PAD = 20;          // metres padding around tile bounds
@@ -133,7 +118,7 @@ export function buildRoadOccupancyGrid(roads, tileBounds) {
 
     // Use the larger of tile-data width and type-based render width
     const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-    const typeW = ROAD_RENDER_WIDTH[road.highwayType] ?? 6;
+    const typeW = corridorWidth(road);
     const w = Math.max(dataW, typeW);
     const half = w / 2 + WIDTH_INFLATE; // inflate by safety buffer
 

@@ -57,6 +57,17 @@ export function buildRoadGeometry(ways, nodeMap, rampResult) {
       nodeIds: [...nodeIds],
       points,
       width: way.width,
+      // ⚠ R-W1: a FIELD-BY-FIELD COPY — a whitelist. This is the fifth in the road pipeline
+      // (deepCloneRoad, three in tileSplit, this one) and a field missing from ANY of them ceases
+      // to exist downstream, silently. Guarded by scripts/checkRoadFieldPipeline.mjs.
+      lanes: way.lanes,
+      carriagewayW: way.carriagewayW,
+      parkingLeftW: way.parkingLeftW,
+      parkingRightW: way.parkingRightW,
+      shoulderW: way.shoulderW,
+      kerbToKerbW: way.kerbToKerbW,
+      sidewalkW: way.sidewalkW,
+      corridorW: way.corridorW,
       bridge: way.bridge,
       tunnel: way.tunnel,
       layer: way.layer,
