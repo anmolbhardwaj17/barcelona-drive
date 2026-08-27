@@ -30,6 +30,7 @@ them is a decision, not a default:
 
 | what | where | state |
 |---|---|---|
+| **Falling THROUGH roads** — `drivable-surface-implies-floor` is commit-blocking but scoped to tunnels only; nothing checks a surface/elevated road has ground under it | **`barcelona-road-system.md` §4, R-P1** | filed 2026-08-27. Likely the SAME defect as the measured 4.9% of floating road points, seen from the physics side — terrain physics is a Heightfield off the same grid |
 | Road realism programme — width/scale, junction merges, edge protection by rule, barrier type | **`barcelona-road-system.md` §4, tickets R-W1/R-J1/R-B1/R-B2** | filed 2026-08-27 on user request, none started. R-B1 (railings inferred from bridge/ramp/height rather than only where OSM tags them) is the most visible and least dependent |
 | Surface roads buried in terrain | `terrain-tunnel-rework-plan.md` | measured: 8.8% of points, but p50 is −0.079 m — a TAIL, not systematic. Needs the by-road-class table from one more `?debug=roadfit` run |
 | Buildings sliced by the trench carve | **now P4-02b** | scheduled — rides the single v10 re-bake window (P4-03) rather than triggering its own |

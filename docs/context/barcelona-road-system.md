@@ -581,6 +581,39 @@ and none of these do.
 > looked almost right and behaved inconsistently as the viewer moved. Inference rules fail the same
 > way, and only determinism plus a test makes them safe.
 
+### R-P1 · FALL-THROUGH — generalise drivable-surface-implies-floor beyond tunnels · NEW 2026-08-27
+
+**Symptom (user):** "there are roads in some places from where I fall."
+
+**The invariant already exists and is commit-blocking — but only for tunnels.**
+`backend/worldBuilder/terrain/validateTunnelFloors.js` asserts that every drivable **tunnel** road
+(`layer < 0` whitelist), sampled at 2 m, has carved grid within tolerance of `roadY − 0.15`. It
+throws and fails the bake. Nothing applies the same test to a **surface or elevated** road.
+
+**And it is probably the same defect as the floating roads, seen from the physics side.** P-R1b
+measured **4.9% of drivable road points sitting above the shipped terrain**, worst 24 m. Terrain
+physics is a Heightfield built from that same grid, so wherever the visual road floats, the collider
+under it is at terrain level — the car drives on ground that is metres below what it can see, or
+drops the moment the visual deck ends. One cause, two symptoms:
+
+| symptom | seen in | measured |
+|---|---|---|
+| road looks floating | render | 4.9% of drivable points, worst 24 m |
+| car falls through | physics | user-reported, unmeasured |
+
+**Scope:** extend the validator from `layer < 0` to **every drivable road**, and make its tolerance
+the thing the wheels actually rest on — the Heightfield sample, not the DEM. Then the bake cannot
+ship a drivable surface with nothing under it, in either direction. It is the same reasoning as
+R-B1's "a drivable surface above the ground implies an EDGE", one step further: *a drivable surface
+implies a FLOOR, wherever it is.*
+
+**Depends:** the P-R1b floating-road cause. Fixing the heights may close most of this on its own, so
+**measure before writing repair logic** — the count of drivable points with no collider within
+tolerance is the number that says whether this is a handful of spots or systemic.
+
+⚠ Do NOT widen the tunnel validator's whitelist casually: it is commit-blocking, so a
+false positive fails the whole bake. Land it as `TRENCH_VALIDATOR=report` first and read the count.
+
 ### R-V1 · Parked cars, road width, and who owns the kerb line — NEW TICKET 2026-08-27
 
 **Symptom the user reported:** cars parked ON the guard rails, and the road "seeming short".
