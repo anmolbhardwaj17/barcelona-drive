@@ -1210,6 +1210,22 @@ async function main() {
   const allRenderedWayIds = new Set();
   const waysPerTileCount = new Map();
   const parsedWayIds = new Set(simplified.map((r) => r.id));
+  // R-J1: wayId → paved width, built ONCE over every road in the region.
+  //
+  // Junction enrichment below used to build this from the tile's own `subset`, which is the spatial
+  // query for THIS tile. A junction is kept if it lands within 30 m of the tile (buildMergeGeometry's
+  // MARGIN), so its arms routinely belong to ways whose bbox never intersects this tile — and each of
+  // those hit a `?? 6` fallback. Measured on the shipped v10 tiles: 5,454 of 35,386 approaches (15.4%)
+  // were a fabricated 6 m, corrupting `radius` at 2,278 junctions (20.5%) and with it every consumer
+  // of the baked junction record — the chamfer fill, its sidewalk, and its kerb.
+  // A width is a property of the WAY, not of the tile that happens to look at it. Resolve it globally.
+  const wayWidthById = new Map();
+  for (const r of simplified) { if (r.id != null && r.width != null) wayWidthById.set(r.id, r.width); }
+  // Proof-of-work counter (D-23): a fallback that fires 0 times and a lookup that is never reached
+  // look identical from the outside. Report it.
+  const junctionWidthStats = { approaches: 0, fallbacks: 0 };
+  // R-J5 proof-of-work: how much road geometry the render clip removes (D-23).
+  const _renderClipStats = { full: 0, clipped: 0 };
   for (const tileId of sortedTileIds) {
     const [zStr, xStr, yStr] = tileId.split('_');
     const z = parseInt(zStr, 10);
@@ -1226,9 +1242,6 @@ async function main() {
     if (!skipTopologyMutation) normalizeRoadTopology(subset, cfg);
     if (!cleanRoadPipeline) subset = resampleRoads(subset, resampleSpacing).filter((r) => r.points.length >= 2);
     const tileJunctions = buildMergeGeometry(junctions, subset, bounds);
-    // Build wayId→width lookup for junction enrichment (Phase 4B-1)
-    const _wayWidth = new Map();
-    for (const r of subset) { if (r.id != null) _wayWidth.set(r.id, r.width ?? 6); }
     let tileRoads = noClipTileStrategy ? roadsForTileNoClip(subset, tileId) : clipRoadsForTile(subset, bounds, tileId);
     if (!skipTopologyMutation) tileRoads = tileRoads.filter((r) => polylineLength(r.points) >= 1);
     if (tileRoads.some((r) => r.id === TRACE_WAY_ID)) {
@@ -1599,7 +1612,14 @@ async function main() {
         // Phase 4B-1: enrich with radius (full max road width) and sorted approaches.
         // radius matches frontend getJunctionPoints() which uses maxWidth (full width, not half).
         const approaches = (j.roads || [])
-          .map(r => ({ angle: r.angle, width: _wayWidth.get(r.wayId) ?? 6 }))
+          .map(r => {
+            // R-J1: region-wide lookup. The old per-tile map missed every arm that belonged to a
+            // way outside this tile's spatial query and silently substituted 6 m.
+            const w = wayWidthById.get(r.wayId);
+            junctionWidthStats.approaches++;
+            if (w == null) junctionWidthStats.fallbacks++;
+            return { angle: r.angle, width: w ?? 6 };
+          })
           .filter(r => Number.isFinite(r.angle))
           .sort((a, b) => a.angle - b.angle);
         const radius = approaches.length > 0 ? Math.max(...approaches.map(r => r.width)) : 0;
@@ -1705,6 +1725,46 @@ async function main() {
     }
 
     // ── Pre-bake road surface geometry ──────────────────────────────────
+    // ── R-J5: the RENDER road set — this tile's roads clipped to this tile ────────────────────
+    //
+    // `noClipTileStrategy` writes each way IN FULL to every tile its bbox touches ("Guarantees
+    // continuous roads"). Right for the DATA — topology, physics, the road graph — and ruinous for
+    // the PICTURE: measured on the shipped tiles, **37.8% of all drawn road centreline was a
+    // coplanar duplicate**. And the copies DIFFER, which is what made them visible: `createAoSampler`
+    // clamps outside its own grid, so the 24.6% of road vertices lying beyond their tile took the
+    // AO of the tile EDGE while the neighbour computed the true value. Two surfaces, two AO values,
+    // fighting per-pixel — the "roads darker in places" and "z-index issues" reported from the air,
+    // and why the pavement read as doubled and too wide.
+    //
+    // ⚠ DERIVED FROM `payload.roads`, NOT from `subset`. The payload records are the processed ones:
+    // ramp/floor-gap roads filtered out, phase-2 tags joined, and — the one that actually bit —
+    // `points` reduced to 3 components with the DEM height moved into a parallel `elevation` array.
+    // Clipping `subset` instead produced 4-component points and no `elevation`, and the bakers
+    // silently emitted nothing for the tiles that depended on it. Zip the height back in, clip,
+    // then split it out again so the shape the bakers receive is identical to `payload.roads`.
+    if (noClipTileStrategy) {
+      const zipped = payload.roads.map((r) => ({
+        ...r,
+        points: r.points.map((p, i) => [p[0], p[1], p[2], r.elevation?.[i] ?? p[1]]),
+      }));
+      const clipped = clipRoadsForTile(zipped, bounds, tileId)
+        .filter((r) => polylineLength(r.points) >= 1);
+      // `clipRoadsForTile` is a field WHITELIST (D-42) and drops everything it does not name, so
+      // re-attach the payload fields it does not carry, keyed by way id.
+      const byId = new Map(payload.roads.map((r) => [r.id, r]));
+      payload.renderRoads = clipped.map((r) => {
+        const src = byId.get(r.id) || {};
+        return {
+          ...src,
+          ...r,
+          points: r.points.map((p) => [p[0], p[1], p[2]]),
+          elevation: r.points.map((p) => (p.length >= 4 ? p[3] : p[1])),
+        };
+      });
+      _renderClipStats.full += payload.roads.length;
+      _renderClipStats.clipped += payload.renderRoads.length;
+    }
+
     const bakedRoads = bakeRoadSurfaces(payload);
     if (bakedRoads && bakedRoads.layers.length > 0) {
       payload.bakedRoads = bakedRoads;
@@ -1738,6 +1798,21 @@ async function main() {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log('  Wrote', written, 'tiles in', elapsed, 's to', outDir);
   console.log(`  [BrokenRamp] skipped ${droppedRampIds.size} broken/incomplete-ramp roads (grade > ${_BROKEN_RAMP_GRADE}) — not baked.`);
+  {
+    // R-J1 proof-of-work: junction approach widths resolved against the region-wide way table.
+    // Was 15.4% fabricated at 6 m when this lookup was per-tile. A non-zero residual here is a way
+    // the junction graph knows about but the road pipeline dropped — worth a look, not a failure.
+    const { approaches, fallbacks } = junctionWidthStats;
+    const pct = approaches ? ((100 * fallbacks) / approaches).toFixed(2) : '0.00';
+    console.log(`  [Junctions] approach widths: ${approaches - fallbacks}/${approaches} resolved from the way table, ${fallbacks} fell back to 6 m (${pct}%).`);
+  }
+  {
+    // R-J5: the render set against the (deliberately duplicated) data set. A ratio of 1.00 means
+    // the clip is not firing and every tile is drawing its neighbours' roads again.
+    const { full, clipped } = _renderClipStats;
+    const pct = full ? ((100 * clipped) / full).toFixed(1) : '0.0';
+    console.log(`  [RenderClip] road records: ${clipped} rendered / ${full} carried for physics+topology (${pct}%) — the rest were other tiles' roads.`);
+  }
 
   // ── Slice ③: commit-blocking floor validator (drivable-surface-implies-floor) ──
   // Throws (non-zero exit) if any drivable tunnel road has a sample with no floor within

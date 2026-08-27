@@ -125,6 +125,21 @@ function clipRoadToTile(points, bounds) {
     const p1 = points[i + 1];
     const clipped = clipOneSegment(p0, p1, bounds);
     if (!clipped) {
+      // R-J5 FIX: FLUSH the accumulated run before dropping it.
+      //
+      // This used to be a bare `run = null`, which threw away every point gathered so far. A run is
+      // only ever pushed when a NEW run starts (the else branch below) or when the polyline ENDS —
+      // so any run terminated by the road LEAVING the tile was silently discarded, and that is the
+      // common case: a road enters the tile, crosses it, and exits.
+      //
+      // Measured: a 103-point path with 42 consecutive segments fully inside tile 16_33153_24471
+      // clipped to ZERO runs. A 2-point road from the same polyline clipped correctly, which is
+      // what made this invisible — the bug needs a polyline that both enters and leaves.
+      //
+      // This very likely explains `noClipTileStrategy: true`: with the clipper eating roads, not
+      // clipping at all was the only thing that produced a complete city. The strategy can stay
+      // (the DATA does want continuity) — but the RENDER clip R-J5 added depends on this working.
+      if (run && run.length >= 2) segments.push(run);
       run = null;
       continue;
     }

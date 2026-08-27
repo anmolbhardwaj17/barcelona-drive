@@ -59,6 +59,31 @@ const BCN_DIMS = {
 
 const JUNCTION_TOLERANCE = 2;      // roadRenderer.js:631
 const INTERSECTION_RADIUS = 3;     // roadRenderer.js:633
+const JUNCTION_TEE_MARGIN = 1.5;   // roadRenderer.js — kerb-radius allowance beyond the half width
+
+/**
+ * R-J3 · MIRROR of roadRenderer.js `junctionApronDepth` + `offsetClipRadius`. Read the long comment
+ * there; this file is the bake-side twin and `test/sidewalkClip.test.js` fails if they drift.
+ *
+ * Depth ALONG the road to the kerb of the road being crossed (half a paved width + kerb radius),
+ * then the radius of the clip CIRCLE that cuts a polyline offset `offset` sideways at that depth.
+ * This baker used the full width AND summed the offset — the two errors that stripped the pavement
+ * off 15.6% of the roads that should have one. Note this file never received R-J2's tee handling
+ * either, so its junction points carry no `tees`; the half-width rule is correct for both cases.
+ */
+function junctionApronDepth(j, fallback) {
+  if (!j) return fallback;
+  const w = j.tees ? (j.teeWidth ?? j.radius) : j.radius;
+  return (w != null ? w : fallback) / 2 + JUNCTION_TEE_MARGIN;
+}
+
+function offsetClipRadius(depth, offset) {
+  return Math.hypot(depth, offset);
+}
+
+/** Exposed ONLY so `frontend/test/sidewalkClip.test.js` can prove this file and roadRenderer.js
+ *  still agree. Not part of the baker's API — do not call from bake code. */
+export const __test__ = { junctionApronDepth, offsetClipRadius, buildCarriagewayGrid, clipRunOutsideCarriageways };
 const ROAD_ZFIGHT_OFFSET = 0.02;   // roadRenderer.js:25 / roadBaker.js:14
 const ROAD_UV_REPEAT_M = 4;        // roadBaker.js:16 (ribbon default UVs; overwritten for sidewalk)
 const SIDEWALK_CLAMP_EPSILON = 0.01; // roadRenderer.js:855
@@ -225,6 +250,158 @@ function clipPolylineNearJunctions(points, junctionPoints, radiusOrGetter) {
     if (!added) runs.push([seg[0], seg[1]]);
   }
   return runs.filter((r) => r.length >= 2);
+}
+
+/**
+ * R-J4 · Remove the stretches of pavement that lie ON a drivable carriageway.
+ *
+ * WHY THIS EXISTS. Every road with a sidewalk emits a ribbon at `half + curb + swW/2` to each side,
+ * and nothing checked whether that lands on a DIFFERENT road. On a boulevard with lateral service
+ * roads — Gran Via is the canonical case — the lateral's pavement lands squarely on the main
+ * carriageway. It then draws ON TOP of it, because `GROUND_LAYERS.sidewalk` (-6) deliberately beats
+ * `road` (-4), so the asphalt loses the depth test to a pavement that should not be there at all.
+ * Measured on the shipped tiles: **~4% of baked sidewalk vertices sat more than 0.5 m inside a
+ * drivable carriageway**, 2.4% more than a metre, worst case 5.55 m.
+ *
+ * WHY NOT THE EXISTING CLAMP. `clampSidewalkVerticesOutsideRoads` below pushes offending VERTICES
+ * sideways to the kerb line. That is the wrong tool twice over: it only moves vertices, so a
+ * triangle EDGE still crosses the carriageway; and where a pavement genuinely runs down the middle
+ * of an avenue, shoving its vertices to the edge produces a squashed, distorted ribbon rather than
+ * removing something that does not exist in the real street. The clamp is kept as the final
+ * centimetre-level tidy — this pass removes the geometry that should never have been generated.
+ *
+ * This is the same rule `roads/pathCoverageClipper.js` already applies to footpaths at Phase 1
+ * (bake-surface-clipping.md), one level out: a PAVEMENT may not overlap a carriageway either.
+ * Runs are split exactly like `clipPolylineNearJunctions` so the caller is unaffected.
+ */
+const CARRIAGEWAY_CLIP_MARGIN = 0.25;  // m — skirt so a pavement may still touch its own kerb line
+const CARRIAGEWAY_SAMPLE_M = 1.0;      // m — walk step along the pavement
+const CARRIAGEWAY_MIN_RUN_M = 2.0;     // m — drop slivers shorter than this
+const CARRIAGEWAY_CELL_M = 24;         // m — must exceed the widest half-width + margin
+
+/** Uniform grid of drivable carriageway segments, in the WORLD frame the baker works in. */
+function buildCarriagewayGrid(roads) {
+  const grid = new Map();
+  const key = (cx, cz) => cx * 100003 + cz;
+  for (const r of roads) {
+    if (!CARRIAGEWAY_TYPES.has(r.highwayType)) continue;
+    if (r.tunnel || (r.layer || 0) !== 0) continue;
+    const pts = r.points;
+    if (!pts || pts.length < 2) continue;
+    const half = getRoadWidth(r) / 2 - CARRIAGEWAY_CLIP_MARGIN;
+    if (half <= 0) continue;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const seg = [pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, half, r.id];
+      const minCx = Math.floor((Math.min(seg[0], seg[2]) - half) / CARRIAGEWAY_CELL_M);
+      const maxCx = Math.floor((Math.max(seg[0], seg[2]) + half) / CARRIAGEWAY_CELL_M);
+      const minCz = Math.floor((Math.min(seg[1], seg[3]) - half) / CARRIAGEWAY_CELL_M);
+      const maxCz = Math.floor((Math.max(seg[1], seg[3]) + half) / CARRIAGEWAY_CELL_M);
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        for (let cz = minCz; cz <= maxCz; cz++) {
+          const k = key(cx, cz);
+          let a = grid.get(k);
+          if (!a) grid.set(k, a = []);
+          a.push(seg);
+        }
+      }
+    }
+  }
+  /**
+   * `extra` inflates the carriageway by half the ribbon's own width, because this tests the
+   * ribbon's CENTRELINE while the surface reaches `extra` either side of it — clipping the
+   * centreline alone still left the inner edge lying on the asphalt (measured: 1.61% of vertices,
+   * worst 1.19 m, after the centreline-only version).
+   *
+   * `selfId` excludes the pavement's OWN road, and that exclusion is what makes inflating safe: a
+   * pavement is SUPPOSED to abut its own kerb, so inflating without it would delete every legitimate
+   * pavement in the city. Against any OTHER carriageway there is no legitimate overlap at all.
+   */
+  const covered = (x, z, extra = 0, selfId = null) => {
+    const a = grid.get(key(Math.floor(x / CARRIAGEWAY_CELL_M), Math.floor(z / CARRIAGEWAY_CELL_M)));
+    if (!a) return false;
+    for (let i = 0; i < a.length; i++) {
+      const s = a[i];
+      if (selfId != null && s[5] === selfId) continue;
+      const dx = s[2] - s[0], dz = s[3] - s[1];
+      const L = dx * dx + dz * dz;
+      let t = L > 0 ? ((x - s[0]) * dx + (z - s[1]) * dz) / L : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const qx = s[0] + t * dx, qz = s[1] + t * dz;
+      const ddx = x - qx, ddz = z - qz;
+      const R = s[4] + extra;
+      if (ddx * ddx + ddz * ddz < R * R) return true;
+    }
+    return false;
+  };
+  // Returns the tester ITSELF, matching roadRenderer.js exactly — the shapes diverged once
+  // (object vs function) and the anti-drift test caught it before the bake did.
+  return covered;
+}
+
+const CARRIAGEWAY_TYPES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+  'living_street', 'service',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+]);
+
+/**
+ * Split one polyline into the runs that are NOT on a carriageway.
+ *
+ * Keeps the ORIGINAL vertices and inserts only the coverage BOUNDARIES. The obvious
+ * implementation — resample at a fixed step and keep the uncovered samples — is wrong for a
+ * reason worth recording: it densifies the ribbon. Measured on tile 16_33161_24477, a 1 m
+ * resample took the baked pavement from 1,968 to 20,670 position floats, a 10x geometry cost
+ * for a clip that should only ever REMOVE. Sampling is used to FIND the transitions; the run is
+ * rebuilt from the source points.
+ */
+function clipRunOutsideCarriageways(points, covered, extra = 0, selfId = null) {
+  if (!points || points.length < 2) return [];
+
+  const runs = [];
+  const cov = (x, z) => covered(x, z, extra, selfId);
+  let cur = cov(points[0].x, points[0].y) ? null : [points[0]];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    const steps = Math.max(1, Math.ceil(L / CARRIAGEWAY_SAMPLE_M));
+    let prevT = 0;
+    let prevCov = cov(a.x, a.y);
+
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      const px = a.x + (b.x - a.x) * t, pz = a.y + (b.y - a.y) * t;
+      const covHere = cov(px, pz);
+      if (covHere !== prevCov) {
+        // Bisect to the transition so the cut lands on the kerb, not up to a metre off it.
+        let lo = prevT, hi = t;
+        for (let it = 0; it < 8; it++) {
+          const mid = (lo + hi) / 2;
+          const mx = a.x + (b.x - a.x) * mid, mz = a.y + (b.y - a.y) * mid;
+          if (cov(mx, mz) === prevCov) lo = mid; else hi = mid;
+        }
+        const tm = (lo + hi) / 2;
+        const cut = { x: a.x + (b.x - a.x) * tm, y: a.y + (b.y - a.y) * tm };
+        if (prevCov) {
+          cur = [cut];                       // leaving a carriageway — a run starts
+        } else {
+          if (cur) { cur.push(cut); runs.push(cur); }   // entering one — the run ends
+          cur = null;
+        }
+        prevCov = covHere;
+      }
+      prevT = t;
+    }
+    if (!prevCov) (cur ||= []).push(b);
+  }
+  if (cur && cur.length >= 2) runs.push(cur);
+
+  return runs.filter((r) => {
+    if (r.length < 2) return false;
+    let L = 0;
+    for (let i = 1; i < r.length; i++) L += Math.hypot(r[i].x - r[i - 1].x, r[i].y - r[i - 1].y);
+    return L >= CARRIAGEWAY_MIN_RUN_M;
+  });
 }
 
 /**
@@ -713,7 +890,17 @@ function buildCurbFaceGeometry(outerRun, bottomY, curbH) {
  * @returns {null | { sidewalk: {positions,normals,uvs,indices}, curbTop: {positions,normals,indices}, curbFace: {positions,normals,indices} }}
  */
 export function bakeSidewalks(payload) {
-  const rawRoads = payload?.roads || [];
+  // R-J5: RENDER geometry is built from `renderRoads` — the tile's roads CLIPPED to its own
+  // bounds — while `payload.roads` stays whole for physics, topology and the road graph.
+  //
+  // `noClipTileStrategy` writes each way IN FULL to every tile its bbox touches ("Guarantees
+  // continuous roads"), which is right for the DATA and wrong for the PICTURE: 37.8% of all road
+  // centreline was drawn twice, coplanar. The copies are not identical — `createAoSampler` clamps
+  // outside its own grid, so the 24.6% of vertices that fall outside their tile get the AO of the
+  // tile EDGE while the neighbour computes the true value. Two surfaces, two AO values, fighting
+  // for the depth test: the "roads darker in places" and "z-index issues" reported from the air.
+  // Rendering needs COVERAGE, not duplication; the data keeps its continuity either way.
+  const rawRoads = payload?.renderRoads || payload?.roads || [];
   if (rawRoads.length === 0) return null;
 
   // Step 1: Convert road points from [mercX, yUp, mercY] (+ road.elevation raw-DEM
@@ -736,6 +923,8 @@ export function bakeSidewalks(payload) {
   const roads = applyRampDivergence(convertedRoads);
 
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE);
+  // R-J4: one carriageway-coverage grid for the whole tile, shared by the pavement and the kerb.
+  const carriagewayCovered = buildCarriagewayGrid(roads);
   const bldgCentroids = buildBuildingCentroids(payload?.buildings);
 
   const CURB_H = BCN_DIMS.CURB_HEIGHT;  // 0.12m
@@ -789,15 +978,18 @@ export function bakeSidewalks(payload) {
     // Offset from centerline: road edge + curb + half sidewalk width
     const offsetFromCenter = half + BCN_DIMS.CURB_WIDTH + swWidth / 2;
 
-    // Junction clip radius must exceed offsetFromCenter so the clip actually
-    // reaches the offset polyline and trims the sidewalk before the intersection.
-    const swJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS) + offsetFromCenter;
+    // R-J3: stop the pavement at the kerb of the road being crossed, then convert that
+    // along-road depth into a clip-circle radius for a polyline offset this far sideways.
+    const swJunctionRadius = (j) => offsetClipRadius(junctionApronDepth(j, INTERSECTION_RADIUS), offsetFromCenter);
 
     for (const sign of sides) {
       const offsetPts = getOffsetPolyline(pts, sign * offsetFromCenter);
-      const runs = junctionPoints.length > 0
+      const junctionRuns = junctionPoints.length > 0
         ? clipPolylineNearJunctions(offsetPts, junctionPoints, swJunctionRadius)
         : [offsetPts];
+      // R-J4: and drop whatever is left lying ON a carriageway (a lateral's pavement over the
+      // main avenue). The pavement draws OVER asphalt by design, so this cannot be left to depth.
+      const runs = junctionRuns.flatMap((r) => clipRunOutsideCarriageways(r, carriagewayCovered, swWidth / 2, road.id));
 
       for (const run of runs) {
         const runY = interpolateHeightsFromSource(pts, baseY, run);
@@ -817,7 +1009,7 @@ export function bakeSidewalks(payload) {
 
     // ── Curbs (roadRenderer.js buildCurbs:1659) ──────────────────────────────
     const curbOffset = half + CURB_W;
-    const curbJunctionRadius = (j) => (j.radius != null ? j.radius : INTERSECTION_RADIUS) + curbOffset;
+    const curbJunctionRadius = (j) => offsetClipRadius(junctionApronDepth(j, INTERSECTION_RADIUS), curbOffset);   // R-J3
 
     for (const sign of sides) {
       // Curb outer edge sits at road edge (half from centerline);
@@ -830,18 +1022,18 @@ export function bakeSidewalks(payload) {
       // run, which avoids the runtime's duplicate re-emission when the outer
       // clip yields multiple runs; the rendered result is identical).
       const outerPts = getOffsetPolyline(pts, sign * outerOffset);
-      const outerRuns = junctionPoints.length > 0
+      const outerRuns = (junctionPoints.length > 0
         ? clipPolylineNearJunctions(outerPts, junctionPoints, curbJunctionRadius)
-        : [outerPts];
+        : [outerPts]).flatMap((r) => clipRunOutsideCarriageways(r, carriagewayCovered, CURB_W / 2, road.id));   // R-J4
       if (!outerRuns.some((r) => r.length >= 2)) continue;
 
       // Quad A: TOP FACE — flat horizontal ribbon at curb top height,
       // centered between outer and inner edges (width = CURB_W).
       const midOffset = sign * (outerOffset + CURB_W / 2);
       const midPtsSimple = getOffsetPolyline(pts, midOffset);
-      const midRunsSimple = junctionPoints.length > 0
+      const midRunsSimple = (junctionPoints.length > 0
         ? clipPolylineNearJunctions(midPtsSimple, junctionPoints, curbJunctionRadius)
-        : [midPtsSimple];
+        : [midPtsSimple]).flatMap((r) => clipRunOutsideCarriageways(r, carriagewayCovered, CURB_W / 2, road.id));   // R-J4
 
       for (const midRun of midRunsSimple) {
         const roadH = interpolateHeightsFromSource(pts, heights, midRun);

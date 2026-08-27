@@ -62,7 +62,7 @@ function getRoadWidth(road) {
 
 // ─── Junction width map ─────────────────────────────────────────────────────
 
-function buildJunctionWidthMap(roads, tol) {
+export function buildJunctionWidthMap(roads, tol) {
   const byHash = new Map();
   for (const road of roads) {
     const pts = road.points;
@@ -84,7 +84,7 @@ function buildJunctionWidthMap(roads, tol) {
 
 // ─── Width tapering ─────────────────────────────────────────────────────────
 
-function computeTaperedWidths(road, junctionWidthMap, tol) {
+export function computeTaperedWidths(road, junctionWidthMap, tol) {
   const pts = road.points;
   if (!pts || pts.length < 2) return null;
   const ownW = getRoadWidth(road);   // R-W1
@@ -533,7 +533,17 @@ function computeVertexNormals(positions, indices) {
  * @returns {{ layers: Array<{ layer: number, positions: Float32Array, normals: Float32Array, uvs: Float32Array, halfWidths: Float32Array, indices: Uint32Array }> }}
  */
 export function bakeRoadSurfaces(payload) {
-  const rawRoads = payload?.roads || [];
+  // R-J5: RENDER geometry is built from `renderRoads` — the tile's roads CLIPPED to its own
+  // bounds — while `payload.roads` stays whole for physics, topology and the road graph.
+  //
+  // `noClipTileStrategy` writes each way IN FULL to every tile its bbox touches ("Guarantees
+  // continuous roads"), which is right for the DATA and wrong for the PICTURE: 37.8% of all road
+  // centreline was drawn twice, coplanar. The copies are not identical — `createAoSampler` clamps
+  // outside its own grid, so the 24.6% of vertices that fall outside their tile get the AO of the
+  // tile EDGE while the neighbour computes the true value. Two surfaces, two AO values, fighting
+  // for the depth test: the "roads darker in places" and "z-index issues" reported from the air.
+  // Rendering needs COVERAGE, not duplication; the data keeps its continuity either way.
+  const rawRoads = payload?.renderRoads || payload?.roads || [];
   if (rawRoads.length === 0) return { layers: [] };
 
   // Step 1: Convert road points from [mercX, yUp, mercY] to {x, y, elevation} in WORLD coords.
