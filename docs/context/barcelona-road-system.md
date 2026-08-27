@@ -480,6 +480,44 @@ legible at driving speed.
 **Depends:** R-B1 places them; this decides what they are. Art-bible palette applies — the recorded
 mistake to avoid is eyeballed hex, which failed gate 4 on six of eight shop-sign colours.
 
+### R-0 · THE DECISION THAT GOVERNS ALL FOUR — synthesise, deterministically, before the tile split
+
+**This data does not exist in OSM and never will.** OSM will not tell us that a particular ramp needs
+a guardrail, that this carriageway is 7.0 m kerb-to-kerb, or that a central reservation wants concrete
+rather than steel. A handful of ways are tagged; the rest never will be, because mapping that is not
+what OSM is for. So the game must **understand the road and decide for itself** — the tags are an
+override, not the source.
+
+Two properties are non-negotiable, and they are what make this hard rather than tedious:
+
+**1. It must be CONSISTENT.** The same road must get the same treatment on every bake and every load,
+and two roads that look alike to a driver must be treated alike. That rules out anything random or
+order-dependent: every rule seeds from stable inputs (way id, position, class, geometry) so it is
+reproducible. A guardrail that exists on Tuesday and not on Wednesday is worse than no guardrail,
+because it cannot be reasoned about or tested.
+
+**2. It must be decided BEFORE the tile split, on the whole way.** ⚠ This is the trap. `tileSplit.js`
+cuts each way into per-tile segments, and a long viaduct crosses several tiles. Decide "does this need
+a railing" per tile and the two halves can disagree — the railing stops dead at a tile seam, or
+changes from steel to concrete mid-span. The way is the unit of meaning; the tile is only a delivery
+container. **Anything inferred about a road must be attached to the WAY, before it is cut up.**
+
+The same reasoning applies to width (a carriageway that changes width at a seam is a visible step) and
+to junctions (a merge whose two arms land in different tiles).
+
+**Bake or runtime?** Bake, for these four. It is deterministic by construction, it is where the whole
+way still exists, and it can be inspected offline — the defect census proved how much that is worth.
+The costs are honest: it adds tile payload and every rule change needs a re-bake. Runtime inference is
+the right home only for things that depend on state the bake cannot know (time of day, the player),
+and none of these do.
+
+> **Precedent, from this repo, on 2026-08-27.** Three vegetation bugs shipped that were all this exact
+> class of failure: zone trees ordered per-polygon while the renderer assumed nearest-first; an
+> impostor ramp that disagreed with the 3D fade it was supposed to complement; and an LOD invalidation
+> that ran before the data it governed existed. None threw an error. Each produced something that
+> looked almost right and behaved inconsistently as the viewer moved. Inference rules fail the same
+> way, and only determinism plus a test makes them safe.
+
 > **Sequencing:** R-W1 → R-J1 (geometry must be consistent before merges are worth fixing), and
 > R-B1 → R-B2 (place before styling). R-B1 is the one the user notices most — missing railings on
 > elevated roads — and is the least dependent on the others, so it is the sensible entry point.
