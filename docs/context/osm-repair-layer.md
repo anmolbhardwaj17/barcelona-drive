@@ -223,3 +223,52 @@ added up. They are the free half of the census and they change the priority orde
 Split it. **P-R1a (hours, not days):** persist what the bake already knows — dropped ramp ids, floor-gap
 ids, the unaccounted-way delta — to `data/regions/barcelona/defect-census.json`. **P-R1b:** write
 detectors only for the classes nothing counts today (H1, H2, H3, V5, M1–M3).
+
+---
+
+## 7. P-R1b RESULT — V5 measured, and the detector that was measuring the wrong surface (2026-08-27)
+
+**Attempt 1 — bake-time, against the DEM. Result: 0 conflicts. The detector was wrong.**
+It sampled `demSampler`, i.e. the RAW DEM — the very surface roads are fitted to — so of course they
+agreed. Its raw output of 564 also refuted itself: every worst deviation was an exact multiple of
+`LAYER_STEP` (−6/−12/−18/−24), which a genuinely misplaced road never produces. All 564 were **ramps
+descending into tunnels by design**; the scan excluded bridge/tunnel/`layer!=0` but not `isRamp`.
+
+**Attempt 2 — against the terrain that actually SHIPS.** `backend/tools/roadVsTerrain.mjs`, read-only,
+no bake: it compares each road vertex to the tile's own **smoothed** elevation grid.
+
+**The bake smooths terrain AFTER fitting roads, and never re-fits them:**
+`Selective terrain smoothing: removed-relief RMS=3.31 m max=5.5 m cells>0.5 m=65.2%`.
+So a road agrees with a surface that no longer exists and disagrees with the one under the wheels.
+
+| | value |
+|---|---|
+| road points sampled | 200,030 |
+| beyond 0.5 m | **7,862 (3.9%)** |
+| floating / buried | **7,862 / 0** |
+| p50 deviation | **0.000 m** |
+| p99 / max | 6.367 m / 25.11 m |
+| **drivable roads only** | 51,439 pts, **2,505 bad (4.9%)**, worst 24.31 m, median-bad 4.72 m |
+
+### What this settles
+
+- **It is purely a FLOATING defect. Nothing is buried** (min −0.17 m, inside tolerance). The
+  long-standing "roads buried in terrain" framing in `terrain-tunnel-rework-plan.md` does not survive
+  this measurement — it came from a runtime probe measuring the drawn mesh, not the shipped grid.
+- **The median road point is perfect (0.000 m).** This is a TAIL, not a systematic offset, which
+  matches the user's "in *some* places the road seems floating".
+- **p99 sits at 6.37 m ≈ one `LAYER_STEP`.** Ways carrying a layer-step height while tagged
+  `layer: 0`, `bridge: false` — untagged elevated structures, mostly footbridges.
+- Pedestrian ways dominate the raw count (footway 3,689 + pedestrian 998 = 60%), so the headline
+  3.9% overstates what a driver meets. **Drivable-only is 4.9% of points**, worst 24.31 m.
+
+### The fix is a choice between two, and it is not obvious
+
+1. **Re-fit roads to the smoothed grid** after smoothing. Correct by construction, but roads are
+   already baked by then — an ordering change in the pipeline.
+2. **Do not smooth under road corridors.** The smoothing is already "selective"; excluding a corridor
+   around each carriageway keeps roads on the surface they were fitted to. Risks a visible ridge
+   where a smoothed and unsmoothed region meet.
+
+Both need a re-bake. **(2) is likely cheaper and matches the existing design**, but (1) is the one
+that cannot drift. Decide before writing either.
