@@ -2808,7 +2808,11 @@ function getGuardRailMaterial() {
   // rather than a solid object. Lambert costs no extra draw call (still one merged mesh per tile)
   // and picks up the sun and the P2-04 light grid, so a rail under a street lamp is brighter than
   // one between two. vertexColors is preserved — the wall carries its concrete tone per-vertex.
-  sharedGuardRailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true });
+  // FrontSide, unlocked by the derived winding in emitGuardRailRun. The wall is an open shell with
+  // no bottom or caps, so this was DoubleSide to paper over an inverted inner face — with the winding
+  // correct, back faces are pure fragment waste. Verified by test/guardRailWinding.test.js on the
+  // left rail, the right rail, a reversed run and a curve.
+  sharedGuardRailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.FrontSide, vertexColors: true });
   return sharedGuardRailMaterial;
 }
 
@@ -2817,7 +2821,9 @@ function getRailingMaterial() {
   if (sharedRailingMaterial) return sharedRailingMaterial;
   // Lambert for the same reason as the wall above. Galvanized steel is the one material in the road
   // kit whose whole read is a specular-ish sheen changing along its length; unlit it is a grey stick.
-  sharedRailingMaterial = new THREE.MeshLambertMaterial({ color: 0x707070, side: THREE.DoubleSide }); // galvanized grey steel (Barcelona motorway standard)
+  // Posts and beams are closed boxes, so FrontSide is unambiguously correct for them.
+  // vertexColors so all four R-B2 styles share ONE material and ONE merged mesh per tile.
+  sharedRailingMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.FrontSide, vertexColors: true });
   return sharedRailingMaterial;
 }
 
@@ -3483,7 +3489,71 @@ function guardRailKeepRuns(keep, n) {
  * Kept apart so the merge can order them [beams..., posts...] — see buildBridgeGuardRailGeometry,
  * where that ordering is what makes a distance LOD possible without a second draw call.
  */
-function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railingGeoms, beamGeoms) {
+// EXPORTED FOR TESTS ONLY. test/guardRailWinding.test.js drives this directly to verify face
+// winding, which is what gates FrontSide: the wall is an OPEN shell (inner face, outer face, top —
+// no bottom, no end caps), so a single back-facing quad becomes a hole rather than a shading bug.
+/**
+ * R-B2 · BARRIER STYLE BY CONTEXT.
+ *
+ * Barcelona uses four different things and the difference is legible at driving speed: a solid
+ * parapet on a bridge deck, a concrete New Jersey barrier on the rondas and their central
+ * reservations, a steel W-beam guardrail on ramps and elevated single carriageways, and a slim
+ * pedestrian railing on a city median. Rendering one object for all four is why a boulevard looked
+ * like a motorway.
+ *
+ * Selection is a pure function of fields the tile already carries — deterministic, so the same road
+ * gets the same barrier on every load (R-0). No new bake data.
+ *
+ * Colours are art-bible normalized and pre-graded, every one inside ΔE 15 of a palette anchor
+ * (worst 6.55). The shop signs are the cautionary tale: six of eight eyeballed colours failed.
+ *
+ * `wallH` 0 means no concrete at all — a pedestrian railing is posts and rails, nothing else.
+ * `posts` false means no post/beam pass, which is most of the triangle budget.
+ */
+/** Flat per-style colour as a vertex attribute — see the note where the beam uses it. */
+function styleColorAttr(vertexCount, rgb) {
+  const c = rgb || [0.44, 0.44, 0.44];
+  const arr = new Float32Array(vertexCount * 3);
+  for (let i = 0; i < vertexCount; i++) { arr[i*3] = c[0]; arr[i*3+1] = c[1]; arr[i*3+2] = c[2]; }
+  return new THREE.BufferAttribute(arr, 3);
+}
+
+const BARRIER_STYLES = {
+  // Bridge deck: solid, waist-high, no railing on top. What you see on a Barcelona viaduct edge.
+  parapet:    { wallH: 1.05, wallC: [0.722, 0.706, 0.678], posts: false, postC: null,
+                beamH: 0,    postSpacing: 0 },
+  // Ronda / fast dual carriageway + central reservations. New Jersey profile, no posts.
+  jersey:     { wallH: 0.81, wallC: [0.749, 0.733, 0.702], posts: false, postC: null,
+                beamH: 0,    postSpacing: 0 },
+  // Ramps and elevated single carriageways: low kerb-wall + galvanized W-beam on posts.
+  guardrail:  { wallH: 0.45, wallC: [0.561, 0.545, 0.522], posts: true,
+                postC: [0.431, 0.416, 0.400], beamH: 0.30, postSpacing: 4.0 },
+  // City street / median: NO concrete, slim dark-iron uprights. Barcelona street furniture is
+  // RAL 7016-ish, not galvanized — that is the tell that separates a street from a ronda.
+  // 1.05 m: a Barcelona street railing is chest-high — the sandbox first built it at 0.42 m, which
+  // is a trip hazard rather than a barrier, and only a measured profile caught that.
+  pedestrian: { wallH: 0,    wallC: null, posts: true,
+                postC: [0.231, 0.247, 0.259], beamH: 1.05, postSpacing: 2.2 },
+};
+
+/**
+ * Which barrier a road gets. Ordered most-specific first; every branch reads a field already in the
+ * tile, so nothing here needs a re-bake.
+ */
+function pickBarrierStyle(road) {
+  if (road.bridge) return 'parapet';
+  const t = road.highwayType || '';
+  if (t === 'motorway' || t === 'trunk' || t === 'motorway_link' || t === 'trunk_link') return 'jersey';
+  // A ramp or a genuinely elevated carriageway is guardrail country whatever its class.
+  if (road.isRamp || (road.layer != null && road.layer > 0)) return 'guardrail';
+  if (t.endsWith('_link') || t === 'primary' || t === 'secondary') return 'guardrail';
+  // Everything left is an urban street: residential, tertiary, service, living_street.
+  return 'pedestrian';
+}
+
+export function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railingGeoms, beamGeoms, styleName) {
+  // R-B2. Defaults to the old look so any caller that has not been updated is unchanged.
+  const style = BARRIER_STYLES[styleName] || BARRIER_STYLES.guardrail;
   const count = innerEdge.length;
   if (count < 2) return;
   // 6 vertices per cross-section (see original convention): inner wall, outer wall, top face.
@@ -3491,15 +3561,18 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
   const pos = new Float32Array(count * VPP * 3);
   const col = new Float32Array(count * VPP * 3);
   const idx = [];
-  const innR = 0.38, innG = 0.36, innB = 0.34;    // inner/left wall
-  const outR = 0.28, outG = 0.26, outB = 0.25;    // outer/right wall (darker)
-  const topR = 0.48, topG = 0.46, topB = 0.44;    // top face (lighter)
+  // Per-style concrete tone. The three faces are shaded apart so the barrier reads as a solid with
+  // a lit top rather than a flat ribbon — the same reason the toldos got a shade ramp.
+  const wc = style.wallC || [0.38, 0.36, 0.34];
+  const innR = wc[0] * 0.86, innG = wc[1] * 0.86, innB = wc[2] * 0.86;   // road-side face, shaded
+  const outR = wc[0] * 0.72, outG = wc[1] * 0.72, outB = wc[2] * 0.72;   // outer face, darkest
+  const topR = wc[0],        topG = wc[1],        topB = wc[2];          // top catches the sky
   for (let ii = 0; ii < count; ii++) {
     const inn = innerEdge[ii];
     const out = outerEdge[ii];
     const ptH = atVals[ii] ?? atMax;
     const hScale = ptH < MIN_BRIDGE_STRUCTURE_HEIGHT ? Math.max(0, ptH / MIN_BRIDGE_STRUCTURE_HEIGHT) : 1;
-    const h = GUARD_RAIL_HEIGHT * hScale;
+    const h = (style.wallH || 0) * hScale;
     const b = ii * VPP * 3;
     pos[b]    = inn.x; pos[b+1]  = inn.y;     pos[b+2]  = inn.z;
     col[b]    = innR;  col[b+1]  = innG;      col[b+2]  = innB;
@@ -3514,18 +3587,43 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
     pos[b+15] = out.x; pos[b+16] = out.y + h; pos[b+17] = out.z;
     col[b+15] = topR;  col[b+16] = topG;      col[b+17] = topB;
   }
+  // ⚠ WINDING IS DERIVED, NOT CONSTANT — this is what lets the material be FrontSide.
+  //
+  // The wall is an OPEN shell: inner face, outer face, top face, no bottom and no end caps. Under
+  // DoubleSide a back-facing quad is invisible as a bug; under FrontSide it is a HOLE you can see
+  // the road through, and from some angles only.
+  //
+  // A fixed index order CANNOT be right for both rails. `inner -> outer` points one way on the left
+  // kerb and the opposite way on the right, so whichever order faces outward on one side faces
+  // inward on the other. That is precisely why this was DoubleSide.
+  //
+  // So take the sign from the geometry: with tangent t and the inner->outer vector w, the Y term of
+  // t x w is `t.z*w.x - t.x*w.z`. Positive means the natural order already points the top face up
+  // and the walls outward; negative means every quad must be reversed. Measured per run, so it is
+  // right on both sides and on a run that doubles back.
+  const _t = { x: innerEdge[1].x - innerEdge[0].x, z: innerEdge[1].z - innerEdge[0].z };
+  const _w = { x: outerEdge[0].x - innerEdge[0].x, z: outerEdge[0].z - innerEdge[0].z };
+  const flip = (_t.z * _w.x - _t.x * _w.z) < 0;
+  const tri = (a, b, c2) => { if (flip) idx.push(a, c2, b); else idx.push(a, b, c2); };
   for (let ii = 0; ii < count - 1; ii++) {
     const c = ii * VPP, n2 = (ii + 1) * VPP;
-    idx.push(c+0, n2+0, n2+1, c+0, n2+1, c+1);   // inner wall
-    idx.push(c+2, c+3, n2+3, c+2, n2+3, n2+2);   // outer wall
-    idx.push(c+4, n2+4, n2+5, c+4, n2+5, c+5);   // top face
+    tri(c+0, n2+0, n2+1); tri(c+0, n2+1, c+1);   // inner wall
+    tri(c+2, c+3, n2+3);  tri(c+2, n2+3, n2+2);  // outer wall
+    tri(c+4, n2+4, n2+5); tri(c+4, n2+5, c+5);   // top face
   }
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geom.setIndex(idx);
-  geom.computeVertexNormals();
-  railGeoms.push(geom);
+  // A pedestrian railing has NO concrete. Emitting a zero-height wall would ship degenerate
+  // triangles that cost index bandwidth and shade unpredictably.
+  if (style.wallH > 0) {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geom.setIndex(idx);
+    geom.computeVertexNormals();
+    railGeoms.push(geom);
+  }
+  // parapet and jersey are solid to the top — no posts, no beam. That is also most of the triangle
+  // budget: posts are ~1,656 tris per 100 m and these two styles skip them entirely.
+  if (!style.posts) return;
 
   // --- Red metal railing on top ---
   const arcLen = [0];
@@ -3560,13 +3658,15 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
     return { ax: dx2/len2, az: dz2/len2, px: -dz2/len2, pz: dx2/len2 };
   };
 
-  const numPosts = Math.max(2, Math.floor(totalLen / RAILING_POST_SPACING) + 1);
+  // R-B2: spacing is per style — 4 m for a motorway W-beam, 2.2 m for a city railing, which is
+  // what makes one read as heavy steel and the other as slim ironwork at the same distance.
+  const numPosts = Math.max(2, Math.floor(totalLen / (style.postSpacing || RAILING_POST_SPACING)) + 1);
   const postSpacing = totalLen / (numPosts - 1);
   const pH = RAILING_POST_SIZE / 2;
   for (let pi2 = 0; pi2 < numPosts; pi2++) {
     const s = pi2 * postSpacing;
     const p = posAtArc(s);
-    const baseY = p.y + GUARD_RAIL_HEIGHT;
+    const baseY = p.y + style.wallH;   // R-B2: sit on THIS style's wall (0 for a pedestrian railing)
     const tang = tangentAtArc(s);
     const alX = tang.ax * pH, alZ = tang.az * pH;
     const prX = tang.px * pH, prZ = tang.pz * pH;
@@ -3576,12 +3676,13 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
     sv(1, p.x+alX-prX, baseY,                       p.z+alZ-prZ);
     sv(2, p.x+alX+prX, baseY,                       p.z+alZ+prZ);
     sv(3, p.x-alX+prX, baseY,                       p.z-alZ+prZ);
-    sv(4, p.x-alX-prX, baseY + RAILING_POST_HEIGHT, p.z-alZ-prZ);
-    sv(5, p.x+alX-prX, baseY + RAILING_POST_HEIGHT, p.z+alZ-prZ);
-    sv(6, p.x+alX+prX, baseY + RAILING_POST_HEIGHT, p.z+alZ+prZ);
-    sv(7, p.x-alX+prX, baseY + RAILING_POST_HEIGHT, p.z-alZ+prZ);
+    sv(4, p.x-alX-prX, baseY + style.beamH, p.z-alZ-prZ);
+    sv(5, p.x+alX-prX, baseY + style.beamH, p.z+alZ-prZ);
+    sv(6, p.x+alX+prX, baseY + style.beamH, p.z+alZ+prZ);
+    sv(7, p.x-alX+prX, baseY + style.beamH, p.z-alZ+prZ);
     const pg = new THREE.BufferGeometry();
     pg.setAttribute('position', new THREE.BufferAttribute(postPos2, 3));
+    pg.setAttribute('color', styleColorAttr(postPos2.length / 3, style.postC));
     pg.setIndex([0,1,5, 0,5,4, 1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7, 4,5,6, 4,6,7]);
     pg.computeVertexNormals();
     railingGeoms.push(pg);
@@ -3593,7 +3694,7 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
   for (let si = 0; si <= BEAM_STEPS; si++) {
     const s = (si / BEAM_STEPS) * totalLen;
     const p = posAtArc(s);
-    const beamCenterY = p.y + GUARD_RAIL_HEIGHT + RAILING_POST_HEIGHT - RAILING_BEAM_HALF;
+    const beamCenterY = p.y + style.wallH + style.beamH - RAILING_BEAM_HALF;
     const tang = tangentAtArc(s);
     const bD = RAILING_BEAM_DEPTH / 2;
     beamPos2.push(
@@ -3613,6 +3714,9 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
   if (beamPos2.length > 0) {
     const bg = new THREE.BufferGeometry();
     bg.setAttribute('position', new THREE.Float32BufferAttribute(beamPos2, 3));
+    // R-B2: per-style colour rides the VERTEX buffer, so galvanized steel and dark city ironwork
+    // still share ONE material and ONE merged mesh per tile — four looks, no extra draw call.
+    bg.setAttribute('color', styleColorAttr(beamPos2.length / 3, style.postC));
     bg.setIndex(beamIdx2);
     bg.computeVertexNormals();
     beamGeoms.push(bg);
@@ -3662,6 +3766,7 @@ function buildBridgeGuardRailGeometry(roads, options) {
           railGeoms,
           railingGeoms,
           beamGeoms,
+          pickBarrierStyle(road),
         );
       }
     }

@@ -2140,3 +2140,41 @@ at **3181%**. A primary road cannot be that steep — the road is not the defect
 That is V3 layer-conflict or V5 terrain-conflict upstream, and the backstop is correctly catching a
 symptom whose cause is elsewhere. It needs the P-R1b detector, which is also what the user's
 "floating roads" complaint needs.
+
+## 2026-08-27 — R-B2 barrier styles + FrontSide, both verified in a headless sandbox
+
+The user could not check these by driving (movement required, four styles, subtle differences), so
+both were built against measured geometry rather than by eye.
+
+**FrontSide — and the winding bug it exposed.** Both rail materials were `DoubleSide`. Flipping
+naively would have shipped holes: `test/guardRailWinding.test.js` builds a real rail and checks
+per-face normals, and found the **inner wall pointing AWAY from the carriageway** (nz = +1.00 where
+−1 was required). The wall is an OPEN shell — inner face, outer face, top, no bottom, no end caps —
+so a back-facing quad is not a shading artefact, it is a hole you see the road through from certain
+angles. That is *why* it was DoubleSide: the setting was hiding an inversion.
+
+It cannot be fixed with a constant index order, because `inner → outer` points one way on the left
+rail and the opposite way on the right — whichever order faces outward on one side faces inward on
+the other. **The winding is now derived per run** from `sign(t.z·w.x − t.x·w.z)`. Verified on the
+left rail, the right rail, a reversed run and a 90° curve, then FrontSide enabled on both materials.
+
+**R-B2 · four styles, chosen from fields the tile already carries** (no re-bake, deterministic per
+R-0). Colours art-bible normalized and pre-graded, worst ΔE **6.55**:
+
+| style | when | top | tris / 40 m |
+|---|---|---|---|
+| `parapet` | bridge deck | 1.05 m | 60 |
+| `jersey` | motorway/trunk + links | **0.81 m** (real New Jersey spec) | 60 |
+| `guardrail` | ramps, elevated, primary/secondary | 0.75 m (W-beam) | 346 |
+| `pedestrian` | urban street / median | 1.05 m | 494 |
+
+**Performance: 46% fewer barrier triangles**, because parapet and jersey are solid to the top and
+skip the post/beam pass entirely — and those are the styles on the longest continuous runs. Across
+1,232 guarded segments: ~2.03 M → ~1.10 M triangles. All four styles still share **one material and
+one merged mesh per tile**, because the per-style colour rides the vertex buffer.
+
+**The sandbox earned itself immediately:** it built the pedestrian railing at **0.42 m** — a trip
+hazard, not a railing — and the first "too low" threshold (0.4 m) was lax enough to pass it. Now
+1.05 m, with a 0.7 m floor asserted. `test/barrierStyles.test.js` also pins that no two styles are
+geometrically identical, that solid styles carry no posts, that posts sit ON their wall rather than
+floating, and that nothing exceeds 1.25 m and walls the driver in.
