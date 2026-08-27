@@ -97,6 +97,7 @@ import { resampleRoads } from './roads/roadResampler.js';
 import { tileMercatorBounds, clipRoadsForTile, roadsForTileNoClip } from './tileSplit.js';
 import { buildFromWays } from './roads/RoadGraph.js';
 import { resolveRamps } from './roads/RampResolver.js';
+let _censusFlattened = [];   // P-R1: Case-C flattened short tunnels, for the defect census
 import { resolveBridgeToBridge } from './roads/BridgeToBridgeResolver.js';
 import { fixOsmData } from './roads/OsmDataFixer.js';
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
@@ -557,6 +558,8 @@ async function main() {
   const junctions = classifyJunctions(graph);
   console.log('  Junctions classified:', junctions.length);
   const rampResult = resolveRamps(graph);
+  // Kept for the P-R1 census — see the V4 block near the end of the bake.
+  _censusFlattened = rampResult.flattenedShortTunnels || [];
   const b2bCount = resolveBridgeToBridge(graph, rampResult);
   if (b2bCount > 0) console.log('  Bridge-to-bridge transitions resolved:', b2bCount);
   const roadsToSimplify = buildRoadGeometry(enriched, nodeMap, rampResult);
@@ -1688,7 +1691,33 @@ async function main() {
       bbox,
       classes: {
         // V4 unresolvable-ramp — DELETED roads. The big one.
-        V4_unresolvable_ramp: { count: droppedRampIds.size, ids: [...droppedRampIds] },
+        //
+        // `brokenRamp` is set for a Case-C short tunnel that RampResolver could not fit a dip into,
+        // so it gave it a MONOTONIC LINEAR profile between the two real endpoint heights. That
+        // geometry is valid and CONNECTED — its own comment calls it "a short ramp, which may be
+        // steep". It is then deleted here purely because the ends differ in height.
+        //
+        // So the census records the GRADE, because that is the number that decides the repair: a
+        // road at 12% is steep but drivable and strictly better than a missing flyover, while one
+        // at 200% is a cliff. Without it, "332 roads deleted" cannot be acted on.
+        V4_unresolvable_ramp: (() => {
+          const steep = _censusFlattened
+            .filter((f) => !f.flat && f.lengthM > 0)
+            .map((f) => ({ wayId: f.wayId, lengthM: f.lengthM, dropM: +(f.endH - f.startH).toFixed(2),
+                           gradePct: +(100 * Math.abs(f.endH - f.startH) / f.lengthM).toFixed(1) }))
+            .sort((a, b) => b.gradePct - a.gradePct);
+          const g = steep.map((x) => x.gradePct);
+          const pct = (q) => (g.length ? g[Math.min(g.length - 1, Math.floor(g.length * q))] : null);
+          return {
+            count: droppedRampIds.size,
+            ids: [...droppedRampIds],
+            sourceWays: steep.length,
+            gradePct: { max: g[0] ?? null, p50: pct(0.5), p90: pct(0.9), min: g[g.length - 1] ?? null },
+            // ≤15% is steep-but-drivable (a 1-in-7 street); Barcelona has plenty.
+            drivableAtOrBelow15pct: g.filter((x) => x <= 15).length,
+            ways: steep.slice(0, 40),
+          };
+        })(),
         // V5 terrain-conflict — hand-listed today, NOT a detector. The measured buried-road rate is
         // 8.8% of sampled points, so this count is a floor and not the class.
         V5_terrain_conflict_known: { count: droppedFloorGapIds.size, ids: [...droppedFloorGapIds],

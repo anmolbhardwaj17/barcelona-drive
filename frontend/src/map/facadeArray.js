@@ -512,7 +512,12 @@ export function patchFacadeArrayMaterial(material, arrays) {
     }
     if (!_facadeDiagLogged) {
       _facadeDiagLogged = true;
-      const d = (t) => t && t.image ? `${t.image.width}x${t.image.height}x${t.image.depth} mips=${t.generateMipmaps} min=${t.minFilter}` : 'MISSING';
+      // Report the mip chain LENGTH, not `generateMipmaps`. three sets generateMipmaps=false on
+      // every compressed texture by design — the chain comes from the file — so logging it prints
+      // "mips=false" on a correctly mipmapped KTX2 and reads as a defect. It misread that way once.
+      const d = (t) => t && t.image
+        ? `${t.image.width}x${t.image.height}x${t.image.depth} mipLevels=${t.mipmaps?.length ?? 0} min=${t.minFilter}`
+        : 'MISSING';
       console.warn('[facadeArray] patched %s · body %s · ground %s',
         material.type, d(arrays.body), d(arrays.ground));
     }

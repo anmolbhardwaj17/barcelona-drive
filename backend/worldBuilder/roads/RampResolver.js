@@ -252,6 +252,11 @@ export function resolveRamps(graph) {
   // This creates a smooth transition where the bridges meet.
   smoothBridgeTransitions(wayMap, nodeToWays, result);
 
+  // Expose the Case-C flattened list for the P-R1 defect census. `brokenRamp` — and therefore the
+  // deletion of 332 road segments — is derived from exactly these entries, so the census has to be
+  // able to state their GRADE. Attached to the Map rather than changing the return shape, which
+  // several callers destructure.
+  result.flattenedShortTunnels = flattenedShortTunnels;
   return result;
 }
 
