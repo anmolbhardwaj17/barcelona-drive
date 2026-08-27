@@ -471,6 +471,27 @@ decide this already exists per-vertex; nothing consults it.
 **Note:** this is the same "drivable surface implies a floor" reasoning as the tunnel validator, one
 level up: **a drivable surface above ground implies an edge**.
 
+> **R-B1 PROGRESS 2026-08-27 — the DEM inference is a NO-OP, and the real work is elsewhere.**
+> First bake of the rule: `47 bridge decks, 0 elevated runs, 0 ramps -> 203 vertices need an edge`.
+>
+> The height-based half cannot fire, for a reason the P-R1b work had already established and this
+> design missed: **road height is DERIVED from the layer tag, not measured.** `pbfHighways` sets
+> `bridge = bridgeTag || layer > 0`, so any road whose deck sits above the terrain already carries
+> `bridge: true` and is caught by the tag branch before the DEM test runs. And surface roads are
+> fitted to the DEM, so `deck − terrain ≈ 0` by construction — which is exactly why the V5 detector
+> found zero conflicts against `demSampler`. There is no independent height signal to infer from.
+>
+> **So the ticket was mis-scoped: the hard part is not deciding WHERE, it is DRAWING.** The user's
+> report — "some flyovers have railings and some don't" — is fully explained by
+> `barrierRenderer.js` only drawing OSM-tagged `barrier=*` ways. The classification needed to fix it
+> already exists and is trivial: **47 bridge decks, plus ramps.** Rendering an edge on all of them
+> closes the complaint without any inference at all.
+>
+> A genuine inference case does remain, but it is **M1_implied_bridge** from the §2 taxonomy, and it
+> is TOPOLOGICAL not vertical: a road crossing over water, rail or another way at a different layer
+> with no bridge tag. That needs 2D crossing tests, not a DEM comparison. Re-file as its own ticket
+> rather than smuggling it into R-B1.
+
 ### R-B2 · Barrier TYPE selection
 **Today:** nothing selects a type; the deleted renderer drew one style.
 **Wanted:** the right object for the context — concrete (New Jersey) barrier on fast dual
