@@ -14,7 +14,7 @@
 |---|---|
 | **Branch** | **`v3`** — work directly on it. |
 | **JUST SHIPPED** | **P4-15a ✅ — the shared car fleet.** All cars in the world are now ONE BatchedMesh; 41 draws → 3. See its entry under P4 for the full done-when list. **Unverified in-game.** |
-| **JUST SHIPPED (2)** | **R-W1 ✅ — the road width model.** Ten disagreeing width tables → ONE model, baked into v10 tiles as a named section. Residential streets go from a 4 m ribbon to 10.4 m of paving. Full region re-bake done. **Unverified in-game — this is the biggest visual change in weeks.** |
+| **JUST SHIPPED (2)** | **R-W1 ✅ — the road width model.** ELEVEN disagreeing width tables → ONE model, baked into v10 tiles as a named section. Residential paving 4 m → 10.4 m. **Full region re-bake done: 433/444 tiles v10, 47,782 roads, 0 missing the section** (the 339 that lack it are all in the 11 pre-existing v7 stragglers — H7 had 17, now 11 — and they fall back to a table a test keeps in step with the model). Verified end to end through the running server: a residential road arrives as `{width:10.4, carriagewayW:6, kerbToKerbW:10.4, parkingLeftW:2.2, parkingRightW:2.2, sidewalkW:3, corridorW:16.4}`. **Unverified ON SCREEN — this is the biggest visual change in weeks.** |
 | **NEXT TASK** | **User's call.** Recommendation: **R-W1** (road WIDTH model) — the tracker already calls it the root of three reported bugs and it unblocks R-J1 + R-V1. It needs a re-bake, which is the reason to start it deliberately rather than drift into it. If you want another no-bake engineering task instead, **#39 residual** (the last ~2/s geometry leak) is the one with a measurement waiting for it. |
 | **Owed by the user** | **ONE verification drive** (see below) — now covering yesterday's barrier/leak work AND P4-15a. Nothing is blocked on it. |
 | **Tests** | 245 green (232 + 13 new in `test/carFleet.test.js`). ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently. Re-run before believing it. |
@@ -41,15 +41,25 @@ Cool machine, hard reload, ~90 s in Eixample, then **F9**. Closes four questions
 4. **The leak + the lag** — `residency.sameTileCountDrift` should be ~0 (was +79/+98/+76, then
    +19/+10/+44). And long frames dominated by `tiles` = my terrain probe; by `other` = GC/thermal.
 
-5. **P4-15a — the cars.** Parked cars still line both curbs with the same variety and are not
+5. **R-W1 — the streets, and this is the big one.** Every road in the city is wider. An Eixample
+   residential street should now read as a real street: two lanes of running asphalt with a parked
+   row against each kerb, all on ONE continuous paved surface — **no strip of bare terrain between
+   the driving lane and the parked cars** (that would mean something is drawing `carriagewayW`
+   instead of `kerbToKerbW`, see D-47). Pavements should look like pavements, not 4 m ribbons.
+   Check a narrow Gràcia street too: it should NOT have swallowed its own pavement.
+6. **R-W1 — the bug that started it.** No car parked on a guard rail, anywhere. Rails sit at the
+   kerb; bays sit inside it.
+7. **P4-15a — the cars.** Parked cars still line both curbs with the same variety and are not
    floating, sunk, or the wrong SIZE (the shared geometry is canonical now, so a scale bug shows up
    as cars 5% off). Traffic still drives, still has head/tail lights at night, still gets shoved when
    you hit one. Drift or drive over ~43 km/h and confirm the dust puffs still fade individually
    rather than all at once (that would mean the per-instance alpha patch went silent).
-6. **P4-15a — the numbers.** F9 should now show `traffic` well under its 27.6 ms / 9 long frames, and
+8. **P4-15a — the numbers.** F9 should now show `traffic` well under its 27.6 ms / 9 long frames, and
    fewer draws and triangles. Parked cars being frustum-culled is the big triangle lever.
 
-⚠ **No re-bake needed for anything currently shipped.** Reload only.
+⚠ **A FULL RE-BAKE HAS HAPPENED** (v9 → v10). The browser cache now invalidates itself — that is
+new, see D-48 — so a plain reload should be enough. If anything looks stale, `window._clearTileCache()`
+and hard-reload is still the hammer.
 
 ### ▶ OPEN TICKETS — everything pending, nothing in flight
 
