@@ -3685,14 +3685,29 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
   // True once the initial spawn-area tiles have finished loading (nothing in-flight or queued after
   // loading has begun). Used to hold the loading screen until the world around the car is actually built.
+  /**
+   * True once the first ring of tiles has finished streaming.
+   *
+   * ⚠ IT REQUIRES THE QUEUE TO BE COMPLETELY EMPTY, which is stricter than "the world is ready" and
+   * is why `getInitialLoadState()` exists next to it. main.js polls this every 150 ms and gives up
+   * after 130 polls — a 19.5 s cap — and three drives on 2026-08-27 measured time-to-drive at 19.4,
+   * 20.0 and 21.3 s against a 6.94 s figure recorded in the ledger after P4-01. Numbers that land on
+   * a timeout are usually the timeout, so the poll now reports WHICH it was.
+   */
   function isInitialLoadComplete() {
     if (inFlightCount > 0 || pendingQueue.length > 0) { _startedLoading = true; return false; }
     return _startedLoading && tileCache.size > 0;
   }
 
+  /** What the load is waiting on, so a caller that gives up can say what it gave up on. */
+  function getInitialLoadState() {
+    return { inFlight: inFlightCount, pending: pendingQueue.length, resident: tileCache.size, started: _startedLoading };
+  }
+
   return {
     update,
     isInitialLoadComplete,
+    getInitialLoadState,
     takeBuildOverruns,
     getLoadedRoadSegments,
     injectSpawnTile,

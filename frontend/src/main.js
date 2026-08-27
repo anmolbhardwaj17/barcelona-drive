@@ -810,8 +810,26 @@ spawnTileReady.finally(() => {
     const _pollLoad = setInterval(() => {
       _polls++;
       window._ddGate = { polls: _polls, complete: !!(tileManager?.isInitialLoadComplete?.()), car: !!carDriver, orbit: !!_titleOrbit, title: document.getElementById('dd-title')?.className ?? 'gone' };
-      if ((tileManager?.isInitialLoadComplete?.()) || _polls > 130) {
-        clearInterval(_pollLoad); _hideLoader();
+      const _done = tileManager?.isInitialLoadComplete?.();
+      if (_done || _polls > 130) {
+        clearInterval(_pollLoad);
+        // ⚠ NOT GATED behind ?debug — a time-to-drive that is really a TIMEOUT is the difference
+        // between "loading takes 20 s" and "loading finished and nobody noticed", and those have
+        // nothing in common. Three drives on 2026-08-27 measured 19.4 / 20.0 / 21.3 s against a
+        // ledger figure of 6.94 s, and the cap is 130 polls x 150 ms = 19.5 s. A number that lands
+        // on its own timeout is usually the timeout.
+        try {
+          const st = tileManager?.getInitialLoadState?.() ?? {};
+          if (_done) {
+            console.warn('[perf] initial tile load COMPLETE after %d polls (~%d ms), %d tiles resident',
+              _polls, Math.round(_polls * 150), st.resident ?? -1);
+          } else {
+            console.warn('[perf] initial tile load GAVE UP at the %d-poll cap (~%d ms) — still %d in flight, '
+              + '%d queued, %d resident. time-to-drive is measuring this timeout, not the load.',
+              _polls, Math.round(_polls * 150), st.inFlight ?? -1, st.pending ?? -1, st.resident ?? -1);
+          }
+        } catch { /* diagnostics must never break the boot */ }
+        _hideLoader();
         // Go LIVE behind the title: crossfade the static artwork to the real city + start the cinematic
         // orbit (only in car mode, and only if the player hasn't already entered the game).
         try { window._ddBootDone?.(); } catch {}   // boot loader → 100% + fade, reveal the title content
