@@ -12,7 +12,7 @@
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P3 CLOSED 2026-08-27** on a user visual sign-off after a drive ("i have driven its all good"). **P4 IS OPEN.** See the gate table for what was and was not measured. |
-| **Next task** | **P4-01 · the DELETE half of the terrain bake · risk low-medium** (steps 1-2 proven 2026-08-27, see P4-01 below). Move generation into `tileParserWorker`, Uint16 indices, repoint `getElevationAt` at the grid, and delete the second runtime water dip **in the same commit**. Land the runtime change against EXISTING tiles first — it simply ignores `bakedTerrain`, and the proof says the result is bit-equal — then re-bake to drop the 384.6 MB. |
+| **Next task** | **The OSM road-defect CENSUS** (`osm-repair-layer.md`, P-R1). Read-only, no bake. It addresses the two things the user keeps reporting from drives — roads floating, and roads missing where one obviously belongs — by turning "sometimes wrong" into a counted list of which roads are dropped and why. It was gated on P3, which closed today. **Alternative if perf is preferred: task #39 / D-37**, now the largest frame-time item — heap climbed 328→572 MB over a 145 s drive and 2 of 9 long frames are collection-shaped. |
 | **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). The two art gates are now CLOSED: jacaranda **17.01 → 11.49** on the new P11 violet anchor (restricted to foliage, so a violet facade still fails), and washingtonia's clip is absorbed by a hue-preserving highlight rolloff in `colorGradePass.js` rather than by dulling the asset. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
@@ -1205,7 +1205,7 @@ before anything is painted.**
 - **Full spec:** master plan §4 → P4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[x]` P4-02 · 2.0d · **DONE 2026-08-27 — awaiting one drive**
+### `[x]` P4-02 · 2.0d · **DONE 2026-08-27 — drive-verified**
 **TERRAIN: LOD index rings** — from one vertex buffer emit three index sets (full 32,258 / 1:2 7,938 / 1:4 1,922), swap by distance with hysteresis, and **raise the terrain visibility cut from 280 m to ~1500 m at the coarse ring so the game finally has a distant landform silhouette.** LOD must never engage inside 500 m where roads drape on the full grid.
 
 - **Files:** `tileParserWorker.js`, `tileManager.js:2908-2932`, `terrainRenderer.js`
