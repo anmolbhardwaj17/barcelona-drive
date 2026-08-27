@@ -30,6 +30,7 @@ them is a decision, not a default:
 
 | what | where | state |
 |---|---|---|
+| Road realism programme — width/scale, junction merges, edge protection by rule, barrier type | **`barcelona-road-system.md` §4, tickets R-W1/R-J1/R-B1/R-B2** | filed 2026-08-27 on user request, none started. R-B1 (railings inferred from bridge/ramp/height rather than only where OSM tags them) is the most visible and least dependent |
 | Surface roads buried in terrain | `terrain-tunnel-rework-plan.md` | measured: 8.8% of points, but p50 is −0.079 m — a TAIL, not systematic. Needs the by-road-class table from one more `?debug=roadfit` run |
 | Buildings sliced by the trench carve | **now P4-02b** | scheduled — rides the single v10 re-bake window (P4-03) rather than triggering its own |
 | Túnel Glòries has no roof | — | **NOT A BUG.** Option L, deferred to Phase 4 by design |

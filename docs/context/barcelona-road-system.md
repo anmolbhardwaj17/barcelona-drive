@@ -430,3 +430,56 @@ Append decisions made during implementation here, with date and one-line rationa
 - [ ] Tram median grass strip — Diagonal modern style. Is the OSM data sufficient to know "this is a grass median" vs "this is an asphalt embedded tram"?
 - [ ] Superilla stencils — render "Zona 30" stencils where present? Detect via OSM `maxspeed=30` + residential combo, or by `traffic_calming=*`?
 - [ ] **Ghost-wall filtering (3f, deferred)** — `barrier=wall` features double-tagged with building footprints produce floating walls inside/through building meshes. Fix requires a spatial pre-pass: skip any wall whose midpoint is within 2m of a building polygon edge. Needs `buildings` passed to `buildBarrierMeshes` (currently only receives `roads`). Deferred to Phase 4 polish.
+
+---
+
+## 4. OPEN TICKETS — road realism programme (filed 2026-08-27, user-requested)
+
+Four tickets, filed together because they share one root cause: **the road system draws what OSM
+happens to tag, and infers almost nothing.** OSM is a topological map, not an engineering drawing —
+it says a way is `highway=primary` with `bridge=yes`, not how wide it is, where its edges need
+protecting, or what the protection is made of. Everything below is inference the game must do for
+itself. None is started; each states what exists today so the work is not re-discovered.
+
+### R-W1 · Road width and scale consistency
+**Today:** width comes from `r.width` when OSM carries it and a per-highway-type default otherwise
+(`roadTexturePack`/`roadBaker`). OSM `width=*` is sparsely tagged and inconsistently means
+carriageway, kerb-to-kerb, or the whole corridor. Lane counts (`lanes=*`) are parsed but not used to
+derive width.
+**Wanted:** one width model — lanes × lane-width + shoulders + medians, per Norma 8.2-IC §2, with the
+OSM tag as an override rather than the primary source, so a two-lane tertiary is the same width
+everywhere in the city.
+**Watch:** width changes move kerbs, sidewalks and parking, so this lands with a re-bake and probably
+invalidates the P3-09 kerb fit.
+
+### R-J1 · Junction and merge geometry
+**Today:** junction handling lives in `worldBuilder/junctions/`; ways meet at shared nodes and the
+carriageways are drawn independently, so merges and forks overlap rather than blending.
+**Wanted:** proper merge geometry — tapers where a slip road joins, correct chamfer at Eixample
+corners (§2.156 already specifies this), no z-fighting where two carriageways of different width
+meet at a node.
+**Depends:** R-W1. Merging carriageways of inconsistent width just moves the seam.
+
+### R-B1 · Edge protection by RULE, not by tag
+**Today:** `pbfBarriers.js` parses `barrier=guard_rail|wall|fence|hedge|retaining_wall` and
+`barrierRenderer.js` draws them — but ONLY where OSM tagged them. `crashBarrierRenderer` was deleted
+in v3 P1-16. So an elevated ramp with no OSM barrier tag has no edge at all, which is why some
+flyovers have railings and some do not.
+**Wanted:** infer protection from the road's own state — `bridge=yes`, a ramp, or any carriageway
+whose deck sits more than ~1 m above the terrain beside it needs an edge. The elevation data to
+decide this already exists per-vertex; nothing consults it.
+**Note:** this is the same "drivable surface implies a floor" reasoning as the tunnel validator, one
+level up: **a drivable surface above ground implies an edge**.
+
+### R-B2 · Barrier TYPE selection
+**Today:** nothing selects a type; the deleted renderer drew one style.
+**Wanted:** the right object for the context — concrete (New Jersey) barrier on fast dual
+carriageways and central reservations, metal guardrail on rural/elevated single carriageways, a solid
+parapet on a bridge deck, kerb-only in a 30 km/h zone. Barcelona uses all four and the difference is
+legible at driving speed.
+**Depends:** R-B1 places them; this decides what they are. Art-bible palette applies — the recorded
+mistake to avoid is eyeballed hex, which failed gate 4 on six of eight shop-sign colours.
+
+> **Sequencing:** R-W1 → R-J1 (geometry must be consistent before merges are worth fixing), and
+> R-B1 → R-B2 (place before styling). R-B1 is the one the user notices most — missing railings on
+> elevated roads — and is the least dependent on the others, so it is the sensible entry point.
