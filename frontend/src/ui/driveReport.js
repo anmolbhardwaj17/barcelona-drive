@@ -219,12 +219,36 @@ export function noteResidency({ tiles, geometries, textures, heapMB, t }) {
 /** first/last + per-tile normalisation, which is what makes a leak legible. */
 function residencySummary() {
   if (_res.length < 2) return null;
-  const a = _res[0], b = _res[_res.length - 1];
+  // ⚠ THE FIRST SAMPLE IS NOT A BASELINE. It lands seconds after drive start while tiles are still
+  // building, so their geometry count is incomplete — comparing it to a settled state manufactures a
+  // leak that is not there. The first read of this report showed "29.6 -> 34.1 geometries per tile"
+  // and the series then showed geometries rising AND FALLING with tile count, releasing correctly.
+  // Skip the first 15 s, and if that leaves too little, say so rather than quoting a bad number.
+  const settled = _res.filter((r) => r.t > (_res[0].t + 15000));
+  if (settled.length < 2) {
+    return { samples: _res.length, inconclusive: 'drive too short — no settled window after load-in',
+             series: _res };
+  }
+  const a = settled[0], b = settled[settled.length - 1];
   const span = Math.max(1, (b.t - a.t) / 1000);
   const perTile = (v, s) => (s.tiles > 0 ? +(v / s.tiles).toFixed(1) : null);
+  // A leak shows as geometries NOT returning when the tile count does. Compare only samples that
+  // share a tile count, which removes the confound entirely.
+  const byTiles = new Map();
+  for (const r of settled) {
+    const e = byTiles.get(r.tiles) || { first: r, last: r };
+    e.last = r; byTiles.set(r.tiles, e);
+  }
+  const sameTileDrift = [...byTiles.entries()]
+    .filter(([, e]) => e.last.t > e.first.t + 5000)
+    .map(([tiles, e]) => ({ tiles, spanS: Math.round((e.last.t - e.first.t) / 1000),
+                            geomDelta: e.last.geometries - e.first.geometries }));
   return {
     samples: _res.length,
+    settledSamples: settled.length,
     seconds: Math.round(span),
+    // THE honest leak test: at the same resident tile count, did geometries grow?
+    sameTileCountDrift: sameTileDrift,
     tiles: { first: a.tiles, last: b.tiles },
     // The leak signal. Flat tiles + climbing geometries = tiles are not releasing.
     geometries: { first: a.geometries, last: b.geometries, delta: b.geometries - a.geometries,
