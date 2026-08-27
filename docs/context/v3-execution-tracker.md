@@ -77,7 +77,9 @@ the same shadow saving in planning; do not repeat that in execution.
 | ↳ GPU p50 | 13.31 @ 1.2 | **8.02** @ 1.0 | — | frame is no longer GPU-bound at p50 |
 | ↳ S1 shadow `autoUpdate` saving | budgeted **−1.35 ms** | ⚠ still unproven — needs an A/B, not a single capture | — | P0-03 |
 | **frame p95** | — | **33.4 ms** (37% of frames miss vsync → 30 fps) ⚠ pre-KTX2; not re-measured | 16.7 | P1-08 / task #39 |
-| **long frames per ~21 s drive** | 26-08: **≥40**, worst 243.1 ms | **27-08: 3**, worst 103.7 ms, all inside the first 6.03 s | — | P3-GATE-01 (KTX2) |
+| **long frames per SECOND of driving** | 26-08 pre-KTX2: ~1.9/s | KTX2: **0.133/s** · post-P4-01 re-bake: **0.062/s** (9 over a 144.8 s drive; 4 of them after the first 30 s) | — | P3-GATE-01, P4-01 |
+| **time-to-drive** | P3 close: **20.98 s** | **6.94 s** after the P4-01 re-bake (−67%) | — | P4-01 (tile store 567→177 MB) |
+| **heap over a 145 s drive** | — | 328 → **572 MB**, then a collect to 310 MB. ⚠ D-37 GC unchanged — 2 of the 9 long frames are collection-shaped (`other`-dominant, heap drops across them) | — | task #39 |
 | ↳ non-GPU share at p95 | P0 **18.1 ms** | **2026-08-26: 95% of a 50-76 ms frame, gpu only 7.3-7.8 ms — the cause is GC, see D-36** | — | task #39 |
 | ↳ GPU share at p50 | — | **13.3 of 16.7 ms** — median frame IS GPU-bound, only 3.4 ms spare | — | P2 |
 | Texture VRAM resident | 95.7 MiB + 34.0 render targets = **129.7** ⚠ *re-derive in P0-04* | — | **200** | P0-04 |
