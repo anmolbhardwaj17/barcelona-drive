@@ -2809,6 +2809,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         if (entry.awningMesh)          { scene.remove(entry.awningMesh);          allMeshes.push(entry.awningMesh); }
         if (entry.cafeTerraceMeshes)   { for (const m of entry.cafeTerraceMeshes) { scene.remove(m); allMeshes.push(m); } }
         if (entry.shopfrontMeshes)     { for (const m of entry.shopfrontMeshes) { scene.remove(m); allMeshes.push(m); } }
+        // ⚠ LEAK FIX (task #39). streetlightWireMesh is a per-tile LineSegments built in
+        // streetlightRenderer.js:602 with its OWN geometry. It was added to the scene, had its
+        // visibility driven every frame by three separate LOD branches — and was never disposed,
+        // because it is the one entry field that is neither an alias into a disposed array nor a
+        // pool handle. Measured: geometries climbing ~6/s at a CONSTANT resident tile count.
+        if (entry.streetlightWireMesh) { scene.remove(entry.streetlightWireMesh); allMeshes.push(entry.streetlightWireMesh); }
 
         // Physics removal (immediate — must be synchronous for simulation correctness)
         // Also null out shape references to help GC reclaim CANNON memory
@@ -2863,7 +2869,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
               }
             }
           });
-        } else if (m.isMesh) {
+        } else if (m.isMesh || m.isLine || m.isLineSegments || m.isPoints) {
+          // ⚠ `isMesh` ALONE IS NOT ENOUGH. A LineSegments/Line/Points holds a geometry exactly like a
+          // Mesh does, but fails `isMesh`, so it fell through this chain and was freed by nobody —
+          // silently, because nothing throws when you skip a disposal. streetlightWireMesh is one.
           if (!m.userData?.sharedGeometry) m.geometry?.dispose();
           if (!m.userData?.sharedMaterial && !isShared(m.material) && m.material) {
             if (Array.isArray(m.material)) m.material.forEach((mat) => { if (mat.map) mat.map.dispose(); mat.dispose(); });

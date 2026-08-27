@@ -81,6 +81,76 @@ function isBrokenRampRoad(r, demSampler) {
   return maxGrade > _BROKEN_RAMP_GRADE ? { reason: 'profile-backstop', gradePct: +(maxGrade * 100).toFixed(1) } : null;
 }
 /**
+ * R-B1 · EDGE PROTECTION BY RULE — decide where a road needs a railing, rather than only where OSM
+ * happens to tag one.
+ *
+ * WHY THIS EXISTS. `pbfBarriers.js` parses `barrier=guard_rail|wall|fence|retaining_wall` and
+ * `barrierRenderer.js` draws them — but only where a mapper tagged them. Most viaducts and ramps in
+ * Barcelona are not tagged, so some flyovers have railings and some have none. Mapping guardrails is
+ * not what OSM is for and never will be; the game has to look at the road and decide.
+ *
+ * THE RULE, which is the tunnel validator's logic one level up. That validator says a drivable
+ * surface implies a FLOOR. This says: **a drivable surface above the ground implies an EDGE.** The
+ * per-vertex height needed to judge it already exists and nothing consulted it.
+ *
+ * DETERMINISM AND PLACEMENT — see barcelona-road-system.md §4 R-0, both are non-negotiable:
+ *  - Nothing random. The mask is a pure function of geometry + DEM, so the same road gets the same
+ *    railing on every bake. A guardrail that exists on Tuesday and not Wednesday cannot be tested.
+ *  - Decided on the WHOLE WAY, before `tileSplit` cuts it up. A long viaduct crosses several tiles,
+ *    and a per-tile decision lets the halves disagree — the railing stopping dead at a seam.
+ *
+ * Emits a per-vertex Uint8 mask rather than a per-road boolean, because a road is rarely elevated
+ * along its whole length: an overpass rises, crosses and descends, and only the crossing needs an
+ * edge. Storing the DECISION rather than the height keeps the threshold in one place — a renderer
+ * re-deriving it from heights is exactly how two subsystems drift apart.
+ */
+const EDGE_MIN_ABOVE_M = Number.isFinite(parseFloat(process.env.EDGE_MIN_ABOVE_M)) ? parseFloat(process.env.EDGE_MIN_ABOVE_M) : 1.2;
+const EDGE_MIN_RUN = 2;   // vertices — a single spike is DEM noise, not a viaduct
+
+function inferEdgeProtection(roads, demSampler) {
+  const stats = { bridge: 0, elevated: 0, ramp: 0, none: 0, vertsMarked: 0 };
+  for (const r of roads) {
+    r.edgeMask = null; r.edgeType = null;
+    const pts = r.points;
+    if (!pts || pts.length < 2) { stats.none++; continue; }
+    // A tunnel has walls by definition; its portals are the trench's problem, not a railing's.
+    if (r.tunnel) { stats.none++; continue; }
+
+    const mask = new Uint8Array(pts.length);
+    let marked = 0;
+
+    if (r.bridge) {
+      // A bridge deck needs an edge along its whole length regardless of what the DEM says beneath —
+      // the DEM under a bridge is the ground it spans, which may be a road, a river or another deck.
+      mask.fill(1); marked = pts.length; r.edgeType = 'parapet'; stats.bridge++;
+    } else if (demSampler) {
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const abs = (p.length >= 4 && Number.isFinite(p[3])) ? p[3] : p[1];
+        if (!Number.isFinite(abs)) continue;
+        const lon = (p[0] / _BR_R_EARTH) * (180 / Math.PI);
+        const lat = (2 * Math.atan(Math.exp(p[2] / _BR_R_EARTH)) - Math.PI / 2) * (180 / Math.PI);
+        const dem = demSampler.sampleElevation(lat, lon);
+        if (Number.isFinite(dem) && abs - dem > EDGE_MIN_ABOVE_M) { mask[i] = 1; marked++; }
+      }
+      // Drop isolated marks: one vertex above the DEM is noise in a 30 m-posting elevation model,
+      // not a structure. A real elevated run is continuous.
+      for (let i = 0; i < mask.length; i++) {
+        if (!mask[i]) continue;
+        let j = i; while (j < mask.length && mask[j]) j++;
+        if (j - i < EDGE_MIN_RUN) { for (let k = i; k < j; k++) { mask[k] = 0; marked--; } }
+        i = j;
+      }
+      if (marked > 0) { r.edgeType = r.isRamp ? 'guardrail' : 'guardrail'; r.isRamp ? stats.ramp++ : stats.elevated++; }
+    }
+
+    if (marked > 0) { r.edgeMask = mask; stats.vertsMarked += marked; }
+    else { r.edgeType = null; stats.none++; }
+  }
+  return stats;
+}
+
+/**
  * P-R1b · V5 TERRAIN-CONFLICT DETECTOR — does a road's surface agree with the ground under it?
  *
  * WHY IT HAD TO EXIST. `[FloorGap]` reports 5 roads, from a HAND-WRITTEN list. The real rate was
@@ -1088,6 +1158,16 @@ async function main() {
     }
   } else if (!phase1Pure2D) {
     console.log('[DEM] No demPaths configured — using flat terrain (set cfg.demPaths to enable real elevation).');
+  }
+
+  // ── R-B1 · edge protection, decided HERE and nowhere else ────────────────────────────────────
+  // This is the only point in the pipeline that satisfies R-0: `simplified` still holds WHOLE ways
+  // (tileSplit runs below), and the DEM is loaded. Deciding after the split would let a viaduct's
+  // halves disagree and stop a railing dead at a tile seam.
+  {
+    const es = inferEdgeProtection(simplified, demSampler);
+    console.log(`  [EdgeProtect] ${es.bridge} bridge decks, ${es.elevated} elevated runs, ${es.ramp} ramps ` +
+                `-> ${es.vertsMarked} vertices need an edge (${es.none} roads need none, threshold ${EDGE_MIN_ABOVE_M} m)`);
   }
 
   const allTileIds = new Set();
