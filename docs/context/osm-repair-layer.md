@@ -282,7 +282,25 @@ Recorded so the next person does not repeat them. Each looked convincing and eac
 0.000 m so it is a TAIL; it is concentrated in **72 of 444 tiles**; worst is +25.11 m; p99 is 6.37 m,
 suspiciously close to one `LAYER_STEP` (6).
 
-**Not established:** the cause. P-R1's contract is *detection only* and that is now met — the class has
+**The class SPLITS IN TWO** (deviation histogram, `roadVsTerrain.mjs`). This is the actionable result:
+
+```
+   6 m : 1607   <- LARGEST single bin, and a multiple of LAYER_STEP
+   1 m : 1544        2 m : 820     5 m : 778     3 m : 677     4 m : 606
+  12 m :  311   <- LAYER_STEP      24 m : 179   <- LAYER_STEP
+```
+
+- **~22% (1,734 pts) are QUANTISED to LAYER_STEP** — 6, 12, 24 m. A fitting error cannot do that. A
+  road tagged `layer: 0, bridge: false` is being rendered at a layer height, or the height was
+  assigned from a neighbour and never cleared. This is a **tagging/propagation defect** (V3-adjacent)
+  and it owns the worst outliers, including every point above 12 m.
+- **~78% (6,128 pts) are a smooth 1–5 m spread** — a genuine road-vs-terrain fitting mismatch, small,
+  and the part that actually decays like an error should.
+
+Two defects, two different repairs. Treating them as one class is why every single-cause hypothesis
+above failed: each explained one population and was refuted by the other.
+
+**Not established:** the cause of either half. P-R1's contract is *detection only* and that is now met — the class has
 a number, a distribution, a per-tile concentration and a tool to re-measure it. Attributing it belongs
 to P-R3/P-R4, with the p99≈LAYER_STEP coincidence as the strongest remaining lead.
 

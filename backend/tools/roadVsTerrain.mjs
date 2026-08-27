@@ -146,4 +146,17 @@ console.log(`\ntiles with floating points : ${tiles.length}  of which have water
 console.log(`floating points in water-bearing tiles: ${badInWaterTiles} / ${badTotal} ` +
             `(${(100 * badInWaterTiles / Math.max(badTotal, 1)).toFixed(0)}%)`);
 console.log('worst tiles:'); for (const [k, v] of tiles.slice(0, 6)) console.log(`   ${k}  ${v.bad} bad pts  water polys ${v.water}`);
+// Is the deviation QUANTISED to LAYER_STEP? p99 landing on 6.37 could be coincidence or the whole
+// answer. A histogram settles it: a fitting error is smooth, a misapplied layer clusters on 6/12/18.
+const badDevs = worst.map((w) => w.dev);
+const hist = new Map();
+for (const d of badDevs) { const b = Math.round(d); hist.set(b, (hist.get(b) || 0) + 1); }
+const top = [...hist.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+console.log('\ndeviation histogram (rounded m -> count), most common first:');
+for (const [m, n] of top) {
+  const mult = m !== 0 && Math.abs(m % 6) === 0 ? '  <- multiple of LAYER_STEP' : '';
+  console.log(`   ${String(m).padStart(4)} m : ${String(n).padStart(5)}${mult}`);
+}
+const onStep = badDevs.filter((d) => Math.abs(Math.abs(d) % 6) < 0.35 || Math.abs(Math.abs(d) % 6 - 6) < 0.35).length;
+console.log(`within 0.35 m of a LAYER_STEP multiple: ${onStep} / ${badDevs.length} (${(100 * onStep / badDevs.length).toFixed(0)}%)`);
 console.log('worst points:'); for (const w of worst.slice(0, 8)) console.log(`   id ${String(w.id).padStart(11)} ${String(w.type).padEnd(13)} ${w.dev > 0 ? '+' : ''}${w.dev} m`);
