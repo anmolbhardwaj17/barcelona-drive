@@ -12,7 +12,7 @@
 |---|---|
 | **Branch** | **`v3` — work directly on it.** The per-phase branches (`v3-p0-foundation`, `v3-p1-pipeline`, `v3-p2-lighting`) were fast-forwarded into `v3` on 2026-08-25 and are fully contained in it; they are kept only as markers. Do NOT start new phase branches. |
 | **Current phase** | **P3 CLOSED 2026-08-27** on a user visual sign-off after a drive ("i have driven its all good"). **P4 IS OPEN.** See the gate table for what was and was not measured. |
-| **Next task** | **The OSM road-defect CENSUS** (`osm-repair-layer.md`, P-R1). Read-only, no bake. It addresses the two things the user keeps reporting from drives — roads floating, and roads missing where one obviously belongs — by turning "sometimes wrong" into a counted list of which roads are dropped and why. It was gated on P3, which closed today. **Alternative if perf is preferred: task #39 / D-37**, now the largest frame-time item — heap climbed 328→572 MB over a 145 s drive and 2 of 9 long frames are collection-shaped. |
+| **Next task** | **P-R1b · the V5 terrain-conflict detector.** P-R1a is DONE — `data/regions/barcelona/defect-census.json` now ships from every bake with the dropped-road ids, the rule that killed each one and its measured grade. What is still unmeasured is the user's *other* standing complaint, roads that look **floating**: `[FloorGap]` counts 5 hand-listed roads against a measured **8.8% of road points** off the surface, so V5 has no real detector. **Alternative if perf is preferred: task #39 / D-37**, the largest frame-time item — heap 328→572 MB over a 145 s drive, 2 of 9 long frames collection-shaped. |
 | **Tasks done** | **70 / 84** — **P0 ✅ · P1 ✅ · P2 ✅.** **P3: all 11 ticked, gate unrun.** (P1-11 folded into P2; P3-07c carved out of P3-07 on 08-26.) |
 | **Baseline captured?** | ✅ `docs/context/v3-baseline.json`. ⚠ **RE-MEASURE after P1** — SMAA adds, while the reflector / edge-strip / markings / street-dressing culls subtract, and the P1-04 warm-list fix should take programsΔ from 8 to 0. |
 | **Blocked on** | **P4 is blocked on the P3 exit drive only.** Every static gate item passes as of 2026-08-27 (VRAM 84/200 MiB, wire 17.09/24 MB). The two art gates are now CLOSED: jacaranda **17.01 → 11.49** on the new P11 violet anchor (restricted to foliage, so a violet facade still fails), and washingtonia's clip is absorbed by a hue-preserving highlight rolloff in `colorGradePass.js` rather than by dulling the asset. ⚠ **DRIFT WARNING (2026-08-25):** a session of user-reported visual bugs produced four recorded findings and one design doc but only two tasks off this list. The findings are PARKED with owners — do not resume them ahead of P3 without deciding to. See the parked list below. |
@@ -1146,6 +1146,24 @@ before anything is painted.**
 **Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.
 
 **Progress:** 2 / 18 — P4-01 ✅ · P4-02 ✅
+
+> **Vegetation bug-fix run, 2026-08-27** (numbered VEG-FIX-* deliberately — NOT P4-02b/c, which is a
+> real scheduled task riding the v10 bake). Three separate bugs, all surfaced by P4-02 finally making
+> the distance visible:
+> - **VEG-FIX-1** — the impostor ramp FOLLOWED the 3D fade instead of complementing it, leaving a hole
+>   across 80–170 m and a 100%→1% cliff at 170 m.
+> - **VEG-FIX-2** — hills were bare: OSM tags a wooded hill and a plaza garden both `leisure=park`, and
+>   the baker used one tree / 500 m² for both. Density now scales on log(area). Hilly tiles 0 → 1,077
+>   trees median.
+> - **VEG-FIX-3 (the actual reported bug)** — an LOD **timing** fault, not a distance one. The LOD
+>   invalidation fires at tile-entry creation; vegetation lands many awaits later with
+>   `startVisible = true`, so a tile drew EVERY tree at full density until the viewer moved 15 m.
+>   Driving fast kept the LOD running, so the correct density looked like the bug and the lush
+>   version looked right. Re-invalidate after vegetation lands.
+>
+> Two probes were added and are worth keeping: `_ddVegCount()` (allocated vs **DRAWN** — `instanceCount`
+> is allocation, not visibility) and `_ddVegLod()` (per-tile band + fractions + visible/total per kind).
+> The aggregate alone could never say *which* tile was bare, and that cost two wrong diagnoses.
 
 <details><summary><b>Exit gate — the phase is NOT done until these pass</b></summary>
 

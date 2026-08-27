@@ -46,17 +46,17 @@ const _BR_DRIVABLE_TUNNEL = new Set([
 // the check is skipped (keeps everything).
 function isBrokenRampRoad(r, demSampler) {
   // Keep drivable below-grade tunnel corridors no matter what (trench-carved; orphan cut if dropped).
-  if (r.tunnel && r.layer != null && r.layer < 0 && _BR_DRIVABLE_TUNNEL.has(r.highwayType)) return false;
+  if (r.tunnel && r.layer != null && r.layer < 0 && _BR_DRIVABLE_TUNNEL.has(r.highwayType)) return null;
   // PRIMARY signal: RampResolver's own flag for the Case-C mangled steep connector (short tunnel
   // between surface roads at DIFFERENT layers it couldn't fit a dip for). Precise — no false positives
   // on legit steep ramps. This replaces the old grade>0.20 heuristic that dropped 608 (over-aggressive).
-  if (r.brokenRamp === true) return true;
-  if (!demSampler) return false;
+  if (r.brokenRamp === true) return { reason: 'caseC-flag', gradePct: null };
+  if (!demSampler) return null;
   // BACKSTOP for one-sided layer-transition cracks (near-vertical PROFILE step the flag misses). Very
   // high threshold so a legit steep ramp / short bridge is NEVER dropped here — only true cliffs.
-  if (!(r.bridge || r.tunnel || r.isRamp || (r.layer != null && r.layer !== 0))) return false;
+  if (!(r.bridge || r.tunnel || r.isRamp || (r.layer != null && r.layer !== 0))) return null;
   const pts = r.points;
-  if (!pts || pts.length < 2) return false;
+  if (!pts || pts.length < 2) return null;
   const profOf = (p) => {
     const lon = (p[0] / _BR_R_EARTH) * (180 / Math.PI);
     const lat = (2 * Math.atan(Math.exp(p[2] / _BR_R_EARTH)) - Math.PI / 2) * (180 / Math.PI);
@@ -76,7 +76,9 @@ function isBrokenRampRoad(r, demSampler) {
     }
     prevProf = profB;
   }
-  return maxGrade > _BROKEN_RAMP_GRADE;
+  // Report the measured grade, not just a verdict. A bare count of dropped roads cannot be
+  // acted on: 12% is a normal Barcelona street, 600% is a vertical crack. P-R1 needs the number.
+  return maxGrade > _BROKEN_RAMP_GRADE ? { reason: 'profile-backstop', gradePct: +(maxGrade * 100).toFixed(1) } : null;
 }
 import { parsePbfHighways } from './pbfHighways.js';
 import { parsePbfBuildings } from './pbfBuildings.js';
@@ -98,6 +100,7 @@ import { tileMercatorBounds, clipRoadsForTile, roadsForTileNoClip } from './tile
 import { buildFromWays } from './roads/RoadGraph.js';
 import { resolveRamps } from './roads/RampResolver.js';
 let _censusFlattened = [];   // P-R1: Case-C flattened short tunnels, for the defect census
+const _censusDropped = [];   // P-R1: every dropped road with WHY and its measured grade
 import { resolveBridgeToBridge } from './roads/BridgeToBridgeResolver.js';
 import { fixOsmData } from './roads/OsmDataFixer.js';
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
@@ -1374,7 +1377,12 @@ async function main() {
       nodes: tileNodes,
       roads: tileRoadsFinal.filter((r) => {
         // Skip broken/incomplete-ramp roads — never baked (no mangled half-ramps / broken lines).
-        if (isBrokenRampRoad(r, demSampler)) { droppedRampIds.add(r.id); return false; }
+        const brk = isBrokenRampRoad(r, demSampler);
+        if (brk) {
+          droppedRampIds.add(r.id);
+          _censusDropped.push({ id: r.id, type: r.highwayType, reason: brk.reason, gradePct: brk.gradePct });
+          return false;
+        }
         // Skip known floor-gap roads (terrain spikes through the roadway — undrivable, accept gap).
         if (KNOWN_FLOOR_GAP_ROADS.has(r.id)) { droppedFloorGapIds.add(r.id); return false; }
         return true;
@@ -1706,16 +1714,33 @@ async function main() {
             .map((f) => ({ wayId: f.wayId, lengthM: f.lengthM, dropM: +(f.endH - f.startH).toFixed(2),
                            gradePct: +(100 * Math.abs(f.endH - f.startH) / f.lengthM).toFixed(1) }))
             .sort((a, b) => b.gradePct - a.gradePct);
-          const g = steep.map((x) => x.gradePct);
-          const pct = (q) => (g.length ? g[Math.min(g.length - 1, Math.floor(g.length * q))] : null);
+          // Split by WHICH rule dropped it. The first census recorded only the Case-C flag and
+          // reported 4 source ways against 332 deletions — the arithmetic did not work, because the
+          // BACKSTOP (profile grade over 60%) drops the overwhelming majority and was unmeasured.
+          const byReason = {};
+          for (const d of _censusDropped) (byReason[d.reason] ||= []).push(d);
+          const backstop = (byReason['profile-backstop'] || []).map((d) => d.gradePct).filter(Number.isFinite).sort((a, b) => b - a);
+          const pctOf = (arr, q) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * q))] : null);
+          const byType = {};
+          for (const d of _censusDropped) byType[d.type || '?'] = (byType[d.type || '?'] || 0) + 1;
           return {
             count: droppedRampIds.size,
             ids: [...droppedRampIds],
-            sourceWays: steep.length,
-            gradePct: { max: g[0] ?? null, p50: pct(0.5), p90: pct(0.9), min: g[g.length - 1] ?? null },
-            // ≤15% is steep-but-drivable (a 1-in-7 street); Barcelona has plenty.
-            drivableAtOrBelow15pct: g.filter((x) => x <= 15).length,
-            ways: steep.slice(0, 40),
+            byReason: Object.fromEntries(Object.entries(byReason).map(([k, v]) => [k, v.length])),
+            byHighwayType: byType,
+            // The backstop's own measured PROFILE grade (terrain removed). This is the number that
+            // decides recoverability: a 20% road is steep but drivable and beats a missing flyover;
+            // a 600% one is a vertical crack and deleting it is right.
+            backstopGradePct: {
+              max: backstop[0] ?? null, p90: pctOf(backstop, 0.1), p50: pctOf(backstop, 0.5),
+              p10: pctOf(backstop, 0.9), min: backstop[backstop.length - 1] ?? null,
+              atOrBelow25: backstop.filter((x) => x <= 25).length,
+              atOrBelow50: backstop.filter((x) => x <= 50).length,
+              total: backstop.length,
+            },
+            // The Case-C flag path, measured at source-way level.
+            caseCWays: steep.slice(0, 40),
+            worstBackstop: (byReason['profile-backstop'] || []).sort((a, b) => b.gradePct - a.gradePct).slice(0, 10),
           };
         })(),
         // V5 terrain-conflict — hand-listed today, NOT a detector. The measured buried-road rate is
