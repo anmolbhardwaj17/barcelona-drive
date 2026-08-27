@@ -1096,16 +1096,21 @@ export function getVegPools(parentGroup) {
       // A pool SET wraps an array of pools (a sibling spawns when one fills), so totals are summed.
       const row = (name, set) => {
         const ps = set?.pools || [];
-        let inst = 0, vis = 0, geo = 0; let mat = null;
+        let inst = 0, vis = 0, geo = 0, drawn = 0; let mat = null;
         for (const p of ps) {
           const bm = p.mesh;
           inst += bm.instanceCount ?? 0;
+          // ALLOCATED vs DRAWN. instanceCount is what the pool holds; visibleInstances is what the
+          // LOD has actually switched on. Reporting only the former cannot tell "no trees were
+          // made" from "trees were made and something is hiding them", which is the case that
+          // matters when a hillside looks empty.
+          drawn += p.visibleInstances ?? 0;
           if (bm.visible) vis++;
           geo = p.geometries?.length ?? geo;
           mat = bm.material;
         }
-        return `${name.padEnd(12)} pools ${String(ps.length).padStart(2)}  instances ${String(inst).padStart(6)}` +
-               `  visiblePools ${vis}  geometries ${geo}` +
+        return `${name.padEnd(12)} pools ${String(ps.length).padStart(2)}  allocated ${String(inst).padStart(6)}` +
+               `  DRAWN ${String(drawn).padStart(6)}  visiblePools ${vis}  geometries ${geo}` +
                `  ${mat?.type || '?'}${mat ? (mat.map ? ' +map' : ' NO-MAP') : ''}`;
       };
       return [row('trees', _vegPools.trees), row('bushes', _vegPools.bushes),

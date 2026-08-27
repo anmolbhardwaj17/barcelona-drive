@@ -58,6 +58,12 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
   // setGeometryIdAt() — BatchedMesh's freed list stays empty, so addInstance() never sorts.
   const freeIds = [];
   let slotsAllocated = 0;   // ids ever created via bm.addInstance (monotonic)
+  // Running total of instances currently switched ON in this pool. Tracked rather than derived,
+  // because `BatchedMesh.instanceCount` reports what is ALLOCATED, not what is drawn — and telling
+  // "in the pool but hidden" apart from "in the pool and drawn" is the whole question when someone
+  // says they cannot see the trees. Without it `_ddVegCount()` answers only three of the four cases.
+  let visibleTotal = 0;
+
   let reserved = 0;         // slots promised to in-flight add() calls (capacity check → allocation
                             // spans awaits, so concurrent adds must see each other's reservations —
                             // without this, interleaved tiles overshot maxInstanceCount:
@@ -156,6 +162,10 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     if (!startVisible) { for (let i = 0; i < di; i++) bm.setVisibleAt(sortedIds[i], false); }
     // rawIds = ADDITION-ORDER ids (pre-sort) — for callers that must address "the i-th instance I
     // added" (e.g. bridge-pole night colour cycling). `ids` stays nearest-first for LOD fading.
+    // Credit the pool's drawn total for anything added ALREADY VISIBLE. Without this the counter
+    // starts at 0 while handles start at `count`, so the first LOD hide subtracts a credit that was
+    // never added and the total goes NEGATIVE — which is exactly what the probe reported.
+    if (startVisible) visibleTotal += di;
     return { ids: sortedIds, rawIds: ids, xs: sortedXs, zs: sortedZs, count: di, visCount: startVisible ? di : 0, dead: false, pool: api };
   }
 
@@ -169,6 +179,8 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
       bm.setVisibleAt(handle.ids[i], false);
       freeIds.push(handle.ids[i]);
     }
+    // A tile can unload while its instances are still switched on; drop their credit too.
+    visibleTotal -= handle.visCount;
     handle.visCount = 0;
   }
 
@@ -182,6 +194,7 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     const ids = handle.ids;
     if (t > prev) { for (let i = prev; i < t; i++) bm.setVisibleAt(ids[i], true); }
     else { for (let i = t; i < prev; i++) bm.setVisibleAt(ids[i], false); }
+    visibleTotal += t - prev;
     handle.visCount = t;
   }
 
@@ -190,7 +203,8 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
     bm.setColorAt(instanceId, color);
   }
 
-  const api = { name, mesh: bm, geometries, add, remove, setVisibleCount, setColorAt, freeSlots };
+  const api = { name, mesh: bm, geometries, add, remove, setVisibleCount, setColorAt, freeSlots,
+                get visibleInstances() { return visibleTotal; } };
   return api;
 }
 
