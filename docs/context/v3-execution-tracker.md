@@ -1147,7 +1147,7 @@ before anything is painted.**
 ## P4 — THE COMPLETION WAVE · 51 days · 18 tasks
 **Goal.** The domains that P3 deferred: the street furniture and signage that make a city read as inhabited, the vehicles that stop it reading as a toy, the ground under the whole thing, and progression.
 
-**Progress:** 2 / 18 — P4-01 ✅ · P4-02 ✅
+**Progress:** 2 / 19 — P4-01 ✅ · P4-02 ✅  ·  (P4-15 split into 15a engineering / 15b art on 08-27)
 
 > **Vegetation bug-fix run, 2026-08-27** (numbered VEG-FIX-* deliberately — NOT P4-02b/c, which is a
 > real scheduled task riding the v10 bake). Three separate bugs, all surfaced by P4-02 finally making
@@ -1373,7 +1373,26 @@ already owned by Phase 4 of the terrain rework. Different problem, different fix
 - **Full spec:** master plan §4 → P4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P4-15 · 19.5d · risk high
+### `[ ]` P4-15a · ~3d · risk low — **ENGINEERING HALF, SPLIT OUT 2026-08-27**
+**VEHICLES: draws and allocation only. No Blender, no art, no new assets.**
+
+Split from P4-15 because the two halves have different costs, different risks and different payoffs,
+and only one of them is costing frames **today**. Measured on the 145 s drive of 2026-08-27:
+`traffic` burned **27.6 ms across 9 long frames**, hitting **8.3 ms and 7.8 ms** on individual ones —
+second only to `rend`. That is not the car models being ugly; it is 28 loose Meshes and 180 sprite
+objects being submitted every frame.
+
+Scope, all of it already specified inside P4-15:
+- traffic **28 loose Meshes → 2 InstancedMeshes** (30 → ~7 draws)
+- parked cars 11 → ~8
+- shared template cache + single loader registry — kills **9 duplicate GLB parses**, colormap 18 → 1 resident
+- tire smoke **90 Sprites + 90 SpriteMaterials → one InstancedMesh**
+
+- **Depends:** nothing. This is why it was worth splitting — P4-15's `rallyStyle ADR` and `P1 pipeline`
+  dependencies belong to the ART half.
+- **Done when:** _(measured: traffic ms across long frames, and draw-call delta)_
+
+### `[ ]` P4-15b · ~16.5d · risk high — **ART HALF (the original P4-15 body)**
 **VEHICLES.** Shared template cache + single loader registry (kills 9 duplicate GLB parses, colormap 18 → 1 resident). Tire smoke 90 Sprites+90 SpriteMaterials → one InstancedMesh. **Blender modular Barcelona kit** — 6 bodies at 1,800–2,800 tris LOD0 + 500–700 LOD1, TRUE dimensions (the `carModels.js:75` squash deleted), one shared UV layout, modelled shutlines/bevels for the normal bake. 2048² albedo with a **paintjob mask** + 1024² normal (UASTC) + 1024² ORM. Rewire traffic 28 loose Meshes → 2 InstancedMeshes (30 → ~7 draws), parked 11 → ~8. **Hero car re-UV** on the existing 9,792-tri geometry, 11 materials →…
 
 - **Files:** `car/carModels.js`, `carModel.js`, `trafficSystem.js`, `parkedCars.js`, `carEffects.js`; new `public/models/vehicles/*`, `public/art/v1/vehicles/*`
