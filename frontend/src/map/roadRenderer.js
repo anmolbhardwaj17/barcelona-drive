@@ -3478,7 +3478,12 @@ function guardRailKeepRuns(keep, n) {
  * Pushes geometries into railGeoms / railingGeoms. Extracted verbatim from the old
  * inline per-edge build so the smart mask can drive it run-by-run.
  */
-function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railingGeoms) {
+/**
+ * @param railingGeoms POST geometries. @param beamGeoms BEAM geometries.
+ * Kept apart so the merge can order them [beams..., posts...] — see buildBridgeGuardRailGeometry,
+ * where that ordering is what makes a distance LOD possible without a second draw call.
+ */
+function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railingGeoms, beamGeoms) {
   const count = innerEdge.length;
   if (count < 2) return;
   // 6 vertices per cross-section (see original convention): inner wall, outer wall, top face.
@@ -3610,7 +3615,7 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
     bg.setAttribute('position', new THREE.Float32BufferAttribute(beamPos2, 3));
     bg.setIndex(beamIdx2);
     bg.computeVertexNormals();
-    railingGeoms.push(bg);
+    beamGeoms.push(bg);
   }
 }
 
@@ -3622,7 +3627,8 @@ function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railin
  */
 function buildBridgeGuardRailGeometry(roads, options) {
   const railGeoms = [];
-  const railingGeoms = [];
+  const railingGeoms = [];   // posts
+  const beamGeoms = [];      // beams — merged FIRST so drawRange can cut the posts off at distance
   const mask = computeGuardRailMask(roads, options);
   for (const road of roads || []) {
     if (!isElevatedGuardRailRoad(road, options)) continue;

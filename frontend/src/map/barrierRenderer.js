@@ -33,14 +33,22 @@ const BARRIER_CONFIGS = {
   guard_rail:     { thickness: 0.20, color: 0x8A8580, roughness: 0.60 },                   // weathered metal
   jersey_barrier: { thickness: 0.60, color: 0xB0AAA0, roughness: 0.80 },                   // pale concrete
   kerb:           { thickness: 0.25, color: 0x9A9590, roughness: 0.80 },                   // kerb stone grey
-  compound_wall:  { thickness: 1.00, color: 0xD4C0A0, roughness: 0.85, minHeight: 1.5 },  // campus perimeter; Delhi default was 3.5m
+  // ⚠ NOT an Indian precast compound wall any more. `compound_wall` is assigned by
+  // pbfBarriers.js:201 to ANY closed "campus area" — which in Barcelona is a school, a depot or a
+  // park perimeter, not a walled compound. It was rendering as pale 1 m-thick precast panels with
+  // pillars and wire supports, a Delhi visual, on city boulevards. User-spotted on Ronda de Sant Pau.
+  // Barcelona perimeter walls are rendered masonry: thinner, warmer, and they take the wall texture.
+  compound_wall:  { thickness: 0.45, color: 0xC8B89A, roughness: 0.88, minHeight: 1.5 },
 };
 
 /** Wall types that receive the base wall texture (UV-mapped geometry). */
-const TEXTURED_WALL_TYPES = new Set(['city_wall', 'retaining_wall', 'wall']);
+const TEXTURED_WALL_TYPES = new Set(['city_wall', 'retaining_wall', 'wall', 'compound_wall']);
 
 /** Wall types rendered as Indian precast compound wall (pillars + panels + wire supports). */
-const PRECAST_WALL_TYPES = new Set(['compound_wall']);
+// EMPTY for Barcelona. The precast style — pillars, panels, wire supports — is an Indian compound
+// wall and there is nothing in Barcelona it describes. Kept as a set rather than deleted because the
+// Delhi tiles in backend/tiles/delhi/ are still a documented fallback region.
+const PRECAST_WALL_TYPES = new Set();
 
 // ─── Precast compound wall constants ──────────────────────────────────────────
 const PRECAST_PILLAR_SPACING = 3.0;   // metres between pillar centres
