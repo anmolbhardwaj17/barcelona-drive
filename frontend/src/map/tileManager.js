@@ -651,6 +651,43 @@ function impostorFrac(d, treeFullDist, treeMaxDist) {
   return 1 - (d - VEG_IMPOSTOR_HOLD_M) / (VEG_IMPOSTOR_CUT_M - VEG_IMPOSTOR_HOLD_M);
 }
 
+/**
+ * Dev probe: `_ddVegLod()` — what the LOD decided for each loaded tile, right now.
+ *
+ * `_ddVegCount()` answers "do the trees exist and are any drawn" for the whole city. It cannot
+ * answer "why is THIS hillside bare", because it aggregates every tile into one number. When trees
+ * are visible from one spot and gone thirty metres later, the question is per-tile: which band is
+ * that tile in, and what count did each of its handles get.
+ *
+ * Populated by the LOD pass each time it runs; reading it costs nothing.
+ */
+const _ddLodState = new Map();
+if (typeof window !== 'undefined') {
+  window._ddVegLod = () => {
+    const rows = [...(_ddLodState.entries())]
+      .sort((a, b) => a[1].d - b[1].d)
+      .map(([key, v]) => {
+        const parts = Object.entries(v.kinds)
+          .map(([k, c]) => `${k} ${c.vis}/${c.total}`).join('  ');
+        return `${key.padEnd(16)} nearEdge ${String(Math.round(v.d)).padStart(5)} m  ` +
+               `frac ${v.frac.toFixed(2)}  bb ${v.bb.toFixed(2)}  ${v.fog ? 'FOG-CULLED' : 'near     '}  ${parts}`;
+      });
+    return rows.length ? rows.join('\n') : '(no tiles — is the LOD pass running?)';
+  };
+}
+
+function _ddRecordLod(key, d, frac, bb, fog, handles) {
+  if (typeof window === 'undefined') return;
+  const kinds = {};
+  for (const h of handles || []) {
+    const k = h.kind || 'tree';
+    (kinds[k] ||= { vis: 0, total: 0 });
+    kinds[k].vis += h.visCount || 0;
+    kinds[k].total += h.count || 0;
+  }
+  _ddLodState.set(key, { d, frac, bb, fog, kinds });
+}
+
 function applyTerrainLod(entry, nearEdgeDist) {
   const mesh = entry.terrainMesh;
   if (!mesh) return;
@@ -2876,6 +2913,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         // vegetation on it cannot be seen, so extending further would be pure cost.
         if (entry.vegPoolHandles) {
           const bbF = impostorFrac(nearEdgeDist, treeFullDist, treeMaxDist);
+          _ddRecordLod(key, nearEdgeDist, 0, bbF, true, entry.vegPoolHandles);
           for (const h of entry.vegPoolHandles) {
             // Only 'billboard' survives out here. 3D trees and bushes stay culled — a bush is a
             // couple of pixels at this range and there are thousands of them per tile.
@@ -2962,6 +3000,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           const target = f <= 0 ? 0 : f >= 1 ? h.count : Math.max(1, Math.floor(f * h.count));
           h.pool.setVisibleCount(h, target);
         }
+        _ddRecordLod(key, nearEdgeDist, frac, bbFrac, false, entry.vegPoolHandles);
       }
 
       if (entry.vegetationMeshes) {
