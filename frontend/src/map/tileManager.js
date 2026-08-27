@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { requestShadowRefresh } from '../shadowRefresh.js';
 import { isShared } from '../sharedMaterial.js';
+import { disposeTileObject } from './tileDisposal.js';   // task #39: ONE disposal rule
 import { assertGroundLayers } from './groundLayers.js';
 import * as CANNON from 'cannon-es';
 import { worldToSlippyTile, tileCenterToWorld, worldToLatLon, latLonToWorld, TILE_ZOOM, getTileBboxLatLon } from '../projection.js';
@@ -1349,6 +1350,47 @@ function createApproachWallColliders(wallApproachRoads, tunnelRoads, world, road
  * @param {CANNON.World} [world] - physics world; required for terrain heightfield colliders
  * @param {CANNON.Body} [groundBody] - flat plane body; removed when first heightfield is added, re-added when last is removed
  */
+/** Live geometry count from the renderer, or -1 where there is no renderer (tests, workers). */
+function geometryCount() {
+  try { return globalThis.window?._ddRenderer?.info?.memory?.geometries ?? -1; } catch { return -1; }
+}
+
+/**
+ * `?debug=leak` — task #39. Accumulates over the drive and prints on every tile unload.
+ *
+ * The two columns answer different questions, and the leak is whichever one drifts:
+ *
+ *   held / freed / shared   what the unload WALK saw on this tile's own objects. `held - freed -
+ *                           shared` above zero means the walk is holding geometry it will not free.
+ *   Δgeometries             what the RENDERER's count actually did. If the walk freed 40 and the
+ *                           renderer only dropped 28, twelve geometries exist that this tile
+ *                           created and never handed to the walk — a different bug, in a different
+ *                           place, needing a different fix.
+ */
+let _leakTotals = null;
+function reportUnloadAccounting(acct, before) {
+  const after = geometryCount();
+  const delta = (before >= 0 && after >= 0) ? after - before : null;
+  _leakTotals ||= { tiles: 0, held: 0, freed: 0, shared: 0, rendererFreed: 0, unaccounted: 0 };
+  _leakTotals.tiles++;
+  _leakTotals.held += acct.held;
+  _leakTotals.freed += acct.freed;
+  _leakTotals.shared += acct.shared;
+  if (delta != null) {
+    _leakTotals.rendererFreed += -delta;
+    _leakTotals.unaccounted += acct.freed - (-delta);
+  }
+  const t = _leakTotals;
+  console.warn(
+    `[leak] unload: held ${acct.held} · freed ${acct.freed} · shared ${acct.shared}`
+    + (delta != null ? ` · Δgeometries ${delta}` : ' · Δgeometries n/a')
+    + `  ||  totals over ${t.tiles} unloads: freed ${t.freed}, renderer released ${t.rendererFreed},`
+    + ` UNACCOUNTED ${t.unaccounted}`
+    + (t.held - t.freed - t.shared > 0 ? `, walk is HOLDING ${t.held - t.freed - t.shared}` : ''),
+  );
+}
+
+
 export function createTileManager(scene, createRoadMeshes, createBuildingMeshes, createSpatialIndex, renderVegetation, camera = null, world = null, groundBody = null) {
   const tileManagerState = { numHeightfieldBodies: 0 };
   // Global cross-tile vegetation pools (trees/shadows/bushes as 3 shared BatchedMeshes).
@@ -2861,33 +2903,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Process deferred GPU disposals — one tile per frame to avoid GC spikes
     if (_pendingDisposals.length > 0) {
       const disposal = _pendingDisposals.shift();
-      for (const m of disposal.meshes) {
-        if (m.isGroup || m.children?.length) {
-          m.traverse((child) => {
-            if (child.isMesh) {
-              child.geometry?.dispose();
-              // v3 P0-02: isShared() consults the MATERIAL, which always knows what it is;
-              // userData.sharedMaterial on the mesh is kept for back-compat with existing tags.
-              if (!child.userData?.sharedMaterial && !isShared(child.material)) {
-                if (child.material?.map) child.material.map.dispose();
-                if (child.material?.dispose) child.material.dispose();
-              }
-            }
-          });
-        } else if (m.isMesh || m.isLine || m.isLineSegments || m.isPoints) {
-          // ⚠ `isMesh` ALONE IS NOT ENOUGH. A LineSegments/Line/Points holds a geometry exactly like a
-          // Mesh does, but fails `isMesh`, so it fell through this chain and was freed by nobody —
-          // silently, because nothing throws when you skip a disposal. streetlightWireMesh is one.
-          if (!m.userData?.sharedGeometry) m.geometry?.dispose();
-          if (!m.userData?.sharedMaterial && !isShared(m.material) && m.material) {
-            if (Array.isArray(m.material)) m.material.forEach((mat) => { if (mat.map) mat.map.dispose(); mat.dispose(); });
-            else { if (m.material.map) m.material.map.dispose(); m.material.dispose(); }
-          }
-          // InstancedMesh/BatchedMesh own per-mesh instanceMatrix/instanceColor GPU buffers that
-          // geometry.dispose() does NOT free — release them explicitly (safe: doesn't touch shared geo/mat).
-          if (m.isInstancedMesh || m.isBatchedMesh) { m.instanceMatrix?.dispose?.(); m.instanceColor?.dispose?.(); }
-        }
-      }
+      const acct = CONFIG.DEBUG_LEAK ? { held: 0, freed: 0, shared: 0 } : null;
+      const before = acct ? geometryCount() : -1;
+      for (const m of disposal.meshes) disposeTileObject(m, acct);
+      if (acct) reportUnloadAccounting(acct, before);
       // v3 P1-15 REGRESSION FIX: this called disposeDecalMeshes(), which went with decalRenderer.js.
       // entry.decalMeshes is now always [] — and an EMPTY ARRAY IS TRUTHY, so the guard passed and
       // threw a ReferenceError inside update() on every tile unload, aborting the rest of the frame's

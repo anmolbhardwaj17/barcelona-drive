@@ -102,6 +102,24 @@ export const CONFIG = {
   })(),
 
   /**
+   * `?debug=leak` — task #39. Per-tile-unload geometry accounting.
+   *
+   * The drive report already SEES the leak — geometry count rises at constant tile count — but a
+   * drift number cannot say which of two very different things is happening:
+   *
+   *   · the unload walk holds a geometry and fails to free it  → `held` and `freed` disagree
+   *   · geometry exists that the tile entry never tracked      → both agree, and the renderer's
+   *     own count still climbs
+   *
+   * Those need opposite fixes, so the probe reports both sides: what the walk held and freed, and
+   * what `renderer.info.memory.geometries` actually did across the same unload. Off by default and
+   * free when absent.
+   */
+  DEBUG_LEAK: (() => {
+    try { return new URLSearchParams(location.search).get('debug') === 'leak'; } catch { return false; }
+  })(),
+
+  /**
    * v3 P3-04/P3-05 — array-texture facade path. ON by default as of 2026-08-26.
    *
    * It was opt-in (`?facadearray=1`) because P3-04 shipped the SHADER PATH against PLACEHOLDER

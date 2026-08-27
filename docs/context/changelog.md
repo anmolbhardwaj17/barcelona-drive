@@ -4,6 +4,45 @@ Running log of changes. Append an entry at the top for every session. For struct
 
 Format: `YYYY-MM-DD — description`
 
+## 2026-08-27 — Task #39: two more disposal leaks, and a call that never did anything
+
+**Two disposal branches, and the fix only ever landed on one.** Tile unload branched: a Group was
+`traverse`d and its `child.isMesh` freed; everything else went down a flat path. The flat path had
+learned three things the group path never did:
+
+1. **`isMesh` alone is not enough.** A `LineSegments`/`Line`/`Points` holds a geometry and fails it.
+   That is the `streetlightWireMesh` leak — found and fixed once already — **still live inside every
+   Group**: `reflectorGroup`, `tunnelMeshGroup`, `canopyMeshGroup`.
+2. **`sharedGeometry` was ignored** on the group path, which disposed unconditionally. The opposite
+   defect: a pooled geometry freed out from under every other tile using it.
+3. **Instance buffers were skipped entirely.**
+
+Now one routine, both entry points calling it.
+
+**And the instance-buffer call had never freed anything.** Both paths carried
+`m.instanceMatrix?.dispose?.()` under a comment correctly explaining that `geometry.dispose()` does
+not free those GPU buffers. Correct premise, dead call: **`dispose` does not exist on a
+`BufferAttribute` in three 0.183**, and the optional CALL — `?.()`, not just `?.` — swallowed the
+miss in silence. What actually frees them is `InstancedMesh.dispose()` / `BatchedMesh.dispose()`,
+which dispatch the event the renderer releases them on. Now called, gated on `sharedGeometry` so a
+pooled BatchedMesh can never be torn down by a tile unload, and pinned by a test that fails loudly if
+a three upgrade ever adds the missing method.
+
+**The old test was a regex over the source, and it proved why that is not a test.** It asserted
+`tileManager.js` contained the literal branch condition — so it passed for as long as the group
+branch was silently leaking (the string was present, on the *other* branch) and failed the moment
+the two were merged into one correct routine. It was written that way because `tileManager.js`
+cannot be imported outside Vite. So the logic moved to `map/tileDisposal.js` — one function, one
+import — and its 14 tests now run it against real three objects.
+
+**New probe: `?debug=leak`.** The drive report can see the leak but not attribute it, and the two
+possible causes need opposite fixes. So per tile unload it prints what the walk HELD, FREED and
+skipped as shared, next to what `renderer.info.memory.geometries` actually did over the same unload.
+`held` above `freed + shared` means the walk holds geometry it will not free; an `UNACCOUNTED` total
+means geometry exists the tile entry never tracked.
+
+319 tests green. **Whether any residual leak remains needs one drive with `?debug=leak`.**
+
 ## 2026-08-27 — R-W1: one road width model, and the streets were a third of their width
 
 **The ticket said OSM's `width=*` tag is unreliable. The measurement found the code never read it.**
