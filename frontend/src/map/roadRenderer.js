@@ -3245,6 +3245,53 @@ function guardRailWidth(road) {
  * terrain (above-terrain frame, so smooth/bumpy terrain can't false-trigger — Phase 2
  * audit D3). Shared by the geometry + collider builders and the mask so all three agree.
  */
+/**
+ * R-B1b · LATERAL DROP — is the ground BESIDE the carriageway far enough below it to be a fall?
+ *
+ * `getAboveTerrainHeights` samples the CENTRELINE, which answers "is this road elevated" and misses
+ * the case that actually hurts: a road sitting on a lip. Its centre is on the terrain, so `atMax` is
+ * ~0, while three metres to the side the ground has gone. That is every daylighted-trench edge
+ * (Option L carves the terrain out and leaves the neighbouring street at the cut), every embankment
+ * and every cutting — none of which OSM tags, and none of which `bridge` catches.
+ *
+ * Measured with `backend/tools/edgeAudit.mjs` over the shipped tiles: 658 drivable segments have a
+ * drop over 1.5 m beside the lane. 594 were already guarded by the bridge/ramp/layer/trench gate.
+ * **64 were not** — including a service road with a **24.5 m** fall beside it.
+ *
+ * Deterministic: a pure function of the road's own geometry and the terrain, so the same road is
+ * guarded on every load. Sampled sparsely (every few points, both sides) because this runs per road
+ * per tile build and the answer is "does a fall exist anywhere along it", not a profile.
+ */
+const LATERAL_DROP_M = 1.5;    // fall beside the lane that warrants an edge
+const LATERAL_PROBE_M = 3.0;   // how far past the kerb to look
+
+function hasLateralDrop(road, options, heights) {
+  const getElevationAt = options?.getElevationAt;
+  const pts = road.points;
+  if (!getElevationAt || !pts || pts.length < 2) return false;
+  const hVals = heights || getRoadPointHeights(road, options);
+  if (!hVals) return false;
+  const scale = vertExag();
+  const halfW = (guardRailWidth(road) || 6) / 2;
+  const step = Math.max(1, Math.floor(pts.length / 12));   // ~12 probes, not one per vertex
+  for (let i = 0; i < pts.length; i += step) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-3) continue;
+    dx /= len; dy /= len;
+    const off = halfW + LATERAL_PROBE_M;
+    for (const sgn of [1, -1]) {
+      const sx = pts[i].x + -dy * off * sgn, sy = pts[i].y + dx * off * sgn;
+      const { lat, lon } = worldToLatLon(sx, sy);
+      const ty = getElevationAt(lat, lon);
+      if (!Number.isFinite(ty)) continue;
+      if (hVals[i] - ty * scale > LATERAL_DROP_M) return true;
+    }
+  }
+  return false;
+}
+
 function isElevatedGuardRailRoad(road, options) {
   if (!road || road.closedLoop || road.tunnel) return false;
   const heights = getRoadPointHeights(road, options);
@@ -3256,7 +3303,12 @@ function isElevatedGuardRailRoad(road, options) {
     || road.isRamp
     || (road.layer != null && road.layer > 0)
     || road.crossesTrench === true // Option L: streets bridging daylighted tunnel corridors
-    || (isLink && (atMax > 0.5 || (atMax - atMin) > 1.0));
+    || (isLink && (atMax > 0.5 || (atMax - atMin) > 1.0))
+    // R-B1b: a fall BESIDE the lane, which every clause above misses. OSM is the base; a drop is a
+    // drop whether or not anyone tagged it. Measured: 64 drivable roads with an unguarded drop over
+    // 1.5 m, worst 24.5 m. Last in the chain so it only costs a terrain probe on roads the cheap
+    // boolean tests did not already accept.
+    || hasLateralDrop(road, options, heights);
 }
 
 function detectRoundaboutZonesForRails(roads) {
