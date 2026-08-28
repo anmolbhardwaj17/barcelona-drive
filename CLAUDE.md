@@ -45,7 +45,7 @@ cd backend && node worldBuilder/buildRegion.js --area eixample    # ~20 tiles, E
 cd backend && node worldBuilder/buildRegion.js --area montjuic    # port + Montjuïc elevation
 
 # Single-tile dry-run (prints v7 feature counts, writes one tile)
-BAKE_SINGLE_TILE=16_33143_24488 node worldBuilder/buildRegion.js --area eixample
+BAKE_SINGLE_TILE=16_33161_24477 node worldBuilder/buildRegion.js --area eixample   # the SPAWN tile
 ```
 
 ## Current Dev State (as of 2026-05-29)

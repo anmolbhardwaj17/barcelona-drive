@@ -2664,3 +2664,31 @@ hazard, not a railing — and the first "too low" threshold (0.4 m) was lax enou
 1.05 m, with a 0.7 m floor asserted. `test/barrierStyles.test.js` also pins that no two styles are
 geometrically identical, that solid styles carry no posts, that posts sit ON their wall rather than
 floating, and that nothing exceeds 1.25 m and walls the driver in.
+
+## 2026-08-28 — vegetation: the missing street trees, and the rocks on the crossing
+
+- **N-13 · a way ENDING is not a junction.** `getRoadsideTreePositions` booked a 10–18 m no-tree
+  disc wherever a way endpoint fell within 8 m of a road segment. Under `noClipTileStrategy` one
+  street is several way records, so every record's endpoint sits on its own continuation. Spawn
+  tile: 501 discs, **353 of them phantoms**, the 500 cap HIT, **45.0% of roadside tree slots
+  rejected**. Now requires a different way AND a non-collinear meeting (`isWayContinuation`), disc
+  cut to 5–9 m (`junctionTreeClearance`), cap 500 → 4000. Same tile: 31.0%.
+- **N-13b** roadside building margin 2 m → 0.6 m; measured 12.3% of surviving trees lost to it.
+- **N-11 · the road guard was a point test at paved width.** Widened `isOnAnyRoad` to
+  `corridorWidth` (safe only because trees are exempt at every call site) and gave it a `clearance`
+  argument for the item's own footprint — a 2.5-scale flat stone could sit its centre outside the
+  kerb and overhang the asphalt. Wired through `propRenderer` and `environmentClusterRenderer`.
+  Baker gained `buildCorridorGrid` for baked bushes (small: 2.1% citywide).
+- **N-12** noted, not fixed: `vegetationWorker` uses baked positions and skips runtime placement, so
+  `vegetationRenderer`'s twin does not run in the shipped game. Sixth known copy-pair.
+- **N-14** measurement method: density must be measured per tile against IN-BOUNDS road length —
+  summing per-tile records double-counts every road. Corrected 27.2 m → **14.8 m** mean spacing.
+- Docs: `CLAUDE.md` single-tile example pointed at `16_33143_24488`, which does not exist. Now the
+  real spawn tile `16_33161_24477`.
+- Tests: `frontend/test/vegetationJunctions.test.js` (6) pins the continuation rule and the disc
+  radius; `clusterRoadGuard.test.js` re-pinned to the corridor contract + footprint clearance.
+- **Measured after the full re-bake:** trees 95,575 → **145,904 (+53%)**; mean street-tree spacing
+  per side **14.8 m → 9.7 m** (real Barcelona ~8 m); tree:bush **1.24 → 1.82 : 1**; sparsest tile
+  97 → 55 m/side. No regression: trees in a carriageway held at 4.0%, the 0–3 m kerb band rose to
+  67.9%, baked bushes inside a road corridor fell 2.1% → **0.2%**. Bake 7:44 vs an 8:20–8:44
+  baseline. 370 tests green.

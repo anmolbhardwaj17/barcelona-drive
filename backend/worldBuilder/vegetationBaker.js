@@ -35,6 +35,12 @@ const ROAD_RENDER_WIDTH = {
 };
 const ROAD_WIDTH_BY_TYPE = ROAD_RENDER_WIDTH;
 
+// N-13: was 10, giving discs of 10-18 m — up to a third of an Eixample block cleared at every
+// corner. 5 (=> 5-9 m with the width term) is what the offline replay measured at 31.0%.
+const JUNCTION_TREE_CLEARANCE = 5;
+/** cos of the angle below which two ways count as the same street continuing (~25 deg). */
+const T_COLLINEAR_COS = 0.9;
+
 const TREE_ROAD_TYPES = new Set([
   'primary', 'secondary', 'tertiary',
   'primary_link', 'secondary_link', 'tertiary_link',
@@ -501,6 +507,56 @@ function buildGroundRoadGrid(roads) {
   return { grid, gridW, gridH, minX, minZ };
 }
 
+/**
+ * N-11 — the ROAD CORRIDOR as a grid: kerb-to-kerb plus both pavements, plus a margin.
+ *
+ * `buildGroundRoadGrid` above deliberately INSETS by 3-5 m, so it only catches something well
+ * inside the carriageway. That is right for "is this tree in the road" and useless for "is this
+ * bush on the pavement" — which is why source 2 below planted a bush every 4-8 m along both kerbs
+ * of every street and nothing stopped it. Measured: bushes outnumbered surviving street trees
+ * almost 1:1, which is the reported "mostly bushes and rocks" along the road.
+ *
+ * The user's ruling: bushes and stones near roads are not wanted at all, because open ground still
+ * carries them. So this grid is the whole right-of-way, and the bush test is a rejection.
+ */
+function buildCorridorGrid(roads) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let hasRoads = false;
+  for (const road of roads) {
+    if (road.tunnel || road.bridge || (road.layer ?? 0) !== 0) continue;
+    for (const p of road.points || []) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minZ) minZ = p.y; if (p.y > maxZ) maxZ = p.y;
+      hasRoads = true;
+    }
+  }
+  if (!hasRoads) return null;
+  minX -= GRID_PAD; maxX += GRID_PAD;
+  minZ -= GRID_PAD; maxZ += GRID_PAD;
+  const gridW = Math.ceil((maxX - minX) / GRID_RES);
+  const gridH = Math.ceil((maxZ - minZ) / GRID_RES);
+  const grid = new Uint8Array(gridW * gridH);
+
+  for (const road of roads) {
+    if (road.tunnel || road.bridge || (road.layer ?? 0) !== 0) continue;
+    const pts = road.points || [];
+    if (pts.length < 2) continue;
+    // R-W1: read the baked corridor, never re-derive it. Fall back to kerb-to-kerb plus a nominal
+    // pair of pavements only for a road the width model never classified.
+    const corridor = Number.isFinite(Number(road.corridorW))
+      ? Number(road.corridorW)
+      : (Math.max(Number(road.kerbToKerbW ?? road.width) || 0, ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6)
+         + 2 * (Number(road.sidewalkW) || 0));
+    const half = corridor / 2 + 1.0;   // + a bush's own footprint, so none can overhang the kerb
+    if (half <= 0) continue;
+    for (let i = 0; i < pts.length - 1; i++) {
+      rasterizeSegment(grid, gridW, gridH, minX, minZ, GRID_RES,
+        pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, half);
+    }
+  }
+  return { grid, gridW, gridH, minX, minZ };
+}
+
 function isOnGroundRoad(grdGrid, x, z) {
   if (!grdGrid) return false;
   const gx = Math.floor((x - grdGrid.minX) / GRID_RES);
@@ -530,6 +586,28 @@ function scatterTreesInPolygon(polygon, density, seed, maxPoints) {
   return out;
 }
 
+/**
+ * N-13 — is this endpoint-meets-segment a way CONTINUATION rather than a real T-junction?
+ *
+ * Under `noClipTileStrategy` one street is several way records, so a record's endpoint lies exactly
+ * on the next record of the same street. Booking those as junctions cleared 45% of the tile's
+ * roadside tree slots. A continuation runs straight on; a real T meets at an angle.
+ *
+ * @param {number} edx @param {number} edz  unit terminal direction of the ending way
+ * @param {number} sx  @param {number} sz   the candidate segment's vector (need not be unit)
+ * @returns {boolean} true if collinear within ~25 deg (either sense), i.e. NOT a junction
+ */
+export function isWayContinuation(edx, edz, sx, sz) {
+  const sl = Math.hypot(sx, sz);
+  if (sl < 1e-9) return false;
+  return Math.abs((edx * sx + edz * sz) / sl) > T_COLLINEAR_COS;
+}
+
+/** Radius of a no-tree disc at a junction, from the widest road meeting there. */
+export function junctionTreeClearance(widestRoadW) {
+  return Math.min(JUNCTION_TREE_CLEARANCE + widestRoadW * 0.2, 9);
+}
+
 function getRoadsideTreePositions(tileData, tileKey) {
   if (!ENABLE_ROADSIDE_TREES) return [];
   const roads = tileData.roads || [];
@@ -540,7 +618,7 @@ function getRoadsideTreePositions(tileData, tileKey) {
   let stepIdx = 0;
 
   const LINK_SKIP_DIST = 17;
-  const JUNCTION_TREE_CLEARANCE = 10;
+
   const JUNCTION_CLUSTER_DIST = 5;
 
   // Build junction set
@@ -548,15 +626,23 @@ function getRoadsideTreePositions(tileData, tileKey) {
   {
     const allEndpoints = [];
     const allRoadSources = [...roads];
-    for (const road of allRoadSources) {
+    for (let ri = 0; ri < allRoadSources.length; ri++) {
+      const road = allRoadSources[ri];
       if (road.tunnel) continue;
       const pts = road.points || [];
       if (pts.length < 2) continue;
       const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
       const typeW = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
       const w = Math.max(dataW, typeW);
-      allEndpoints.push({ x: pts[0].x, z: pts[0].y, w });
-      allEndpoints.push({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].y, w });
+      // N-13: carry the source road and the TERMINAL DIRECTION. Both are needed to tell a real
+      // T-junction from a way that simply continues into the next record — see below.
+      const n = pts.length;
+      const l0 = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) || 1;
+      const l1 = Math.hypot(pts[n - 1].x - pts[n - 2].x, pts[n - 1].y - pts[n - 2].y) || 1;
+      allEndpoints.push({ x: pts[0].x, z: pts[0].y, w, ri,
+        dx: (pts[1].x - pts[0].x) / l0, dz: (pts[1].y - pts[0].y) / l0 });
+      allEndpoints.push({ x: pts[n - 1].x, z: pts[n - 1].y, w, ri,
+        dx: (pts[n - 1].x - pts[n - 2].x) / l1, dz: (pts[n - 1].y - pts[n - 2].y) / l1 });
     }
     const used = new Uint8Array(allEndpoints.length);
     const clusterDistSq = JUNCTION_CLUSTER_DIST * JUNCTION_CLUSTER_DIST;
@@ -578,30 +664,50 @@ function getRoadsideTreePositions(tileData, tileKey) {
         }
       }
       if (count >= 2) {
-        const clearance = Math.min(JUNCTION_TREE_CLEARANCE + maxW * 0.3, 18);
+        const clearance = junctionTreeClearance(maxW);
         junctions.push({ x: cx, z: cz, rSq: clearance * clearance });
       }
     }
 
     // T-junction detection
+    // ── N-13 · A WAY ENDING IS NOT A JUNCTION ────────────────────────────────────────────────
+    //
+    // This fired for EVERY endpoint lying within 8 m of ANY road segment. Under
+    // `noClipTileStrategy` a single street is several way RECORDS, so each record's endpoint sits
+    // exactly on its own continuation — and every one of them was booked as a T-junction with a
+    // 10-18 m no-tree disc. Measured on the spawn tile (16_33161_24477): 353 of 501 discs were
+    // these phantoms, the 500-disc cap was HIT, and **45.0% of every roadside tree slot in the
+    // tile was rejected as "near a junction"**. That is the missing avenue.
+    //
+    // Two tests separate a real T from a continuation:
+    //   · it is not the endpoint's OWN way, and
+    //   · the ways are not COLLINEAR — a continuation runs straight on (cos > 0.9, ~25 deg),
+    //     a genuine T meets at an angle.
+    // With both, the same tile rejects 31.0% — and that residue is real: an Eixample corner every
+    // 113 m legitimately clears its chamfer. The disc also shrinks to 5-9 m; 10-18 m was up to a
+    // third of a block, and Barcelona plants right up to the chamfer.
     const T_JUNCTION_DIST_SQ = 64;
     for (const ep of allEndpoints) {
-      for (const road of allRoadSources) {
+      for (let rj = 0; rj < allRoadSources.length; rj++) {
+        const road = allRoadSources[rj];
         if (road.tunnel) continue;
+        if (rj === ep.ri) continue;                 // its own way is not a junction with itself
         const pts = road.points || [];
         if (pts.length < 2) continue;
         for (let i = 0; i < pts.length - 1; i++) {
           const d2 = distSqToSegment(ep.x, ep.z, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
           if (d2 < T_JUNCTION_DIST_SQ && d2 > 0.5) {
+            if (isWayContinuation(ep.dx, ep.dz,
+                  pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)) continue;
             const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
             const typeW = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
             const w = Math.max(dataW, typeW, ep.w);
-            const clearance = Math.min(JUNCTION_TREE_CLEARANCE + w * 0.3, 18);
+            const clearance = junctionTreeClearance(w);
             junctions.push({ x: ep.x, z: ep.z, rSq: clearance * clearance });
             break;
           }
         }
-        if (junctions.length > 500) break;
+        if (junctions.length > 4000) break;   // N-13: was 500, and the phantoms alone filled it
       }
     }
   }
@@ -750,7 +856,12 @@ function collectAllPositions(tileData, tileKey, vegMask, config) {
   const roadside = getRoadsideTreePositions(tileData, tileKey);
   for (const p of roadside) {
     if (isOnGroundRoad(groundGrid, p.x, p.y)) continue;
-    if (!isInsideOrNearBuilding(p.x, p.y, buildings)) {
+    // N-13: 0.6 m, not the default 2 m. The setback above deliberately puts the pit in the MIDDLE
+    // of the pavement, and an Eixample pavement is 3-4 m — so a 2 m building margin rejected the
+    // tree for standing where Barcelona actually plants it. Measured on the spawn tile: 12.3% of
+    // surviving roadside trees were lost here. `pointInPolygon` still rejects anything genuinely
+    // inside a footprint, so this cannot put a tree in a building.
+    if (!isInsideOrNearBuilding(p.x, p.y, buildings, 0.6)) {
       positions.push({ x: p.x, y: p.y });
     }
     if (positions.length >= cap) break;
@@ -797,8 +908,15 @@ function collectBushPositions(treePositions, tileData, tileKey, vegMask) {
   const buildings = tileData.buildings || [];
   const bushes = [];
 
+  // N-11: the mask alone was never a road test — it returns TRUE outside its own grid, and its
+  // ROAD_INFLATE is 0.3 m. Both bush sources below are anchored to roads (source 1 clusters around
+  // street trees, which stand ON the pavement; source 2 plants along the kerb by construction), so
+  // without a geometric corridor test practically every bush produced here was a street bush.
+  const corridorGrid = buildCorridorGrid(roads);
+
   function isValid(x, z) {
     return isVegetationAllowed(vegMask, x, z, 3) &&
+           !isOnGroundRoad(corridorGrid, x, z) &&
            !isInsideOrNearBuilding(x, z, buildings);
   }
 
@@ -1337,3 +1455,4 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
     zoneBushCount: zoneResult.allBushPositions.length,
   };
 }
+

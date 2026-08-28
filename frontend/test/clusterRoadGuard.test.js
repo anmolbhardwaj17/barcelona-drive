@@ -46,17 +46,30 @@ test('a rock anywhere across the carriageway is rejected', () => {
   }
 });
 
-test('THE PAVEMENT IS ALLOWED — a street tree lives there', () => {
-  // Guarding at corridorWidth (kerb-to-kerb PLUS both pavements) deleted every plane tree on
-  // Gran Via along with the rocks. The thing to keep clear is the ASPHALT.
-  // 5.2 m kerb + 0.3 m allowance = 5.5 m; a tree pit at 6.5 m is on the pavement and must survive.
-  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 6.5), false);
-  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, -6.5), false);
+test('THE PAVEMENT IS REJECTED — but only because no caller passes a tree', () => {
+  // The guard covers the whole CORRIDOR: kerb-to-kerb plus both pavements. A rock or a bush on the
+  // pavement does not read as open ground, it reads as debris in the street, and that was the
+  // reported bug.
+  //
+  // This is safe ONLY because trees never reach here: environmentClusterRenderer exempts
+  // `item.type === 'tree'` at the call site and propRenderer makes no trees at all. An earlier
+  // revision guarded at corridor width with trees flowing through and it stripped Gran Via bare —
+  // a street tree LIVES on the pavement, so the corridor is exactly the band it occupies.
+  // Corridor 16.4 m → half 8.2 m + 0.3 m allowance = 8.5 m.
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 6.5), true, 'pavement is inside the corridor');
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, -6.5), true);
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 8.4), true, 'inside corridor + allowance');
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 8.6), false, 'clear of the building line');
 });
 
-test('the kerb allowance keeps items from sitting half on the asphalt', () => {
-  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 5.4), true, 'inside kerb + 0.3 m');
-  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 5.6), false, 'clear of it');
+test('CLEARANCE is the item footprint, not a point — a big rock cannot overhang the kerb', () => {
+  // The bug this pins: the guard tests the instance ORIGIN. A flat stone at scale 2.5 could sit its
+  // centre just outside the corridor and still overhang metres of asphalt, which is how boulders
+  // reached the Gran Via crossing. Passing the footprint pushes the rejection out by that radius.
+  const at = (z, clearance) => isOnAnyRoad({ roads: [eastWest] }, 0, z, clearance);
+  assert.equal(at(9.5, 0), false, 'a point at 9.5 m is clear');
+  assert.equal(at(9.5, 2.5), true, 'a 2.5 m rock at 9.5 m still overhangs');
+  assert.equal(at(11.5, 2.5), false, 'the same rock further out is fine');
 });
 
 test('ground well clear of the road is allowed — the guard must not sterilise the city', () => {

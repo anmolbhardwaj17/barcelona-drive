@@ -8,7 +8,7 @@
  * the shared isInsideOrNearBuilding helper.
  */
 import { latLonToWorld } from '../projection.js';
-import { pavedWidth, corridorWidth } from './roadWidths.js';   // R-W1: never re-derive a width
+import { corridorWidth } from './roadWidths.js';   // R-W1: never re-derive a width
 /** m — kerb allowance, so nothing sits half on the asphalt. */
 const KERB_CLEAR = 0.3;
 import { rasterizeSegment, rasterizeDisc } from './roadOccupancyGrid.js';
@@ -343,21 +343,25 @@ const _CLUSTER_ROAD_TYPES = new Set([
   'living_street', 'service',
   'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
 ]);
-export function isOnAnyRoad(tileData, x, z) {
+export function isOnAnyRoad(tileData, x, z, clearance = 0) {
   const roads = tileData?.roads;
   if (!roads?.length) return false;
   for (const r of roads) {
     if (!_CLUSTER_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
     const pts = r.points;
     if (!pts || pts.length < 2) continue;
-    // ⚠ PAVED width (kerb to kerb), NOT corridorWidth.
+    // CORRIDOR width (kerb to kerb PLUS both pavements) — and the reason it is safe to be this
+    // wide is that NO CALLER PASSES A TREE. An earlier revision guarded at corridor width with
+    // trees still flowing through, and it deleted every plane tree on Gran Via: a street tree
+    // LIVES on the pavement, so the corridor is exactly the band it occupies. The fix was to
+    // exempt trees at the call site, not to narrow the guard — and with them exempt, paved width
+    // is too narrow for what remains. A rock or a bush on the pavement is not ground the player
+    // reads as open; it reads as debris in the street, which is the reported bug.
     //
-    // This used `corridorWidth`, which is kerb-to-kerb PLUS both pavements — and a STREET TREE
-    // LIVES ON THE PAVEMENT. Guarding at corridor width therefore deleted every plane tree on
-    // Gran Via along with the rocks: the avenue came back bare. The thing that must be kept clear
-    // is the ASPHALT. Anything outside the kerb is legitimate ground for a tree, a bush or a rock,
-    // and whether a ROCK belongs on a pavement is an art question, not a correctness one.
-    const half = pavedWidth(r) / 2 + KERB_CLEAR;
+    // `clearance` is the item's own FOOTPRINT radius. Without it this is a point test, so a flat
+    // stone at scale 2.5 could sit its CENTRE 10 cm outside the kerb and still overhang several
+    // metres of asphalt — which is what put boulders on the Gran Via crossing.
+    const half = corridorWidth(r) / 2 + KERB_CLEAR + clearance;
     const halfSq = half * half;
     for (let i = 0; i < pts.length - 1; i++) {
       const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;

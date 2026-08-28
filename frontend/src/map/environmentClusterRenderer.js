@@ -599,7 +599,11 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       // corridorWidth (which includes the pavement it stands on) and once at the kerb, where the
       // pit legitimately sits. Rocks and bushes were the actual complaint; a tree in the road is
       // rare, obvious, and far cheaper to live with than an avenue with no trees.
-      if (item.type !== 'tree' && isOnAnyRoad(tileData, wx, wz)) { _clusterRejects.road++; continue; }
+      // The guard is a point test on the instance origin, so it needs the item's own footprint or
+      // a big rock clears it on a technicality while overhanging the asphalt. `item.scale` is the
+      // prototype scale; the per-instance jitter below tops out at 1.1x, so bound it there.
+      const footprint = item.scale * clusterScale * 1.1;
+      if (item.type !== 'tree' && isOnAnyRoad(tileData, wx, wz, footprint)) { _clusterRejects.road++; continue; }
       _clusterRejects.kept++;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
