@@ -8,6 +8,8 @@
  * No Delhi-era chevron curbs, guardrails, or arched canopies.
  */
 import * as THREE from 'three';
+import { getLiningTextures } from './tunnelTextures.js';   // v3 P4-18
+import { getRoadSurface } from './roadTexturePack.js';     // v3 P4-18 — reuse the resident asphalt
 import { kerbOffset } from './roadWidths.js';   // R-W1: a tunnel's paved width is kerb-to-kerb
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -57,13 +59,47 @@ const PEDESTRIAN_PORTAL_COLOR = 0x3a3a3a; // dark charcoal pedestrian portal fra
 
 // ── Geometry helper ───────────────────────────────────────────────────────────
 
-function buildQuad(a, b, c, d) {
+/**
+ * A quad, with UVs IN METRES.
+ *
+ * ── P4-18 · WHY THIS HAD NO UVs, AND WHY THAT WAS THE WHOLE BLOCKER ──────────────────────────
+ * Every tunnel surface — lining, portal faces, retaining walls, the in-tunnel road — was a flat
+ * MeshLambert colour with no map. It was not that nobody chose a texture; it is that the geometry
+ * could not carry one: this function emitted `position` only, so a textured material had nothing to
+ * sample with. Hence "nobody owned tunnel lining".
+ *
+ * ── THE CORNER CONVENTION, WHICH IS WHAT MAKES ONE RULE WORK FOR ALL 32 CALL SITES ──────────
+ * Every caller passes a and b on the NEAR cross-section and c and d on the FAR one:
+ *
+ *     floor:  a = near-left,  b = near-right,  c = far-left,  d = far-right
+ *     wall:   a = near-top,   b = near-bottom, c = far-top,   d = far-bottom
+ *
+ * so in both cases **a→c runs ALONG the tunnel** and **a→b runs ACROSS it** (width, or height).
+ * U therefore follows the tunnel and V goes across, measured in real metres off the actual edge
+ * lengths — no call site has to know anything. A material states its span in metres and sets
+ * `map.repeat = 1 / span`, the same "span is declared, not assumed" contract roadTexturePack uses.
+ *
+ * `uOffset` is the running distance along the tunnel. Without it U restarts at 0 every segment and
+ * the lining visibly resets at each one; the main loop accumulates it. Callers that build a single
+ * standalone quad (portal frames, cliff faces) can leave it at 0.
+ */
+function buildQuad(a, b, c, d, uOffset = 0) {
   const positions = new Float32Array([
     a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z,
     c.x, c.y, c.z, b.x, b.y, b.z, d.x, d.y, d.z,
   ]);
+  const dist = (p, q) => Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z);
+  const vA = 0,            uA = uOffset;
+  const vB = dist(a, b),   uB = uOffset;
+  const vC = 0,            uC = uOffset + dist(a, c);
+  const vD = dist(c, d),   uD = uOffset + dist(b, d);
+  const uvs = new Float32Array([
+    uA, vA,  uB, vB,  uC, vC,
+    uC, vC,  uB, vB,  uD, vD,
+  ]);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geo.computeVertexNormals();
   return geo;
 }
@@ -85,10 +121,50 @@ function _mat(key, factory) {
   return m;
 }
 
+/**
+ * P4-18 — a shared road plate, re-scaled for metre UVs without disturbing the road renderer.
+ *
+ * `getRoadSurface` hands back the SAME texture objects the carriageway draws with. Setting
+ * `.repeat` on those would change the road too, so this clones them: a three.js clone shares
+ * `.source`, i.e. the same GPU image and the same mip chain, and owns only its sampler state. Zero
+ * additional VRAM, no coupling. Returns null if the pack is unavailable so the caller can fall back
+ * to flat colour rather than throw inside a tile build (H16 — a throw here empties the tile).
+ */
+function _roadPlate(name) {
+  try {
+    const pack = getRoadSurface(name);
+    const span = pack.spanM || 2.0;
+    const mk = (t) => {
+      const c = t.clone();
+      c.wrapS = c.wrapT = THREE.RepeatWrapping;
+      c.repeat.set(1 / span, 1 / span);   // UVs are in METRES — see buildQuad
+      c.needsUpdate = true;
+      return c;
+    };
+    return { map: mk(pack.albedo), normalMap: mk(pack.normal) };
+  } catch (e) {
+    console.warn('[tunnel] road plate unavailable, falling back to flat colour:', e.message);
+    return null;
+  }
+}
+
 const getMat = {
-  floor:     () => _mat('floor',     () => new THREE.MeshLambertMaterial({ color: FLOOR_COLOR,   side: THREE.DoubleSide })),
-  wall:      () => _mat('wall',      () => new THREE.MeshLambertMaterial({ color: WALL_COLOR,    side: THREE.DoubleSide })),
-  ceiling:   () => _mat('ceiling',   () => new THREE.MeshLambertMaterial({ color: CEILING_COLOR, side: THREE.DoubleSide })),
+  // The tunnel carriageway is asphalt, and the asphalt plate is already resident and preloaded —
+  // so this is a free correction of a surface that was a flat grey fill.
+  floor:     () => _mat('floor', () => {
+    const p = _roadPlate('asphalt_worn');
+    return new THREE.MeshLambertMaterial({
+      color: p ? 0xffffff : FLOOR_COLOR, ...(p || {}), side: THREE.DoubleSide,
+    });
+  }),
+  // Lining: ceramic tile on a 0.2 m grid. Wall and ceiling share one texture pair and differ only
+  // by tint — the ceiling of a road tunnel is the same tile, just never cleaned and never lit.
+  wall:      () => _mat('wall', () => new THREE.MeshLambertMaterial({
+    color: 0xffffff, ...getLiningTextures(), side: THREE.DoubleSide,
+  })),
+  ceiling:   () => _mat('ceiling', () => new THREE.MeshLambertMaterial({
+    color: CEILING_COLOR, ...getLiningTextures(), side: THREE.DoubleSide,
+  })),
   led:       () => _mat('led',       () => new THREE.MeshBasicMaterial  ({ color: LED_COLOR,     side: THREE.DoubleSide })),
   safety:    () => _mat('safety',    () => new THREE.MeshLambertMaterial({ color: SAFETY_COLOR,  side: THREE.DoubleSide })),
   portal:    () => _mat('portal',    () => new THREE.MeshLambertMaterial({ color: PORTAL_COLOR,  side: THREE.DoubleSide })),
@@ -158,17 +234,21 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
     const roadName = road.name || null;
     if (!signGeosMap.has(roadName)) signGeosMap.set(roadName, []);
 
+    // P4-18: running distance along this tunnel, in metres, fed to buildQuad as the U origin so
+    // the lining reads as one continuous surface instead of restarting at every segment joint.
+    let runU = 0;
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y);
       // Normalize absolute DEM road elevation into the spawn frame (was raw → floated +offset).
       const eA = _normTunnelElev(a.elevation);
       const eB = _normTunnelElev(b.elevation);
-      if (eA == null || eB == null) continue;
+      if (eA == null || eB == null) { runU += segLen; continue; }
       const gA = _gy(getGroundY, a.x, a.y), gB = _gy(getGroundY, b.x, b.y);
 
       // Skip segments at/above LOCAL terrain (terrain-relative; was absolute > -0.5, which assumed
       // tunnels live near Y=0). Ramp-fixed portals reach the surface — no enclosure there.
-      if (eA > gA - 0.5 || eB > gB - 0.5) continue;
+      if (eA > gA - 0.5 || eB > gB - 0.5) { runU += segLen; continue; }
 
       // Ceiling: constant clearance above road floor
       const ceilA = eA + TUNNEL_CLEARANCE;
@@ -181,12 +261,14 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
       floorGeos.push(buildQuad(
         { x: a.x - oX, y: eA, z: a.y - oZ }, { x: a.x + oX, y: eA, z: a.y + oZ },
         { x: b.x - oX, y: eB, z: b.y - oZ }, { x: b.x + oX, y: eB, z: b.y + oZ },
+        runU,
       ));
 
       // ── Ceiling ──
       ceilingGeos.push(buildQuad(
         { x: a.x - oX, y: ceilA, z: a.y - oZ }, { x: a.x + oX, y: ceilA, z: a.y + oZ },
         { x: b.x - oX, y: ceilB, z: b.y - oZ }, { x: b.x + oX, y: ceilB, z: b.y + oZ },
+        runU,
       ));
 
       // ── Walls + LED strips + safety stripes on both sides ──
@@ -197,6 +279,7 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
         wallGeos.push(buildQuad(
           { x: a.x + wx, y: ceilA, z: a.y + wz }, { x: a.x + wx, y: eA, z: a.y + wz },
           { x: b.x + wx, y: ceilB, z: b.y + wz }, { x: b.x + wx, y: eB, z: b.y + wz },
+          runU,
         ));
 
         // LED strip at ceiling-wall junction (MeshBasicMaterial → self-illuminating)
@@ -219,6 +302,7 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
           { x: b.x + perp.x * sOff2, y: eB + SAFETY_STRIPE_H, z: b.y + perp.z * sOff2 },
         ));
       }
+      runU += segLen;   // P4-18: advance AFTER the segment is emitted, so its quads share one origin
     }
 
     // ── Portal at each tunnel mouth ──
