@@ -7,8 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon, latLonToWorld } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
-import { corridorWidth } from './roadWidths.js';   // R-W1: never re-derive a width
+import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad } from './vegetationMask.js';
 import { getTreeGeometries, getTreeMaterial, getBushGeometries, getBushCardsMaterial, getBushVariantCount } from './vegetationRenderer.js';
 import { classifySpecies as classifyTreeSpecies, classifyBush, seededRand } from './treeSpeciesSets.js';
 import { loadCardAtlas } from './cardMesh.js';
@@ -528,44 +527,7 @@ function findGateAdjacentClusters(tileData, vegMask) {
  * @param {{ getElevationAt?: (lat: number, lon: number) => number }} [options]
  * @returns {THREE.Mesh[]}
  */
-/**
- * N-9 · Is this point on a drivable carriageway? Tested against the road geometry itself.
- *
- * The vegetation mask is a grid over the tile plus a pad, and `isVegetationAllowed` treats
- * everything OUTSIDE that grid as allowed — which is correct for "we do not know", and wrong as
- * the last word before placing a rock. Clusters near a tile edge scatter items past the grid and
- * were then placed unconditionally. This is O(items x segments) on a per-tile road list, which is
- * small, and it only runs for items the mask already accepted.
- */
-const _CLUSTER_ROAD_TYPES = new Set([
-  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
-  'living_street', 'service',
-  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
-]);
-function isOnAnyRoad(tileData, x, z) {
-  const roads = tileData?.roads;
-  if (!roads?.length) return false;
-  for (const r of roads) {
-    if (!_CLUSTER_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
-    const pts = r.points;
-    if (!pts || pts.length < 2) continue;
-    // corridorWidth: kerb to kerb PLUS both pavements — a rock does not belong on either.
-    const half = corridorWidth(r) / 2;
-    const halfSq = half * half;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
-      const dx = bx - ax, dz = bz - az;
-      const L = dx * dx + dz * dz;
-      let t = L > 0 ? ((x - ax) * dx + (z - az) * dz) / L : 0;
-      if (t < 0) t = 0; else if (t > 1) t = 1;
-      const qx = ax + t * dx, qz = az + t * dz;
-      const ddx = x - qx, ddz = z - qz;
-      if (ddx * ddx + ddz * ddz < halfSq) return true;
-    }
-  }
-  return false;
-}
-
+/** Exposed ONLY for `test/clusterRoadGuard.test.js`. A guard nobody tested was written twice. */
 export function renderEnvironmentClusters(tileData, tileKey, options) {
   const vegMask = options?.vegetationMask || null;
   const centers = findClusterCenters(tileData, tileKey, vegMask);
@@ -625,14 +587,15 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       const wz = c.z + rz * clusterScale;
 
       // Skip items that land on or near roads — strict check per item.
-      if (!isVegetationAllowed(vegMask, wx, wz, 4)) continue;
+      if (!isVegetationAllowed(vegMask, wx, wz, 4)) { _clusterRejects.mask++; continue; }
       // N-9: and a DIRECT test against the road geometry, because the mask alone was not enough.
       // `isVegetationAllowed` returns TRUE for anything outside its own grid (tile + PAD), so a
       // cluster centre near a tile edge scatters items past the boundary and every one of them is
       // waved through — which is how rocks ended up sitting on Gran Via. Identified with
       // `_ddPick`: the offender is this file's rock InstancedMesh, which carried no `userData.type`
       // and so reported only as a minified class name.
-      if (isOnAnyRoad(tileData, wx, wz)) continue;
+      if (isOnAnyRoad(tileData, wx, wz)) { _clusterRejects.road++; continue; }
+      _clusterRejects.kept++;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
       // the neighbour tile owns that ground and places its own vegetation there.

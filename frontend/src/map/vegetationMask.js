@@ -315,3 +315,54 @@ export function isInsideOrNearBuilding(x, z, buildings, margin = 2) {
   }
   return false;
 }
+
+/**
+ * N-9 · Is this point on a drivable carriageway? Tested against the road GEOMETRY itself.
+ *
+ * ONE copy, shared by every placer. Today produced four separate cases of the same logic living in
+ * two files and silently diverging (H10, H12, the carriageway clip, the width tables R-W1 killed),
+ * so this does not get copied — it gets imported.
+ *
+ * The vegetation mask is a grid over the tile plus a pad, and `isVegetationAllowed` treats
+ * everything OUTSIDE that grid as allowed — which is correct for "we do not know", and wrong as
+ * the last word before placing a rock. Clusters near a tile edge scatter items past the grid and
+ * were then placed unconditionally. This is O(items x segments) on a per-tile road list, which is
+ * small, and it only runs for items the mask already accepted.
+ */
+/**
+ * N-9 counters. A guard that silently does nothing looks exactly like a guard that works, and this
+ * one was written twice before it was verified. `window._ddClusterRejects` says which.
+ */
+const _clusterRejects = { mask: 0, road: 0, kept: 0 };
+if (typeof window !== 'undefined') window._ddClusterRejects = _clusterRejects;
+
+const _CLUSTER_ROAD_TYPES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+  'living_street', 'service',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+]);
+export function isOnAnyRoad(tileData, x, z) {
+  const roads = tileData?.roads;
+  if (!roads?.length) return false;
+  for (const r of roads) {
+    if (!_CLUSTER_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
+    const pts = r.points;
+    if (!pts || pts.length < 2) continue;
+    // corridorWidth: kerb to kerb PLUS both pavements — a rock does not belong on either.
+    const half = corridorWidth(r) / 2;
+    const halfSq = half * half;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
+      const dx = bx - ax, dz = bz - az;
+      const L = dx * dx + dz * dz;
+      let t = L > 0 ? ((x - ax) * dx + (z - az) * dz) / L : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const qx = ax + t * dx, qz = az + t * dz;
+      const ddx = x - qx, ddz = z - qz;
+      if (ddx * ddx + ddz * ddz < halfSq) return true;
+    }
+  }
+  return false;
+}
+
+export const __test__ = { isOnAnyRoad };

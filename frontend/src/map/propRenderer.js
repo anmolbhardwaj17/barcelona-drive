@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { latLonToWorld, worldToLatLon } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
+import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad } from './vegetationMask.js';
 
 // ---------------------------------------------------------------------------
 // Density budget per tile
@@ -149,7 +149,7 @@ function getGrassMat() {
  * @returns {{ x: number, z: number }[]}
  */
 function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
-                          placementChance, buildings, roadMargin, vegMask) {
+                          placementChance, buildings, roadMargin, vegMask, tileData) {
   const positions = [];
   const maxAttempts = count * MAX_ATTEMPTS_MULT;
   let idx = 0;
@@ -159,6 +159,10 @@ function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
     idx++;
     if (seeded(idx, seed + seedOffset + 2) > placementChance) continue;
     if (!isVegetationAllowed(vegMask, wx, wz, roadMargin)) continue;
+    // N-9: the mask returns TRUE for anything outside its own grid, so it is not the last word.
+    // Props became visible at the same time as the clusters (917c625 moved both off tile-CENTRE
+    // distance), and they scatter the same way. One shared geometric guard, imported not copied.
+    if (isOnAnyRoad(tileData, wx, wz)) continue;
     if (isInsideOrNearBuilding(wx, wz, buildings, 0)) continue;
     positions.push({ x: wx, z: wz });
   }
@@ -244,7 +248,7 @@ export function renderProps(tileData, tileKey, options) {
   // --- rock_01: flat stones, scattered wide ---
   const rock01Pos = scatterPositions(
     Math.floor(ROCKS_PER_TILE * 0.5), minX, maxX, minZ, maxZ,
-    seed, 10, 0.25, buildings, 8, vegMask
+    seed, 10, 0.25, buildings, 8, vegMask, tileData
   );
   const rock01Mesh = buildInstancedMesh(
     getRock01Geo(), getRockMat(), rock01Pos, seed, 20,
@@ -255,7 +259,7 @@ export function renderProps(tileData, tileKey, options) {
   // --- rock_02: rounder boulders, fewer ---
   const rock02Pos = scatterPositions(
     Math.floor(ROCKS_PER_TILE * 0.5), minX, maxX, minZ, maxZ,
-    seed, 30, 0.20, buildings, 8, vegMask
+    seed, 30, 0.20, buildings, 8, vegMask, tileData
   );
   const rock02Mesh = buildInstancedMesh(
     getRock02Geo(), getRockMat(), rock02Pos, seed, 40,
@@ -266,7 +270,7 @@ export function renderProps(tileData, tileKey, options) {
   // --- bush_01: small green bushes ---
   const bushPos = scatterPositions(
     BUSHES_PER_TILE, minX, maxX, minZ, maxZ,
-    seed, 50, 0.30, buildings, 6, vegMask
+    seed, 50, 0.30, buildings, 6, vegMask, tileData
   );
   const bushMesh = buildInstancedMesh(
     getBushGeo(), getBushMat(), bushPos, seed, 60,
@@ -277,7 +281,7 @@ export function renderProps(tileData, tileKey, options) {
   // --- grass_cluster: small crossed triangle tufts ---
   const grassPos = scatterPositions(
     GRASS_PER_TILE, minX, maxX, minZ, maxZ,
-    seed, 70, 0.40, buildings, 4, vegMask
+    seed, 70, 0.40, buildings, 4, vegMask, tileData
   );
   const grassMesh = buildInstancedMesh(
     getGrassGeo(), getGrassMat(), grassPos, seed, 80,
