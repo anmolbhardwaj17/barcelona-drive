@@ -1134,6 +1134,10 @@ function createRoadTrimeshColliders(roads, opts) {
 }
 
 const WALL_THICKNESS = 0.3;   // metres — thin wall collider
+// N-33: a tunnel wall collider only has to CONTAIN the car, so it is the tunnel's own clearance,
+// not the road's absolute elevation. tunnelRenderer draws the enclosure at TUNNEL_CLEARANCE = 4.5;
+// a little more here keeps a bouncing car in without the wall poking through the visual ceiling.
+const TUNNEL_WALL_H = 5.0;
 const WALL_EXTRA_W   = 1;     // must match tunnelRenderer.js WALL_EXTRA_WIDTH
 
 /**
@@ -1201,9 +1205,18 @@ function createTunnelWallColliders(tunnelRoads, world, roadMaterial) {
       // Perpendicular direction in physics space
       const nx = -dz / segLen, nz = dx / segLen;
 
-      // Wall height: from road elevation to ceiling (Y ≈ 0)
-      const wallH = Math.max(Math.abs(eA), Math.abs(eB));
-      if (wallH < 0.5) continue;
+      // ── N-33 · A TUNNEL WALL IS AS TALL AS THE TUNNEL, NOT AS TALL AS THE HILL ───────────────
+      //
+      // This was `Math.max(Math.abs(eA), Math.abs(eB))` with the note "from road elevation to
+      // ceiling (Y ~ 0)" — a FLAT-WORLD assumption: it takes the road's absolute Y as a height,
+      // which is only a wall height if the ceiling really sits at zero. In the spawn-anchored frame
+      // `eA` is just the road's Y, so a tunnel 40 m up the hill got a **40 m tall collider**. That
+      // is the user's "really high collision boxes", and they are invisible without the K overlay
+      // because a wall only has to be tall enough to contain the car.
+      //
+      // The vertical-model spec supersedes the flat-world assumptions this predates. A road tunnel
+      // is TUNNEL_WALL_H tall, measured UP from its own floor, wherever that floor happens to be.
+      const wallH = TUNNEL_WALL_H;
       const halfH = wallH / 2;
 
       // Yaw to face along the segment
@@ -1211,8 +1224,9 @@ function createTunnelWallColliders(tunnelRoads, world, roadMaterial) {
       const qYaw = new CANNON.Quaternion();
       qYaw.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw);
 
-      const midYA = eA / 2; // midpoint between ceiling (0) and floor (eA)
-      const midYB = eB / 2;
+      // Centre the wall on its own segment: floor + half the wall, per end.
+      const midYA = eA + halfH;
+      const midYB = eB + halfH;
       const midY = (midYA + midYB) / 2;
       const midAlong = { x: (ax + bx) / 2, z: (az + bz) / 2 };
 
