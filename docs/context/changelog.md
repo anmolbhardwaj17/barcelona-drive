@@ -2810,3 +2810,23 @@ now **N-21**, a width-model ticket, gated on first PROVING the darker-roads link
 ⚠ **The X-mirror caught two probes in one day** — `_ddVegY` read instance matrices in local space,
 and `collisionDebug` drew into scene space. Both times the symptom was "the tool reports nothing".
 It is the first thing CLAUDE.md warns about, and it is still the most expensive trap here.
+
+## 2026-08-28 — N-25 attempted, measured, reverted
+
+Tried the narrow bake-side fix for trees in carriageways: a kerb-to-kerb `buildPavedGrid` replacing
+the inset `buildGroundRoadGrid`, applied to BOTH tree paths (the building-perimeter path had never
+had a road guard at all). Full region bake, then measured:
+
+    trees                       561,280 -> 461,565
+    inside a drawn carriageway    4,029 ->   4,029     ← IDENTICAL
+
+99,715 trees deleted, zero offenders fixed. **Cause, confirmed in the shipped tile:** baked tree
+positions are WORLD (`3942.5, 4082.8`); `road.points` at bake time are MERCATOR
+(`240798.8, 5069865.5`). A grid built from road points sits ~240 km away, every lookup falls outside
+it, and the guard is a silent no-op — the N-7 defect again, whose fix was in the reverted set.
+
+**N-25 is therefore blocked on the coordinate space, not on the guard.** Reverted; tiles re-baked.
+
+Lesson, and it is the session's standing one: the guard was added and the bake run WITHOUT a
+rejection counter. A counter (D-23) would have shown `rejected 0` in seconds instead of after a
+9-minute bake and a wrong 100k-tree deletion. **Never ship a guard without proof it fires.**
