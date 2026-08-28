@@ -8,6 +8,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CONFIG } from '../config.js';
 import { worldToLatLon, latLonToWorld } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
+import { corridorWidth } from './roadWidths.js';   // R-W1: never re-derive a width
 import { getTreeGeometries, getTreeMaterial, getBushGeometries, getBushCardsMaterial, getBushVariantCount } from './vegetationRenderer.js';
 import { classifySpecies as classifyTreeSpecies, classifyBush, seededRand } from './treeSpeciesSets.js';
 import { loadCardAtlas } from './cardMesh.js';
@@ -527,6 +528,44 @@ function findGateAdjacentClusters(tileData, vegMask) {
  * @param {{ getElevationAt?: (lat: number, lon: number) => number }} [options]
  * @returns {THREE.Mesh[]}
  */
+/**
+ * N-9 · Is this point on a drivable carriageway? Tested against the road geometry itself.
+ *
+ * The vegetation mask is a grid over the tile plus a pad, and `isVegetationAllowed` treats
+ * everything OUTSIDE that grid as allowed — which is correct for "we do not know", and wrong as
+ * the last word before placing a rock. Clusters near a tile edge scatter items past the grid and
+ * were then placed unconditionally. This is O(items x segments) on a per-tile road list, which is
+ * small, and it only runs for items the mask already accepted.
+ */
+const _CLUSTER_ROAD_TYPES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+  'living_street', 'service',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+]);
+function isOnAnyRoad(tileData, x, z) {
+  const roads = tileData?.roads;
+  if (!roads?.length) return false;
+  for (const r of roads) {
+    if (!_CLUSTER_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
+    const pts = r.points;
+    if (!pts || pts.length < 2) continue;
+    // corridorWidth: kerb to kerb PLUS both pavements — a rock does not belong on either.
+    const half = corridorWidth(r) / 2;
+    const halfSq = half * half;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
+      const dx = bx - ax, dz = bz - az;
+      const L = dx * dx + dz * dz;
+      let t = L > 0 ? ((x - ax) * dx + (z - az) * dz) / L : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const qx = ax + t * dx, qz = az + t * dz;
+      const ddx = x - qx, ddz = z - qz;
+      if (ddx * ddx + ddz * ddz < halfSq) return true;
+    }
+  }
+  return false;
+}
+
 export function renderEnvironmentClusters(tileData, tileKey, options) {
   const vegMask = options?.vegetationMask || null;
   const centers = findClusterCenters(tileData, tileKey, vegMask);
@@ -585,8 +624,15 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       const wx = c.x + rx * clusterScale;
       const wz = c.z + rz * clusterScale;
 
-      // Skip items that land on or near roads — strict check per item
+      // Skip items that land on or near roads — strict check per item.
       if (!isVegetationAllowed(vegMask, wx, wz, 4)) continue;
+      // N-9: and a DIRECT test against the road geometry, because the mask alone was not enough.
+      // `isVegetationAllowed` returns TRUE for anything outside its own grid (tile + PAD), so a
+      // cluster centre near a tile edge scatters items past the boundary and every one of them is
+      // waved through — which is how rocks ended up sitting on Gran Via. Identified with
+      // `_ddPick`: the offender is this file's rock InstancedMesh, which carried no `userData.type`
+      // and so reported only as a minified class name.
+      if (isOnAnyRoad(tileData, wx, wz)) continue;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
       // the neighbour tile owns that ground and places its own vegetation there.
@@ -630,7 +676,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
                                 // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
     mesh.castShadow = false;
     mesh.receiveShadow = true;
-    mesh.userData.sharedGeometry = true;
+    mesh.userData.type = 'clusterRock';   // N-9: untagged, so _ddPick could only report a minified
+    mesh.userData.sharedGeometry = true;  // class name and the source took three passes to find
     mesh.userData.sharedMaterial = true;
 
     const m = new THREE.Matrix4();
@@ -686,6 +733,7 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
                                   // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
       mesh.castShadow = false;
       mesh.receiveShadow = true;
+      mesh.userData.type = 'clusterBush';        // N-9: tag every cluster mesh — see clusterRock
       mesh.userData.sharedGeometry = true;
       mesh.userData.sharedMaterial = true;
 
@@ -740,6 +788,7 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
                                 // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
       mesh.castShadow = false;
       mesh.receiveShadow = true;
+      mesh.userData.type = 'clusterTree';        // N-9: tag every cluster mesh — see clusterRock
       mesh.userData.sharedGeometry = true;
       mesh.userData.sharedMaterial = true;
 

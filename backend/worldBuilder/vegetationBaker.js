@@ -44,7 +44,7 @@ const TREE_ROAD_TYPES = new Set([
 // Vegetation mask constants
 const VEG_MASK_RESOLUTION = 0.5;
 const VEG_MASK_PAD = 20;
-const ROAD_INFLATE = 3.0;
+const ROAD_INFLATE = 1.0;   // N-7b: was 3.0 on top of an already-oversized legacy width table
 const BRIDGE_INFLATE = 18.0;  // wide margin to prevent tree canopies clipping through flyovers
 const JUNCTION_CLUSTER_DIST_SQ = 25;
 const JUNCTION_RADIUS_MULT = 2.0;
@@ -315,9 +315,18 @@ function buildVegetationMask(roads, buildings, waterAreas, tileBounds) {
       // Minor cost: a thin no-tree strip over deep sealed tunnels; big win: no trees in open cuts.
       const pts = road.points || [];
       if (pts.length < 2) continue;
-      const dataW = Number.isFinite(Number(road.width)) ? Number(road.width) : 0;
-      const typeW = ROAD_RENDER_WIDTH[road.highwayType] ?? 6;
-      const w = Math.max(dataW, typeW);
+      // N-7b: trust R-W1's BAKED paved width. `ROAD_RENDER_WIDTH` is an 11th width table (primary
+      // 20 m, motorway 30 m) that predates the width model and is far wider than the real thing;
+      // `max()` with it plus a 3 m inflate blocked ~13 m either side of Gran Via's centreline,
+      // which is past the building line. That never showed while the mask was in the wrong
+      // coordinate space and blocked nothing (N-7) — the moment the mask started working it ate
+      // the avenue's street trees. Use the drawn kerb-to-kerb width and a margin that only keeps
+      // vegetation off the kerb itself; the legacy table survives as a fallback for a road with
+      // no baked section.
+      const bakedW = Number(road.kerbToKerbW ?? road.width);
+      const w = Number.isFinite(bakedW) && bakedW > 0
+        ? bakedW
+        : (ROAD_RENDER_WIDTH[road.highwayType] ?? 6);
       const half = w / 2 + ROAD_INFLATE;
       for (let i = 0; i < pts.length - 1; i++) {
         rasterizeSegment(blocked, gridW, gridH, minX, minZ, VEG_MASK_RESOLUTION,
