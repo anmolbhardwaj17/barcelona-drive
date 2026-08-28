@@ -22,6 +22,7 @@ const MERCATOR_UNSTRETCH = Math.cos((ORIGIN_LAT * Math.PI) / 180);
 
 let _originMercator = null;
 import { corridorWidth } from '../map/roadWidths.js';   // R-W1
+import { isOnAnyRoad } from '../map/vegetationMask.js';   // ONE shared road guard (clusters, props, this)
 import {
   classifySpecies as classifySpeciesShared,
   SPECIES_SETS,
@@ -1979,8 +1980,18 @@ export function processVegetationInWorker(data, config) {
     if (baked.bushPositions && baked.bushCount > 0) {
       const cap = Number.isFinite(config.MAX_BUSHES_PER_TILE) ? config.MAX_BUSHES_PER_TILE : baked.bushCount;
       const stride = Math.max(1, Math.ceil(baked.bushCount / Math.max(1, cap)));
+      // Baked bushes are the SECOND source of bushes on the road, and the cluster/prop guard cannot
+      // reach them — they arrive as positions from the bake, not from a runtime scatter. Measured
+      // on the shipped tiles: **51,660 of 691,842 baked bushes (7.5%) sit inside a road corridor.**
+      // Filtered here rather than at the bake because at bake time roads are in MERCATOR while the
+      // baked vegetation is in WORLD, and getting that wrong is a mask that silently blocks nothing
+      // (the defect this project already hit once). In the worker both are world space, and this is
+      // the SAME `isOnAnyRoad` the clusters and props use — imported, not a seventh copy.
+      const bushTile = { roads: tileData.roads || [] };
       for (let i = 0; i < baked.bushCount; i += stride) {
-        bushPositions.push({ x: baked.bushPositions[i * 2], y: baked.bushPositions[i * 2 + 1] });
+        const bx = baked.bushPositions[i * 2], bz = baked.bushPositions[i * 2 + 1];
+        if (isOnAnyRoad(bushTile, bx, bz, 1.0)) continue;   // 1.0 m = a bush's own footprint
+        bushPositions.push({ x: bx, y: bz });
       }
     }
 

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon, latLonToWorld } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
+import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad } from './vegetationMask.js';
 import { getTreeGeometries, getTreeMaterial, getBushGeometries, getBushCardsMaterial, getBushVariantCount } from './vegetationRenderer.js';
 import { classifySpecies as classifyTreeSpecies, classifyBush, seededRand } from './treeSpeciesSets.js';
 import { loadCardAtlas } from './cardMesh.js';
@@ -587,6 +587,12 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
 
       // Skip items that land on or near roads — strict check per item
       if (!isVegetationAllowed(vegMask, wx, wz, 4)) continue;
+      // The mask returns TRUE outside its own grid, so it is not the last word before placing a
+      // ROCK. This is the direct geometric test, at corridor width plus the item's own footprint.
+      // TREES ARE EXEMPT BY DESIGN: the corridor includes the pavement, which is exactly where a
+      // street tree stands — guarding them here empties the avenue, and that has been done twice.
+      if (item.type !== 'tree'
+          && isOnAnyRoad(tileData, wx, wz, item.scale * clusterScale * 1.1)) continue;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
       // the neighbour tile owns that ground and places its own vegetation there.

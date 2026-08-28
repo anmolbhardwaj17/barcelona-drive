@@ -315,3 +315,50 @@ export function isInsideOrNearBuilding(x, z, buildings, margin = 2) {
   }
   return false;
 }
+
+/** Road classes a rock or bush must stay clear of. Paths and footways are not roads. */
+const _GUARD_ROAD_TYPES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+  'living_street', 'service',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+]);
+
+/**
+ * Is (x, z) inside a road's RIGHT OF WAY — kerb to kerb plus both pavements?
+ *
+ * `isVegetationAllowed` is a mask over the tile plus a pad and it returns TRUE for anything OUTSIDE
+ * that grid. Correct for "we do not know", wrong as the last word before placing a rock: a cluster
+ * centre near a tile edge scatters items past the grid boundary and every one is waved through.
+ * That is how boulders reached the middle of Gran Via. This is the direct geometric test.
+ *
+ * ⚠ FOR ROCKS AND BUSHES ONLY. Never call this for a TREE. It guards at CORRIDOR width, which
+ * includes the pavement — and a street tree stands on the pavement, so guarding one here deletes
+ * the avenue. That mistake has been made twice in this file's history.
+ *
+ * @param {number} [clearance] the item's own footprint radius. Without it this is a point test on
+ *   the instance origin, so a large rock can sit its centre outside the kerb and still overhang.
+ */
+export function isOnAnyRoad(tileData, x, z, clearance = 0) {
+  const roads = tileData?.roads;
+  if (!roads?.length) return false;
+  for (const r of roads) {
+    if (!_GUARD_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
+    const pts = r.points;
+    if (!pts || pts.length < 2) continue;
+    const half = corridorWidth(r) / 2 + 0.3 + clearance;
+    const halfSq = half * half;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
+      const dx = bx - ax, dz = bz - az;
+      const L = dx * dx + dz * dz;
+      let t = L > 0 ? ((x - ax) * dx + (z - az) * dz) / L : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const qx = ax + t * dx, qz = az + t * dz;
+      const ddx = x - qx, ddz = z - qz;
+      if (ddx * ddx + ddz * ddz < halfSq) return true;
+    }
+  }
+  return false;
+}
+
+export const __test__ = { isOnAnyRoad };
