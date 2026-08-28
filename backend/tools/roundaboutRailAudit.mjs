@@ -136,5 +136,5 @@ console.log(`non-ring roads checked                        : ${approachChecked.t
 console.log(`   elevated AND inside a roundabout zone (rule B strips their rails) : ${approachElevatedInZone}`);
 worst.sort((a,b)=>b.drop-a.drop);
 console.log('\nworst — drive to these:');
-for (const w of worst.slice(0,15))
+for (const w of worst.filter(w=>process.env.ONLY_A? w.why.startsWith("A"):true).slice(0,15))
   console.log(`   ${String(w.drop).padStart(5)} m  ${w.why.padEnd(15)} ${String(w.type).padEnd(14)} ?spawn=${w.lat},${w.lon}  (way ${w.id})`);

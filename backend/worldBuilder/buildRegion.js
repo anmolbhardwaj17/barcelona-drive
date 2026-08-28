@@ -593,6 +593,84 @@ async function main() {
 
   advancePhase(); // Phase 0 (PBF) done → Phase 1 (graph)
 
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+  // N-37 · Put the OSM fixer's output back into the array the geometry is actually built from.
+  //
+  // `buildFromWays` DEEP-COPIES every way into a fresh `wayMap`, and `fixOsmData` then edits that
+  // copy. `buildRoadGeometry` was reading `enriched` — the array from BEFORE the copy. So every
+  // way-level thing the fixer did went into a map that nothing downstream ever read:
+  //
+  //   · rule 7's 50 synthesised links   — measured: 0 of them present in the shipped tiles
+  //   · rule 5's duplicate removals     — which is why N-1's "+828 removed" never moved the metric
+  //   · rule 1/4/6's bridge, layer and nodeId edits
+  //
+  // Node-level edits DID land, because `fixOsmData` is handed the ORIGINAL `nodeMap` and mutates it
+  // in place. That asymmetry is exactly why this went unnoticed: the fixer was half-connected, so it
+  // was neither obviously working nor obviously dead.
+  //
+  // ⚠ REMOVALS ARE OFF BY DEFAULT. Rule 5 wants to delete 9,576 of ~46,600 ways — 20% of the city —
+  // and its same-name relaxation was tuned against a metric that could not move, because none of it
+  // shipped. Enabling that unattended is how you find out afterwards that a fifth of Barcelona is
+  // gone. `FIXER_APPLY_REMOVALS=1` turns them on for a test bake, where they can be looked at.
+  const APPLY_REMOVALS = process.env.FIXER_APPLY_REMOVALS === '1';
+  function applyFixerToWays(ways, g) {
+    const wayMap = g.wayMap;
+    const stats = { updated: 0, added: 0, removed: 0, removalsWithheld: 0, widthsRecomputed: 0 };
+    const out = [];
+    const seen = new Set();
+    for (const e of ways) {
+      seen.add(e.id);
+      const w = wayMap.get(e.id);
+      if (!w) {
+        if (APPLY_REMOVALS) { stats.removed++; continue; }
+        stats.removalsWithheld++;
+        out.push(e);
+        continue;
+      }
+      // Structure the fixer may have rewritten. Everything else — widths, name, serviceSubtype —
+      // stays as enriched computed it; the fixer never touches those.
+      const changed = w.bridge !== e.bridge || w.tunnel !== e.tunnel || w.layer !== e.layer;
+      if (!changed && w.nodeIds.length === e.nodeIds?.length
+          && w.tags === e.tags && w.highwayType === e.highwayType) { out.push(e); continue; }
+      stats.updated++;
+      const next = { ...e, nodeIds: w.nodeIds, tags: w.tags, bridge: !!w.bridge,
+                     tunnel: !!w.tunnel, layer: w.layer ?? 0, highwayType: w.highwayType,
+                     closedLoop: !!w.closedLoop };
+      if (changed) {
+        // A width depends on bridge/tunnel/layer (a tunnel bore is narrower than the street), so a
+        // way the fixer re-classified must be re-measured, not carried over.
+        const cw = computeRoadWidths({ tags: next.tags, highwayType: next.highwayType,
+          oneway: next.tags?.oneway === 'yes', serviceSubtype: next.serviceSubtype,
+          bridge: next.bridge, tunnel: next.tunnel, layer: next.layer });
+        Object.assign(next, { width: cw.kerbToKerbW, lanes: cw.lanes,
+          carriagewayW: cw.carriagewayW, parkingLeftW: cw.parkingLeftW,
+          parkingRightW: cw.parkingRightW, shoulderW: cw.shoulderW,
+          kerbToKerbW: cw.kerbToKerbW, sidewalkW: cw.sidewalkW, corridorW: cw.corridorW,
+          widthSource: cw.widthSource });
+        stats.widthsRecomputed++;
+      }
+      out.push(next);
+    }
+    // Ways the fixer INVENTED. They carry no enriched twin, so they get the full width pass here.
+    for (const [id, w] of wayMap) {
+      if (seen.has(id)) continue;
+      const cw = computeRoadWidths({ tags: w.tags, highwayType: w.highwayType,
+        oneway: w.tags?.oneway === 'yes', serviceSubtype: undefined,
+        bridge: !!w.bridge, tunnel: !!w.tunnel, layer: w.layer ?? 0 });
+      out.push({ id, nodeIds: w.nodeIds, tags: w.tags || {}, points: null,
+        bridge: !!w.bridge, tunnel: !!w.tunnel, layer: w.layer ?? 0,
+        highwayType: w.highwayType || 'unclassified', closedLoop: !!w.closedLoop,
+        isRoundabout: (w.tags?.junction || '').toLowerCase() === 'roundabout',
+        name: w.tags?.name || '',
+        width: cw.kerbToKerbW, lanes: cw.lanes, carriagewayW: cw.carriagewayW,
+        parkingLeftW: cw.parkingLeftW, parkingRightW: cw.parkingRightW,
+        shoulderW: cw.shoulderW, kerbToKerbW: cw.kerbToKerbW, sidewalkW: cw.sidewalkW,
+        corridorW: cw.corridorW, widthSource: cw.widthSource });
+      stats.added++;
+    }
+    return { ways: out, stats };
+  }
+
   // R-W1: ONE width model, computed once, here. `width` is kept as an alias of kerbToKerbW so that
   // any consumer not yet migrated reads the PAVED surface — the closest thing to what it used to get
   // — rather than silently switching meaning under it. Everything migrated reads the named field.
@@ -629,6 +707,8 @@ async function main() {
   const graph = buildFromWays(enriched, nodeMap);
   const fixerStats = fixOsmData(graph, nodeMap);
   console.log('  OSM fixer:', fixerStats);
+  const fixed = applyFixerToWays(enriched, graph);
+  console.log('  OSM fixer applied to geometry:', fixed.stats);
   const junctions = classifyJunctions(graph);
   console.log('  Junctions classified:', junctions.length);
   const rampResult = resolveRamps(graph);
@@ -636,7 +716,7 @@ async function main() {
   _censusFlattened = rampResult.flattenedShortTunnels || [];
   const b2bCount = resolveBridgeToBridge(graph, rampResult);
   if (b2bCount > 0) console.log('  Bridge-to-bridge transitions resolved:', b2bCount);
-  const roadsToSimplify = buildRoadGeometry(enriched, nodeMap, rampResult);
+  const roadsToSimplify = buildRoadGeometry(fixed.ways, nodeMap, rampResult);
   console.log('[2/8] Road graph + ramp resolution, roads:', roadsToSimplify.length);
   if (skipTopologyMutation) console.log('[3/8] Skipping way stitching');
   console.log('[4/8] Roads ready:', roadsToSimplify.length);
