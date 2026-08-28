@@ -2850,3 +2850,18 @@ standing red post where the street has a flush cover plate. Filed as **N-27**; t
 
 Safe to bake unattended because `urbanFeatureRenderer` does `if (!builder) continue` — an unknown
 type is skipped silently, so the drinking-water data lands with zero visual change.
+
+## 2026-08-28 — N-22 retracted: the pick was misread
+
+The "sidewalk floats 7.8 m" diagnosis was mine and it does not hold. `_ddPick` lists surfaces
+**nearest-first along the ray**, and the two hits it was built on are **4.36 m apart horizontally**
+— a ray descending a trench bank meets the pavement early and high, the carriageway later and low.
+The 7.53 m gap is mostly the slope between two different places (implied grade 173%, which is a
+sign the comparison is meaningless rather than that the world is broken).
+
+Baked evidence points the other way and is far stronger: sidewalk minus nearest road, **1,759
+samples, median +0.14 m** (a kerb is 0.15). Ruled out too: the sidewalk translate omits `× vertExag`
+versus the road formula, but vertExag is **1**; and terrain uses the same frame.
+
+**If revisited, sample sidewalk and road at the SAME XZ** — the `_ddVegY` shape. A pick cannot
+answer it. Fourth time "beige pavement" has been diagnosed as something it was not (N-4).
