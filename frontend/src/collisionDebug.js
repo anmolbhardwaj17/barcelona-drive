@@ -16,7 +16,6 @@
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { getOriginOffset } from './originOffset.js';
 
 let _active = false;
 let _group = null;
@@ -72,8 +71,6 @@ export function initCollisionDebug() {
 
 export function isCollisionDebugActive() { return _active; }
 
-const _camLocal = new THREE.Vector3();
-let _groupOriginX = 0, _groupOriginZ = 0;
 const _wpos = new CANNON.Vec3();
 const _wquat = new CANNON.Quaternion();
 
@@ -111,52 +108,22 @@ function trimeshGeom(shape) {
 function sphereGeom(shape) { return new THREE.SphereGeometry(shape.radius, 10, 8); }
 
 /** Per-frame update. Safe to call unconditionally — early-returns when inactive. */
-/**
- * @param {THREE.Object3D} parent  MUST be `worldGroup`, not the scene. See the space note below.
- */
-export function updateCollisionDebug(parent, world, camera) {
-  if (!_active || !parent || !world) return;
-  _scene = parent;
+export function updateCollisionDebug(scene, world, camera) {
+  if (!_active || !scene || !world) return;
+  _scene = scene;
   _frame++;
   if (_group && _frame % REBUILD_INTERVAL !== 0) return;
 
-  // ── ⚠ SPACE. THIS IS WHY NOTHING WAS EVER IN THE RIGHT PLACE. ────────────────────────────────
-  //
-  // Collider positions are PHYSICS space, and tileManager states the conversion outright:
-  //
-  //     px = -(worldX - physicsOrigin.x)          pz = worldZ - physicsOrigin.z
-  //
-  // So physics differs from worldGroup-LOCAL by BOTH a negation and an origin offset. Parenting to
-  // `worldGroup` alone undoes only the negation — which is the first fix I shipped, and it moved
-  // the wireframes without landing them. The offset has to come off too:
-  //
-  //     lx = physicsOrigin.x - px                 lz = pz + physicsOrigin.z
-  //
-  // Applied as a TRANSFORM on the group rather than per mesh: scale.x = -1 and position = origin
-  // maps a child at (px, py, pz) to exactly that. Children stay in raw physics coordinates, so
-  // shape offsets and quaternions need no per-item conversion and cannot drift out of step.
-  const _org = getOriginOffset();
-  _groupOriginX = _org.x; _groupOriginZ = _org.z;
-
-  // The range filter runs in PHYSICS space, so the camera is converted INTO it — the opposite
-  // direction from the group transform, using the same two lines above.
-  let cx = 0, cz = 0;
-  if (camera) {
-    _camLocal.copy(camera.position);
-    parent.worldToLocal(_camLocal);
-    cx = _org.x - _camLocal.x;
-    cz = _camLocal.z - _org.z;
-  }
+  // anchor the range filter on the camera (rides with the car, reliable in both car + fly modes)
+  const cx = camera ? camera.position.x : 0;
+  const cz = camera ? camera.position.z : 0;
 
   if (_group) {
-    parent.remove(_group);
+    scene.remove(_group);
     _group.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
   }
   _group = new THREE.Group();
   _group.name = 'collisionDebug';
-  // physics -> worldGroup-local, see the space note above
-  _group.scale.x = -1;
-  _group.position.set(_groupOriginX, 0, _groupOriginZ);
 
   const counts = { box: 0, convex: 0, trimesh: 0, cylinder: 0, sphere: 0 };
   let staticBodies = 0, skippedGround = 0;
@@ -195,7 +162,7 @@ export function updateCollisionDebug(parent, world, camera) {
     }
   }
 
-  parent.add(_group);
+  scene.add(_group);
 
   if (_hud) {
     const shown = counts.box + counts.convex + counts.trimesh + counts.cylinder + counts.sphere;

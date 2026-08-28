@@ -1559,10 +1559,7 @@ function animate(time = 0) {
 
   // Phase 0 tunnel diagnostic overlay (?debug=tunnel) — flag-gated, no cost when off.
   updateTunnelDebug(scene, world, camera);
-  // worldGroup, NOT scene: collider positions are physics space, which IS worldGroup-local
-  // (worldGroup carries scale.x = -1 + the origin offset). Passing `scene` drew every
-  // wireframe mirrored across X and offset — see the space note in collisionDebug.js.
-  updateCollisionDebug(worldGroup, world, camera);
+  updateCollisionDebug(scene, world, camera);
 
   // Animate grass + tree wind (same time base for spatial coherence)
   updateTreeWind(time / 1000);
