@@ -181,23 +181,6 @@ export const CONFIG = {
    *  branch), NOT the deleted GLB bushRenderer.js. meshMaterializer tests `!== false`. */
   ENABLE_BUSHES: true,
 
-  /**
-   * Decorative scatter: rock/bush/small-tree CLUSTERS and the scattered rock/bush/grass PROPS.
-   *
-   * OFF. The user's call, after seeing boulders and shrubs beside Gran Via: *"we dont need them"*.
-   * A road guard was tried first and the objects were still unwanted where they legitimately
-   * landed — on verges and pavements — so the answer is not a better guard, it is not drawing them.
-   * Barcelona's streets are paved kerb to building line; their greenery is street trees in pits,
-   * which come from the BAKED vegetation and are untouched by this flag.
-   *
-   * ⚠ WHAT ELSE GOES WITH IT: `environmentClusterRenderer` is also what wooded the Collserola
-   * hillsides (`WILD_MAX_CLUSTERS`, on ground OSM says nothing about). With this false those
-   * hillsides carry only baked vegetation. If the hills read bare, the narrow fix is to re-enable
-   * clusters and drop the rock/bush items from the templates rather than flip this back wholesale.
-   *
-   * Also the largest single build phase measured — `p4 clusters` at 700-930 ms per load.
-   */
-  ENABLE_ENVIRONMENT_SCATTER: false,
 
   /**
    * Bushes kept per tile, decimated from the baked 3,000.

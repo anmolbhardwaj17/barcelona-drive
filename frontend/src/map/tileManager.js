@@ -36,8 +36,6 @@ import { buildShopSignMesh } from './shopSignRenderer.js';
 import { buildAwningMesh } from './awningRenderer.js';
 import { buildCafeTerrace } from './cafeTerraceRenderer.js';
 import { buildShopfrontMeshes } from './shopfrontRenderer.js';
-import { renderProps } from './propRenderer.js';
-import { renderEnvironmentClusters } from './environmentClusterRenderer.js';
 import { buildRoadInfrastructure } from './roadInfraRenderer.js';
 import { buildUrbanFeatureMeshes, getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
 import { buildTunnelMeshes, buildTunnelFloor, buildApproachCanopy, buildRetainingWalls, buildTrenchRetainingWalls, buildTrenchCliffWalls, buildTrenchPortals, buildPedestrianPortals, buildPortalApproaches } from './tunnelRenderer.js';
@@ -1646,8 +1644,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       railwayMeshes: [],
       buildingMeshes: [],
       vegetationMeshes: [],
-      propMesh: null,
-      clusterMeshes: [],
       waterMesh: null,
       waterIds: [],
       terrainMesh: null,
@@ -2450,23 +2446,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     await yieldToMain();
 
-    // Props — decorative rock/bush/grass scatter. See CONFIG.ENABLE_ENVIRONMENT_SCATTER.
-    buildPhase('p4 props');
-    if (!skipNonRoad && CONFIG.ENABLE_ENVIRONMENT_SCATTER) {
-      entry.propMesh = renderProps(tileData, key, options);
-      if (entry.propMesh) safeSceneAdd(scene, entry.propMesh);
-    }
-
-    await yieldToMain();
-
-    // Environment clusters — rock/bush/small-tree groups. See CONFIG.ENABLE_ENVIRONMENT_SCATTER.
-    buildPhase('p4 clusters');
-    if (!skipNonRoad && CONFIG.ENABLE_ENVIRONMENT_SCATTER) {
-      entry.clusterMeshes = await mergeMeshesByMaterial(renderEnvironmentClusters(tileData, key, options), yieldToMain);
-      entry.clusterMeshes.forEach((m) => safeSceneAdd(scene, m));
-    }
-
-    await yieldToMain();
+    // The decorative rock/bush/small-tree scatter used to build here — two phases, `p4 props` and
+    // `p4 clusters`, the latter the largest single build phase measured at 700-930 ms. Both are
+    // gone: the objects were unwanted even where they landed legitimately, on verges and
+    // pavements, and a placement rule that only ever admits "green space with no road" is a
+    // question about MAP DATA, which belongs in the bake, not in a per-frame-budget renderer.
+    // See docs/context/changelog.md 2026-08-28. Street trees are unaffected — they are baked.
 
     // Traffic lights — pooled like the streetlight parts (was 1 InstancedMesh per tile)
     // v3 P1-18: trafficLightRenderer DELETED — a disabled, hard-coded-Y=0 duplicate of the bulbed
@@ -2688,8 +2673,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         railwayMeshes: [],
         buildingMeshes: [],
         vegetationMeshes: [],
-        propMesh: null,
-        clusterMeshes: [],
         waterMesh: null,
         waterIds: [],
         trafficLightMesh: null,
@@ -2741,7 +2724,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           vegetationMeshes: [],
           waterMesh: null,
           waterIds: [],
-          clusterMeshes: [],
           trafficLightMesh: null,
           shoulderMesh: null,
           dividerMesh: null,
@@ -2898,8 +2880,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             }
           }
         }
-        collectAndRemove(entry.propMesh);
-        collectArrayAndRemove(entry.clusterMeshes);
         collectAndRemove(entry.waterMesh);
         if (entry.waterIds) (entry.waterIds).forEach((id) => renderedWaterIds.delete(id));
         collectAndRemove(entry.trafficLightMesh);
@@ -3080,7 +3060,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         hideAll(entry.busStopMeshes);
         hideAll(entry.urbanFeatureMeshes);
         hideAll(entry.vendorCartMeshes);
-        hideAll(entry.clusterMeshes);
         // v3 P0-17: street dressing was absent from BOTH this block and the LOD loop below,
         // so shopfronts/awnings/signs/terraces rendered at every distance in every loaded tile.
         hideAll(entry.shopfrontMeshes);
@@ -3097,7 +3076,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         // GROUND-COVER-FIX: the distant-building LOD exists precisely to stand in for the city at
         // range; hiding it here is what left whole blocks as bare terrain from the air.
         if (entry.lodBuildingMesh) entry.lodBuildingMesh.visible = coverLives;
-        if (entry.propMesh) entry.propMesh.visible = false;
         if (entry.reflectorGroup) entry.reflectorGroup.visible = false;
         if (entry.crashBarrierMesh) entry.crashBarrierMesh.visible = false;
         if (entry.markingsMesh)     entry.markingsMesh.visible     = false;   // v3 P1-22
@@ -3242,16 +3220,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             m.visible = dist <= treeMaxDist;
           }
         }
-      }
-      if (entry.propMesh) {
-        // Same metric bug as the parks (D-73), one tier down: `dist` is to the tile CENTRE and
-        // includes camera altitude, so props vanished from the tile you were standing in as soon
-        // as you were 170 m from its middle — and from every tile at once in fly mode. The range
-        // is right for a prop; the distance it was measured from was not.
-        entry.propMesh.visible = nearEdgeDist <= treeMaxDist;
-      }
-      for (const m of entry.clusterMeshes || []) {
-        m.visible = nearEdgeDist <= treeMaxDist;
       }
 
       const bldgMaxDist    = _photoMode ? Infinity : (typeof CONFIG.BUILDING_MAX_DISTANCE === 'number' ? CONFIG.BUILDING_MAX_DISTANCE : 180) * altMult;

@@ -2723,3 +2723,35 @@ floating, and that nothing exceeds 1.25 m and walls the driver in.
 - **FINAL, measured:** trees **95,575 → 174,712 (+83%)**, spacing **14.8 → 8.1 m/side** against
   Barcelona's real ~8, carriageway **4.0% → 0.0%**, correct kerb band **65.9% → 93.6%**, tree:bush
   **1.24 → 3.01 : 1**.
+
+## 2026-08-28 — the environment scatter is DELETED
+
+`frontend/src/map/propRenderer.js` and `frontend/src/map/environmentClusterRenderer.js` are gone,
+with all their wiring in `tileManager` (imports, the `p4 props` and `p4 clusters` build phases, the
+`propMesh` / `clusterMeshes` entry fields, unload/dispose, and the LOD visibility block).
+
+**Why deletion and not a placement fix.** Three placement rules were tried in one day — a mask
+margin, a corridor road guard, then green-regions-only — and the objects were still unwanted where
+they landed LEGITIMATELY, on verges and pavements. User's ruling: *"lets remove logic of these
+environment scatter itself man, or have logic for them to scatter only in green places where there
+is no road and all, this can happen at bake only."* A rule that only ever admits "green space with
+no road" is a question about MAP DATA, and it belongs in the bake, not in a renderer competing for
+the frame budget.
+
+**Unaffected:** street trees (baked, `vegetationWorker`), baked bushes (still road-guarded by
+`isOnAnyRoad`, added df77328), zone trees, and every road change.
+
+**Lost with it — read before assuming the hills are broken:** this renderer generated the Collserola
+woodland (`WILD_MAX_CLUSTERS`) on ground OSM says nothing about. The region has TEN `forest`
+polygons total, so the hillsides now carry only baked vegetation and may read bare.
+
+**If it is ever wanted back, do it at the bake** (the user's own framing):
+1. In `vegetationBaker`, scatter rock/bush positions ONLY inside `greens` polygons, tested against
+   the polygon directly — not against a mask, and not against a runtime road guard.
+2. ⚠ Roads are in MERCATOR at bake time while baked vegetation is in WORLD. Mixing them yields a
+   mask that silently blocks nothing — this project has already shipped that bug once (N-7).
+3. Ship the positions in the tile like `bushPositions`, and render them through the existing
+   `vegPools` BatchedMesh path. No new per-tile renderer.
+
+Frontend only, no re-bake. 364 tests green. Also removes the largest single build phase measured,
+`p4 clusters` at 700-930 ms per load.
