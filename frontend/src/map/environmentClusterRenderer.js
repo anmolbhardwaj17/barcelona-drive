@@ -231,7 +231,14 @@ const WOODLAND_FIRST = CLUSTER_TEMPLATES.length - 4;
 // bush rather than a wooded slope. Raised now that the bbox covers the whole tile (see getTileBbox)
 // — before this, most of those clusters had nowhere to go anyway.
 const CLUSTER_SPACING = 18;   // metres between cluster centres
-const MAX_CLUSTERS_PER_TILE = 340;
+// N-16: 340 -> 110 for BUILT-UP tiles. At 340 a tile got a scrub cluster every 18 m across its
+// whole area, and each template carries 4-6 rocks and bushes — measured live, that is 12,882
+// cluster bushes and 2,829 cluster rocks resident against 896 drawn baked bushes, so the undergrowth
+// the player sees is almost entirely THIS renderer. The Eixample is paved kerb to building line:
+// its greenery is street trees in pits, not verge scrub. WILD_MAX_CLUSTERS is untouched, so
+// Collserola and the hillsides keep their density — the user's ruling was about roads, not parks.
+// Also the largest single build phase at 927 ms.
+const MAX_CLUSTERS_PER_TILE = 110;
 
 // ── WILD TERRAIN ──────────────────────────────────────────────────────────────────────────────
 //
@@ -245,7 +252,7 @@ const MAX_CLUSTERS_PER_TILE = 340;
 // So on ground the map says nothing about, the renderer makes the call: no roads, no buildings and
 // no greens means WILD, and wild means wooded. This is generated, not surveyed, and it is meant to
 // be — the alternative on offer is an empty green dome.
-const WILD_MAX_CLUSTERS = 620;   // vs 340 urban: a hillside is denser than a verge
+const WILD_MAX_CLUSTERS = 620;   // vs 110 urban: a hillside is denser than a paved district
 const OPEN_RADIUS = 32;          // metres of clear ground that makes a spot "open country"
 const OPEN_RING_SAMPLES = 8;
 
