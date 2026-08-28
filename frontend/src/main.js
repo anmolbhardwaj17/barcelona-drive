@@ -214,6 +214,57 @@ window._ddPick = (x, y) => {
   return rows;
 };
 
+/**
+ * `_ddColumn(x, z)` — WHAT IS STACKED IN THIS COLUMN, AND HOW FAR APART?
+ *
+ * Casts straight DOWN at one world column and reports the Y of every surface in it, plus the gaps
+ * between them. Defaults to the column under the camera.
+ *
+ * ── WHY THIS IS NOT `_ddPick` ─────────────────────────────────────────────────────────────────
+ * `_ddPick` casts along the CAMERA RAY and reports `distance` along that ray. At a shallow viewing
+ * angle two surfaces 14 cm apart vertically are metres apart along the ray, and that misread has
+ * already produced one retracted bug report this project: "the sidewalk floats 7.8 m" came from two
+ * hits 4.36 m apart on the ray, which works out to a 173% grade — impossible, and nobody noticed
+ * until the baked data was checked and put the real sidewalk-minus-road median at +0.14 m. Ray
+ * distance is not height. This probe removes the angle from the question.
+ *
+ * ⚠ x/z are SCENE coordinates — the same numbers `_ddPick` prints, deliberately, so a finding can
+ * be carried straight from one to the other. Do NOT convert: the scene is X-mirrored
+ * (`worldGroup.scale.x = -1`, CLAUDE.md line 1) and hand-converting broke three probes in one day.
+ */
+window._ddColumn = (x, z) => {
+  const from = new THREE.Vector3(
+    x == null ? camera.position.x : x, 1000, z == null ? camera.position.z : z);
+  const ray = new THREE.Raycaster(from, new THREE.Vector3(0, -1, 0), 0, 4000);
+  const targets = [];
+  scene.traverse((o) => {
+    if (!(o.isMesh || o.isInstancedMesh || o.isBatchedMesh)) return;
+    for (let p = o; p; p = p.parent) if (!p.visible) return;
+    targets.push(o);
+  });
+  const hits = ray.intersectObjects(targets, false);
+  if (!hits.length) {
+    console.log(`[column] nothing under (${from.x.toFixed(1)}, ${from.z.toFixed(1)}) — no terrain, no road, nothing.`);
+    return [];
+  }
+  const rows = hits.map((h, i) => {
+    const m = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+    return {
+      what: h.object.userData?.type || h.object.name || h.object.constructor.name,
+      y: +h.point.y.toFixed(3),
+      // The gap to the NEXT surface down. This is the number every "floating" report is really
+      // about, and it is the one neither _ddPick nor a screenshot can give you.
+      dropToNext: i < hits.length - 1 ? +(h.point.y - hits[i + 1].point.y).toFixed(3) : null,
+      material: m?.type,
+      layer: h.object.userData?.layer ?? null,
+    };
+  });
+  console.table(rows);
+  console.log(`[column] x ${from.x.toFixed(1)} z ${from.z.toFixed(1)} — ${rows.length} surfaces, `
+    + `top ${rows[0].y} bottom ${rows[rows.length - 1].y}`);
+  return rows;
+};
+
 window._ddGround = () => {
   const by = new Map();
   scene.traverse((o) => {

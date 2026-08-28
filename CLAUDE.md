@@ -76,6 +76,13 @@ BAKE_SINGLE_TILE=16_33161_24477 node worldBuilder/buildRegion.js --area eixample
   the same work lands in `other` as 2,000-3,000. The same per-phase totals ride in the F9 report
   under `build.phases`.
 - **What is that thing? (`_ddPick`)**: `window._ddPick(x, y)` raycasts at a screen pixel (default: viewport centre) and names every surface under it nearest-first — `userData.type`, material, colour, whether it has a TEXTURE, and its ground-layer depth bias. Point the camera at the thing and call it. It exists because identifying a surface from a screenshot is guesswork, and guessing wrong cost three round trips in one session (beige shapes blamed on pavement, then plazas; a dark region on water — all three wrong). Pairs with `window._ddGround()`, which reports every ground mesh class as visible/hidden and tells CULLED apart from BROKEN.
+- **How far apart are two stacked surfaces? (`_ddColumn`)**: `window._ddColumn(x, z)` casts straight
+  DOWN one column (default: under the camera) and reports every surface's Y plus the gap to the next
+  one below. **`_ddPick` cannot answer this** — it reports distance ALONG THE CAMERA RAY, and at a
+  shallow angle two surfaces 14 cm apart vertically are metres apart along the ray. That misread
+  produced one retracted bug report ("the sidewalk floats 7.8 m" was two hits 4.36 m apart on the
+  ray = a 173% grade). x/z are SCENE coordinates — the same numbers `_ddPick` prints, so a finding
+  carries straight across; do not hand-convert (the scene is X-mirrored).
 - **Geometry-leak probe (task #39)**: `?debug=leak` — per-tile-unload accounting. Prints what the
   unload walk HELD, FREED and skipped as shared, alongside what `renderer.info.memory.geometries`
   actually did across the same unload. The two disagree in different ways for different bugs: `held`
