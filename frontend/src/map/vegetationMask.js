@@ -8,7 +8,9 @@
  * the shared isInsideOrNearBuilding helper.
  */
 import { latLonToWorld } from '../projection.js';
-import { corridorWidth } from './roadWidths.js';   // R-W1
+import { pavedWidth, corridorWidth } from './roadWidths.js';   // R-W1: never re-derive a width
+/** m — kerb allowance, so nothing sits half on the asphalt. */
+const KERB_CLEAR = 0.3;
 import { rasterizeSegment, rasterizeDisc } from './roadOccupancyGrid.js';
 
 // R-W1: the "mirror of roadRenderer WIDTH_BY_TYPE" table that used to live here is gone. It was one
@@ -348,8 +350,14 @@ export function isOnAnyRoad(tileData, x, z) {
     if (!_CLUSTER_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
     const pts = r.points;
     if (!pts || pts.length < 2) continue;
-    // corridorWidth: kerb to kerb PLUS both pavements — a rock does not belong on either.
-    const half = corridorWidth(r) / 2;
+    // ⚠ PAVED width (kerb to kerb), NOT corridorWidth.
+    //
+    // This used `corridorWidth`, which is kerb-to-kerb PLUS both pavements — and a STREET TREE
+    // LIVES ON THE PAVEMENT. Guarding at corridor width therefore deleted every plane tree on
+    // Gran Via along with the rocks: the avenue came back bare. The thing that must be kept clear
+    // is the ASPHALT. Anything outside the kerb is legitimate ground for a tree, a bush or a rock,
+    // and whether a ROCK belongs on a pavement is an art question, not a correctness one.
+    const half = pavedWidth(r) / 2 + KERB_CLEAR;
     const halfSq = half * half;
     for (let i = 0; i < pts.length - 1; i++) {
       const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;

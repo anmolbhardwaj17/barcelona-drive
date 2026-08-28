@@ -46,12 +46,20 @@ test('a rock anywhere across the carriageway is rejected', () => {
   }
 });
 
-test('a rock on the PAVEMENT is rejected too — corridor, not just kerb-to-kerb', () => {
-  // 6.5 m out: past the 5.2 m kerb, still inside the 8.2 m corridor half.
-  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 6.5), true);
+test('THE PAVEMENT IS ALLOWED — a street tree lives there', () => {
+  // Guarding at corridorWidth (kerb-to-kerb PLUS both pavements) deleted every plane tree on
+  // Gran Via along with the rocks. The thing to keep clear is the ASPHALT.
+  // 5.2 m kerb + 0.3 m allowance = 5.5 m; a tree pit at 6.5 m is on the pavement and must survive.
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 6.5), false);
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, -6.5), false);
 });
 
-test('a rock clear of the corridor is allowed — the guard must not sterilise the city', () => {
+test('the kerb allowance keeps items from sitting half on the asphalt', () => {
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 5.4), true, 'inside kerb + 0.3 m');
+  assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 5.6), false, 'clear of it');
+});
+
+test('ground well clear of the road is allowed — the guard must not sterilise the city', () => {
   assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, 12), false);
   assert.equal(isOnAnyRoad({ roads: [eastWest] }, 0, -12), false);
 });
