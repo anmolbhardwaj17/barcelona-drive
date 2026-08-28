@@ -1066,6 +1066,15 @@ const PED_PORTAL_H  = 2.8;  // portal opening height (m)
 const PED_PORTAL_T  = 0.4;  // portal frame thickness (m)
 const PED_PORTAL_DEPTH = 0.5; // dark inner face depth (m)
 
+/**
+ * ⚠ NO LONGER CALLED (v3 P4-18, 2026-08-28). Kept because the geometry is sound and a future
+ * metro-entrance feature would start here — but nothing renders it today.
+ *
+ * It framed every non-drivable underground way, and in Barcelona that is overwhelmingly
+ * `corridor` (464 records against 205 service / 164 trunk): INDOOR passageways — metro concourses,
+ * station subways, shopping-centre links. The result was concrete gate structures standing on
+ * ordinary pavements. See tileManager's pedestrian-portal note.
+ */
 export function buildPedestrianPortals(pedestrianPortalRoads, getGroundY) {
   if (!CONFIG.ENABLE_PEDESTRIAN_PORTALS || !pedestrianPortalRoads?.length) return null;
   const geoms = [];

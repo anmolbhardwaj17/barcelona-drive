@@ -38,7 +38,7 @@ import { buildCafeTerrace } from './cafeTerraceRenderer.js';
 import { buildShopfrontMeshes } from './shopfrontRenderer.js';
 import { buildRoadInfrastructure } from './roadInfraRenderer.js';
 import { buildUrbanFeatureMeshes, getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
-import { buildTunnelMeshes, buildTunnelFloor, buildApproachCanopy, buildRetainingWalls, buildTrenchRetainingWalls, buildTrenchCliffWalls, buildTrenchPortals, buildPedestrianPortals, buildPortalApproaches } from './tunnelRenderer.js';
+import { buildTunnelMeshes, buildTunnelFloor, buildApproachCanopy, buildRetainingWalls, buildTrenchRetainingWalls, buildTrenchCliffWalls, buildTrenchPortals, buildPortalApproaches } from './tunnelRenderer.js';
 import { registerTunnelZones, unregisterTunnelZones } from '../tunnelZones.js';
 import { buildVegetationMask } from './vegetationMask.js';
 import { renderLODBuildings } from './buildingRenderer.js';
@@ -1781,7 +1781,6 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     let approachRoads = [];
     let carveApproachRoads = [];
     let wallApproachRoads = [];
-    let pedestrianPortalRoads = [];
 
     if (CONFIG.ENABLE_TUNNELS) {
       // Full enclosure: drivable-scale tunnels only (whitelist)
@@ -1789,11 +1788,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         r.tunnel && r.layer != null && r.layer < 0 &&
         DRIVABLE_TUNNEL_TYPES.has(r.highwayType)
       );
-      // Portal frame only: everything else underground (service, path, footway, etc.)
-      pedestrianPortalRoads = (roads || []).filter(r =>
-        r.tunnel && r.layer != null && r.layer < 0 &&
-        !DRIVABLE_TUNNEL_TYPES.has(r.highwayType)
-      );
+      // Non-drivable underground ways (corridor, footway, steps, path) are NOT rendered at all —
+      // see the pedestrian-portal note further down. The list is no longer collected.
+
       // Approach roads: surface roads descending below grade (drivable types only)
       approachRoads = (roads || []).filter(r => {
         if (r.tunnel) return false;
@@ -1993,12 +1990,20 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         approachWallBody = createApproachWallColliders(wallApproachRoads, tunnelRoads, world, roadMaterial);
       }
     }
-    // Pedestrian portal frames
-    let pedestrianPortalMesh = null;
-    if (CONFIG.ENABLE_TUNNELS && pedestrianPortalRoads.length > 0) {
-      pedestrianPortalMesh = buildPedestrianPortals(pedestrianPortalRoads, getGroundY);
-      if (pedestrianPortalMesh) safeSceneAdd(scene, pedestrianPortalMesh);
-    }
+    // ── PEDESTRIAN PORTAL FRAMES — REMOVED (v3 P4-18, 2026-08-28) ─────────────────────────────
+    //
+    // `pedestrianPortalRoads` is "everything underground that is NOT a drivable tunnel", and in
+    // Barcelona that is overwhelmingly **`corridor`: 464 records**, against 205 service, 164 trunk
+    // and 69 primary. A `corridor` is an INDOOR passageway — metro concourses, station subways,
+    // shopping-centre links. Drawing a concrete portal frame at each one puts gate structures on
+    // ordinary pavements, which is what the user found on Carrer de Sepulveda: 466 non-drivable
+    // underground records citywide, all of them framed.
+    //
+    // The frames also got MORE prominent the moment `retwall` gained a concrete texture, which is
+    // how they were noticed. Removed rather than gated: a metro concourse under a street is not a
+    // feature this game renders, and a portal frame is the wrong object for one even if it were.
+    // Real road tunnels are unaffected — they go through `tunnelRoads`, a separate whitelist.
+    const pedestrianPortalMesh = null;
     // Approach canopy disabled — buildApproachCanopy returns empty group
     const canopyMeshGroup = null;
     if (CONFIG.ENABLE_TUNNELS) {
