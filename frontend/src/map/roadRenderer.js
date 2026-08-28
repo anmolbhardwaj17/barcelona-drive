@@ -3918,13 +3918,20 @@ function pickBarrierStyle(road) {
  * (edgeAudit) and a skirt that deep would be a wall, so it stops at SKIRT_MAX_DEPTH_M and lets the
  * terrain meet it.
  */
-const SKIRT_MAX_DEPTH_M = 12;
+const SKIRT_MAX_DEPTH_M = 6;     // was 12 — at that depth it reads as a WALL, not an embankment
 const SKIRT_MIN_DEPTH_M = 0.6;   // below this the kerb already reads as the edge
+// ⚠ getGuardRailMaterial() has `vertexColors` ON ("the wall carries its concrete tone per-vertex").
+// Geometry without a colour attribute therefore renders BLACK — which is exactly what shipped, a
+// huge black slab beside the road. This is the SECOND time this material contract has caught me:
+// tunnelRenderer needed `ensureVertexColor` for the same reason days earlier.
+const SKIRT_TOP = [0.42, 0.40, 0.38];    // concrete, lit edge
+const SKIRT_BOTTOM = [0.24, 0.23, 0.21]; // darker where it meets the ground — reads as depth
 
 export function emitEdgeSkirt(outerEdge, atVals, skirtGeoms) {
   const count = outerEdge.length;
   if (count < 2) return;
   const pos = [];
+  const col = [];
   const idx = [];
   let v = 0;
   for (let i = 0; i < count - 1; i++) {
@@ -3932,8 +3939,9 @@ export function emitEdgeSkirt(outerEdge, atVals, skirtGeoms) {
     const d1 = Math.min(SKIRT_MAX_DEPTH_M, Math.max(0, atVals[i + 1] ?? 0));
     if (d0 < SKIRT_MIN_DEPTH_M && d1 < SKIRT_MIN_DEPTH_M) continue;
     const a = outerEdge[i], b = outerEdge[i + 1];
-    // top edge follows the road, bottom edge drops to (approximately) terrain
+    // top edge follows the road, bottom edge drops toward terrain
     pos.push(a.x, a.y, a.z,  a.x, a.y - d0, a.z,  b.x, b.y, b.z,  b.x, b.y - d1, b.z);
+    col.push(...SKIRT_TOP, ...SKIRT_BOTTOM, ...SKIRT_TOP, ...SKIRT_BOTTOM);
     // both windings — the skirt is seen from either side depending on which way the road curves,
     // and a one-sided apron disappears from half the approaches.
     idx.push(v, v + 1, v + 2,  v + 2, v + 1, v + 3);
@@ -3943,6 +3951,7 @@ export function emitEdgeSkirt(outerEdge, atVals, skirtGeoms) {
   if (!idx.length) return;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   skirtGeoms.push(geo);
