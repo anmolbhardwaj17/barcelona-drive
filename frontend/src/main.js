@@ -249,10 +249,20 @@ window._ddGround = () => {
 // A tree whose base is 0 m from the ground is correct; a positive gap floats, a negative one is
 // buried. Sampled, because raycasting 10k instances would hang the tab.
 window._ddVegY = (sample = 60) => {
+  scene.updateMatrixWorld(true);   // matrixWorld must be current before composing instance positions
   const rc = new THREE.Raycaster();
   rc.far = 400;
   const down = new THREE.Vector3(0, -1, 0);
   const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  // ⚠ X-MIRROR. `worldGroup.scale.x = -1`, and getMatrixAt returns the instance matrix LOCAL to the
+  // pool's parent. The raycaster works in WORLD space, so reading elements[12..14] straight puts
+  // every ray origin on the mirrored side of the city and nothing is ever under it — which is
+  // exactly what "no ground under any" meant for all seven groups. Compose through matrixWorld.
+  const worldPos = (mesh, i) => {
+    mesh.getMatrixAt(i, m);
+    return v.setFromMatrixPosition(m).applyMatrix4(mesh.matrixWorld).toArray();
+  };
   // Do NOT filter ground by userData.type — terrain and the road ribbon carry no type (they report
   // as minified class names in _ddGround), so a type filter raycasts against almost nothing and
   // every ray misses. Cast at the whole scene and reject only what a plant cannot stand on.
@@ -312,8 +322,7 @@ window._ddVegY = (sample = 60) => {
         let vis = false;
         try { vis = bm.getVisibleAt(i); } catch (e) { continue; }
         if (!vis) continue;
-        bm.getMatrixAt(i, m);
-        pos.push([m.elements[12], m.elements[13], m.elements[14]]);
+        pos.push(worldPos(bm, i));
       }
     }
     rows.push(probe('veg:' + name, pos));
@@ -328,10 +337,7 @@ window._ddVegY = (sample = 60) => {
     for (let p = o; p; p = p.parent) if (!p.visible) { shown = false; break; }
     if (!shown) return;
     const arr = byType.get(t) || [];
-    for (let i = 0; i < (o.count ?? 0); i++) {
-      o.getMatrixAt(i, m);
-      arr.push([m.elements[12], m.elements[13], m.elements[14]]);
-    }
+    for (let i = 0; i < (o.count ?? 0); i++) arr.push(worldPos(o, i));
     byType.set(t, arr);
   });
   for (const [t, pos] of byType) rows.push(probe(t, pos));
