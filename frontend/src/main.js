@@ -248,63 +248,82 @@ window._ddGround = () => {
 // instances and reports the gap between the instance origin and the first surface under it.
 // A tree whose base is 0 m from the ground is correct; a positive gap floats, a negative one is
 // buried. Sampled, because raycasting 10k instances would hang the tab.
-window._ddVegY = (sample = 120) => {
-  const set = window._ddVegPools?.trees;
-  if (!set) { console.warn('[vegY] no tree pool'); return null; }
+window._ddVegY = (sample = 60) => {
   const rc = new THREE.Raycaster();
   rc.far = 400;
   const down = new THREE.Vector3(0, -1, 0);
   const m = new THREE.Matrix4();
   // Do NOT filter ground by userData.type — terrain and the road ribbon carry no type (they report
   // as minified class names in _ddGround), so a type filter raycasts against almost nothing and
-  // every ray misses. Cast at the whole scene and reject only what a tree cannot stand on.
+  // every ray misses. Cast at the whole scene and reject only what a plant cannot stand on.
   const isVeg = (o) => {
     for (let p = o; p; p = p.parent) {
       const t = p.userData?.type || '';
       if (p.userData?.isVegPool || /^cluster|^prop|^veg:/.test(t)) return true;
-      // The car sits between the ray origin and the ground when a tree is beside it. Matched by
-      // the GLTF node names the pick output shows (Body_*, Wheel_*), not by an identifier — an
-      // undefined one here throws at call time and reads as "the probe found nothing" (H16).
       if (/^(Body|Wheel|Cylinder)/.test(p.name || '')) return true;
     }
     return false;
   };
-  const gaps = [];
-  let visible = 0, missed = 0;
-  for (const p of set.pools) {
-    const bm = p.mesh;
-    const n = bm.instanceCount ?? 0;
-    const step = Math.max(1, Math.floor(n / sample));
-    for (let i = 0; i < n && gaps.length < sample; i += step) {
-      let vis = false;
-      try { vis = bm.getVisibleAt(i); } catch (e) { continue; }
-      if (!vis) continue;
-      visible++;
-      bm.getMatrixAt(i, m);
-      const x = m.elements[12], y = m.elements[13], z = m.elements[14];
+  const probe = (label, positions) => {
+    const gaps = [];
+    let missed = 0;
+    const step = Math.max(1, Math.floor(positions.length / sample));
+    for (let i = 0; i < positions.length && gaps.length < sample; i += step) {
+      const [x, y, z] = positions[i];
       rc.set(new THREE.Vector3(x, y + 80, z), down);
-      const hits = rc.intersectObjects(scene.children, true);
-      const hit = hits.find((h) => !isVeg(h.object));
+      const hit = rc.intersectObjects(scene.children, true).find((h) => !isVeg(h.object));
       if (!hit) { missed++; continue; }
       gaps.push(y - hit.point.y);
     }
+    if (!gaps.length) return { mesh: label, sampled: 0, note: positions.length ? 'no ground under any' : 'no instances' };
+    gaps.sort((a, b) => a - b);
+    const q = (f) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * f))];
+    return {
+      mesh: label, instances: positions.length, sampled: gaps.length,
+      median: +q(0.5).toFixed(2), p95: +q(0.95).toFixed(2), max: +q(0.999).toFixed(2),
+      floating: gaps.filter((g) => g > 0.5).length,
+      buried: gaps.filter((g) => g < -0.5).length, noGround: missed,
+    };
+  };
+
+  const rows = [];
+  // 1. BatchedMesh vegetation pools (baked trees, bushes, billboards)
+  for (const [name, set] of Object.entries(window._ddVegPools || {})) {
+    const pos = [];
+    for (const p of set?.pools || []) {
+      const bm = p.mesh;
+      const n = bm.instanceCount ?? 0;
+      for (let i = 0; i < n; i++) {
+        let vis = false;
+        try { vis = bm.getVisibleAt(i); } catch (e) { continue; }
+        if (!vis) continue;
+        bm.getMatrixAt(i, m);
+        pos.push([m.elements[12], m.elements[13], m.elements[14]]);
+      }
+    }
+    rows.push(probe('veg:' + name, pos));
   }
-  console.log(`[vegY] visible instances sampled ${visible}, ground found under ${gaps.length}, no ground under ${missed}`);
-  if (!gaps.length) {
-    console.warn(visible === 0
-      ? '[vegY] NO VISIBLE TREE INSTANCES — the pool holds them but none are switched on.'
-      : '[vegY] trees are visible but nothing was under them — ground meshes did not raycast.');
-    return { sampled: 0, visible, missed };
-  }
-  gaps.sort((a, b) => a - b);
-  const q = (f) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * f))];
-  const float = gaps.filter((g) => g > 0.5).length;
-  const buried = gaps.filter((g) => g < -0.5).length;
-  console.log(`  gap tree-base minus ground:  min ${q(0).toFixed(2)}  p25 ${q(0.25).toFixed(2)}` +
-              `  median ${q(0.5).toFixed(2)}  p75 ${q(0.75).toFixed(2)}  max ${q(0.999).toFixed(2)} m`);
-  console.log(`  FLOATING (>0.5 m above) ${float}  ${(float / gaps.length * 100).toFixed(1)}%`);
-  console.log(`  BURIED   (>0.5 m below) ${buried}  ${(buried / gaps.length * 100).toFixed(1)}%`);
-  return { sampled: gaps.length, visible, missed, median: q(0.5), float, buried };
+  // 2. InstancedMesh cluster + prop meshes — the floating rocks and bushes live here
+  const byType = new Map();
+  scene.traverse((o) => {
+    if (!o.isInstancedMesh) return;
+    const t = o.userData?.type || '';
+    if (!/^cluster|^prop/.test(t)) return;
+    let shown = true;
+    for (let p = o; p; p = p.parent) if (!p.visible) { shown = false; break; }
+    if (!shown) return;
+    const arr = byType.get(t) || [];
+    for (let i = 0; i < (o.count ?? 0); i++) {
+      o.getMatrixAt(i, m);
+      arr.push([m.elements[12], m.elements[13], m.elements[14]]);
+    }
+    byType.set(t, arr);
+  });
+  for (const [t, pos] of byType) rows.push(probe(t, pos));
+
+  console.log('[vegY] gap = instance origin minus the ground under it. 0 is correct, + floats, - buried.');
+  console.table(rows);
+  return rows;
 };
 
 // D-23 proof-of-work: a guard that rejects nothing and a guard that never runs look identical.
