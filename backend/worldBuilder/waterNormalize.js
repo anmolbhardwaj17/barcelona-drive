@@ -22,7 +22,28 @@ function parseWidthTag(tags) {
 }
 
 /** Bbox intersect: true if a and b overlap. */
+/**
+ * Do two lon/lat boxes overlap? Both must use minLon/maxLon/minLat/maxLat.
+ *
+ * ⚠ THE FIELD NAMES ARE LOAD-BEARING AND THE ASSERT IS NOT DECORATION. This was called with the
+ * output of `tileToBBox`, which returns `{south, west, north, east}` — so every field read here was
+ * `undefined`, every comparison against `undefined` is false, and `!(false||false||false||false)`
+ * is TRUE. The test never rejected anything in its life: **every water polygon in the region was
+ * written into every tile** — 254 unique polygons becoming 71,120 records, a 280x replication, with
+ * min = median = max = 280 tiles per polygon. A pond with a four-tile footprint shipped to 280.
+ *
+ * A guard that always passes is invisible: the tiles render correctly, just enormously. Hence the
+ * assert — a bake is a build tool and should fail loudly rather than silently emit 280x the data.
+ */
 function bboxIntersects(a, b) {
+  for (const [name, box] of [['a', a], ['b', b]]) {
+    if (!Number.isFinite(box?.minLon) || !Number.isFinite(box?.maxLon)
+        || !Number.isFinite(box?.minLat) || !Number.isFinite(box?.maxLat)) {
+      throw new TypeError(
+        `bboxIntersects: argument ${name} is not a {minLon,maxLon,minLat,maxLat} box — got `
+        + `${JSON.stringify(box)}. tileToBBox returns {south,west,north,east}; convert it first.`);
+    }
+  }
   return !(a.maxLon < b.minLon || a.minLon > b.maxLon || a.maxLat < b.minLat || a.minLat > b.maxLat);
 }
 
@@ -129,6 +150,17 @@ export function normalizeWater(raw) {
  * No clipping. Waters may appear in multiple tiles. Frontend dedupes by id.
  */
 export function splitWatersByTile(waters, zoom, bbox) {
+  // Validate the REGION bbox as well as the per-tile ones. With the wrong field names the tile
+  // range below computes NaN, both loops run zero times, and this returns an empty map — water
+  // vanishes from the whole city with no error. Silent nothing is as bad as silent everything for
+  // a build tool, and it is the failure mode a test for the OTHER bug uncovered.
+  if (!Number.isFinite(bbox?.minLon) || !Number.isFinite(bbox?.maxLon)
+      || !Number.isFinite(bbox?.minLat) || !Number.isFinite(bbox?.maxLat)) {
+    throw new TypeError(
+      `splitWatersByTile: region bbox must be {minLon,maxLon,minLat,maxLat} — got `
+      + `${JSON.stringify(bbox)}. tileToBBox-style {south,west,north,east} is NOT accepted.`);
+  }
+
   const o = getOriginMercator();
   const tiles = new Map();
 
@@ -156,7 +188,10 @@ export function splitWatersByTile(waters, zoom, bbox) {
 
     for (let ty = minTileY; ty <= maxTileY; ty++) {
       for (let tx = minTileX; tx <= maxTileX; tx++) {
-        const tileBbox = tileToBBox(tx, ty, zoom);
+        // tileToBBox speaks {south,west,north,east}; bboxIntersects speaks min/max lon/lat.
+        // Passing it straight through is what made this test always pass — see bboxIntersects.
+        const t = tileToBBox(tx, ty, zoom);
+        const tileBbox = { minLon: t.west, maxLon: t.east, minLat: t.south, maxLat: t.north };
         if (!bboxIntersects(waterBbox, tileBbox)) continue;
         const key = `${zoom}_${tx}_${ty}`;
         if (!tiles.has(key)) tiles.set(key, []);
