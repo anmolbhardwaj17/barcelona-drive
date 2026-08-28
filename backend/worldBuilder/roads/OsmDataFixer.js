@@ -293,11 +293,13 @@ const LINK_MIN_M = 8;
 // admits roughly a dozen beyond what the name rule already caught, not a flood.
 const SHORT_LINK_M = 25;
 const LINK_MAX_M = 250;
-const LINK_COS = 0.90;          // ~25 deg
+const LINK_COS = 0.90;
+/** Metres between interpolated nodes on a synthesised link — see the densify note at the emit site. */
+const LINK_NODE_SPACING_M = 15;          // ~25 deg
 
 function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
   const stats = { pairsConsidered: 0, freeEnds: 0, created: 0, shortUnnamedLinks: 0,
-                  rejectedName: 0, rejectedAim: 0, rejectedCrossing: 0 };
+                  rejectedName: 0, rejectedAim: 0, rejectedCrossing: 0, nodesAdded: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && DRIVABLE_FOR_LINK.has(w.highwayType));
@@ -368,9 +370,32 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       }
 
       const id = nextSyntheticId();
+      // ── DENSIFY. A two-point way is not enough geometry to build a tunnel from. ───────────────
+      //
+      // `buildTrenchCorridors` carves the trench floor as a straight line between a segment's
+      // endpoints, while the road itself is draped on the DEM at every point it has. With only two
+      // points 224 m apart on a hillside those two lines are the same line, so the floor tracks
+      // nothing and the terrain comes back up through the deck in the middle. That is precisely what
+      // the commit-blocking FloorValidator caught: 4 violations, both roads synthetic (-1000011,
+      // -1000056), worst gap 0.51 m against a 0.30 m tolerance. Real OSM tunnels never hit it
+      // because they carry a node every few metres and their corridors follow the ground.
+      //
+      // So the link gets a node every LINK_NODE_SPACING_M. Nodes go into the SHARED `nodeMap` — the
+      // same in-place mutation rule 6 relies on — which is the half of the fixer that was reaching
+      // the output even before N-37.
+      const nodeIds = [a.nid];
+      const steps = Math.floor(gap / LINK_NODE_SPACING_M);
+      for (let k = 1; k < steps; k++) {
+        const t = k / steps;
+        const nid = nextSyntheticId();
+        nodeMap.set(nid, { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t });
+        nodeIds.push(nid);
+        stats.nodesAdded++;
+      }
+      nodeIds.push(b.nid);
       wayMap.set(id, {
         id,
-        nodeIds: [a.nid, b.nid],
+        nodeIds,
         // A LONG gap is a road passing under something: tunnel. A SHORT one is two ends that simply
         // were not joined — link them at grade, because burying a 15 m connector would carve a hole
         // in the street for no reason.
