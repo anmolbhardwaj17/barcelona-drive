@@ -331,10 +331,15 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
       const litA = litAt(runU), litB = litAt(runU + segLen);
 
       // ── Floor ──
+      // ⚠ NO portal falloff on the FLOOR. The floor is the surface the player DRIVES ON, and these
+      // roads include daylighted trenches that are open to the sky — darkening those to DEEP_LIT
+      // (0.30) turned stretches of Ronda de Dalt into dark navy slabs beside normally-lit asphalt.
+      // Lining and ceiling still fade, which is where the portal read actually comes from; the road
+      // surface stays lit because in a trench it genuinely is.
       floorGeos.push(buildQuad(
         { x: a.x - oX, y: eA, z: a.y - oZ }, { x: a.x + oX, y: eA, z: a.y + oZ },
         { x: b.x - oX, y: eB, z: b.y - oZ }, { x: b.x + oX, y: eB, z: b.y + oZ },
-        runU, litA, litB,
+        runU,
       ));
 
       // ── Ceiling ──
