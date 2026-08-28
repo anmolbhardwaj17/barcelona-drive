@@ -594,16 +594,25 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       // waved through — which is how rocks ended up sitting on Gran Via. Identified with
       // `_ddPick`: the offender is this file's rock InstancedMesh, which carried no `userData.type`
       // and so reported only as a minified class name.
-      // TREES ARE EXEMPT. A street tree standing at the kerb is the single most characteristic
-      // object on a Barcelona avenue, and guarding it cost the whole of Gran Via twice: once at
-      // corridorWidth (which includes the pavement it stands on) and once at the kerb, where the
-      // pit legitimately sits. Rocks and bushes were the actual complaint; a tree in the road is
-      // rare, obvious, and far cheaper to live with than an avenue with no trees.
+      // ── N-16 · THE TREE EXEMPTION WAS BUILT ON A MISREAD ──────────────────────────────────
+      //
+      // Trees used to be exempt here, because guarding them "cost the whole of Gran Via twice".
+      // That attribution was wrong. What emptied the city on those two runs was the
+      // `_clusterRejects is not defined` ReferenceError (H16) — introduced by the SAME edit that
+      // added the guard — which threw inside every tile build and took ALL vegetation with it.
+      // The guard was blamed for the crash's damage.
+      //
+      // Gran Via's street trees come from the BAKED path (`workers/vegetationWorker.js`, fed by
+      // `bakedVegetation`), which contains no reference to `isOnAnyRoad` and never has. The trees
+      // placed HERE are procedural woodland-cluster filler, and they have no business in a
+      // carriageway. Measured with `_ddOnRoad()` while the exemption stood: **848 clusterTree
+      // instances on the road in a single tile**, against 80 bushes and 20 rocks — so the exempt
+      // type was by far the worst offender and looked to the player like debris, not like trees.
       // The guard is a point test on the instance origin, so it needs the item's own footprint or
       // a big rock clears it on a technicality while overhanging the asphalt. `item.scale` is the
       // prototype scale; the per-instance jitter below tops out at 1.1x, so bound it there.
       const footprint = item.scale * clusterScale * 1.1;
-      if (item.type !== 'tree' && isOnAnyRoad(tileData, wx, wz, footprint)) { _clusterRejects.road++; continue; }
+      if (isOnAnyRoad(tileData, wx, wz, footprint)) { _clusterRejects.road++; continue; }
       _clusterRejects.kept++;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;

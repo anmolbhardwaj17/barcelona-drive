@@ -47,7 +47,10 @@ export function createVegPool({ name, geometries, material, capacity = 4096, cas
   bm.castShadow = castShadow;
   bm.receiveShadow = receiveShadow;
   bm.renderOrder = renderOrder;
-  bm.userData = { sharedGeometry: true, sharedMaterial: true, isVegPool: name };
+  // N-16: without a `type`, `_ddGround()` falls back to the constructor name and every tree pool
+  // reports as a MINIFIED class ('Ot'), which is why "are the trees missing or hidden?" could not
+  // be answered from a production build. Same trap as the cluster rocks (N-9) and the props (N-15).
+  bm.userData = { sharedGeometry: true, sharedMaterial: true, isVegPool: name, type: 'veg:' + name };
 
   // ── Slot allocation is OURS, not BatchedMesh's ──────────────────────────────
   // NEVER call bm.deleteInstance(): once any ids sit in BatchedMesh's internal freed list, EVERY

@@ -44,7 +44,7 @@ if (import.meta.env.DEV) {
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
-import { isOnAnyRoad } from './map/vegetationMask.js';
+import { isOnAnyRoad, _clusterRejects } from './map/vegetationMask.js';
 import { createTileManager, setMapTileCallbacks } from './map/tileManager.js';
 import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
@@ -244,10 +244,13 @@ window._ddGround = () => {
 // things that turned out to be the player's own car. This walks every resident tile instead, tests
 // every vegetation/prop/cluster INSTANCE against the same `isOnAnyRoad` guard the renderers use,
 // and reports offenders grouped by the mesh that made them. Empty table = nothing is on a road.
+// D-23 proof-of-work: a guard that rejects nothing and a guard that never runs look identical.
+window._clusterRejects = _clusterRejects;
 window._ddOnRoad = (clearance = 0) => {
   const tiles = window._ddTiles;
   if (!tiles) { console.warn('[onroad] no tile cache — is the world loaded?'); return []; }
   const by = new Map();
+  const totals = new Map();
   const m = new THREE.Matrix4();
   const worst = [];
   let instances = 0, tested = 0;
@@ -263,6 +266,7 @@ window._ddOnRoad = (clearance = 0) => {
       const label = mesh.userData?.type || mesh.name || mesh.constructor.name;
       const n = mesh.count ?? 0;
       instances += n;
+      const tot = totals.get(label) || 0; totals.set(label, tot + n);
       for (let i = 0; i < n; i++) {
         mesh.getMatrixAt(i, m);
         const x = m.elements[12], z = m.elements[14];
@@ -275,7 +279,7 @@ window._ddOnRoad = (clearance = 0) => {
     }
   }
   const rows = [...by.entries()].sort((a, b) => b[1].onRoad - a[1].onRoad)
-    .map(([mesh, v]) => ({ mesh, onRoad: v.onRoad, egTile: v.tile }));
+    .map(([mesh, v]) => ({ mesh, onRoad: v.onRoad, ofTotal: totals.get(mesh) || 0, egTile: v.tile }));
   console.log(`[onroad] ${tested} instances tested across ${tiles.size} resident tiles, clearance ${clearance} m`);
   if (!rows.length) console.log('[onroad] NOTHING on a road.');
   else { console.table(rows); console.log('[onroad] examples:'); console.table(worst); }
