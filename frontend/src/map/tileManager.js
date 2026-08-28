@@ -1050,12 +1050,28 @@ function createRoadTrimeshColliders(roads, opts) {
       const midWorldX = (p0.x + p1.x) / 2, midWorldZ = (p0.y + p1.y) / 2;
       const gY = opts.getGroundYAt ? opts.getGroundYAt(midWorldX, midWorldZ) : null;
       const deckAboveGround = Number.isFinite(gY) ? (midY - gY) : 0;
-      if (deckAboveGround < 1.5) {
+      // ── N-29 · THE CLIP RELIES ON THE HEIGHTFIELD BEING RIGHT UNDER THE DECK ──────────────────
+      //
+      // Narrowing the collider where two corridors overlap is only safe if something else carries
+      // the car there, and the note above says what that is: "near ground the heightfield catches
+      // anything we miss". That holds when the deck IS the ground. At 1.5 m it does not — a deck
+      // 1.4 m up with a clipped collider drops the car onto terrain, or through where the terrain
+      // is missing, and the user sees exactly that at merges ("no proper merge so road falls").
+      //
+      // Two changes, both narrowing WHEN the clip applies rather than removing it:
+      //   · CO_PLANAR_M 1.5 -> 0.35. The clip's own justification is co-planarity, and 0.35 m is
+      //     kerb height — above that the surfaces are not co-planar and the lip argument does not
+      //     apply either.
+      //   · a floor of 60% of the road's OWN half-width, not a flat 1.5 m. On a 15 m trunk the old
+      //     floor left 3 m of collider under 15 m of asphalt: the outer lanes had nothing at all.
+      // A small lip where two decks overlap is a bump. A missing collider is a fall.
+      const CO_PLANAR_M = 0.35;
+      if (deckAboveGround < CO_PLANAR_M) {
         const { dist, otherHalfW } = distToNearestOtherRoad(midX, midZ, road.id);
         if (dist < halfW + otherHalfW) {
           // Stop at the other road's edge + 0.5m overlap margin so the seam has no gap; the
           // surfaces are near co-planar here, so the margin lip is a few cm at most.
-          effectiveHalfW = Math.max(1.5, Math.min(halfW, dist - otherHalfW + 0.5));
+          effectiveHalfW = Math.max(halfW * 0.6, Math.min(halfW, dist - otherHalfW + 0.5));
         }
       }
 

@@ -3616,7 +3616,22 @@ function hasLateralDrop(road, options, heights) {
       const sx = pts[i].x + -dy * off * sgn, sy = pts[i].y + dx * off * sgn;
       const { lat, lon } = worldToLatLon(sx, sy);
       const ty = getElevationAt(lat, lon);
-      if (!Number.isFinite(ty)) continue;
+      // ── N-30 · NO TERRAIN BESIDE THE LANE IS THE WORST DROP, NOT THE ABSENCE OF ONE ──────────
+      //
+      // This was `continue`, i.e. "no elevation reading here" was treated as "no fall here". It is
+      // the opposite: a probe 3 m past the kerb that finds NOTHING is a carriageway with a void
+      // beside it, which is the single case most in need of an edge. User-reported against exactly
+      // this: "these roads sit higher than ground, or if not, ground below them we don't have
+      // terrain, so railing should be there".
+      //
+      // The only false positive this can produce is at the REGION boundary, where there is
+      // genuinely no more world — and a rail at the edge of the map is defensible rather than
+      // wrong. `hVals[i]` is still required to be finite, so a road with no height of its own
+      // (which would make the comparison meaningless) still yields nothing.
+      if (!Number.isFinite(ty)) {
+        if (Number.isFinite(hVals[i])) return true;
+        continue;
+      }
       if (hVals[i] - ty * scale > LATERAL_DROP_M) return true;
     }
   }
