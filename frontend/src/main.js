@@ -264,6 +264,21 @@ window._ddVegY = (sample = 60) => {
     }
     return false;
   };
+  // Collect the ground candidates ONCE, and only real meshes. Casting at scene.children with
+  // recursion walked into Sprites, and a Sprite's raycast dereferences `Raycaster.camera` — which
+  // is null here, so the probe died with "Cannot read properties of null (reading 'matrixWorld')".
+  // A prebuilt flat list also turns N whole-scene traversals into one.
+  rc.camera = camera;
+  const targets = [];
+  scene.traverse((o) => {
+    if (o.isSprite || o.isPoints || o.isLine) return;
+    if (!o.isMesh && !o.isInstancedMesh && !o.isBatchedMesh) return;
+    if (isVeg(o)) return;
+    let shown = true;
+    for (let p = o; p; p = p.parent) if (!p.visible) { shown = false; break; }
+    if (shown) targets.push(o);
+  });
+  if (!targets.length) { console.warn('[vegY] no ground meshes to cast against'); return []; }
   const probe = (label, positions) => {
     const gaps = [];
     let missed = 0;
@@ -271,7 +286,7 @@ window._ddVegY = (sample = 60) => {
     for (let i = 0; i < positions.length && gaps.length < sample; i += step) {
       const [x, y, z] = positions[i];
       rc.set(new THREE.Vector3(x, y + 80, z), down);
-      const hit = rc.intersectObjects(scene.children, true).find((h) => !isVeg(h.object));
+      const hit = rc.intersectObjects(targets, false)[0];
       if (!hit) { missed++; continue; }
       gaps.push(y - hit.point.y);
     }
@@ -321,7 +336,8 @@ window._ddVegY = (sample = 60) => {
   });
   for (const [t, pos] of byType) rows.push(probe(t, pos));
 
-  console.log('[vegY] gap = instance origin minus the ground under it. 0 is correct, + floats, - buried.');
+  console.log(`[vegY] ${targets.length} ground meshes; gap = instance origin minus the ground under`
+    + ' it. 0 is correct, + floats, - buried.');
   console.table(rows);
   return rows;
 };

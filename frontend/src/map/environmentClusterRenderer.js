@@ -826,8 +826,13 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
         const t = bucket[i];
         p.set(t.x, t.y, t.z);
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.rotY);
-        // Smaller scale for cluster trees (0.4–0.7 of template items' scale)
-        const sc = t.scale * 0.5;
+        // N-17: 0.5 -> 0.75. At half scale these read as SHRUBS, not trees — which is a large part
+        // of why the street looked short of trees while the counters said otherwise: the tree-shaped
+        // mass the user remembered was partly half-height cluster trees plus the urban bushes now
+        // confined to green regions. The road guard already sizes its footprint from the FULL
+        // `item.scale * clusterScale`, not this factor, so enlarging them cannot push one into the
+        // carriageway. Revert to 0.5 here if they crowd the pavement.
+        const sc = t.scale * 0.75;
         s.set(sc, sc, sc);
         m.compose(p, q, s);
         mesh.setMatrixAt(i, m);
