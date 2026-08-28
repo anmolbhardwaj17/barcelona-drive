@@ -179,7 +179,7 @@ function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
 // ---------------------------------------------------------------------------
 
 function buildInstancedMesh(geometry, material, positions, seed, seedOffset,
-                            getElevationAt, vertExag, scaleRange, ySquashRange) {
+                            getElevationAt, vertExag, scaleRange, ySquashRange, typeName) {
   if (positions.length === 0) return null;
   const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
   mesh.count = positions.length;
@@ -188,6 +188,9 @@ function buildInstancedMesh(geometry, material, positions, seed, seedOffset,
   mesh.receiveShadow = true;
   mesh.userData.sharedGeometry = true;
   mesh.userData.sharedMaterial = true;
+  // N-15: without a type these report as a MINIFIED CLASS NAME in `_ddPick`, which is exactly how
+  // the cluster rocks cost three round trips before N-9 tagged them. Caller passes the label.
+  if (typeName) mesh.userData.type = typeName;
 
   const mat4 = new THREE.Matrix4();
   const pos = new THREE.Vector3();
@@ -257,7 +260,7 @@ export function renderProps(tileData, tileKey, options) {
   );
   const rock01Mesh = buildInstancedMesh(
     getRock01Geo(), getRockMat(), rock01Pos, seed, 20,
-    getElevationAt, vertExag, [0.6, 2.5], [0.4, 0.8]
+    getElevationAt, vertExag, [0.6, 2.5], [0.4, 0.8], 'propRock01'
   );
   if (rock01Mesh) { group.add(rock01Mesh); added = true; }
 
@@ -268,7 +271,7 @@ export function renderProps(tileData, tileKey, options) {
   );
   const rock02Mesh = buildInstancedMesh(
     getRock02Geo(), getRockMat(), rock02Pos, seed, 40,
-    getElevationAt, vertExag, [0.5, 2.0], [0.5, 1.0]
+    getElevationAt, vertExag, [0.5, 2.0], [0.5, 1.0], 'propRock02'
   );
   if (rock02Mesh) { group.add(rock02Mesh); added = true; }
 
@@ -279,7 +282,7 @@ export function renderProps(tileData, tileKey, options) {
   );
   const bushMesh = buildInstancedMesh(
     getBushGeo(), getBushMat(), bushPos, seed, 60,
-    getElevationAt, vertExag, [0.4, 1.2], [0.6, 1.0]
+    getElevationAt, vertExag, [0.4, 1.2], [0.6, 1.0], 'propBush'
   );
   if (bushMesh) { group.add(bushMesh); added = true; }
 
@@ -290,7 +293,7 @@ export function renderProps(tileData, tileKey, options) {
   );
   const grassMesh = buildInstancedMesh(
     getGrassGeo(), getGrassMat(), grassPos, seed, 80,
-    getElevationAt, vertExag, [0.6, 1.5], null
+    getElevationAt, vertExag, [0.6, 1.5], null, 'propGrass'
   );
   if (grassMesh) { group.add(grassMesh); added = true; }
 

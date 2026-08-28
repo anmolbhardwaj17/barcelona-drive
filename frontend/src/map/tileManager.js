@@ -745,6 +745,9 @@ function applyTerrainLod(entry, nearEdgeDist) {
 
 /** @type {Map<string, { roads: object[], buildings: object[], roadMeshes?: THREE.Mesh[], buildingMeshes?: THREE.Mesh[], spatialIndex?: object }>} */
 const tileCache = new Map();
+// Dev diagnostic handle: `_ddOnRoad()` in main.js needs the resident tiles' road geometry to ask
+// "which renderer put this instance on the road". Read-only; nothing in the game reads it back.
+if (typeof window !== 'undefined') window._ddTiles = tileCache;
 let _tileEpoch = 0;   // bumped on every tileCache add/delete — see getTileEpoch()
 
 // Dev: window._findWhiteTiles() — hunts the "white terrain tile" (identify v2: 16384-vert Lambert

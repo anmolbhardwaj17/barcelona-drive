@@ -44,6 +44,7 @@ if (import.meta.env.DEV) {
 import { createColorGradePass } from './ui/colorGradePass.js';
 import { createAdaptiveResolution } from './ui/adaptiveResolution.js';
 import { createScene, updateClouds, updateMoon, updateStars } from './scene.js';
+import { isOnAnyRoad } from './map/vegetationMask.js';
 import { createTileManager, setMapTileCallbacks } from './map/tileManager.js';
 import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
@@ -236,6 +237,51 @@ window._ddGround = () => {
     '| draws', renderer.info.render.calls, '| tris', renderer.info.render.triangles);
   return rows;
 };
+// N-15: WHICH renderer put that rock in the road?
+//
+// `_ddPick` needs the camera aimed at the thing and reports one surface; when the answer is "a few
+// objects somewhere in the city", aiming is the hard part — three rounds were spent picking at
+// things that turned out to be the player's own car. This walks every resident tile instead, tests
+// every vegetation/prop/cluster INSTANCE against the same `isOnAnyRoad` guard the renderers use,
+// and reports offenders grouped by the mesh that made them. Empty table = nothing is on a road.
+window._ddOnRoad = (clearance = 0) => {
+  const tiles = window._ddTiles;
+  if (!tiles) { console.warn('[onroad] no tile cache — is the world loaded?'); return []; }
+  const by = new Map();
+  const m = new THREE.Matrix4();
+  const worst = [];
+  let instances = 0, tested = 0;
+  for (const [key, entry] of tiles) {
+    const roads = entry?.roads;
+    if (!roads?.length) continue;
+    const td = { roads };
+    const meshes = [];
+    const collect = (o) => { if (!o) return; if (Array.isArray(o)) { o.forEach(collect); return; }
+      o.traverse ? o.traverse((c) => { if (c.isInstancedMesh) meshes.push(c); }) : null; };
+    collect(entry.propMesh); collect(entry.clusterMeshes); collect(entry.vegetationMeshes);
+    for (const mesh of meshes) {
+      const label = mesh.userData?.type || mesh.name || mesh.constructor.name;
+      const n = mesh.count ?? 0;
+      instances += n;
+      for (let i = 0; i < n; i++) {
+        mesh.getMatrixAt(i, m);
+        const x = m.elements[12], z = m.elements[14];
+        tested++;
+        if (!isOnAnyRoad(td, x, z, clearance)) continue;
+        const e = by.get(label) || { onRoad: 0, tile: key };
+        e.onRoad++; by.set(label, e);
+        if (worst.length < 8) worst.push({ mesh: label, tile: key, x: +x.toFixed(1), z: +z.toFixed(1) });
+      }
+    }
+  }
+  const rows = [...by.entries()].sort((a, b) => b[1].onRoad - a[1].onRoad)
+    .map(([mesh, v]) => ({ mesh, onRoad: v.onRoad, egTile: v.tile }));
+  console.log(`[onroad] ${tested} instances tested across ${tiles.size} resident tiles, clearance ${clearance} m`);
+  if (!rows.length) console.log('[onroad] NOTHING on a road.');
+  else { console.table(rows); console.log('[onroad] examples:'); console.table(worst); }
+  return rows;
+};
+
 // v3 P1-01: one KTX2Loader + one MeshoptDecoder for the whole app. MUST run before any asset
 // load — KTX2Loader cannot pick a transcode target without detectSupport(renderer).
 initAssetRegistry(renderer);
