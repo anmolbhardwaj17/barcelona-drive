@@ -2865,3 +2865,18 @@ versus the road formula, but vertExag is **1**; and terrain uses the same frame.
 
 **If revisited, sample sidewalk and road at the SAME XZ** — the `_ddVegY` shape. A pick cannot
 answer it. Fourth time "beige pavement" has been diagnosed as something it was not (N-4).
+
+## 2026-08-29 — guard rails where they belong, and a fixer that was talking to itself
+
+- **N-35** guard rails are per-point on probe-only roads. A drop anywhere along a way used to rail
+  its whole length, including through a merge. Structural roads (bridge/ramp/layer/trench) keep the
+  end-to-end rail; everything else keeps a rail only beside an actual fall.
+- **N-36** roundabout rail-exclusion zones became height-aware. 107 elevated roads (worst: a 24.1 m
+  fall) were losing their barrier to a 2D circle that could not tell a flyover from an entry, and an
+  elevated ring — the case that most needs a barrier — was excluded outright. Probe:
+  `backend/tools/roundaboutRailAudit.mjs`. Runtime counter: `window._ddRailStats()`.
+- **N-37** the OSM fixer's way-level output was never read. `buildRoadGeometry` consumed the
+  pre-fixer array while `fixOsmData` edited a deep copy, so rule 7's synthesised links and rule 5's
+  duplicate removals had no effect on the shipped tiles. `applyFixerToWays` reconciles them back.
+  Rule 5's removals remain gated behind `FIXER_APPLY_REMOVALS=1` pending a look at what 20% fewer
+  ways does to the city.
