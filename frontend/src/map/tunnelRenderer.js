@@ -83,7 +83,7 @@ const PEDESTRIAN_PORTAL_COLOR = 0x3a3a3a; // dark charcoal pedestrian portal fra
  * the lining visibly resets at each one; the main loop accumulates it. Callers that build a single
  * standalone quad (portal frames, cliff faces) can leave it at 0.
  */
-function buildQuad(a, b, c, d, uOffset = 0) {
+function buildQuad(a, b, c, d, uOffset = 0, nearL = 1, farL = 1) {
   const positions = new Float32Array([
     a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z,
     c.x, c.y, c.z, b.x, b.y, b.z, d.x, d.y, d.z,
@@ -100,8 +100,46 @@ function buildQuad(a, b, c, d, uOffset = 0) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  // P4-18: per-end brightness as vertex colour. `nearL` applies to the a/b edge and `farL` to c/d,
+  // so a segment can fade along the tunnel — see `portalFalloff`.
+  //
+  // ⚠ EMITTED ALWAYS, defaulting to 1. Two reasons, both bugs that were already latent here:
+  //   · `mergeGeometries` needs every geometry in a group to carry the SAME attributes, and these
+  //     arrays are filled from more than one place.
+  //   · The `floor` material is shared between `buildTunnelMeshes` and `buildTunnelFloor`. Once it
+  //     declares `vertexColors: true`, geometry without the attribute renders undefined.
+  // Making it unconditional costs 72 bytes a quad and removes the whole class.
+  const cols = new Float32Array([
+    nearL, nearL, nearL,  nearL, nearL, nearL,  farL, farL, farL,
+    farL,  farL,  farL,   nearL, nearL, nearL,  farL, farL, farL,
+  ]);
+  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * How lit is a point `d` metres into the tunnel from the nearest mouth?
+ *
+ * ── WHY THIS IS GEOMETRY AND NOT A LIGHT ──────────────────────────────────────────────────────
+ * The obvious way to light a portal mouth is punctual lights through `lightGrid`. It does not work
+ * here: `lightGrid` sets `uLGEnabled = (_enabled && _isNight)`, so **the whole grid is off during
+ * the day** — and a tunnel is dark at noon. Lighting the portal that way would deliver the effect
+ * only at night, which is the one time it is least needed, and making the grid day-capable means
+ * surgery on a working night system for a corridor-local problem.
+ *
+ * So the falloff is baked into vertex colour instead: full daylight spill at the mouth, decaying to
+ * `DEEP` a few tens of metres in, where the LED strip is the only source. Costs one vertex
+ * attribute, no lights, no uniforms, and it is correct in BOTH day and night because it describes
+ * how much of the outside gets in — which does not depend on the time of day being simulated.
+ */
+const PORTAL_LIT_M = 38;    // metres over which daylight spill decays to nothing
+const DEEP_LIT     = 0.30;  // floor brightness deep inside, lit only by the strip
+function portalFalloff(d) {
+  const t = Math.max(0, Math.min(1, d / PORTAL_LIT_M));
+  // smoothstep, so the mouth does not end in a visible band
+  const s = t * t * (3 - 2 * t);
+  return 1 - (1 - DEEP_LIT) * s;
 }
 
 function perpDir(ax, az, bx, bz) {
@@ -155,15 +193,16 @@ const getMat = {
     const p = _roadPlate('asphalt_worn');
     return new THREE.MeshLambertMaterial({
       color: p ? 0xffffff : FLOOR_COLOR, ...(p || {}), side: THREE.DoubleSide,
+      vertexColors: true,   // P4-18 portal falloff — silently ignored if this is off
     });
   }),
   // Lining: ceramic tile on a 0.2 m grid. Wall and ceiling share one texture pair and differ only
   // by tint — the ceiling of a road tunnel is the same tile, just never cleaned and never lit.
   wall:      () => _mat('wall', () => new THREE.MeshLambertMaterial({
-    color: 0xffffff, ...getLiningTextures(), side: THREE.DoubleSide,
+    color: 0xffffff, ...getLiningTextures(), side: THREE.DoubleSide, vertexColors: true,
   })),
   ceiling:   () => _mat('ceiling', () => new THREE.MeshLambertMaterial({
-    color: CEILING_COLOR, ...getLiningTextures(), side: THREE.DoubleSide,
+    color: CEILING_COLOR, ...getLiningTextures(), side: THREE.DoubleSide, vertexColors: true,
   })),
   led:       () => _mat('led',       () => new THREE.MeshBasicMaterial  ({ color: LED_COLOR,     side: THREE.DoubleSide })),
   safety:    () => _mat('safety',    () => new THREE.MeshLambertMaterial({ color: SAFETY_COLOR,  side: THREE.DoubleSide })),
@@ -237,6 +276,13 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
     // P4-18: running distance along this tunnel, in metres, fed to buildQuad as the U origin so
     // the lining reads as one continuous surface instead of restarting at every segment joint.
     let runU = 0;
+    // Total centreline length, needed BEFORE the loop so each segment knows its distance from the
+    // NEARER mouth — that is what makes both ends of the tunnel bright instead of just the first.
+    let totalLen = 0;
+    for (let k = 0; k < pts.length - 1; k++) {
+      totalLen += Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y);
+    }
+    const litAt = (d) => portalFalloff(Math.min(d, totalLen - d));
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
       const segLen = Math.hypot(b.x - a.x, b.y - a.y);
@@ -256,19 +302,20 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
 
       const perp = perpDir(a.x, a.y, b.x, b.y);
       const oX = perp.x * halfW, oZ = perp.z * halfW;
+      const litA = litAt(runU), litB = litAt(runU + segLen);
 
       // ── Floor ──
       floorGeos.push(buildQuad(
         { x: a.x - oX, y: eA, z: a.y - oZ }, { x: a.x + oX, y: eA, z: a.y + oZ },
         { x: b.x - oX, y: eB, z: b.y - oZ }, { x: b.x + oX, y: eB, z: b.y + oZ },
-        runU,
+        runU, litA, litB,
       ));
 
       // ── Ceiling ──
       ceilingGeos.push(buildQuad(
         { x: a.x - oX, y: ceilA, z: a.y - oZ }, { x: a.x + oX, y: ceilA, z: a.y + oZ },
         { x: b.x - oX, y: ceilB, z: b.y - oZ }, { x: b.x + oX, y: ceilB, z: b.y + oZ },
-        runU,
+        runU, litA, litB,
       ));
 
       // ── Walls + LED strips + safety stripes on both sides ──
@@ -279,7 +326,7 @@ export function buildTunnelMeshes(tunnelRoads, getGroundY) {
         wallGeos.push(buildQuad(
           { x: a.x + wx, y: ceilA, z: a.y + wz }, { x: a.x + wx, y: eA, z: a.y + wz },
           { x: b.x + wx, y: ceilB, z: b.y + wz }, { x: b.x + wx, y: eB, z: b.y + wz },
-          runU,
+          runU, litA, litB,
         ));
 
         // LED strip at ceiling-wall junction (MeshBasicMaterial → self-illuminating)
@@ -1027,3 +1074,6 @@ export function buildPedestrianPortals(pedestrianPortalRoads, getGroundY) {
   mesh.userData = { type: 'pedestrianPortal', sharedMaterial: true };
   return mesh;
 }
+
+/** Exported for tests only — see frontend/test/tunnelLining.test.js (v3 P4-18). */
+export const __test__ = { portalFalloff, PORTAL_LIT_M, DEEP_LIT };
