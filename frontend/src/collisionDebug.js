@@ -71,6 +71,7 @@ export function initCollisionDebug() {
 
 export function isCollisionDebugActive() { return _active; }
 
+const _camLocal = new THREE.Vector3();
 const _wpos = new CANNON.Vec3();
 const _wquat = new CANNON.Quaternion();
 
@@ -108,18 +109,38 @@ function trimeshGeom(shape) {
 function sphereGeom(shape) { return new THREE.SphereGeometry(shape.radius, 10, 8); }
 
 /** Per-frame update. Safe to call unconditionally — early-returns when inactive. */
-export function updateCollisionDebug(scene, world, camera) {
-  if (!_active || !scene || !world) return;
-  _scene = scene;
+/**
+ * @param {THREE.Object3D} parent  MUST be `worldGroup`, not the scene. See the space note below.
+ */
+export function updateCollisionDebug(parent, world, camera) {
+  if (!_active || !parent || !world) return;
+  _scene = parent;
   _frame++;
   if (_group && _frame % REBUILD_INTERVAL !== 0) return;
 
-  // anchor the range filter on the camera (rides with the car, reliable in both car + fly modes)
-  const cx = camera ? camera.position.x : 0;
-  const cz = camera ? camera.position.z : 0;
+  // ── ⚠ SPACE. THIS IS WHY NOTHING WAS EVER VISIBLE. ───────────────────────────────────────────
+  //
+  // Collider positions are PHYSICS space, and physics space IS worldGroup-LOCAL space: main.js
+  // states the relation as "ABSOLUTE world = -lx + originOffset", i.e. `worldGroup` carries
+  // scale.x = -1 plus the origin offset, exactly the negation CLAUDE.md warns about at the top.
+  //
+  // The wireframes were being added to the SCENE, so every one of them was drawn mirrored across X
+  // and offset by the origin — built correctly, placed in another part of the city. And the range
+  // filter compared `camera.position` (scene space) against `_wpos` (physics space), so it also
+  // rejected on incompatible coordinates. Two symptoms, one cause: "shown 0", or a non-zero count
+  // with nothing on screen.
+  //
+  // Parenting to `worldGroup` fixes the draw; converting the camera into the same local space fixes
+  // the filter. Do not "simplify" either back to the scene.
+  let cx = 0, cz = 0;
+  if (camera) {
+    _camLocal.copy(camera.position);
+    parent.worldToLocal(_camLocal);
+    cx = _camLocal.x; cz = _camLocal.z;
+  }
 
   if (_group) {
-    scene.remove(_group);
+    parent.remove(_group);
     _group.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
   }
   _group = new THREE.Group();
@@ -162,7 +183,7 @@ export function updateCollisionDebug(scene, world, camera) {
     }
   }
 
-  scene.add(_group);
+  parent.add(_group);
 
   if (_hud) {
     const shown = counts.box + counts.convex + counts.trimesh + counts.cylinder + counts.sphere;

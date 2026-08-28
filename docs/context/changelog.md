@@ -2788,3 +2788,25 @@ vegetation work earlier today.
 Re-measured, the 57 split cleanly: **29 within 5 m (true duplicates, still surviving)** and
 **28 at 5–14.8 m (NOT duplicates — two real ways each drawn at full street width)**. The latter is
 now **N-21**, a width-model ticket, gated on first PROVING the darker-roads link with `_ddPick`.
+
+## 2026-08-28 — collision wireframes were drawn in the wrong space; five tickets filed
+
+- **N-26 FIXED.** `K` toggled, the HUD updated, the geometry was built — and every wireframe was
+  placed in another part of the city. Collider positions are PHYSICS space, which **is
+  `worldGroup`-local** ("ABSOLUTE world = -lx + originOffset"), and the group was added to `scene`,
+  so all of it was mirrored across X and offset. The range filter shared the fault, comparing
+  `camera.position` (scene space) with collider positions (physics space). Now parents to
+  `worldGroup` and converts the camera into that space. ⚠ `debugColliders.js` (`?debug=tunnel`) adds
+  to `scene` the same way — likely the same bug, unverified.
+- **P4-18 regression fixed:** the portal falloff was applied to the tunnel FLOOR, dimming open
+  daylighted trenches to 0.30 and turning stretches of Ronda de Dalt into dark navy slabs. Lining
+  and ceiling keep the falloff; the drivable surface does not.
+- **N-22 diagnosed, not fixed:** the "beige broad patches" are **sidewalk slabs floating ~7.8 m
+  above the terrain** (pick: sidewalk y −4.36, road y −10.29, terrain y −12.15). A HEIGHT bug, not a
+  tint — three earlier sessions chased it as a colour/plaza/water/mip problem and all were wrong.
+- **N-23/N-24/N-25 filed:** roads ending in mid-air with no ramp and a missing tunnel mouth; no
+  railings on ramps; trees on carriageways (the known, accepted cost of the vegetation revert).
+
+⚠ **The X-mirror caught two probes in one day** — `_ddVegY` read instance matrices in local space,
+and `collisionDebug` drew into scene space. Both times the symptom was "the tool reports nothing".
+It is the first thing CLAUDE.md warns about, and it is still the most expensive trap here.
