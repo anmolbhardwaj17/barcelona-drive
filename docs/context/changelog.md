@@ -2830,3 +2830,23 @@ it, and the guard is a silent no-op — the N-7 defect again, whose fix was in t
 Lesson, and it is the session's standing one: the guard was added and the bake run WITHOUT a
 rejection counter. A counter (D-23) would have shown `rejected 0` in seconds instead of after a
 9-minute bake and a wrong 100k-tree deletion. **Never ship a guard without proof it fires.**
+
+## 2026-08-28 — N-5 + N-6: urban feature tags, and Barcelona's fonts
+
+Both live in `pbfUrbanFeatures.js` and were sized together in the tracker. Chosen for unattended
+work because both are verifiable by COUNTING, not by eye.
+
+- **N-5** `extractTags` kept only name/operator/brand, so every tile shipped `tags: {}` for
+  subtypes. Replaced with a bounded whitelist of keys that change what is drawn — a whitelist and
+  not `tags` wholesale, because OSM nodes carry survey dates and source URLs that would otherwise
+  ride into every tile forever. **Tag coverage 11.1% → 87.9%, tile size unchanged at 149 MB.**
+- **N-6** `amenity=drinking_water` was never imported. **1,041** now exist, against 115 fountains.
+
+**The finding that matters more than either ticket:** `fire_hydrant:type` now lands on 490 of 537
+hydrants and reads **underground 473 · pillar 15 · wall 2 · untagged 47**. `BUILDERS.fire_hydrant`
+draws a pillar for all of them, so ~88% of Barcelona's hydrants are currently the wrong object — a
+standing red post where the street has a flush cover plate. Filed as **N-27**; the font builder is
+**N-28**.
+
+Safe to bake unattended because `urbanFeatureRenderer` does `if (!builder) continue` — an unknown
+type is skipped silently, so the drinking-water data lands with zero visual change.

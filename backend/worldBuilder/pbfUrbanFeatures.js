@@ -36,17 +36,44 @@ function classifyUrbanFeature(tags) {
   if (manMade === 'mast' && !towerType) return 'communication_tower'; // bare masts are typically cell towers
   if (manMade === 'water_tower') return 'water_tower';
   if (emergency === 'fire_hydrant') return 'fire_hydrant';
+  // N-6: Barcelona's cast-iron *font* — one of the most recognisable objects on its streets, and
+  // absent from the game entirely because nothing ever imported the tag. `drinking_water=yes` on a
+  // fountain is a PROPERTY of that fountain, not a second object, so only the amenity counts here.
+  if (amenity === 'drinking_water') return 'drinking_water';
   return null;
 }
 
+/**
+ * Tags carried into the tile, per N-5.
+ *
+ * WHY A WHITELIST AND NOT `tags` WHOLESALE. An OSM node carries arbitrary keys — survey dates,
+ * source URLs, operator wikidata ids — and every one of them would ride into every tile forever.
+ * This is the bounded set that CHANGES WHAT IS DRAWN, plus the three identity tags already kept.
+ *
+ * WHY IT MATTERS: `extractTags` kept name/operator/brand and dropped everything else, so the
+ * shipped tiles carry `tags: {}` for the subtype and **all 527 hydrants render as pillars** because
+ * nothing can tell a pillar from an underground one. Same for toilet disposal and fuel grades.
+ */
+const KEPT_TAGS = [
+  'name', 'operator', 'brand',
+  // fire hydrant: pillar / underground / wall / pond — completely different objects on the street
+  'fire_hydrant:type', 'fire_hydrant:position', 'colour',
+  // toilets: a building vs a self-cleaning street cabin
+  'toilets:disposal', 'access', 'fee',
+  // fuel: which grades a station actually sells, for signage later
+  'fuel:diesel', 'fuel:octane_95', 'fuel:octane_98', 'fuel:lpg', 'fuel:electric',
+  // drinking water (N-6): bowl vs bottle-refill vs the classic column
+  'drinking_water', 'drinking_water:refill', 'bottle', 'fountain',
+  // tower/mast height, when OSM states it — better than a guessed default
+  'height', 'tower:type', 'material',
+];
+
 function extractTags(tags) {
   const out = {};
-  const name = getTag(tags, 'name');
-  const operator = getTag(tags, 'operator');
-  const brand = getTag(tags, 'brand');
-  if (name) out.name = name;
-  if (operator) out.operator = operator;
-  if (brand) out.brand = brand;
+  for (const k of KEPT_TAGS) {
+    const v = getTag(tags, k);
+    if (v) out[k] = v;
+  }
   return out;
 }
 
