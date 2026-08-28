@@ -3639,7 +3639,12 @@ function hasLateralDrop(road, options, heights) {
 }
 
 function isElevatedGuardRailRoad(road, options) {
-  if (!road || road.closedLoop || road.tunnel) return false;
+  // N-36: `closedLoop` USED to be rejected here, on the reasoning that a ring is a roundabout and a
+  // roundabout must not be walled. True at grade, false on a deck — a floating roundabout is the
+  // one ring where falling off is the whole risk. The chain below already declines a ground-level
+  // ring (nothing admits it, because there is no drop beside it), so the blanket reject only ever
+  // removed the elevated case. Measured over the baked region: 2 elevated rings, both unrailed.
+  if (!road || road.tunnel) return false;
   const heights = getRoadPointHeights(road, options);
   const atVals = getAboveTerrainHeights(road, options, heights) || (heights || []);
   const atMax = atVals.length ? Math.max(...atVals) : 0;
@@ -3657,23 +3662,55 @@ function isElevatedGuardRailRoad(road, options) {
     || hasLateralDrop(road, options, heights);
 }
 
-function detectRoundaboutZonesForRails(roads) {
+/**
+ * N-36 · Roundabout exclusion zones, which exist to keep a barrier out of a roundabout's ENTRIES.
+ *
+ * The zone is a 2D circle and it used to be applied without asking two questions:
+ *
+ *   1. Is the ring itself elevated? Then the exclusion is backwards — it strips the rail from the
+ *      one ring that needs one. Such a roundabout gets NO zone.
+ *   2. Is the point being suppressed anywhere near the ring's HEIGHT? A road passing 24 m OVER a
+ *      roundabout is not entering it, and a purely horizontal test cannot tell the two apart.
+ *      Measured over the baked region: 107 elevated roads were losing their rails to this, the
+ *      worst with a 24.1 m fall beside the lane.
+ *
+ * So a zone now carries its deck height, and rule 3 suppresses only within a height band of it.
+ */
+function detectRoundaboutZonesForRails(roads, options) {
   const zones = [];
   for (const road of roads || []) {
     const pts = road.points;
     if (!pts || pts.length < 3) continue;
     const first = pts[0], last = pts[pts.length - 1];
     const dx = last.x - first.x, dz = last.y - first.y;
-    if (!(road.closedLoop || (dx * dx + dz * dz < 25))) continue; // closed loop = roundabout
+    // `closedLoop` does not survive the bake (measured: 0 of them in the shipped tiles — tile
+    // splitting cuts the ring), so the ends-meet test and the OSM tag are what actually fire.
+    if (!(road.closedLoop || road.isRoundabout || (dx * dx + dz * dz < 25))) continue;
+    const heights = getRoadPointHeights(road, options);
+    if (hasLateralDrop(road, options, heights)) {
+      roundaboutZoneStats.elevatedRingsKept++;
+      continue;                       // question 1: an elevated ring is railed, not excluded
+    }
     let cx = 0, cz = 0;
     for (const p of pts) { cx += p.x; cz += p.y; }
     cx /= pts.length; cz /= pts.length;
     let maxD = 0;
     for (const p of pts) { const d = (p.x - cx) ** 2 + (p.y - cz) ** 2; if (d > maxD) maxD = d; }
     const r = Math.sqrt(maxD) + GUARD_RAIL_ROUNDABOUT_PROX;
-    zones.push({ cx, cz, rSq: r * r });
+    let y = 0, ny = 0;
+    if (heights) for (const h of heights) if (Number.isFinite(h)) { y += h; ny++; }
+    zones.push({ cx, cz, rSq: r * r, y: ny ? y / ny : null });
   }
   return zones;
+}
+
+/** Height band within which a point counts as being AT a roundabout rather than over it. */
+const GUARD_RAIL_ROUNDABOUT_DY = 3.0;
+/** D-23 proof of work: a zone rule that rejects nothing looks exactly like one with nothing to reject. */
+const roundaboutZoneStats = { elevatedRingsKept: 0, overpassPointsKept: 0, suppressed: 0 };
+if (typeof window !== 'undefined') {
+  /** `_ddRailStats()` — did N-36 actually change anything on THIS load, or is it a no-op? */
+  window._ddRailStats = () => ({ ...roundaboutZoneStats });
 }
 
 /**
@@ -3690,7 +3727,7 @@ function computeGuardRailMask(roads, options) {
   // includeTees: a rail is a COLLIDER, so a missed T-junction is a wall across a street you have to
   // drive through — not a cosmetic gap. See getJunctionPoints for the 38.5% measurement.
   const junctions = getJunctionPoints(surface, JUNCTION_TOLERANCE, true); // {x,z,radius}
-  const roundabouts = detectRoundaboutZonesForRails(surface);
+  const roundabouts = detectRoundaboutZonesForRails(surface, options);
 
   // Gather elevated roads (stable seq) + their thickness-offset edges (1:1 with points)
   const elevated = [];
@@ -3788,7 +3825,13 @@ function computeGuardRailMask(roads, options) {
         if ((cx - j.x) ** 2 + (cz - j.z) ** 2 < rr * rr) { drop = true; break; }
       }
       if (!drop) for (const r of roundabouts) { // rule 3
-        if ((cx - r.cx) ** 2 + (cz - r.cz) ** 2 < r.rSq) { drop = true; break; }
+        if ((cx - r.cx) ** 2 + (cz - r.cz) ** 2 >= r.rSq) continue;
+        // N-36: inside the circle, but is it inside the roundabout, or flying over it?
+        const dy = (r.y == null || !Number.isFinite(e.heights?.[i]))
+          ? 0 : Math.abs(e.heights[i] - r.y);
+        if (dy > GUARD_RAIL_ROUNDABOUT_DY) { roundaboutZoneStats.overpassPointsKept++; continue; }
+        roundaboutZoneStats.suppressed++;
+        drop = true; break;
       }
       if (drop) { keepL[i] = 0; keepR[i] = 0; continue; }
       // rule 3b (N-35): a probe-only road keeps a rail only where a fall is actually beside it.
