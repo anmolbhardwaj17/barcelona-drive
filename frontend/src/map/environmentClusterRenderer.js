@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon, latLonToWorld } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad } from './vegetationMask.js';
+import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad, _clusterRejects } from './vegetationMask.js';
 import { getTreeGeometries, getTreeMaterial, getBushGeometries, getBushCardsMaterial, getBushVariantCount } from './vegetationRenderer.js';
 import { classifySpecies as classifyTreeSpecies, classifyBush, seededRand } from './treeSpeciesSets.js';
 import { loadCardAtlas } from './cardMesh.js';

@@ -335,7 +335,7 @@ export function isInsideOrNearBuilding(x, z, buildings, margin = 2) {
  * N-9 counters. A guard that silently does nothing looks exactly like a guard that works, and this
  * one was written twice before it was verified. `window._ddClusterRejects` says which.
  */
-const _clusterRejects = { mask: 0, road: 0, kept: 0 };
+export const _clusterRejects = { mask: 0, road: 0, kept: 0 };
 if (typeof window !== 'undefined') window._ddClusterRejects = _clusterRejects;
 
 const _CLUSTER_ROAD_TYPES = new Set([

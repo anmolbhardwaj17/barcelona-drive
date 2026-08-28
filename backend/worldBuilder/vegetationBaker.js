@@ -44,7 +44,14 @@ const TREE_ROAD_TYPES = new Set([
 // Vegetation mask constants
 const VEG_MASK_RESOLUTION = 0.5;
 const VEG_MASK_PAD = 20;
-const ROAD_INFLATE = 1.0;   // N-7b: was 3.0 on top of an already-oversized legacy width table
+// N-7c: a KERB ALLOWANCE, nothing more. The arithmetic that killed Gran Via's street trees:
+//   blocked = kerbToKerb/2 + ROAD_INFLATE, and a perimeter tree adds its own margin on top.
+// At ROAD_INFLATE 3.0 (and an oversized legacy width table) that was kerb + 5 m; at 1.0 it was
+// still kerb + 3 m once the tree's own margin of 2 was added. A Barcelona pavement is 3-4 m wide,
+// so the plantable band was squeezed to nothing and `isInsideOrNearBuilding` rejected whatever was
+// left. The city's most characteristic object cannot fit in the space its own road model leaves it.
+// 0.3 m = the kerb. A tree may stand ON the pavement; it may not stand on the asphalt.
+const ROAD_INFLATE = 0.3;
 const BRIDGE_INFLATE = 18.0;  // wide margin to prevent tree canopies clipping through flyovers
 const JUNCTION_CLUSTER_DIST_SQ = 25;
 const JUNCTION_RADIUS_MULT = 2.0;
@@ -748,7 +755,9 @@ function collectAllPositions(tileData, tileKey, vegMask, config) {
   if (positions.length < cap) {
     const perim = getBuildingPerimeterTreePositions(tileData, vegMask);
     for (const p of perim) {
-      if (!isExcluded(p.x, p.y, 2)) {
+      // N-7c: 0.5 m, not 2. This margin STACKS on the mask's own inflate, and 2 m of it put the
+      // tree pit behind the pavement and into the building-proximity test. See ROAD_INFLATE.
+      if (!isExcluded(p.x, p.y, 0.5)) {
         positions.push(p);
       }
       if (positions.length >= cap) break;
