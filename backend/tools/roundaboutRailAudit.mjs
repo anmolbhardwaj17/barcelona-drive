@@ -133,7 +133,11 @@ console.log(`closed-loop ways                              : ${loops.toLocaleStr
 console.log(`   of those, ELEVATED (drop > ${DROP_M} m beside)  : ${loopsElevated.toLocaleString()}`);
 console.log(`RING ways (loop / isRoundabout / ends meet) elevated and unrailed by rule A : ${ringsFlagged}`);
 console.log(`non-ring roads checked                        : ${approachChecked.toLocaleString()}`);
-console.log(`   elevated AND inside a roundabout zone (rule B strips their rails) : ${approachElevatedInZone}`);
+console.log(`   elevated AND inside a roundabout zone : ${approachElevatedInZone}`);
+console.log('   ⚠ This counts the DATA, not the renderer. N-36 fixed rule B in roadRenderer.js, so');
+console.log('     this number does NOT drop after the fix and must not be read as "still broken".');
+console.log('     It is the size of the population the height test now protects. Use');
+console.log('     window._ddRailStats() to see what the renderer actually did on a load.');
 worst.sort((a,b)=>b.drop-a.drop);
 console.log('\nworst — drive to these:');
 for (const w of worst.filter(w=>process.env.ONLY_A? w.why.startsWith("A"):true).slice(0,15))
