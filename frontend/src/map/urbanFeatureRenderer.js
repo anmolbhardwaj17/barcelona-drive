@@ -24,7 +24,7 @@ let _matForecourtBand, _matForecourtTrim, _matForecourtRoof,
     _matCabinShell, _matCabinRoof, _matCabinDoor,
     _matSteel, _matRed, _matWhite, _matConcrete, _matWater, _matStone,
     _matYellow, _matDarkGray,
-    _matBrown, _matBeige;
+    _matBrown, _matBeige, _matIronGreen;
 
 function matSteel()    { return _matSteel    || (_matSteel    = shared(new THREE.MeshLambertMaterial({ color: 0x888899 }))); }
 function matRed()      { return _matRed      || (_matRed      = shared(new THREE.MeshLambertMaterial({ color: 0xcc3333 }))); }
@@ -39,6 +39,8 @@ function matBeige()    { return _matBeige    || (_matBeige    = shared(new THREE
 // fountains are pale grey Montjuïc stone and granite. `matBrown` stays for the water tower, where
 // a brick tone is right.
 function matStone()    { return _matStone    || (_matStone    = shared(new THREE.MeshLambertMaterial({ color: 0xa9a49b }))); }
+/** Municipal cast-iron green — the fountains, and the colour Barcelona actually paints them. */
+function matIronGreen() { return _matIronGreen || (_matIronGreen = shared(new THREE.MeshLambertMaterial({ color: 0x2d4034 }))); }
 // REMOVED with the Sulabh complex: matBush / matRock / matBlue / matBrick. They existed only to
 // landscape it — 14 bushes and boulders per toilet — and had no other caller. Verified orphaned
 // before deletion (`grep -c "mat: 'bush'"` etc. = 0).
@@ -767,7 +769,54 @@ function buildFuelStation() {
 /**
  * Fire hydrant: short red pillar with cap and outlets.
  */
-function buildFireHydrant() {
+/**
+ * N-27 · A hydrant is not one object.
+ *
+ * `fire_hydrant:type` was parsed and thrown away until N-5 restored the tag whitelist. With it
+ * readable, the distribution over the shipped tiles is: **underground 473, untagged 47, pillar 15,
+ * wall 2**. So 88% of Barcelona's hydrants were being drawn as a 0.7 m red pillar, and an
+ * underground hydrant is a flush cast-iron lid set into the pavement — a thing you drive over, not
+ * a thing you hit. That is 473 red posts standing on pavements that have none.
+ *
+ * Untagged keeps the pillar: OSM's silence is not evidence of absence, and a missing post reads as
+ * a gap while a wrong one reads as an error.
+ */
+function buildFireHydrant(f) {
+  const kind = f?.tags?.['fire_hydrant:type'] || f?.tags?.type || '';
+  if (kind === 'underground') return buildUndergroundHydrant();
+  if (kind === 'wall') return buildWallHydrant();
+  return buildPillarHydrant();
+}
+
+/** Flush cast-iron lid, ~40 cm across, standing 4 cm proud of the pavement. */
+function buildUndergroundHydrant() {
+  const geos = [];
+  const lid = new THREE.CylinderGeometry(0.21, 0.22, 0.04, 12);
+  lid.translate(0, 0.02, 0);
+  geos.push({ geo: lid, mat: 'darkGray' });
+  // The raised H boss on the lid — the only thing that reads at driving distance.
+  const boss = new THREE.BoxGeometry(0.10, 0.012, 0.02);
+  boss.translate(0, 0.046, 0);
+  geos.push({ geo: boss, mat: 'red' });
+  return geos;
+}
+
+/** Wall type: a small red plate with two nozzles, low on a facade. Two of them in the whole city. */
+function buildWallHydrant() {
+  const geos = [];
+  const plate = new THREE.BoxGeometry(0.30, 0.34, 0.08);
+  plate.translate(0, 0.55, 0);
+  geos.push({ geo: plate, mat: 'red' });
+  for (const side of [-0.07, 0.07]) {
+    const nozzle = new THREE.CylinderGeometry(0.04, 0.04, 0.10, 6);
+    nozzle.rotateX(Math.PI / 2);
+    nozzle.translate(side, 0.55, 0.08);
+    geos.push({ geo: nozzle, mat: 'steel' });
+  }
+  return geos;
+}
+
+function buildPillarHydrant() {
   const geos = [];
 
   const body = new THREE.CylinderGeometry(0.12, 0.14, 0.7, 8);
@@ -792,6 +841,56 @@ function buildFireHydrant() {
   return geos;
 }
 
+/**
+ * N-28 · The *font de Barcelona* — the cast-iron drinking fountain.
+ *
+ * 1,041 of them are baked (N-6 imported `amenity=drinking_water`, which nothing had ever parsed)
+ * and until now nothing drew a single one. They are not scenery: the municipal fountain is one of
+ * the few objects that reads as Barcelona rather than as generic city, it stands on almost every
+ * plaza and street corner, and it is the densest piece of street furniture in the data after the
+ * hydrants.
+ *
+ * Modelled on the standard *model Barcelona*: a squat dark-green cast-iron column about 1.1 m tall
+ * on a small stone plinth, a collar, a short curved spout on one side, and a domed cap. Colour is
+ * the municipal dark green, not black — the art bible's palette work is about not inventing
+ * colours, and this one is documented.
+ */
+function buildDrinkingFountain() {
+  const geos = [];
+
+  // Stone plinth it is bolted to.
+  const plinth = new THREE.CylinderGeometry(0.26, 0.28, 0.10, 12);
+  plinth.translate(0, 0.05, 0);
+  geos.push({ geo: plinth, mat: 'stone' });
+
+  // The column: slightly tapered, 8-sided like the real casting rather than round.
+  const column = new THREE.CylinderGeometry(0.105, 0.135, 0.86, 8);
+  column.translate(0, 0.53, 0);
+  geos.push({ geo: column, mat: 'ironGreen' });
+
+  // Collar where the spout housing swells out.
+  const collar = new THREE.CylinderGeometry(0.145, 0.145, 0.16, 8);
+  collar.translate(0, 0.90, 0);
+  geos.push({ geo: collar, mat: 'ironGreen' });
+
+  // Domed cap.
+  const cap = new THREE.SphereGeometry(0.145, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+  cap.translate(0, 0.98, 0);
+  geos.push({ geo: cap, mat: 'ironGreen' });
+
+  // Spout — a short arm angled down, and the brass push-button above it.
+  const spout = new THREE.CylinderGeometry(0.022, 0.022, 0.17, 6);
+  spout.rotateX(Math.PI / 2.6);
+  spout.translate(0, 0.86, 0.14);
+  geos.push({ geo: spout, mat: 'steel' });
+  const button = new THREE.CylinderGeometry(0.026, 0.026, 0.03, 8);
+  button.rotateX(Math.PI / 2);
+  button.translate(0, 0.99, 0.13);
+  geos.push({ geo: button, mat: 'yellow' });
+
+  return geos;
+}
+
 // ─── Material lookup ────────────────────────────────────────────────────────
 
 const MAT_MAP = {
@@ -800,7 +899,7 @@ const MAT_MAP = {
   yellow: matYellow, darkGray: matDarkGray,
   forecourtBand: matForecourtBand, forecourtTrim: matForecourtTrim, forecourtRoof: matForecourtRoof,
   cabinShell: matCabinShell, cabinRoof: matCabinRoof, cabinDoor: matCabinDoor,
-  brown: matBrown, beige: matBeige, wcSign: matWcSign,
+  brown: matBrown, beige: matBeige, wcSign: matWcSign, ironGreen: matIronGreen,
   beacon: getBeaconMat,
 };
 
@@ -813,6 +912,7 @@ const BUILDERS = {
   public_toilet: buildPublicToilet,
   fuel_station: buildFuelStation,
   fire_hydrant: buildFireHydrant,
+  drinking_water: buildDrinkingFountain,
 };
 
 // Types that should be oriented to face the nearest road
@@ -828,6 +928,7 @@ const EXCLUSION_RADIUS = {
   public_toilet: 1.6,      // was 5, sized for a 6x5 m Sulabh complex. The cabin is 1.6x1.5 m —
                            // at 5 m it kept punching a 10 m hole in the street trees around it.
   fire_hydrant: 1.5,
+  drinking_water: 1.4,
 };
 
 // ─── Main export ────────────────────────────────────────────────────────────
@@ -884,7 +985,7 @@ export async function buildUrbanFeatureMeshes(features, roads, buildings, getGro
     }
 
     // Build geometry at origin
-    const parts = builder();
+    const parts = builder(f);
 
     // Anchor to terrain ground Y (was hardcoded 0 → floated below-spawn terrain, buried above-spawn)
     const wy = groundYAt(wx, wz);
