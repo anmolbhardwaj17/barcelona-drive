@@ -2772,3 +2772,19 @@ test gives a spread; a CONSTANT means the test never rejects. Look at the distri
 
 Asserts added in both directions (a wrong-shaped box now throws; an empty result would too), and
 `waterTileSplit.test.js` pins the rejection as well as the acceptance. 369 tests green.
+
+## 2026-08-28 — N-1: partly fixed, and re-scoped
+
+`rule5_duplicateRoadRemover` was never broken (~8,748 ways removed per bake). N-1 was its tail.
+Relaxed to 5 m / 0.7 **only when two same-class ways also share a NAME** — 44 of 57 flagged pairs
+did, and only 5 had differing names. rule5 8,748 → `{removed: 9576, strict: 3729, sameName: 5847}`,
+**+828 duplicates**, no leak possible (strict thresholds untouched). Tests pin the contract.
+
+⚠ **It did not move the overlap metric** (57 pairs, 7.9%, unchanged). My error: `n1d` flags pairs
+whose RIBBONS overlap (up to 16 m apart) while rule5 removes pairs whose CENTRELINES are within
+5 m. Built against one number, validated against another — the same premature-action trap as the
+vegetation work earlier today.
+
+Re-measured, the 57 split cleanly: **29 within 5 m (true duplicates, still surviving)** and
+**28 at 5–14.8 m (NOT duplicates — two real ways each drawn at full street width)**. The latter is
+now **N-21**, a width-model ticket, gated on first PROVING the darker-roads link with `_ddPick`.
