@@ -248,48 +248,63 @@ window._ddGround = () => {
 // instances and reports the gap between the instance origin and the first surface under it.
 // A tree whose base is 0 m from the ground is correct; a positive gap floats, a negative one is
 // buried. Sampled, because raycasting 10k instances would hang the tab.
-window._ddVegY = (sample = 150) => {
+window._ddVegY = (sample = 120) => {
   const set = window._ddVegPools?.trees;
   if (!set) { console.warn('[vegY] no tree pool'); return null; }
   const rc = new THREE.Raycaster();
+  rc.far = 400;
   const down = new THREE.Vector3(0, -1, 0);
   const m = new THREE.Matrix4();
-  const ground = [];
-  scene.traverse((o) => {
-    if (!o.isMesh && !o.isInstancedMesh) return;
-    const t = o.userData?.type || '';
-    if (/terrain|road|sidewalk|curb|greens|pedArea|plaza|gore/i.test(t)) ground.push(o);
-  });
-  if (!ground.length) { console.warn('[vegY] no ground meshes found'); return null; }
+  // Do NOT filter ground by userData.type — terrain and the road ribbon carry no type (they report
+  // as minified class names in _ddGround), so a type filter raycasts against almost nothing and
+  // every ray misses. Cast at the whole scene and reject only what a tree cannot stand on.
+  const isVeg = (o) => {
+    for (let p = o; p; p = p.parent) {
+      const t = p.userData?.type || '';
+      if (p.userData?.isVegPool || /^cluster|^prop|^veg:/.test(t)) return true;
+      // The car sits between the ray origin and the ground when a tree is beside it. Matched by
+      // the GLTF node names the pick output shows (Body_*, Wheel_*), not by an identifier — an
+      // undefined one here throws at call time and reads as "the probe found nothing" (H16).
+      if (/^(Body|Wheel|Cylinder)/.test(p.name || '')) return true;
+    }
+    return false;
+  };
   const gaps = [];
+  let visible = 0, missed = 0;
   for (const p of set.pools) {
     const bm = p.mesh;
     const n = bm.instanceCount ?? 0;
     const step = Math.max(1, Math.floor(n / sample));
     for (let i = 0; i < n && gaps.length < sample; i += step) {
-      let vis = true;
-      try { vis = bm.getVisibleAt(i); } catch { /* slot never allocated */ continue; }
+      let vis = false;
+      try { vis = bm.getVisibleAt(i); } catch (e) { continue; }
       if (!vis) continue;
+      visible++;
       bm.getMatrixAt(i, m);
       const x = m.elements[12], y = m.elements[13], z = m.elements[14];
-      rc.set(new THREE.Vector3(x, y + 60, z), down);
-      rc.far = 200;
-      const hit = rc.intersectObjects(ground, false)[0];
-      if (!hit) continue;
+      rc.set(new THREE.Vector3(x, y + 80, z), down);
+      const hits = rc.intersectObjects(scene.children, true);
+      const hit = hits.find((h) => !isVeg(h.object));
+      if (!hit) { missed++; continue; }
       gaps.push(y - hit.point.y);
     }
   }
-  if (!gaps.length) { console.warn('[vegY] no trees sampled (none visible?)'); return null; }
+  console.log(`[vegY] visible instances sampled ${visible}, ground found under ${gaps.length}, no ground under ${missed}`);
+  if (!gaps.length) {
+    console.warn(visible === 0
+      ? '[vegY] NO VISIBLE TREE INSTANCES — the pool holds them but none are switched on.'
+      : '[vegY] trees are visible but nothing was under them — ground meshes did not raycast.');
+    return { sampled: 0, visible, missed };
+  }
   gaps.sort((a, b) => a - b);
   const q = (f) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * f))];
   const float = gaps.filter((g) => g > 0.5).length;
   const buried = gaps.filter((g) => g < -0.5).length;
-  console.log(`[vegY] ${gaps.length} trees sampled — gap between tree base and ground below it`);
-  console.log(`  min ${q(0).toFixed(2)}  p25 ${q(0.25).toFixed(2)}  median ${q(0.5).toFixed(2)}` +
-              `  p75 ${q(0.75).toFixed(2)}  max ${q(0.999).toFixed(2)} m`);
+  console.log(`  gap tree-base minus ground:  min ${q(0).toFixed(2)}  p25 ${q(0.25).toFixed(2)}` +
+              `  median ${q(0.5).toFixed(2)}  p75 ${q(0.75).toFixed(2)}  max ${q(0.999).toFixed(2)} m`);
   console.log(`  FLOATING (>0.5 m above) ${float}  ${(float / gaps.length * 100).toFixed(1)}%`);
   console.log(`  BURIED   (>0.5 m below) ${buried}  ${(buried / gaps.length * 100).toFixed(1)}%`);
-  return { sampled: gaps.length, median: q(0.5), float, buried };
+  return { sampled: gaps.length, visible, missed, median: q(0.5), float, buried };
 };
 
 // D-23 proof-of-work: a guard that rejects nothing and a guard that never runs look identical.
