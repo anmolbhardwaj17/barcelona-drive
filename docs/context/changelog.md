@@ -2710,3 +2710,16 @@ floating, and that nothing exceeds 1.25 m and walls the driver in.
   allocated-vs-drawn — check for a probe before writing one.
 - Tagged `userData.type` on the four prop meshes and the veg pools (`veg:<name>`). See **H19**:
   three probes reported "nothing found" purely because untagged meshes report as minified names.
+
+## 2026-08-28 (final) — the street trees, closed
+
+- **N-19** green polygons were drawn FLAT at their centroid's elevation, so plants inside them
+  floated (uphill) or sank (downhill). Signature: near-zero median, p95 of metres, even
+  float/buried split. Every green vertex now samples its own elevation.
+- **N-20** two stacked baker faults: placement measured from a width table wider than the bake's own
+  output (residential 10 vs 5), pushing trees into buildings where they were deleted (18.2%); and
+  the road guard insets 3–5 m, so it policed only the middle of the road. Plus my own 0.10 m
+  clearance inside a 0.5 m grid's quantisation, which cost 19% of trees before it was reconciled.
+- **FINAL, measured:** trees **95,575 → 174,712 (+83%)**, spacing **14.8 → 8.1 m/side** against
+  Barcelona's real ~8, carriageway **4.0% → 0.0%**, correct kerb band **65.9% → 93.6%**, tree:bush
+  **1.24 → 3.01 : 1**.
