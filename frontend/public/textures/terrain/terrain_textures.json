@@ -1,0 +1,35 @@
+{
+  "surfaces": [
+    {
+      "name": "rock_face",
+      "spanM": 3.0,
+      "texelsPerM": 341.3,
+      "use": "trench cut face (buildTrenchCliffWalls)",
+      "normalize": {
+        "version": 1,
+        "sourceType": "ai",
+        "k": 0.35,
+        "surfaceClass": "rock",
+        "snapAlpha": 0.6,
+        "normalSource": "height-derived",
+        "tileRatioBefore": 2.502,
+        "tileRatio": 0.003,
+        "tileVerifyPass": true,
+        "tileRepair": "aligned (roll 102,366)",
+        "grainMm": 52.73,
+        "grainPass": false,
+        "grainBandApplies": false,
+        "pebbleMm": 52.7,
+        "pebblePlausible": true,
+        "LStar": 55.0,
+        "CStar": 6.9,
+        "nearestAnchor": "P7_bordillo_granite",
+        "deltaE2000": 5.18,
+        "gate4Pass": true,
+        "normalMeanXY": 0.25,
+        "normalBandPass": true,
+        "rallyClipPct": 0.026
+      }
+    }
+  ]
+}

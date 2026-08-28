@@ -51,6 +51,8 @@ LIBRARY = [
     ('road/panot_normal.png',             'uastc', True,  'normal'),
     ('road/kerb_granite_albedo.png',      'etc1s', False, 'opaque photographic'),
     ('road/kerb_granite_normal.png',      'uastc', True,  'normal'),
+    ('terrain/rock_face_albedo.png',      'etc1s', False, 'opaque photographic (v3 P4-18 trench cut face)'),
+    ('terrain/rock_face_normal.png',      'uastc', True,  'normal'),
     ('sky/sky_clouds_day.png',            'uastc', False, 'alpha is the cloud MASK — banding is visible on sky'),
     ('sky/sky_clouds_night.png',          'uastc', False, 'alpha is the cloud MASK'),
     # These two have no build tool, so their masters were moved to art-src/legacy/ when public/ was

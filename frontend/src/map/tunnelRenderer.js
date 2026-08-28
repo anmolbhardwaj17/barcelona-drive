@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { getLiningTextures, getConcreteTextures } from './tunnelTextures.js';   // v3 P4-18
 import { getRoadSurface } from './roadTexturePack.js';     // v3 P4-18 — reuse the resident asphalt
+import { getKTX2TextureSync } from '../loaders.js';        // v3 P4-18 — trench rock face
 import { kerbOffset } from './roadWidths.js';   // R-W1: a tunnel's paved width is kerb-to-kerb
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
@@ -545,7 +546,23 @@ function _getRampMat() {
 }
 function _getCutWallMat() {
   if (_cutWallMat) return _cutWallMat;
-  _cutWallMat = new THREE.MeshLambertMaterial({ color: RETAINING_COLOR, side: THREE.DoubleSide });
+  // P4-18: the trench CUT FACE is exposed rock, not concrete — it is the earth the trench was cut
+  // through, and the spawn sits at a trench portal so it is in frame on the first drive. Span is
+  // 3.0 m, MEASURED from the plate's own grain rather than taken from the art-bible table: at the
+  // table's 8 m its pebbles would be 14 cm, and a conglomerate's clasts run 2-6 cm. See
+  // tools/build-trench-rock.py and terrain/terrain_textures.json.
+  const ROCK_SPAN_M = 3.0;
+  const rockTex = (url, srgb) => {
+    const t = getKTX2TextureSync(url, { srgb, tiling: true, aniso: 8 });
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1 / ROCK_SPAN_M, 1 / ROCK_SPAN_M);   // UVs are in METRES — see buildQuad
+    return t;
+  };
+  _cutWallMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff, side: THREE.DoubleSide,
+    map: rockTex('/textures/terrain/rock_face_albedo.ktx2', true),
+    normalMap: rockTex('/textures/terrain/rock_face_normal.ktx2', false),
+  });
   _cutWallMat.userData.sharedMaterial = true;
   return _cutWallMat;
 }
