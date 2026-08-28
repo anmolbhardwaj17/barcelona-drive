@@ -8,7 +8,7 @@
  * No Delhi-era chevron curbs, guardrails, or arched canopies.
  */
 import * as THREE from 'three';
-import { getLiningTextures } from './tunnelTextures.js';   // v3 P4-18
+import { getLiningTextures, getConcreteTextures } from './tunnelTextures.js';   // v3 P4-18
 import { getRoadSurface } from './roadTexturePack.js';     // v3 P4-18 — reuse the resident asphalt
 import { kerbOffset } from './roadWidths.js';   // R-W1: a tunnel's paved width is kerb-to-kerb
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -142,6 +142,25 @@ function portalFalloff(d) {
   return 1 - (1 - DEEP_LIT) * s;
 }
 
+
+/**
+ * Give a geometry a white vertex-colour attribute if it has none.
+ *
+ * ⚠ Needed because `retwall` and `portal` now declare `vertexColors: true`, and not every producer
+ * routes through `buildQuad`: the pedestrian portal builds its posts and lintel from
+ * `THREE.BoxGeometry`, which carries position/normal/uv and NO colour. A material with
+ * `vertexColors` on and geometry without the attribute renders undefined, and `mergeGeometries`
+ * refuses a group whose members disagree. Both failures are silent at build and test time — the
+ * file compiles, the suite passes, and the portal is simply wrong on screen.
+ */
+function ensureVertexColor(geo) {
+  if (geo.getAttribute('color')) return geo;
+  const n = geo.getAttribute('position').count;
+  const cols = new Float32Array(n * 3).fill(1);
+  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return geo;
+}
+
 function perpDir(ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az;
   const len = Math.hypot(dx, dz) || 1;
@@ -206,8 +225,14 @@ const getMat = {
   })),
   led:       () => _mat('led',       () => new THREE.MeshBasicMaterial  ({ color: LED_COLOR,     side: THREE.DoubleSide })),
   safety:    () => _mat('safety',    () => new THREE.MeshLambertMaterial({ color: SAFETY_COLOR,  side: THREE.DoubleSide })),
-  portal:    () => _mat('portal',    () => new THREE.MeshLambertMaterial({ color: PORTAL_COLOR,  side: THREE.DoubleSide })),
-  retwall:   () => _mat('retwall',   () => new THREE.MeshLambertMaterial({ color: RETAINING_COLOR,         side: THREE.DoubleSide })),
+  // Portal faces and trench retaining walls are the same board-formed concrete, tinted apart only
+  // so the portal frame still reads as a distinct element against the wall behind it.
+  portal:    () => _mat('portal', () => new THREE.MeshLambertMaterial({
+    color: PORTAL_COLOR, ...getConcreteTextures(), side: THREE.DoubleSide, vertexColors: true,
+  })),
+  retwall:   () => _mat('retwall', () => new THREE.MeshLambertMaterial({
+    color: RETAINING_COLOR, ...getConcreteTextures(), side: THREE.DoubleSide, vertexColors: true,
+  })),
   pedportal: () => _mat('pedportal', () => new THREE.MeshLambertMaterial({ color: PEDESTRIAN_PORTAL_COLOR, side: THREE.DoubleSide })),
 };
 
@@ -993,7 +1018,7 @@ export function buildTrenchPortals(trenchRoads, getGroundY) {
         const cz = p.y + sign * perp.z * edge;
         const post = new THREE.BoxGeometry(PORTAL_POST_W, lintelTop - deck, PORTAL_POST_W);
         post.translate(cx, (deck + lintelTop) / 2, cz);
-        geoms.push(post);
+        geoms.push(ensureVertexColor(post));
       }
       // Lintel beam across the opening (full width + posts).
       const span = 2 * edge + PORTAL_POST_W;
@@ -1002,7 +1027,7 @@ export function buildTrenchPortals(trenchRoads, getGroundY) {
       const ang = Math.atan2(perp.z, perp.x);
       lintel.rotateY(-ang);
       lintel.translate(p.x, (lintelBot + lintelTop) / 2, p.y);
-      geoms.push(lintel);
+      geoms.push(ensureVertexColor(lintel));
     }
   }
   if (!geoms.length) return null;

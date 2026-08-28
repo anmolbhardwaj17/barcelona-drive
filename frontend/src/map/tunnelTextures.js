@@ -33,6 +33,21 @@ const TEX_PX = 512;
 
 let _albedo = null;
 let _normal = null;
+let _concreteAlbedo = null;
+let _concreteNormal = null;
+
+/**
+ * Board-formed concrete. Metres per repeat.
+ *
+ * NOT `wall_01.ktx2`, which already exists and would have been free: that plate is the MASONRY
+ * boundary wall `barrierRenderer` draws on compound walls. A road trench and a tunnel portal are
+ * board-formed concrete — poured against timber shuttering, so horizontal board seams and rows of
+ * tie-holes, not coursed stone. Reusing the masonry plate is the cheap wrong answer, and the Ronda
+ * trench wall is the surface directly beside the spawn.
+ */
+export const CONCRETE_SPAN_M = 2.4;
+/** Height of one form board, metres — 8 boards to the 2.4 m span. */
+const BOARD_M = 0.3;
 
 /** Deterministic value noise — no Math.random, so the lining is identical every load. */
 function hash2(x, y) {
@@ -114,6 +129,59 @@ function deriveNormal(albedoCanvas, strength = 2.0) {
   return c;
 }
 
+function drawConcrete() {
+  const c = document.createElement('canvas');
+  c.width = c.height = TEX_PX;
+  const g = c.getContext('2d');
+  const boardPx = TEX_PX / (CONCRETE_SPAN_M / BOARD_M);   // pixels per form board
+
+  g.fillStyle = '#9a9892';
+  g.fillRect(0, 0, TEX_PX, TEX_PX);
+
+  // Per-board tone. Each pour lift cures slightly differently, and that banding is the single
+  // strongest read of board-formed concrete — without it this is a flat grey card.
+  const boards = Math.round(CONCRETE_SPAN_M / BOARD_M);
+  for (let b = 0; b < boards; b++) {
+    const n = hash2(b * 3.7, 11.3);
+    const l = 154 + Math.round((n - 0.5) * 16);
+    g.fillStyle = `rgb(${l}, ${l - 1}, ${l - 5})`;
+    g.fillRect(0, b * boardPx, TEX_PX, boardPx);
+    // Seam between boards: a thin dark recess, and a thin bright lip under it where grout wept.
+    g.fillStyle = 'rgba(60,58,54,0.55)';
+    g.fillRect(0, b * boardPx, TEX_PX, Math.max(1, boardPx * 0.035));
+    g.fillStyle = 'rgba(255,255,255,0.06)';
+    g.fillRect(0, b * boardPx + boardPx * 0.035, TEX_PX, Math.max(1, boardPx * 0.02));
+  }
+
+  // Form-tie holes, on the regular grid the shuttering imposes.
+  const tieCols = 4;
+  for (let b = 1; b < boards; b += 2) {
+    for (let i = 0; i < tieCols; i++) {
+      const x = (i + 0.5) * (TEX_PX / tieCols);
+      const y = b * boardPx;
+      const r = Math.max(1.5, boardPx * 0.10);
+      const grad = g.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, 'rgba(58,56,52,0.75)');
+      grad.addColorStop(1, 'rgba(58,56,52,0)');
+      g.fillStyle = grad;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // Vertical staining, heaviest at the top where runoff enters. Trench walls streak.
+  for (let i = 0; i < 26; i++) {
+    const x = hash2(i * 5.1, 2.9) * TEX_PX;
+    const w = 2 + hash2(i * 1.7, 8.2) * 10;
+    const st = g.createLinearGradient(0, 0, 0, TEX_PX);
+    st.addColorStop(0, 'rgba(70,66,58,0.20)');
+    st.addColorStop(0.55, 'rgba(70,66,58,0.06)');
+    st.addColorStop(1, 'rgba(70,66,58,0)');
+    g.fillStyle = st;
+    g.fillRect(x, 0, w, TEX_PX);
+  }
+  return c;
+}
+
 function build() {
   if (_albedo) return;
   const canvas = drawAlbedo();
@@ -129,6 +197,23 @@ function build() {
   }
 }
 
+/** @returns {{ map: THREE.Texture, normalMap: THREE.Texture }} the shared concrete pair. */
+export function getConcreteTextures() {
+  if (!_concreteAlbedo) {
+    const canvas = drawConcrete();
+    _concreteAlbedo = new THREE.CanvasTexture(canvas);
+    _concreteAlbedo.colorSpace = THREE.SRGBColorSpace;
+    _concreteNormal = new THREE.CanvasTexture(deriveNormal(canvas, 1.4));
+    for (const t of [_concreteAlbedo, _concreteNormal]) {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(1 / CONCRETE_SPAN_M, 1 / CONCRETE_SPAN_M);
+      t.anisotropy = 8;
+      t.needsUpdate = true;
+    }
+  }
+  return { map: _concreteAlbedo, normalMap: _concreteNormal };
+}
+
 /** @returns {{ map: THREE.Texture, normalMap: THREE.Texture }} the shared lining pair. */
 export function getLiningTextures() {
   build();
@@ -138,5 +223,6 @@ export function getLiningTextures() {
 /** Free the pair. Shared and cached, so only a full teardown should call this. */
 export function disposeLiningTextures() {
   _albedo?.dispose(); _normal?.dispose();
-  _albedo = _normal = null;
+  _concreteAlbedo?.dispose(); _concreteNormal?.dispose();
+  _albedo = _normal = _concreteAlbedo = _concreteNormal = null;
 }
