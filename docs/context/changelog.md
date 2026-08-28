@@ -2880,3 +2880,7 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   duplicate removals had no effect on the shipped tiles. `applyFixerToWays` reconciles them back.
   Rule 5's removals remain gated behind `FIXER_APPLY_REMOVALS=1` pending a look at what 20% fewer
   ways does to the city.
+- **N-39** the synthesised links (N-32) had to survive the commit-blocking floor validator. Two of
+  them did not: a two-point way up to 224 m long gives the trench carve a straight-line floor under
+  a DEM-draped road. Links are now densified to 5 m, `ceil` with a minimum of two steps. Bake green,
+  0 violations, 47 links shipped (9 tunnel / 38 at-grade).
