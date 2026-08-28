@@ -294,8 +294,17 @@ const LINK_MIN_M = 8;
 const SHORT_LINK_M = 25;
 const LINK_MAX_M = 250;
 const LINK_COS = 0.90;
-/** Metres between interpolated nodes on a synthesised link — see the densify note at the emit site. */
-const LINK_NODE_SPACING_M = 15;          // ~25 deg
+/**
+ * Metres between interpolated nodes on a synthesised link — see the densify note at the emit site.
+ *
+ * 5 m, and both halves of that number are load-bearing. The FIRST attempt used 15 m with
+ * `floor(gap / spacing)` steps, which fixed one of the two failing links and left the other with a
+ * byte-identical 0.51 m gap — because it was 27.6 m long, `floor(27.6/15)` is 1, and the loop that
+ * adds interior nodes never ran. The rule had a hole exactly the size of the remaining failure.
+ * `ceil` with a floor of 2 steps means EVERY link gets at least a midpoint, and 5 m is finer than
+ * the terrain grid's own cell, so the carved floor cannot bow away from the ground between nodes.
+ */
+const LINK_NODE_SPACING_M = 5;          // ~25 deg
 
 function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
   const stats = { pairsConsidered: 0, freeEnds: 0, created: 0, shortUnnamedLinks: 0,
@@ -384,7 +393,7 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       // same in-place mutation rule 6 relies on — which is the half of the fixer that was reaching
       // the output even before N-37.
       const nodeIds = [a.nid];
-      const steps = Math.floor(gap / LINK_NODE_SPACING_M);
+      const steps = Math.max(2, Math.ceil(gap / LINK_NODE_SPACING_M));
       for (let k = 1; k < steps; k++) {
         const t = k / steps;
         const nid = nextSyntheticId();
