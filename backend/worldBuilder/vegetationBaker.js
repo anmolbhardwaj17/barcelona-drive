@@ -52,6 +52,10 @@ const VEG_MASK_PAD = 20;
 // left. The city's most characteristic object cannot fit in the space its own road model leaves it.
 // 0.3 m = the kerb. A tree may stand ON the pavement; it may not stand on the asphalt.
 const ROAD_INFLATE = 0.3;
+
+/** N-10 proof-of-work (D-23): vegetation dropped for being planted outside its own tile. */
+const _vegClipStats = { trees: 0, treesKept: 0 };
+export function getVegClipStats() { return _vegClipStats; }
 const BRIDGE_INFLATE = 18.0;  // wide margin to prevent tree canopies clipping through flyovers
 const JUNCTION_CLUSTER_DIST_SQ = 25;
 const JUNCTION_RADIUS_MULT = 2.0;
@@ -1196,6 +1200,30 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   // Collect main tree positions (roadside + building perimeter)
   let positions = collectAllPositions(vegTileData, tileKey, vegMask, config);
 
+  // ── N-10: A TILE MAY ONLY PLANT INSIDE ITS OWN BOUNDS ──────────────────────────────────────────
+  //
+  // `noClipTileStrategy` gives every tile the FULL geometry of every way that touches it, so
+  // `getRoadsideTreePositions` walks those ways far past the tile edge and plants along all of it.
+  // Measured on the Gran Via tile: **1,278 tree positions of which only 590 (46.2%) were inside the
+  // tile**, and 3,000 bushes of which 503 (16.8%) were.
+  //
+  // That is not merely duplicated work. The runtime derives each tree's ground height from the
+  // tile's own elevation grid, and outside the grid that sampling clamps to the edge or returns
+  // nothing — so a tree planted in the neighbour's ground is buried or dropped. It is the same
+  // reasoning `environmentClusterRenderer` already applies to its own items ("the neighbour tile
+  // owns that ground and places its own vegetation there"); the baker simply never did.
+  //
+  // The neighbour plants that ground itself, from its own roads, so nothing is lost by clipping.
+  const _swB = latLonToWorld(tileBounds.south, tileBounds.west);
+  const _neB = latLonToWorld(tileBounds.north, tileBounds.east);
+  const _bMinX = Math.min(_swB.x, _neB.x), _bMaxX = Math.max(_swB.x, _neB.x);
+  const _bMinZ = Math.min(_swB.z, _neB.z), _bMaxZ = Math.max(_swB.z, _neB.z);
+  const _inTile = (q) => q.x >= _bMinX && q.x <= _bMaxX && q.y >= _bMinZ && q.y <= _bMaxZ;
+  const _before = positions.length;
+  positions = positions.filter(_inTile);
+  _vegClipStats.trees += _before - positions.length;
+  _vegClipStats.treesKept += positions.length;
+
   // Sort by distance from tile center (matches frontend behavior with center=(0,0))
   if (positions.length > 0) {
     // Compute tile center in world coords
@@ -1218,7 +1246,7 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   const treeVariants = treeVariantIndices;
 
   // Collect bush positions
-  const bushPosArr = collectBushPositions(positions, vegTileData, tileKey, vegMask);
+  const bushPosArr = collectBushPositions(positions, vegTileData, tileKey, vegMask).filter(_inTile);
 
   // Build flat bush positions
   const bushPositions = new Float32Array(bushPosArr.length * 2);

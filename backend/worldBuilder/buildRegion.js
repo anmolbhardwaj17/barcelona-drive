@@ -166,7 +166,7 @@ import { buildMergeGeometry } from './junctions/MergeGeometryBuilder.js';
 import { tileToBBox, latLonToTile, mercatorToWorld, worldToMercator, mercatorToLatLon, getOriginMercator, latLonToMercator } from '../projection.js';
 import { convertTile } from './convertToBinary.js';
 import { bakeTerrainMesh, bakePhysicsTerrain } from './terrainBaker.js';
-import { bakeVegetation } from './vegetationBaker.js';
+import { bakeVegetation, getVegClipStats } from './vegetationBaker.js';
 import { bakeRoadSurfaces } from './roadBaker.js';
 import { loadDEM } from './demLoader.js';
 import { parsePbfAreaFeatures, normalizeAreaFeature, splitAreaFeaturesByTile } from './pbfAreaFeatures.js';
@@ -1868,6 +1868,14 @@ async function main() {
     const { total, dropped } = _treeDropStats;
     const pct = total ? ((100 * dropped) / total).toFixed(2) : '0.00';
     console.log(`  [Trees] ${dropped} of ${total} OSM trees dropped for standing inside a drawn carriageway (${pct}%).`);
+  }
+  {
+    // N-10: vegetation planted outside its own tile takes its ground height from a grid that does
+    // not cover it, so it ends up buried or dropped at runtime. The neighbour plants that ground.
+    const v = getVegClipStats();
+    const tot = v.trees + v.treesKept;
+    const pct = tot ? ((100 * v.trees) / tot).toFixed(1) : '0.0';
+    console.log(`  [Veg] ${v.treesKept} tree positions kept, ${v.trees} dropped for falling outside their own tile (${pct}%).`);
   }
 
   // ── Slice ③: commit-blocking floor validator (drivable-surface-implies-floor) ──
