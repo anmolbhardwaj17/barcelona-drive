@@ -69,8 +69,12 @@ const SINGLE_ENDPOINT_EXTRA = 5.0;
 
 // Tree placement
 const ENABLE_ROADSIDE_TREES = true;
-const ROADSIDE_SPACING_MIN = 2;
-const ROADSIDE_SPACING_MAX = 4;   // N-20: was 5. Measured 9.7 m/side against a real ~8 m.
+// N-20 final: 2/4 -> 1.5/3. With placement corrected (92.2% now land in the 0-3 m kerb band and
+// 0.0% in a carriageway) the only honest lever left for density is spacing. Measured 10.5 m per
+// side against Barcelona's real ~8 m; a mean step of 2.25 m closes it. This is safe to push only
+// BECAUSE placement is right — doing it earlier would have multiplied misplaced trees.
+const ROADSIDE_SPACING_MIN = 1.5;
+const ROADSIDE_SPACING_MAX = 3;
 const ROADSIDE_TREE_CAP = 4000;
 // Kerb width, mirroring BCN_DIMS.CURB_WIDTH (frontend/src/map/barcelona-constants.js). A street
 // tree is planted BEYOND the kerb, so this is part of the offset, not a rounding allowance.
@@ -597,7 +601,16 @@ function buildPavedGrid(roads) {
     const paved = Number.isFinite(Number(road.kerbToKerbW))
       ? Number(road.kerbToKerbW)
       : Math.max(Number(road.width) || 0, ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6);
-    const half = paved / 2 + 0.6;
+    // ⚠ THIS GRID IS QUANTISED TO GRID_RES (0.5 m), so a cell up to ~0.35 m OUTSIDE this radius can
+    // still be marked. The margin against the placement minimum must exceed that or the guard eats
+    // legitimate trees. First cut used +0.6 against a placement minimum of halfW + 0.7 — 0.10 m of
+    // margin, less than one cell — and it deleted **19% of all trees** (145,904 -> 118,099, spacing
+    // 9.7 -> 12.0 m) while correctly taking the carriageway to 0.0%. The guard was right; the
+    // clearance was inside the noise floor.
+    //
+    // Now the asphalt edge plus a token epsilon, with the placement minimum raised to halfW + 0.8
+    // below. That leaves ~0.7 m of true margin against ~0.35 m of quantisation.
+    const half = paved / 2 + 0.1;
     if (half <= 0) continue;
     for (let i = 0; i < pts.length - 1; i++) {
       rasterizeSegment(grid, gridW, gridH, minX, minZ, GRID_RES,
@@ -827,8 +840,8 @@ function getRoadsideTreePositions(tileData, tileKey) {
           }
         }
         // N-20: 0.15 -> 0.08. The gaps read as missing trees, not as natural variation.
-        const skipLeft = seeded(s, 8) < 0.08;
-        const skipRight = seeded(s, 9) < 0.08;
+        const skipLeft = seeded(s, 8) < 0.05;
+        const skipRight = seeded(s, 9) < 0.05;
         const longJitter = (seeded(s, 10) - 0.5) * 3.0;
         const tBase = (dist + longJitter) / segLen;
         const tc = Math.max(0, Math.min(1, tBase));
@@ -854,7 +867,7 @@ function getRoadsideTreePositions(tileData, tileKey) {
         const treeBase = halfW + CURB_WIDTH + setback;
         // Jitter is kept — a perfectly ruled line of trees reads as fake — but it may no longer
         // reach back across the kerb. Clamp the whole offset to stay outside the carriageway.
-        const minOff = halfW + CURB_WIDTH + 0.4;
+        const minOff = halfW + CURB_WIDTH + 0.5;   // N-20: clears buildPavedGrid's 0.5 m cells
         const jitL = (seeded(s, 11) - 0.5) * (isLink ? 0.4 : 0.5);
         const jitR = (seeded(s, 12) - 0.5) * (isLink ? 0.4 : 0.5);
         const offL = Math.max(minOff, treeBase + jitL);
