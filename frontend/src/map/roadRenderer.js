@@ -4177,7 +4177,20 @@ function buildBridgeGuardRailGeometry(roads, options) {
       if (n < 2) continue;
       // Emit each maximal run of kept points as its own wall+railing (gaps at junctions/dedup).
       for (const [s, e] of guardRailKeepRuns(keep, n)) {
-        emitEdgeSkirt(outerEdge.slice(s, e + 1), atVals.slice(s, e + 1), skirtGeoms);
+        // ⚠ N-31 EDGE SKIRT — DISABLED 2026-08-29, and left here as a record rather than deleted.
+        //
+        // The reasoning was sound: an elevated carriageway floats because this project has no
+        // embankment fill, so close the void. The EXECUTION was not. A vertical face dropped from
+        // the road edge does not read as an embankment — it reads as a 6 m wall running beside the
+        // road, which is what the user saw ("do we need these embankments?"). It was worse than the
+        // hole it replaced.
+        //
+        // A real embankment is a SLOPED earth batter continuous with the terrain, taking its
+        // material and colour from the ground it grows out of, not a concrete plane at the kerb.
+        // That is a terrain job, not a road-edge job, and it belongs with N-23's question of why the
+        // terrain does not reach these decks at all. Re-enable only with a sloped, terrain-shaded
+        // batter — not by turning this line back on.
+        // emitEdgeSkirt(outerEdge.slice(s, e + 1), atVals.slice(s, e + 1), skirtGeoms);
         emitGuardRailRun(
           innerEdge.slice(s, e + 1),
           outerEdge.slice(s, e + 1),
