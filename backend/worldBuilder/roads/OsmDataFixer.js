@@ -285,11 +285,18 @@ function rule4_orphanShortBridge(wayMap, nodeToWays, nodeMap) {
  */
 const LINK_CONNECT_M = 2.0;     // an endpoint this close to another way is already joined
 const LINK_MIN_M = 8;
+// N-34: a SHORT facing gap does not need a matching name. Two free ends 15 m apart, aimed at each
+// other, same class, with nothing crossing between them, are one road — the name is only needed as
+// evidence when the gap is long enough that two unrelated streets could be confused. User-reported:
+// "2 roads very close to each other but no ramp and just exiting like this thats wrong for sure".
+// Measured over the shipped tiles: 33 facing pairs within 25 m, 27 of them same-class — so this
+// admits roughly a dozen beyond what the name rule already caught, not a flood.
+const SHORT_LINK_M = 25;
 const LINK_MAX_M = 250;
 const LINK_COS = 0.90;          // ~25 deg
 
 function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
-  const stats = { pairsConsidered: 0, freeEnds: 0, created: 0,
+  const stats = { pairsConsidered: 0, freeEnds: 0, created: 0, shortUnnamedLinks: 0,
                   rejectedName: 0, rejectedAim: 0, rejectedCrossing: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
@@ -342,11 +349,15 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       if (b.way.id === a.way.id) continue;
       if (b.way.highwayType !== a.way.highwayType) continue;
       const nameB = String(b.way.tags?.name ?? '').trim();
-      if (nameB !== nameA) { stats.rejectedName++; continue; }
 
       const { dx, dz } = toMeters(a.lat, a.lon, b.lat, b.lon);
       const gap = Math.hypot(dx, dz);
       if (gap < LINK_MIN_M || gap > LINK_MAX_M) continue;
+      // Name is EVIDENCE, and how much evidence you need depends on the gap. Over SHORT_LINK_M the
+      // names must match or two unrelated streets pointing at each other across a block become one
+      // road. Under it, the geometry is already conclusive.
+      if (nameB !== nameA && gap > SHORT_LINK_M) { stats.rejectedName++; continue; }
+      if (nameB !== nameA) stats.shortUnnamedLinks++;
       stats.pairsConsidered++;
 
       const tx = dx / gap, tz = dz / gap;
@@ -360,10 +371,15 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       wayMap.set(id, {
         id,
         nodeIds: [a.nid, b.nid],
-        tags: { ...(a.way.tags || {}), tunnel: 'yes', layer: '-1', _synthetic: 'missing_link' },
+        // A LONG gap is a road passing under something: tunnel. A SHORT one is two ends that simply
+        // were not joined — link them at grade, because burying a 15 m connector would carve a hole
+        // in the street for no reason.
+        tags: { ...(a.way.tags || {}),
+                ...(gap > SHORT_LINK_M ? { tunnel: 'yes', layer: '-1' } : {}),
+                _synthetic: 'missing_link' },
         bridge: false,
-        tunnel: true,
-        layer: -1,
+        tunnel: gap > SHORT_LINK_M,
+        layer: gap > SHORT_LINK_M ? -1 : 0,
         highwayType: a.way.highwayType,
         closedLoop: false,
         points: null,

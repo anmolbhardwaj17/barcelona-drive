@@ -3702,7 +3702,16 @@ function computeGuardRailMask(roads, options) {
     const heights = getRoadPointHeights(road, options);
     const edges = getRibbonEdgeVerts(pts, guardRailWidth(road) + GUARD_RAIL_THICKNESS * 2, heights);
     if (!edges) continue;
-    elevated.push({ road, seq: seq++, pts, left: edges.leftEdge, right: edges.rightEdge });
+    // N-35: WHY it qualified decides whether the rail runs end to end. A bridge or a ramp is railed
+    // along its whole deck — the structure is elevated everywhere. A road admitted only by the
+    // lateral-drop PROBE is different: `hasLateralDrop` returns true if a fall exists ANYWHERE
+    // along it, and the rail was then drawn along the ENTIRE road, including the stretch where it
+    // merges with another carriageway at the same height. That is the user's report — a barrier
+    // running down the middle of a merge, walling off two lanes that are joining.
+    const structural = !!(road.bridge || road.isRamp || (road.layer != null && road.layer > 0)
+      || road.crossesTrench === true);
+    elevated.push({ road, seq: seq++, pts, left: edges.leftEdge, right: edges.rightEdge,
+                    heights, structural });
   }
 
   // Spatial hash of every elevated edge point for parallel-dedup
@@ -3736,6 +3745,34 @@ function computeGuardRailMask(roads, options) {
     return false;
   };
 
+  /**
+   * N-35 — is there a fall beside THIS point, on THIS side?
+   *
+   * The per-ROAD `hasLateralDrop` answers "does a fall exist anywhere along this way", which is the
+   * right question for deciding whether to rail it at all and the wrong one for deciding where. Two
+   * carriageways converging are elevated where they part and level where they meet; railing the
+   * whole length puts a barrier through the merge.
+   *
+   * Same probe as `hasLateralDrop` — same offset, same threshold, same frame — so the two can never
+   * disagree about what a drop is. Only the granularity differs.
+   */
+  const pointHasDrop = (e, i, sign) => {
+    const getElevationAt = options?.getElevationAt;
+    if (!getElevationAt || !e.heights) return true;   // no terrain to ask: keep the rail
+    const pts = e.pts;
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-3) return true;
+    dx /= len; dy /= len;
+    const off = (guardRailWidth(e.road) || 6) / 2 + LATERAL_PROBE_M;
+    const sx = pts[i].x + -dy * off * sign, sy = pts[i].y + dx * off * sign;
+    const { lat, lon } = worldToLatLon(sx, sy);
+    const ty = getElevationAt(lat, lon);
+    if (!Number.isFinite(ty)) return Number.isFinite(e.heights[i]);   // N-30: a void IS a drop
+    return (e.heights[i] - ty * vertExag()) > LATERAL_DROP_M;
+  };
+
   for (const e of elevated) {
     const n = e.pts.length;
     const keepL = new Uint8Array(n).fill(1);
@@ -3754,6 +3791,12 @@ function computeGuardRailMask(roads, options) {
         if ((cx - r.cx) ** 2 + (cz - r.cz) ** 2 < r.rSq) { drop = true; break; }
       }
       if (drop) { keepL[i] = 0; keepR[i] = 0; continue; }
+      // rule 3b (N-35): a probe-only road keeps a rail only where a fall is actually beside it.
+      // Structural roads (bridge/ramp/layer/trench) are railed end to end and skip this.
+      if (!e.structural) {
+        if (!pointHasDrop(e, i, -1)) keepL[i] = 0;
+        if (!pointHasDrop(e, i, 1)) keepR[i] = 0;
+      }
       if (losesDedup(e.left[i].x, e.left[i].z, e.seq)) keepL[i] = 0;   // rule 4
       if (losesDedup(e.right[i].x, e.right[i].z, e.seq)) keepR[i] = 0;
     }
