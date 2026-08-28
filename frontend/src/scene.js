@@ -8,7 +8,7 @@ import { patchMaterial } from './map/materialRegistry.js';   // v3 P1-03
 import { QUALITY } from './quality.js';   // v3 P1-08
 import * as CANNON from 'cannon-es';
 import { latLonToWorld } from './projection.js';
-import { START_LAT, START_LON } from './spawnConfig.js';
+import { getActiveSpawn } from './spawnConfig.js';
 import { CONFIG } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -533,7 +533,16 @@ export function createScene(container) {
   const scene = new THREE.Scene();
   // Background is handled by Sky shader below — no solid color needed
 
-  const { x: spawnX, z: spawnZ } = latLonToWorld(START_LAT, START_LON);
+  // ⚠ getActiveSpawn(), NOT START_LAT/START_LON. Those two are STATIC re-exports of DEFAULT_SPAWN
+  // and spawnConfig says so outright — they never reflect the `?spawn=lat,lon` override. This was
+  // the last file still reading them, and it is the one that decides where the CAMERA starts.
+  //
+  // The bug hid in car mode: the camera is immediately snapped to the car, which main.js does place
+  // from getActiveSpawn(), so `?spawn=` looked like it worked. In FLY MODE the camera IS the player
+  // and nothing corrects it, so `?mode=fly&spawn=...` silently ignored the coordinates and sat at
+  // the default. Reported as "code has some logic that its not taking me based on url".
+  const _spawn = getActiveSpawn();
+  const { x: spawnX, z: spawnZ } = latLonToWorld(_spawn.lat, _spawn.lon);
 
   const width = container.clientWidth || window.innerWidth;
   const height = container.clientHeight || window.innerHeight;
