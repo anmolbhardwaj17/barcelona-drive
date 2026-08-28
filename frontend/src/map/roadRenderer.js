@@ -3710,9 +3710,16 @@ const GUARD_RAIL_ROUNDABOUT_DY = 3.0;
 const roundaboutZoneStats = { elevatedRingsKept: 0, overpassPointsKept: 0, suppressed: 0 };
 /** N-38 proof of work: how many road ends turned out to connect to nothing. */
 const railEndStats = { freeStartsKept: 0, freeEndsKept: 0 };
+/**
+ * Terrain samples spent by N-35's per-point probe. The gating comment on `hasLateralDrop` records
+ * that restricting it took the road pass from 1.24 M samples to ~134 k, so a rule that samples per
+ * POINT and per SIDE has to be watched rather than assumed cheap — `?debug=init` prints nothing
+ * about it and a slow tile build shows up as `other`, not as a named phase.
+ */
+const railProbeStats = { samples: 0 };
 if (typeof window !== 'undefined') {
   /** `_ddRailStats()` — did N-36 actually change anything on THIS load, or is it a no-op? */
-  window._ddRailStats = () => ({ ...roundaboutZoneStats, ...railEndStats });
+  window._ddRailStats = () => ({ ...roundaboutZoneStats, ...railEndStats, ...railProbeStats });
 }
 
 /**
@@ -3807,6 +3814,7 @@ function computeGuardRailMask(roads, options) {
     const off = (guardRailWidth(e.road) || 6) / 2 + LATERAL_PROBE_M;
     const sx = pts[i].x + -dy * off * sign, sy = pts[i].y + dx * off * sign;
     const { lat, lon } = worldToLatLon(sx, sy);
+    railProbeStats.samples++;
     const ty = getElevationAt(lat, lon);
     if (!Number.isFinite(ty)) return Number.isFinite(e.heights[i]);   // N-30: a void IS a drop
     return (e.heights[i] - ty * vertExag()) > LATERAL_DROP_M;
