@@ -8,9 +8,7 @@
  * the shared isInsideOrNearBuilding helper.
  */
 import { latLonToWorld } from '../projection.js';
-import { corridorWidth, pavedWidth } from './roadWidths.js';   // R-W1: never re-derive a width
-/** m — kerb allowance, so nothing sits half on the asphalt. */
-const KERB_CLEAR = 0.3;
+import { corridorWidth } from './roadWidths.js';   // R-W1
 import { rasterizeSegment, rasterizeDisc } from './roadOccupancyGrid.js';
 
 // R-W1: the "mirror of roadRenderer WIDTH_BY_TYPE" table that used to live here is gone. It was one
@@ -317,69 +315,3 @@ export function isInsideOrNearBuilding(x, z, buildings, margin = 2) {
   }
   return false;
 }
-
-/**
- * N-9 · Is this point on a drivable carriageway? Tested against the road GEOMETRY itself.
- *
- * ONE copy, shared by every placer. Today produced four separate cases of the same logic living in
- * two files and silently diverging (H10, H12, the carriageway clip, the width tables R-W1 killed),
- * so this does not get copied — it gets imported.
- *
- * The vegetation mask is a grid over the tile plus a pad, and `isVegetationAllowed` treats
- * everything OUTSIDE that grid as allowed — which is correct for "we do not know", and wrong as
- * the last word before placing a rock. Clusters near a tile edge scatter items past the grid and
- * were then placed unconditionally. This is O(items x segments) on a per-tile road list, which is
- * small, and it only runs for items the mask already accepted.
- */
-/**
- * N-9 counters. A guard that silently does nothing looks exactly like a guard that works, and this
- * one was written twice before it was verified. `window._ddClusterRejects` says which.
- */
-export const _clusterRejects = { mask: 0, road: 0, notGreen: 0, kept: 0 };
-if (typeof window !== 'undefined') window._ddClusterRejects = _clusterRejects;
-
-const _CLUSTER_ROAD_TYPES = new Set([
-  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
-  'living_street', 'service',
-  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
-]);
-/**
- * @param {'corridor'|'paved'} [mode] — 'corridor' is kerb-to-kerb PLUS both pavements, for things
- *   that belong nowhere in the right-of-way. 'paved' is kerb to kerb only, for a STREET TREE, which
- *   stands on the pavement by design: guarding a tree at corridor width deletes the avenue.
- */
-export function isOnAnyRoad(tileData, x, z, clearance = 0, mode = 'corridor') {
-  const roads = tileData?.roads;
-  if (!roads?.length) return false;
-  for (const r of roads) {
-    if (!_CLUSTER_ROAD_TYPES.has(r.highwayType) || r.tunnel || (r.layer || 0) !== 0) continue;
-    const pts = r.points;
-    if (!pts || pts.length < 2) continue;
-    // CORRIDOR width (kerb to kerb PLUS both pavements) — and the reason it is safe to be this
-    // wide is that NO CALLER PASSES A TREE. An earlier revision guarded at corridor width with
-    // trees still flowing through, and it deleted every plane tree on Gran Via: a street tree
-    // LIVES on the pavement, so the corridor is exactly the band it occupies. The fix was to
-    // exempt trees at the call site, not to narrow the guard — and with them exempt, paved width
-    // is too narrow for what remains. A rock or a bush on the pavement is not ground the player
-    // reads as open; it reads as debris in the street, which is the reported bug.
-    //
-    // `clearance` is the item's own FOOTPRINT radius. Without it this is a point test, so a flat
-    // stone at scale 2.5 could sit its CENTRE 10 cm outside the kerb and still overhang several
-    // metres of asphalt — which is what put boulders on the Gran Via crossing.
-    const half = (mode === 'paved' ? pavedWidth(r) : corridorWidth(r)) / 2 + KERB_CLEAR + clearance;
-    const halfSq = half * half;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
-      const dx = bx - ax, dz = bz - az;
-      const L = dx * dx + dz * dz;
-      let t = L > 0 ? ((x - ax) * dx + (z - az) * dz) / L : 0;
-      if (t < 0) t = 0; else if (t > 1) t = 1;
-      const qx = ax + t * dx, qz = az + t * dz;
-      const ddx = x - qx, ddz = z - qz;
-      if (ddx * ddx + ddz * ddz < halfSq) return true;
-    }
-  }
-  return false;
-}
-
-export const __test__ = { isOnAnyRoad };

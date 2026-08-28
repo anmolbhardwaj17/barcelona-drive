@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { latLonToWorld, worldToLatLon } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad } from './vegetationMask.js';
+import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 
 // ---------------------------------------------------------------------------
 // Density budget per tile
@@ -149,8 +149,7 @@ function getGrassMat() {
  * @returns {{ x: number, z: number }[]}
  */
 function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
-                          placementChance, buildings, roadMargin, vegMask, tileData,
-                          clearance = 0) {
+                          placementChance, buildings, roadMargin, vegMask) {
   const positions = [];
   const maxAttempts = count * MAX_ATTEMPTS_MULT;
   let idx = 0;
@@ -160,14 +159,6 @@ function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
     idx++;
     if (seeded(idx, seed + seedOffset + 2) > placementChance) continue;
     if (!isVegetationAllowed(vegMask, wx, wz, roadMargin)) continue;
-    // N-9: the mask returns TRUE for anything outside its own grid, so it is not the last word.
-    // Props became visible at the same time as the clusters (917c625 moved both off tile-CENTRE
-    // distance), and they scatter the same way. One shared geometric guard, imported not copied.
-    // Props are rocks, bushes and grass tufts — no trees — so all of them are guarded.
-    // `clearance` is the prop's own footprint at its LARGEST scale: the guard is a point test on
-    // the instance origin, and a rock is not a point. Passing 0 here is what let a 2.5-scale flat
-    // stone straddle the Gran Via crossing with its centre legally outside the kerb.
-    if (isOnAnyRoad(tileData, wx, wz, clearance)) continue;
     if (isInsideOrNearBuilding(wx, wz, buildings, 0)) continue;
     positions.push({ x: wx, z: wz });
   }
@@ -179,7 +170,7 @@ function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
 // ---------------------------------------------------------------------------
 
 function buildInstancedMesh(geometry, material, positions, seed, seedOffset,
-                            getElevationAt, vertExag, scaleRange, ySquashRange, typeName) {
+                            getElevationAt, vertExag, scaleRange, ySquashRange) {
   if (positions.length === 0) return null;
   const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
   mesh.count = positions.length;
@@ -188,9 +179,6 @@ function buildInstancedMesh(geometry, material, positions, seed, seedOffset,
   mesh.receiveShadow = true;
   mesh.userData.sharedGeometry = true;
   mesh.userData.sharedMaterial = true;
-  // N-15: without a type these report as a MINIFIED CLASS NAME in `_ddPick`, which is exactly how
-  // the cluster rocks cost three round trips before N-9 tagged them. Caller passes the label.
-  if (typeName) mesh.userData.type = typeName;
 
   const mat4 = new THREE.Matrix4();
   const pos = new THREE.Vector3();
@@ -256,44 +244,44 @@ export function renderProps(tileData, tileKey, options) {
   // --- rock_01: flat stones, scattered wide ---
   const rock01Pos = scatterPositions(
     Math.floor(ROCKS_PER_TILE * 0.5), minX, maxX, minZ, maxZ,
-    seed, 10, 0.25, buildings, 8, vegMask, tileData, 2.5
+    seed, 10, 0.25, buildings, 8, vegMask
   );
   const rock01Mesh = buildInstancedMesh(
     getRock01Geo(), getRockMat(), rock01Pos, seed, 20,
-    getElevationAt, vertExag, [0.6, 2.5], [0.4, 0.8], 'propRock01'
+    getElevationAt, vertExag, [0.6, 2.5], [0.4, 0.8]
   );
   if (rock01Mesh) { group.add(rock01Mesh); added = true; }
 
   // --- rock_02: rounder boulders, fewer ---
   const rock02Pos = scatterPositions(
     Math.floor(ROCKS_PER_TILE * 0.5), minX, maxX, minZ, maxZ,
-    seed, 30, 0.20, buildings, 8, vegMask, tileData, 2.0
+    seed, 30, 0.20, buildings, 8, vegMask
   );
   const rock02Mesh = buildInstancedMesh(
     getRock02Geo(), getRockMat(), rock02Pos, seed, 40,
-    getElevationAt, vertExag, [0.5, 2.0], [0.5, 1.0], 'propRock02'
+    getElevationAt, vertExag, [0.5, 2.0], [0.5, 1.0]
   );
   if (rock02Mesh) { group.add(rock02Mesh); added = true; }
 
   // --- bush_01: small green bushes ---
   const bushPos = scatterPositions(
     BUSHES_PER_TILE, minX, maxX, minZ, maxZ,
-    seed, 50, 0.30, buildings, 6, vegMask, tileData, 1.2
+    seed, 50, 0.30, buildings, 6, vegMask
   );
   const bushMesh = buildInstancedMesh(
     getBushGeo(), getBushMat(), bushPos, seed, 60,
-    getElevationAt, vertExag, [0.4, 1.2], [0.6, 1.0], 'propBush'
+    getElevationAt, vertExag, [0.4, 1.2], [0.6, 1.0]
   );
   if (bushMesh) { group.add(bushMesh); added = true; }
 
   // --- grass_cluster: small crossed triangle tufts ---
   const grassPos = scatterPositions(
     GRASS_PER_TILE, minX, maxX, minZ, maxZ,
-    seed, 70, 0.40, buildings, 4, vegMask, tileData, 0.5
+    seed, 70, 0.40, buildings, 4, vegMask
   );
   const grassMesh = buildInstancedMesh(
     getGrassGeo(), getGrassMat(), grassPos, seed, 80,
-    getElevationAt, vertExag, [0.6, 1.5], null, 'propGrass'
+    getElevationAt, vertExag, [0.6, 1.5], null
   );
   if (grassMesh) { group.add(grassMesh); added = true; }
 

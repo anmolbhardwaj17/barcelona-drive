@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { worldToLatLon, latLonToWorld } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad, _clusterRejects } from './vegetationMask.js';
+import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 import { getTreeGeometries, getTreeMaterial, getBushGeometries, getBushCardsMaterial, getBushVariantCount } from './vegetationRenderer.js';
 import { classifySpecies as classifyTreeSpecies, classifyBush, seededRand } from './treeSpeciesSets.js';
 import { loadCardAtlas } from './cardMesh.js';
@@ -225,29 +225,13 @@ const CLUSTER_TEMPLATES = [
 
 /** Index of the first WOODLAND template. Everything before it is urban roadside dressing. */
 const WOODLAND_FIRST = CLUSTER_TEMPLATES.length - 4;
-// N-17: urban templates that contain a TREE. On ground that is not a green region, rocks and
-// bushes are dropped, so a rock-only template would place nothing at all and the street would
-// simply be bare — the failure the user reported. Those spots draw from here instead, which is
-// what puts trees back along the road. Derived from the templates so it cannot fall out of step.
-const URBAN_TREE_TEMPLATES = CLUSTER_TEMPLATES
-  .map((t, i) => i)
-  .filter((i) => i < WOODLAND_FIRST && CLUSTER_TEMPLATES[i].items.some((it) => it.type === 'tree'));
 
 // A zoom-16 tile is ~500x500 m = 250,000 m². At spacing 25 the theoretical maximum is 400 clusters,
 // so the cap was the real limit: 120 clusters is one per ~2,000 m², which reads as an occasional
 // bush rather than a wooded slope. Raised now that the bbox covers the whole tile (see getTileBbox)
 // — before this, most of those clusters had nowhere to go anyway.
 const CLUSTER_SPACING = 18;   // metres between cluster centres
-// N-16/N-17: 340 -> 300 for BUILT-UP tiles. At 340 a tile got a scrub cluster every 18 m across its
-// whole area, and each template carries 4-6 rocks and bushes — measured live, that is 12,882
-// cluster bushes and 2,829 cluster rocks resident against 896 drawn baked bushes, so the undergrowth
-// the player sees is almost entirely THIS renderer. The Eixample is paved kerb to building line:
-// its greenery is street trees in pits, not verge scrub. WILD_MAX_CLUSTERS is untouched, so
-// Collserola and the hillsides keep their density — the user's ruling was about roads, not parks.
-// N-17 revised this: with rocks and bushes now confined to GREEN regions, a built-up tile's
-// clusters are trees, which is what the street was missing. So the cap is back near its original
-// 340 — the cut to 110 was throttling the wrong thing. Still the largest build phase (927 ms).
-const MAX_CLUSTERS_PER_TILE = 300;
+const MAX_CLUSTERS_PER_TILE = 340;
 
 // ── WILD TERRAIN ──────────────────────────────────────────────────────────────────────────────
 //
@@ -261,7 +245,7 @@ const MAX_CLUSTERS_PER_TILE = 300;
 // So on ground the map says nothing about, the renderer makes the call: no roads, no buildings and
 // no greens means WILD, and wild means wooded. This is generated, not surveyed, and it is meant to
 // be — the alternative on offer is an empty green dome.
-const WILD_MAX_CLUSTERS = 620;   // vs 300 urban: a hillside is denser than a paved district
+const WILD_MAX_CLUSTERS = 620;   // vs 340 urban: a hillside is denser than a verge
 const OPEN_RADIUS = 32;          // metres of clear ground that makes a spot "open country"
 const OPEN_RING_SAMPLES = 8;
 
@@ -414,11 +398,7 @@ function findClusterCenters(tileData, tileKey, vegMask) {
     // 1/25 m², cap 600), so generating woodland there as well would double-plant every mapped
     // wood — roughly 2,200 trees on a tile that should carry 600. The generated scatter exists to
     // fill ground OSM says nothing about, which is exactly the ground outside those polygons.
-    const inGreenPoly = insideAnyGreen(greens, x, z);
-    const open = !inGreenPoly && isOpenGround(vegMask, x, z);
-    // N-17: rocks and bushes are allowed only here — a mapped green polygon, or generated wild
-    // ground. Carried on the centre so the per-item loop does not repeat the polygon test.
-    const inGreen = inGreenPoly || open;
+    const open = !insideAnyGreen(greens, x, z) && isOpenGround(vegMask, x, z);
     if (open) {
       const d = standDensity(x, z, 140) * 0.7 + standDensity(x, z, 45) * 0.3;
       if (seeded(idx, globalSeed + 3) > d * 1.25) continue;
@@ -436,18 +416,10 @@ function findClusterCenters(tileData, tileKey, vegMask) {
 
     // Open ground draws only from the WOODLAND templates; anywhere near a road or building keeps
     // the urban roadside dressing. Decided per SPOT, so one hillside tile can carry both.
-    let templateIdx;
-    if (open) {
-      const n = CLUSTER_TEMPLATES.length - WOODLAND_FIRST;
-      templateIdx = WOODLAND_FIRST + (Math.floor(seeded(idx, globalSeed + 2) * n) % n);
-    } else if (inGreen) {
-      templateIdx = Math.floor(seeded(idx, globalSeed + 2) * WOODLAND_FIRST) % WOODLAND_FIRST;
-    } else {
-      // Not green: only a tree can stand here, so pick a template that has one.
-      const n = URBAN_TREE_TEMPLATES.length;
-      templateIdx = URBAN_TREE_TEMPLATES[Math.floor(seeded(idx, globalSeed + 2) * n) % n];
-    }
-    centers.push({ x, z, templateIdx, inGreen });
+    const lo = open ? WOODLAND_FIRST : 0;
+    const n = open ? CLUSTER_TEMPLATES.length - WOODLAND_FIRST : WOODLAND_FIRST;
+    const templateIdx = lo + (Math.floor(seeded(idx, globalSeed + 2) * n) % n);
+    centers.push({ x, z, templateIdx });
   }
 
   return centers;
@@ -539,9 +511,7 @@ function findGateAdjacentClusters(tileData, vegMask) {
 
       // Use bush-heavy templates (D=3, E=4)
       const templateIdx = (gi + side) % 2 === 0 ? 3 : 4;
-      // N-17: gate dressing sits beside a road by construction, never in a green polygon, so its
-      // rocks and bushes are dropped and only its tree survives. Stated, not left to `undefined`.
-      centers.push({ x: cx, z: cz, templateIdx, inGreen: false });
+      centers.push({ x: cx, z: cz, templateIdx });
     }
   }
   return centers;
@@ -557,7 +527,6 @@ function findGateAdjacentClusters(tileData, vegMask) {
  * @param {{ getElevationAt?: (lat: number, lon: number) => number }} [options]
  * @returns {THREE.Mesh[]}
  */
-/** Exposed ONLY for `test/clusterRoadGuard.test.js`. A guard nobody tested was written twice. */
 export function renderEnvironmentClusters(tileData, tileKey, options) {
   const vegMask = options?.vegetationMask || null;
   const centers = findClusterCenters(tileData, tileKey, vegMask);
@@ -616,53 +585,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       const wx = c.x + rx * clusterScale;
       const wz = c.z + rz * clusterScale;
 
-      // Skip items that land on or near roads — strict check per item.
-      if (!isVegetationAllowed(vegMask, wx, wz, 4)) { _clusterRejects.mask++; continue; }
-      // N-9: and a DIRECT test against the road geometry, because the mask alone was not enough.
-      // `isVegetationAllowed` returns TRUE for anything outside its own grid (tile + PAD), so a
-      // cluster centre near a tile edge scatters items past the boundary and every one of them is
-      // waved through — which is how rocks ended up sitting on Gran Via. Identified with
-      // `_ddPick`: the offender is this file's rock InstancedMesh, which carried no `userData.type`
-      // and so reported only as a minified class name.
-      // ── N-16 · THE TREE EXEMPTION WAS BUILT ON A MISREAD ──────────────────────────────────
-      //
-      // Trees used to be exempt here, because guarding them "cost the whole of Gran Via twice".
-      // That attribution was wrong. What emptied the city on those two runs was the
-      // `_clusterRejects is not defined` ReferenceError (H16) — introduced by the SAME edit that
-      // added the guard — which threw inside every tile build and took ALL vegetation with it.
-      // The guard was blamed for the crash's damage.
-      //
-      // Gran Via's street trees come from the BAKED path (`workers/vegetationWorker.js`, fed by
-      // `bakedVegetation`), which contains no reference to `isOnAnyRoad` and never has. The trees
-      // placed HERE are procedural woodland-cluster filler, and they have no business in a
-      // carriageway. Measured with `_ddOnRoad()` while the exemption stood: **848 clusterTree
-      // instances on the road in a single tile**, against 80 bushes and 20 rocks — so the exempt
-      // type was by far the worst offender and looked to the player like debris, not like trees.
-      // The guard is a point test on the instance origin, so it needs the item's own footprint or
-      // a big rock clears it on a technicality while overhanging the asphalt. `item.scale` is the
-      // prototype scale; the per-instance jitter below tops out at 1.1x, so bound it there.
-      const footprint = item.scale * clusterScale * 1.1;
-      // ── N-17 · TWO DIFFERENT RULES, BECAUSE THEY ARE TWO DIFFERENT THINGS ─────────────────
-      //
-      // Guarding trees at CORRIDOR width was wrong in the other direction: the corridor includes
-      // the pavement, which is precisely where a street tree stands, so it culled the roadside
-      // greenery along with the debris. The user named this exactly — "trees used to come there
-      // along side the road".
-      //
-      //   · a TREE only has to clear the ASPHALT. Pavement and verge are where it belongs.
-      //   · a ROCK or BUSH must be in a GREEN REGION — a mapped green polygon or generated wild
-      //     ground. Not merely "off the road": urban ground between the kerb and a building is
-      //     paved in this city, and scattering boulders there is what read as debris.
-      //
-      // The user's ruling, verbatim: "we can remove it from these areas itself and can add ONLY in
-      // GREEN regions like before and have trees back properly".
-      if (item.type === 'tree') {
-        if (isOnAnyRoad(tileData, wx, wz, footprint, 'paved')) { _clusterRejects.road++; continue; }
-      } else {
-        if (isOnAnyRoad(tileData, wx, wz, footprint)) { _clusterRejects.road++; continue; }
-        if (!c.inGreen) { _clusterRejects.notGreen++; continue; }
-      }
-      _clusterRejects.kept++;
+      // Skip items that land on or near roads — strict check per item
+      if (!isVegetationAllowed(vegMask, wx, wz, 4)) continue;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;
       // the neighbour tile owns that ground and places its own vegetation there.
@@ -706,8 +630,7 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
                                 // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
     mesh.castShadow = false;
     mesh.receiveShadow = true;
-    mesh.userData.type = 'clusterRock';   // N-9: untagged, so _ddPick could only report a minified
-    mesh.userData.sharedGeometry = true;  // class name and the source took three passes to find
+    mesh.userData.sharedGeometry = true;
     mesh.userData.sharedMaterial = true;
 
     const m = new THREE.Matrix4();
@@ -763,7 +686,6 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
                                   // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
       mesh.castShadow = false;
       mesh.receiveShadow = true;
-      mesh.userData.type = 'clusterBush';        // N-9: tag every cluster mesh — see clusterRock
       mesh.userData.sharedGeometry = true;
       mesh.userData.sharedMaterial = true;
 
@@ -818,7 +740,6 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
                                 // culled the WHOLE cluster (rocks/trees vanished). Tile-distance culling handles visibility.
       mesh.castShadow = false;
       mesh.receiveShadow = true;
-      mesh.userData.type = 'clusterTree';        // N-9: tag every cluster mesh — see clusterRock
       mesh.userData.sharedGeometry = true;
       mesh.userData.sharedMaterial = true;
 
@@ -826,13 +747,8 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
         const t = bucket[i];
         p.set(t.x, t.y, t.z);
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.rotY);
-        // N-17: 0.5 -> 0.75. At half scale these read as SHRUBS, not trees — which is a large part
-        // of why the street looked short of trees while the counters said otherwise: the tree-shaped
-        // mass the user remembered was partly half-height cluster trees plus the urban bushes now
-        // confined to green regions. The road guard already sizes its footprint from the FULL
-        // `item.scale * clusterScale`, not this factor, so enlarging them cannot push one into the
-        // carriageway. Revert to 0.5 here if they crowd the pavement.
-        const sc = t.scale * 0.75;
+        // Smaller scale for cluster trees (0.4–0.7 of template items' scale)
+        const sc = t.scale * 0.5;
         s.set(sc, sc, sc);
         m.compose(p, q, s);
         mesh.setMatrixAt(i, m);

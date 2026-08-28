@@ -16,7 +16,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CONFIG } from '../config.js';
 import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
 import { worldToLatLon } from '../projection.js';
-import { isVegetationAllowed, isInsideOrNearBuilding, isOnAnyRoad } from './vegetationMask.js';
+import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 import { rasterizeSegment } from './roadOccupancyGrid.js';
 
 // ---------------------------------------------------------------------------
@@ -1204,14 +1204,8 @@ function collectBushPositions(treePositions, tileData, tileKey, vegMask) {
   const buildings = tileData.buildings || [];
   const bushes = [];
 
-  // N-11: `isVegetationAllowed` returns TRUE for anything outside its own grid, so on its own it
-  // is not a road guard — and source 2 below plants deliberately along ROAD EDGES. That is the
-  // reported "bushes along the road": they were never geometrically tested, only mask-tested.
-  // `isOnAnyRoad` is the same shared guard the clusters and props use, at the corridor width, with
-  // a bush's own ~1 m footprint so it cannot overhang the kerb it was placed behind.
   function isValid(x, z) {
     return isVegetationAllowed(vegMask, x, z, 3) &&
-           !isOnAnyRoad(tileData, x, z, 1.0) &&
            !isInsideOrNearBuilding(x, z, buildings);
   }
 

@@ -193,11 +193,6 @@ export const CONFIG = {
    * reload to change instead of a 10-minute re-bake. The bake keeps all 3,000 — raise this and they
    * come straight back.
    */
-  /* N-16: left at 1200. It was cut to 450 to answer "mostly bushes and rocks", then restored when
-   * _ddVegCount() showed the cut was aimed at the wrong layer: only 896 BAKED bushes are drawn,
-   * against 12,882 cluster bushes and 2,829 cluster rocks from environmentClusterRenderer. Baked
-   * bushes are also 99.8% clear of the road corridor (N-11), so they were never the complaint.
-   * The density that needed cutting was MAX_CLUSTERS_PER_TILE. */
   MAX_BUSHES_PER_TILE: 1200,
   /** Grass instances per tile. 0 = off. ⚠ v3 P1-17: the RENDER path is deleted, but
    *  vegetationWorker reads `config.MAX_GRASS_PER_TILE ?? 50000` — so deleting this flag would
