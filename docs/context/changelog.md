@@ -2692,3 +2692,21 @@ floating, and that nothing exceeds 1.25 m and walls the driver in.
   97 → 55 m/side. No regression: trees in a carriageway held at 4.0%, the 0–3 m kerb band rose to
   67.9%, baked bushes inside a road corridor fell 2.1% → **0.2%**. Bake 7:44 vs an 8:20–8:44
   baseline. 370 tests green.
+
+## 2026-08-28 (later) — vegetation, the two-rule split
+
+- **N-16** cluster trees were exempt from the road guard: **848 stood in the carriageway**. The
+  exemption rested on blaming the guard for damage actually done by the H16 ReferenceError.
+  Verified `vegetationWorker.js` (the baked street-tree path) never references `isOnAnyRoad`.
+  `_ddOnRoad()`: clusterTree on road **848 → 70** of 15,428.
+- **N-17** guarding trees at CORRIDOR width then deleted the roadside greenery — the corridor
+  includes the pavement, where a street tree stands. Split: **trees clear the ASPHALT**, **rocks and
+  bushes must be in a GREEN REGION**. Non-green spots draw `URBAN_TREE_TEMPLATES` so the street gets
+  a tree rather than nothing. `MAX_CLUSTERS_PER_TILE` 110 → 300. Confirmed on screen.
+- `MAX_BUSHES_PER_TILE` cut to 450 then **restored to 1200** — `_ddVegCount()` showed only 896 baked
+  bushes drawn against 12,882 cluster bushes, so the cut was aimed at the wrong layer.
+- New probes: `_ddOnRoad()` (every instance vs the shared guard, grouped by renderer), `_ddVegY()`
+  (raycast gap between tree base and ground). `_ddVegCount()` **already existed** and answers
+  allocated-vs-drawn — check for a probe before writing one.
+- Tagged `userData.type` on the four prop meshes and the veg pools (`veg:<name>`). See **H19**:
+  three probes reported "nothing found" purely because untagged meshes report as minified names.
