@@ -2450,18 +2450,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     await yieldToMain();
 
-    // Props
+    // Props — decorative rock/bush/grass scatter. See CONFIG.ENABLE_ENVIRONMENT_SCATTER.
     buildPhase('p4 props');
-    if (!skipNonRoad) {
+    if (!skipNonRoad && CONFIG.ENABLE_ENVIRONMENT_SCATTER) {
       entry.propMesh = renderProps(tileData, key, options);
       if (entry.propMesh) safeSceneAdd(scene, entry.propMesh);
     }
 
     await yieldToMain();
 
-    // Environment clusters
+    // Environment clusters — rock/bush/small-tree groups. See CONFIG.ENABLE_ENVIRONMENT_SCATTER.
     buildPhase('p4 clusters');
-    if (!skipNonRoad) {
+    if (!skipNonRoad && CONFIG.ENABLE_ENVIRONMENT_SCATTER) {
       entry.clusterMeshes = await mergeMeshesByMaterial(renderEnvironmentClusters(tileData, key, options), yieldToMain);
       entry.clusterMeshes.forEach((m) => safeSceneAdd(scene, m));
     }
