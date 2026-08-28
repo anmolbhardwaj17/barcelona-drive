@@ -3708,9 +3708,11 @@ function detectRoundaboutZonesForRails(roads, options) {
 const GUARD_RAIL_ROUNDABOUT_DY = 3.0;
 /** D-23 proof of work: a zone rule that rejects nothing looks exactly like one with nothing to reject. */
 const roundaboutZoneStats = { elevatedRingsKept: 0, overpassPointsKept: 0, suppressed: 0 };
+/** N-38 proof of work: how many road ends turned out to connect to nothing. */
+const railEndStats = { freeStartsKept: 0, freeEndsKept: 0 };
 if (typeof window !== 'undefined') {
   /** `_ddRailStats()` — did N-36 actually change anything on THIS load, or is it a no-op? */
-  window._ddRailStats = () => ({ ...roundaboutZoneStats });
+  window._ddRailStats = () => ({ ...roundaboutZoneStats, ...railEndStats });
 }
 
 /**
@@ -3812,6 +3814,23 @@ function computeGuardRailMask(roads, options) {
 
   for (const e of elevated) {
     const n = e.pts.length;
+    // N-38 · The end margin exists so a rail does not stick out past a road's end into whatever it
+    // connects to. At an end that connects to NOTHING there is nothing to stick out into — and an
+    // elevated way that simply stops is a cliff edge, the single place a barrier matters most.
+    // Trimming it there was backwards. Measured: 666 ramps, median 48.5 m; 170 of them (25.6%) are
+    // too short for a 7 m margin at each end plus a 10 m surviving run to leave anything at all, so
+    // a quarter of the city's ramps could not show a rail however high they stood.
+    const endIsFree = (pt) => {
+      for (const j of junctions) {
+        const rr = (j.radius || 4) + GUARD_RAIL_JUNCTION_PAD;
+        if ((pt.x - j.x) ** 2 + (pt.y - j.z) ** 2 < rr * rr) return false;
+      }
+      return true;
+    };
+    const freeStart = endIsFree(e.pts[0]);
+    const freeEnd = endIsFree(e.pts[n - 1]);
+    if (freeStart) railEndStats.freeStartsKept++;
+    if (freeEnd) railEndStats.freeEndsKept++;
     const keepL = new Uint8Array(n).fill(1);
     const keepR = new Uint8Array(n).fill(1);
     const arc = new Array(n); arc[0] = 0;
@@ -3819,7 +3838,8 @@ function computeGuardRailMask(roads, options) {
     const total = arc[n - 1];
     for (let i = 0; i < n; i++) {
       const cx = e.pts[i].x, cz = e.pts[i].y;
-      let drop = arc[i] < GUARD_RAIL_END_MARGIN || (total - arc[i]) < GUARD_RAIL_END_MARGIN; // rule 1
+      let drop = (!freeStart && arc[i] < GUARD_RAIL_END_MARGIN)                        // rule 1
+              || (!freeEnd && (total - arc[i]) < GUARD_RAIL_END_MARGIN);
       if (!drop) for (const j of junctions) { // rule 2
         const rr = (j.radius || 4) + GUARD_RAIL_JUNCTION_PAD;
         if ((cx - j.x) ** 2 + (cz - j.z) ** 2 < rr * rr) { drop = true; break; }
