@@ -193,7 +193,12 @@ export const CONFIG = {
    * reload to change instead of a 10-minute re-bake. The bake keeps all 3,000 — raise this and they
    * come straight back.
    */
-  MAX_BUSHES_PER_TILE: 1200,
+  /* N-16: 1200 -> 450. The user reported three times that the streets read as "mostly bushes and
+   * rocks", and the numbers agree: 30,303 bush instances against 24,866 trees resident, while the
+   * bake carries five bushes for every tree. Trees also grew 53% in the N-13 re-bake, so holding
+   * bushes at 1200 would widen the gap further. Frontend decimation — a reload to change, not a
+   * re-bake — so revert by restoring 1200 if the undergrowth reads too thin. */
+  MAX_BUSHES_PER_TILE: 450,
   /** Grass instances per tile. 0 = off. ⚠ v3 P1-17: the RENDER path is deleted, but
    *  vegetationWorker reads `config.MAX_GRASS_PER_TILE ?? 50000` — so deleting this flag would
    *  make the worker collect 50k grass points per tile. Keep it pinned at 0. */
