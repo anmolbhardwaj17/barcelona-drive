@@ -244,6 +244,54 @@ window._ddGround = () => {
 // things that turned out to be the player's own car. This walks every resident tile instead, tests
 // every vegetation/prop/cluster INSTANCE against the same `isOnAnyRoad` guard the renderers use,
 // and reports offenders grouped by the mesh that made them. Empty table = nothing is on a road.
+// N-17: are the trees sitting ON the ground? Raycasts straight down from above a sample of tree
+// instances and reports the gap between the instance origin and the first surface under it.
+// A tree whose base is 0 m from the ground is correct; a positive gap floats, a negative one is
+// buried. Sampled, because raycasting 10k instances would hang the tab.
+window._ddVegY = (sample = 150) => {
+  const set = window._ddVegPools?.trees;
+  if (!set) { console.warn('[vegY] no tree pool'); return null; }
+  const rc = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const m = new THREE.Matrix4();
+  const ground = [];
+  scene.traverse((o) => {
+    if (!o.isMesh && !o.isInstancedMesh) return;
+    const t = o.userData?.type || '';
+    if (/terrain|road|sidewalk|curb|greens|pedArea|plaza|gore/i.test(t)) ground.push(o);
+  });
+  if (!ground.length) { console.warn('[vegY] no ground meshes found'); return null; }
+  const gaps = [];
+  for (const p of set.pools) {
+    const bm = p.mesh;
+    const n = bm.instanceCount ?? 0;
+    const step = Math.max(1, Math.floor(n / sample));
+    for (let i = 0; i < n && gaps.length < sample; i += step) {
+      let vis = true;
+      try { vis = bm.getVisibleAt(i); } catch { /* slot never allocated */ continue; }
+      if (!vis) continue;
+      bm.getMatrixAt(i, m);
+      const x = m.elements[12], y = m.elements[13], z = m.elements[14];
+      rc.set(new THREE.Vector3(x, y + 60, z), down);
+      rc.far = 200;
+      const hit = rc.intersectObjects(ground, false)[0];
+      if (!hit) continue;
+      gaps.push(y - hit.point.y);
+    }
+  }
+  if (!gaps.length) { console.warn('[vegY] no trees sampled (none visible?)'); return null; }
+  gaps.sort((a, b) => a - b);
+  const q = (f) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * f))];
+  const float = gaps.filter((g) => g > 0.5).length;
+  const buried = gaps.filter((g) => g < -0.5).length;
+  console.log(`[vegY] ${gaps.length} trees sampled — gap between tree base and ground below it`);
+  console.log(`  min ${q(0).toFixed(2)}  p25 ${q(0.25).toFixed(2)}  median ${q(0.5).toFixed(2)}` +
+              `  p75 ${q(0.75).toFixed(2)}  max ${q(0.999).toFixed(2)} m`);
+  console.log(`  FLOATING (>0.5 m above) ${float}  ${(float / gaps.length * 100).toFixed(1)}%`);
+  console.log(`  BURIED   (>0.5 m below) ${buried}  ${(buried / gaps.length * 100).toFixed(1)}%`);
+  return { sampled: gaps.length, median: q(0.5), float, buried };
+};
+
 // D-23 proof-of-work: a guard that rejects nothing and a guard that never runs look identical.
 window._clusterRejects = _clusterRejects;
 window._ddOnRoad = (clearance = 0) => {

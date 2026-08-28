@@ -8,7 +8,7 @@
  * the shared isInsideOrNearBuilding helper.
  */
 import { latLonToWorld } from '../projection.js';
-import { corridorWidth } from './roadWidths.js';   // R-W1: never re-derive a width
+import { corridorWidth, pavedWidth } from './roadWidths.js';   // R-W1: never re-derive a width
 /** m — kerb allowance, so nothing sits half on the asphalt. */
 const KERB_CLEAR = 0.3;
 import { rasterizeSegment, rasterizeDisc } from './roadOccupancyGrid.js';
@@ -335,7 +335,7 @@ export function isInsideOrNearBuilding(x, z, buildings, margin = 2) {
  * N-9 counters. A guard that silently does nothing looks exactly like a guard that works, and this
  * one was written twice before it was verified. `window._ddClusterRejects` says which.
  */
-export const _clusterRejects = { mask: 0, road: 0, kept: 0 };
+export const _clusterRejects = { mask: 0, road: 0, notGreen: 0, kept: 0 };
 if (typeof window !== 'undefined') window._ddClusterRejects = _clusterRejects;
 
 const _CLUSTER_ROAD_TYPES = new Set([
@@ -343,7 +343,12 @@ const _CLUSTER_ROAD_TYPES = new Set([
   'living_street', 'service',
   'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
 ]);
-export function isOnAnyRoad(tileData, x, z, clearance = 0) {
+/**
+ * @param {'corridor'|'paved'} [mode] — 'corridor' is kerb-to-kerb PLUS both pavements, for things
+ *   that belong nowhere in the right-of-way. 'paved' is kerb to kerb only, for a STREET TREE, which
+ *   stands on the pavement by design: guarding a tree at corridor width deletes the avenue.
+ */
+export function isOnAnyRoad(tileData, x, z, clearance = 0, mode = 'corridor') {
   const roads = tileData?.roads;
   if (!roads?.length) return false;
   for (const r of roads) {
@@ -361,7 +366,7 @@ export function isOnAnyRoad(tileData, x, z, clearance = 0) {
     // `clearance` is the item's own FOOTPRINT radius. Without it this is a point test, so a flat
     // stone at scale 2.5 could sit its CENTRE 10 cm outside the kerb and still overhang several
     // metres of asphalt — which is what put boulders on the Gran Via crossing.
-    const half = corridorWidth(r) / 2 + KERB_CLEAR + clearance;
+    const half = (mode === 'paved' ? pavedWidth(r) : corridorWidth(r)) / 2 + KERB_CLEAR + clearance;
     const halfSq = half * half;
     for (let i = 0; i < pts.length - 1; i++) {
       const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
