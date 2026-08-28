@@ -70,7 +70,7 @@ const SINGLE_ENDPOINT_EXTRA = 5.0;
 // Tree placement
 const ENABLE_ROADSIDE_TREES = true;
 const ROADSIDE_SPACING_MIN = 2;
-const ROADSIDE_SPACING_MAX = 5;
+const ROADSIDE_SPACING_MAX = 4;   // N-20: was 5. Measured 9.7 m/side against a real ~8 m.
 const ROADSIDE_TREE_CAP = 4000;
 // Kerb width, mirroring BCN_DIMS.CURB_WIDTH (frontend/src/map/barcelona-constants.js). A street
 // tree is planted BEYOND the kerb, so this is part of the offset, not a rounding allowance.
@@ -557,6 +557,56 @@ function buildCorridorGrid(roads) {
   return { grid, gridW, gridH, minX, minZ };
 }
 
+/**
+ * N-20 — the DRIVABLE SURFACE as a grid: kerb to kerb, with no inset.
+ *
+ * `buildGroundRoadGrid` above deliberately INSETS by 3-5 m, so it marks only the middle of the
+ * road. That is defensible for an OSM-tagged tree in a median; it is wrong as the only guard on a
+ * PROCEDURAL roadside tree, because it accepts anything between the kerb and 5 m inside the
+ * asphalt. On Gran Via (kerbToKerb 15 m, rawHalf 7.5, inset 5) it marks the middle 5 m of a 15 m
+ * road and passes every tree standing in the outer 5 m of each carriageway — trunks in the driving
+ * lane, which is what the user photographed.
+ *
+ * It became visible now rather than earlier because N-13 grew the tree count 53%, so the absolute
+ * number of trees standing in a road grew 53% with it. The rate was always ~4% (ticket N-7b).
+ */
+function buildPavedGrid(roads) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let hasRoads = false;
+  for (const road of roads) {
+    if (road.tunnel || road.bridge || (road.layer ?? 0) !== 0) continue;
+    for (const p of road.points || []) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minZ) minZ = p.y; if (p.y > maxZ) maxZ = p.y;
+      hasRoads = true;
+    }
+  }
+  if (!hasRoads) return null;
+  minX -= GRID_PAD; maxX += GRID_PAD;
+  minZ -= GRID_PAD; maxZ += GRID_PAD;
+  const gridW = Math.ceil((maxX - minX) / GRID_RES);
+  const gridH = Math.ceil((maxZ - minZ) / GRID_RES);
+  const grid = new Uint8Array(gridW * gridH);
+
+  for (const road of roads) {
+    if (road.tunnel || road.bridge || (road.layer ?? 0) !== 0) continue;
+    const pts = road.points || [];
+    if (pts.length < 2) continue;
+    // R-W1: kerb-to-kerb is the DRAWN asphalt, parking bays included. Plus a trunk's own radius,
+    // so a tree cannot overhang the kerb it was planted behind.
+    const paved = Number.isFinite(Number(road.kerbToKerbW))
+      ? Number(road.kerbToKerbW)
+      : Math.max(Number(road.width) || 0, ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6);
+    const half = paved / 2 + 0.6;
+    if (half <= 0) continue;
+    for (let i = 0; i < pts.length - 1; i++) {
+      rasterizeSegment(grid, gridW, gridH, minX, minZ, GRID_RES,
+        pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, half);
+    }
+  }
+  return { grid, gridW, gridH, minX, minZ };
+}
+
 function isOnGroundRoad(grdGrid, x, z) {
   if (!grdGrid) return false;
   const gx = Math.floor((x - grdGrid.minX) / GRID_RES);
@@ -722,9 +772,30 @@ function getRoadsideTreePositions(tileData, tileKey) {
   for (const road of eligible) {
     const pts = road.points || [];
     if (pts.length < 2) continue;
-    const dataW3 = Number.isFinite(Number(road.width)) ? Math.max(3, Math.min(20, Number(road.width))) : 0;
-    const typeW3 = ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6;
-    const roadWidth = Math.max(dataW3, typeW3);
+    // ── N-20 · PLANT AGAINST THE BAKED KERB, NOT AN 11TH WIDTH TABLE ──────────────────────────
+    //
+    // This was `Math.max(dataW3, typeW3)` — the wider of the baked width and `ROAD_RENDER_WIDTH`.
+    // That table is systematically WIDER than what the bake actually produces:
+    //
+    //     type          table   baked kerbToKerbW
+    //     primary        20          15
+    //     secondary      16          10
+    //     tertiary       13           7
+    //     residential    10           5
+    //
+    // Taking the max therefore pushed every tree metres past the real kerb. On a residential
+    // street the pit landed ~6.8 m from the centreline while the building line sits at ~5.5 m, so
+    // the tree was placed inside the building and then thrown away by `isInsideOrNearBuilding` —
+    // measured at **18.2% of surviving roadside trees rejected near a building**. That is the
+    // "there are very few trees" report: they were generated, misplaced, and discarded.
+    //
+    // R-W1 already says the answer: `width` is an alias of the baked `kerbToKerbW`. Use it, and
+    // fall back to the table only for a road the width model never classified. Line 346 in this
+    // same file was fixed for exactly this reason (N-7b) and this call site was missed — the
+    // copy-pair hazard again (H10).
+    const bakedW = Number.isFinite(Number(road.kerbToKerbW)) ? Number(road.kerbToKerbW)
+      : (Number.isFinite(Number(road.width)) ? Number(road.width) : 0);
+    const roadWidth = bakedW > 0 ? bakedW : (ROAD_WIDTH_BY_TYPE[road.highwayType] ?? 6);
     const halfW = roadWidth / 2;
     const ht = road.highwayType || '';
     const isLink = ht.endsWith('_link');
@@ -755,8 +826,9 @@ function getRoadsideTreePositions(tileData, tileKey) {
             continue;
           }
         }
-        const skipLeft = seeded(s, 8) < 0.15;
-        const skipRight = seeded(s, 9) < 0.15;
+        // N-20: 0.15 -> 0.08. The gaps read as missing trees, not as natural variation.
+        const skipLeft = seeded(s, 8) < 0.08;
+        const skipRight = seeded(s, 9) < 0.08;
         const longJitter = (seeded(s, 10) - 0.5) * 3.0;
         const tBase = (dist + longJitter) / segLen;
         const tc = Math.max(0, Math.min(1, tBase));
@@ -851,11 +923,12 @@ function collectAllPositions(tileData, tileKey, vegMask, config) {
   }
 
   const groundGrid = buildGroundRoadGrid(roads);
+  const pavedGrid = buildPavedGrid(roads);   // N-20: the inset grid is not a carriageway test
 
   // Roadside trees
   const roadside = getRoadsideTreePositions(tileData, tileKey);
   for (const p of roadside) {
-    if (isOnGroundRoad(groundGrid, p.x, p.y)) continue;
+    if (isOnGroundRoad(pavedGrid, p.x, p.y)) continue;
     // N-13: 0.6 m, not the default 2 m. The setback above deliberately puts the pit in the MIDDLE
     // of the pavement, and an Eixample pavement is 3-4 m — so a 2 m building margin rejected the
     // tree for standing where Barcelona actually plants it. Measured on the spawn tile: 12.3% of
