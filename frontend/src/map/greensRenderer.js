@@ -93,7 +93,39 @@ export function createGreensMeshes(greens, getElevationAt) {
 
       const geom = new THREE.ShapeGeometry(shape);
       geom.rotateX(-Math.PI / 2);
-      geom.translate(0, y, 0);
+
+      // ── N-19 · THE GREEN SURFACE MUST FOLLOW THE GROUND, NOT HOVER OVER IT ─────────────────
+      //
+      // This used to be `geom.translate(0, y, 0)` — the whole polygon laid FLAT at the elevation of
+      // its CENTROID. On level ground that is invisible; on any slope the polygon is a flat lid over
+      // sloping terrain, and everything standing in it is placed by the terrain sampler at its OWN
+      // position. So a plant uphill of the centroid floats above the green and one downhill sinks
+      // below it, which is precisely the symptom measured with `_ddVegY()`:
+      //
+      //     clusterBush  median 0.48 m  p95 6.44 m   floating 21 / buried 18
+      //     clusterRock  median 0.20 m  p95 7.52 m   floating 29 / buried  2
+      //
+      // A near-zero median with a p95 of metres and an even float/buried split is the signature of
+      // a flat lid over a slope, not of a bad offset — an offset would bias every item one way.
+      //
+      // Now every vertex takes its own elevation, so the surface hugs the terrain the plants are
+      // standing on and the two agree by construction. Sampling is per VERTEX of the polygon's own
+      // triangulation, so a large park is still only as faithful as its outline is dense — but the
+      // gross edge error, which is what reads as floating, is gone.
+      if (getElevationAt) {
+        const pos = geom.attributes.position;
+        for (let vi = 0; vi < pos.count; vi++) {
+          const vx = pos.getX(vi), vz = pos.getZ(vi);
+          const ll = worldToLatLon(vx, vz);
+          const ve = getElevationAt(ll.lat, ll.lon);
+          const vy = Number.isFinite(ve) ? ve * vertExag : baseY * vertExag;
+          pos.setY(vi, vy + GREEN_OFFSET_Y);
+        }
+        pos.needsUpdate = true;
+        geom.computeVertexNormals();
+      } else {
+        geom.translate(0, y, 0);
+      }
       geometries.push(geom);
     }
     if (geometries.length === 0) continue;
