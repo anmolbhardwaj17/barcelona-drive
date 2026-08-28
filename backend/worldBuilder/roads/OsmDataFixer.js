@@ -257,12 +257,27 @@ function rule4_orphanShortBridge(wayMap, nodeToWays, nodeMap) {
 
 function rule5_duplicateRoadRemover(wayMap, nodeToWays, nodeMap) {
   let removed = 0;
+  let removedStrict = 0, removedSameName = 0;   // D-23 proof of work: which branch actually fires
 
   // Margin ~50m in degrees (approx)
   const MARGIN_DEG = 50 / DEG_TO_M;
   const SAMPLE_INTERVAL = 10; // metres
-  const MAX_DIST = 3;         // metres
-  const MIN_RATIO = 0.8;      // 80% of samples must be within MAX_DIST
+
+  // ── N-1 · TWO THRESHOLDS, BECAUSE THE NAME IS EVIDENCE ────────────────────────────────────────
+  //
+  // This rule already does most of the work — 8,748 ways removed in a full Barcelona bake. What it
+  // left behind is a TAIL just outside its limits, measured on the shipped tiles: 57 pairs where
+  // one way is >70% covered by another of the same class, at centreline separations of 0.6-4 m.
+  // `Avinguda de Pedralbes` carries THREE stacked ways over 56 m. Each is drawn at full width, so
+  // the ribbons overlap almost completely — two coplanar surfaces at the same depth bias.
+  //
+  // Loosening the limits for everything would be wrong: Barcelona has real dual carriageways with
+  // narrow medians, and at 5 m the rule would start eating them. But of those 57 pairs, **44 share
+  // a street NAME and only 5 differ** — and two same-class ways carrying the same name over the
+  // same ground are a duplicate, not two streets. So the name buys the extra reach, and anything
+  // unnamed or differently-named keeps the strict limits.
+  const STRICT     = { maxDist: 3, minRatio: 0.8 };
+  const SAME_NAME  = { maxDist: 5, minRatio: 0.7 };
 
   // Build bbox + length for all ways
   const wayEntries = [];
@@ -314,14 +329,19 @@ function rule5_duplicateRoadRemover(wayMap, nodeToWays, nodeMap) {
       const samples = samplePolyline(shorterMetric, SAMPLE_INTERVAL);
       if (samples.length === 0) continue;
 
-      // Check how many samples are within MAX_DIST of the longer road
+      const nameA = String(ea.way.tags?.name ?? '').trim();
+      const nameB = String(eb.way.tags?.name ?? '').trim();
+      const sameName = nameA !== '' && nameA === nameB;
+      const lim = sameName ? SAME_NAME : STRICT;
+
+      // Check how many samples are within lim.maxDist of the longer road
       let withinCount = 0;
       for (const s of samples) {
         const d = pointToPolylineDist(s.dx, s.dz, longerMetric);
-        if (d <= MAX_DIST) withinCount++;
+        if (d <= lim.maxDist) withinCount++;
       }
 
-      if (withinCount / samples.length >= MIN_RATIO) {
+      if (withinCount / samples.length >= lim.minRatio) {
         // Remove the shorter road
         removedSet.add(shorter.wayId);
         wayMap.delete(shorter.wayId);
@@ -334,11 +354,12 @@ function rule5_duplicateRoadRemover(wayMap, nodeToWays, nodeMap) {
           }
         }
         removed++;
+        if (sameName) removedSameName++; else removedStrict++;
       }
     }
   }
 
-  return removed;
+  return { removed, strict: removedStrict, sameName: removedSameName };
 }
 
 
@@ -676,3 +697,6 @@ export function fixOsmData(graph, nodeMap) {
 
   return { rule4, rule5, rule1, rule6 };
 }
+
+/** Exported for tests only — see frontend/test/duplicateRoadRemover.test.js (N-1). */
+export const __test__ = { rule5_duplicateRoadRemover };
