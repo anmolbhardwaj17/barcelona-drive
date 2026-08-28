@@ -3895,6 +3895,59 @@ function pickBarrierStyle(road) {
   return 'pedestrian';
 }
 
+/**
+ * N-31 · EDGE SKIRT — close the void under an elevated road edge.
+ *
+ * ── WHAT THIS FIXES ──────────────────────────────────────────────────────────────────────────
+ * User-reported: "this road again doesnt have terrain below still we have sidewalk, doesnt make
+ * sense right". The road and its pavement are correct; what is missing is the EMBANKMENT. This
+ * project has never had fill geometry — `hasLateralDrop`'s own note lists "every embankment and
+ * every cutting" among the cases OSM does not tag — so an elevated carriageway floats on a plane
+ * with terrain visibly metres below it.
+ *
+ * Deleting the sidewalk would be the wrong fix: the pavement is really there. The void is the
+ * defect, so this fills it.
+ *
+ * ── WHY IT COSTS ALMOST NOTHING ──────────────────────────────────────────────────────────────
+ * It reuses the guard rail's two existing decisions rather than inventing a third: the same keep
+ * MASK (so a skirt appears exactly where a rail does, and never across a junction) and the same
+ * `atVals`, which is already the per-point height above terrain — i.e. the drop depth. No extra
+ * terrain sampling, no new policy about where an edge exists.
+ *
+ * Two quads per segment (front and back faces), depth clamped: a 24.5 m fall exists in this region
+ * (edgeAudit) and a skirt that deep would be a wall, so it stops at SKIRT_MAX_DEPTH_M and lets the
+ * terrain meet it.
+ */
+const SKIRT_MAX_DEPTH_M = 12;
+const SKIRT_MIN_DEPTH_M = 0.6;   // below this the kerb already reads as the edge
+
+export function emitEdgeSkirt(outerEdge, atVals, skirtGeoms) {
+  const count = outerEdge.length;
+  if (count < 2) return;
+  const pos = [];
+  const idx = [];
+  let v = 0;
+  for (let i = 0; i < count - 1; i++) {
+    const d0 = Math.min(SKIRT_MAX_DEPTH_M, Math.max(0, atVals[i] ?? 0));
+    const d1 = Math.min(SKIRT_MAX_DEPTH_M, Math.max(0, atVals[i + 1] ?? 0));
+    if (d0 < SKIRT_MIN_DEPTH_M && d1 < SKIRT_MIN_DEPTH_M) continue;
+    const a = outerEdge[i], b = outerEdge[i + 1];
+    // top edge follows the road, bottom edge drops to (approximately) terrain
+    pos.push(a.x, a.y, a.z,  a.x, a.y - d0, a.z,  b.x, b.y, b.z,  b.x, b.y - d1, b.z);
+    // both windings — the skirt is seen from either side depending on which way the road curves,
+    // and a one-sided apron disappears from half the approaches.
+    idx.push(v, v + 1, v + 2,  v + 2, v + 1, v + 3);
+    idx.push(v + 2, v + 1, v,  v + 3, v + 1, v + 2);
+    v += 4;
+  }
+  if (!idx.length) return;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  skirtGeoms.push(geo);
+}
+
 export function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railingGeoms, beamGeoms, styleName) {
   // R-B2. Defaults to the old look so any caller that has not been updated is unchanged.
   const style = BARRIER_STYLES[styleName] || BARRIER_STYLES.guardrail;
@@ -4080,12 +4133,14 @@ export function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms,
 
 /**
  * Build low guard-rail walls + red metal railing along both edges of bridge and elevated roads.
- * Returns { wallMesh, railingMesh } — concrete wall + red metal railing on top.
+ * Returns { wallMesh, railingMesh, skirtMesh } — concrete wall + red metal railing on top,
+ * plus the N-31 edge skirt that closes the void under an elevated edge.
  * Placement is driven by the smart suppression mask (computeGuardRailMask) so rails no
  * longer pile up at junctions/roundabouts or double-wall parallel carriageways.
  */
 function buildBridgeGuardRailGeometry(roads, options) {
   const railGeoms = [];
+  const skirtGeoms = [];   // N-31 edge skirt — closes the void under an elevated edge
   const railingGeoms = [];   // posts
   const beamGeoms = [];      // beams — merged FIRST so drawRange can cut the posts off at distance
   const mask = computeGuardRailMask(roads, options);
@@ -4113,6 +4168,7 @@ function buildBridgeGuardRailGeometry(roads, options) {
       if (n < 2) continue;
       // Emit each maximal run of kept points as its own wall+railing (gaps at junctions/dedup).
       for (const [s, e] of guardRailKeepRuns(keep, n)) {
+        emitEdgeSkirt(outerEdge.slice(s, e + 1), atVals.slice(s, e + 1), skirtGeoms);
         emitGuardRailRun(
           innerEdge.slice(s, e + 1),
           outerEdge.slice(s, e + 1),
@@ -4124,6 +4180,21 @@ function buildBridgeGuardRailGeometry(roads, options) {
           pickBarrierStyle(road),
         );
       }
+    }
+  }
+
+  // N-31 edge skirt. Shares the guard-rail material: an embankment face and a barrier wall are the
+  // same concrete, and reusing it means the skirt costs no extra draw call or material switch.
+  let skirtMesh = null;
+  if (skirtGeoms.length > 0) {
+    const mergedSkirt = mergeGeometries(skirtGeoms);
+    skirtGeoms.forEach((g) => g.dispose());
+    if (mergedSkirt) {
+      skirtMesh = new THREE.Mesh(mergedSkirt, getGuardRailMaterial());
+      skirtMesh.castShadow = false;
+      skirtMesh.receiveShadow = true;
+      skirtMesh.frustumCulled = true;
+      skirtMesh.userData.type = 'edgeSkirt';
     }
   }
 
@@ -4171,7 +4242,7 @@ function buildBridgeGuardRailGeometry(roads, options) {
     }
   }
 
-  return { wallMesh, railingMesh };
+  return { wallMesh, railingMesh, skirtMesh };
 }
 
 // ---------------------------------------------------------------------------
@@ -5158,7 +5229,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
   if (yieldFn) await yieldFn();
 
   ph('p1 rg:guardrail');
-  const { wallMesh: bridgeGuardRailMesh, railingMesh: metalRailingMesh } = buildBridgeGuardRailGeometry(roads, options);
+  const { wallMesh: bridgeGuardRailMesh, railingMesh: metalRailingMesh, skirtMesh: edgeSkirtMesh } = buildBridgeGuardRailGeometry(roads, options);
   if (yieldFn) await yieldFn();
   ph('p1 rg:blend-strip');
   const blendStripMesh = null;   // v3 P1-15: Delhi roadside dust blend strip deleted (Barcelona has kerbs)
@@ -5203,6 +5274,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     bridgeSlabMesh,
     bridgeGuardRailMesh,
     metalRailingMesh,
+    edgeSkirtMesh,
     blendStripMesh,
     bridgeShadowMesh,
     bridgeBillboards,
@@ -5635,6 +5707,7 @@ export async function createRoadMeshes(roads, options, yieldFn) {
   if (result.bridgeSlabMesh) meshes.push(result.bridgeSlabMesh);
   if (result.bridgeGuardRailMesh) meshes.push(result.bridgeGuardRailMesh);
   if (result.metalRailingMesh) meshes.push(result.metalRailingMesh);
+  if (result.edgeSkirtMesh) meshes.push(result.edgeSkirtMesh);   // N-31
   if (result.blendStripMesh) meshes.push(result.blendStripMesh);
   if (result.bridgeShadowMesh) meshes.push(result.bridgeShadowMesh);
   if (result.bridgeBillboards) meshes.push(...result.bridgeBillboards);
