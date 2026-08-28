@@ -594,7 +594,12 @@ export function renderEnvironmentClusters(tileData, tileKey, options) {
       // waved through — which is how rocks ended up sitting on Gran Via. Identified with
       // `_ddPick`: the offender is this file's rock InstancedMesh, which carried no `userData.type`
       // and so reported only as a minified class name.
-      if (isOnAnyRoad(tileData, wx, wz)) { _clusterRejects.road++; continue; }
+      // TREES ARE EXEMPT. A street tree standing at the kerb is the single most characteristic
+      // object on a Barcelona avenue, and guarding it cost the whole of Gran Via twice: once at
+      // corridorWidth (which includes the pavement it stands on) and once at the kerb, where the
+      // pit legitimately sits. Rocks and bushes were the actual complaint; a tree in the road is
+      // rare, obvious, and far cheaper to live with than an avenue with no trees.
+      if (item.type !== 'tree' && isOnAnyRoad(tileData, wx, wz)) { _clusterRejects.road++; continue; }
       _clusterRejects.kept++;
 
       // Outside this tile's elevation footprint → sampling would clamp to the edge (= float). Skip;

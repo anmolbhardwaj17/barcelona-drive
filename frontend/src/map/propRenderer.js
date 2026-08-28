@@ -162,6 +162,7 @@ function scatterPositions(count, minX, maxX, minZ, maxZ, seed, seedOffset,
     // N-9: the mask returns TRUE for anything outside its own grid, so it is not the last word.
     // Props became visible at the same time as the clusters (917c625 moved both off tile-CENTRE
     // distance), and they scatter the same way. One shared geometric guard, imported not copied.
+    // Props are rocks, bushes and grass tufts — no trees — so all of them are guarded.
     if (isOnAnyRoad(tileData, wx, wz)) continue;
     if (isInsideOrNearBuilding(wx, wz, buildings, 0)) continue;
     positions.push({ x: wx, z: wz });
