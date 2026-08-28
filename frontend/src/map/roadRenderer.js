@@ -4071,6 +4071,10 @@ export function emitEdgeSkirt(outerEdge, atVals, skirtGeoms) {
   skirtGeoms.push(geo);
 }
 
+/** Exported for tests only — N-36/N-38 guard-rail masking, see frontend/test/guardRailMask.test.js */
+export const __railTest__ = { detectRoundaboutZonesForRails, computeGuardRailMask,
+                              GUARD_RAIL_ROUNDABOUT_DY, GUARD_RAIL_END_MARGIN };
+
 export function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms, railingGeoms, beamGeoms, styleName) {
   // R-B2. Defaults to the old look so any caller that has not been updated is unchanged.
   const style = BARRIER_STYLES[styleName] || BARRIER_STYLES.guardrail;
