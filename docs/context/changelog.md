@@ -2755,3 +2755,20 @@ polygons total, so the hillsides now carry only baked vegetation and may read ba
 
 Frontend only, no re-bake. 364 tests green. Also removes the largest single build phase measured,
 `p4 clusters` at 700-930 ms per load.
+
+## 2026-08-28 — N-2: water was replicated 280x into every tile
+
+`splitWatersByTile` passed `tileToBBox`'s `{south,west,north,east}` into a `bboxIntersects` that
+reads `minLon/maxLon/minLat/maxLat`. Every field was `undefined`, every comparison false, so the
+guard returned TRUE for every pair and every water polygon went into every tile.
+
+Invisible because the result is CORRECT, just enormous — the frontend dedupes water by id.
+
+**Measured on real tiles after re-bake:** records **71,120 → 1,012** (−98.6%), replication
+**280x → 4.0x**, max polys in one tile **254 → 23**, tile set **167 MB → 149 MB** (−18 MB, −10.8%).
+
+⚠ **The diagnostic that cracked it:** tiles-per-polygon was `min = median = max = 280`. A coarse
+test gives a spread; a CONSTANT means the test never rejects. Look at the distribution, not the total.
+
+Asserts added in both directions (a wrong-shaped box now throws; an empty result would too), and
+`waterTileSplit.test.js` pins the rejection as well as the acceptance. 369 tests green.
