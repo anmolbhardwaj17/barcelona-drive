@@ -82,12 +82,21 @@ export function collectJunctionContinuity(roads) {
     byReason[reason] = (byReason[reason] || 0) + 1;
     const drivable = DRIVABLE.has(a.highwayType) && DRIVABLE.has(b.highwayType);
     if (drivable) { totalDrivable++; byReasonDrivable[reason] = (byReasonDrivable[reason] || 0) + 1; }
+    // Carry the WAY IDS and the tunnel side's shape. "366 missing portals" is a count; "way
+    // 12345, tunnel, layer -1, 2 nodes, both ends underground" is something to fix. Without this
+    // the next step is another offline probe re-deriving what the bake already knew.
+    const tun = a.tunnel ? a : (b.tunnel ? b : null);
     worst.push({ nid, dy, reason, drivable, a: a.highwayType, b: b.highwayType,
+                 aId: a.id, bId: b.id,
+                 tunId: tun ? tun.id : null,
+                 tunLayer: tun ? (tun.layer ?? 0) : null,
+                 tunNodes: tun && tun.nodeIds ? tun.nodeIds.length : null,
+                 tunRamp: tun ? !!tun.isRamp : null,
                  name: a.name || b.name || '' });
   }
   worst.sort((x, y2) => y2.dy - x.dy);
   return { total, byReason, totalDrivable, byReasonDrivable,
-           worst: worst.filter((w) => w.drivable).slice(0, 10) };
+           worst: worst.filter((w) => w.drivable).slice(0, 40) };
 }
 
 /** Print it the way the other bake censuses print — one block, no throw. */
@@ -98,8 +107,19 @@ export function reportJunctionContinuity(result) {
   for (const [k, v] of Object.entries(byReasonDrivable).sort((a, b) => b[1] - a[1])) {
     console.log(`     ${String(v).padStart(5)}  ${k}`);
   }
-  for (const w of worst.slice(0, 5)) {
-    console.log(`     worst drivable: ${w.dy.toFixed(1)} m  ${w.a} / ${w.b}  ${w.name || '(unnamed)'}`);
+  for (const w of worst.slice(0, 6)) {
+    console.log(`     worst drivable: ${w.dy.toFixed(1)} m  ${w.a}/${w.b}  ways ${w.aId}+${w.bId}`
+      + (w.tunId ? `  tunnel ${w.tunId} layer ${w.tunLayer} nodes ${w.tunNodes} ramp ${w.tunRamp}` : '')
+      + `  ${w.name || '(unnamed)'}`);
+  }
+  // How many of the tunnel-side ways got a ramp profile at all? If a portal belongs at a node and
+  // the tunnel there is NOT a ramp, RampResolver never classified it as a portal — which is a
+  // different bug from a portal that exists and is shaped wrong.
+  const tunCases = { rampedTunnel: 0, flatTunnel: 0 };
+  for (const w of worst) if (w.tunId != null) tunCases[w.tunRamp ? 'rampedTunnel' : 'flatTunnel']++;
+  if (tunCases.rampedTunnel + tunCases.flatTunnel > 0) {
+    console.log(`     of the worst listed, tunnel side ramped: ${tunCases.rampedTunnel}, `
+      + `FLAT (never classified as a portal): ${tunCases.flatTunnel}`);
   }
   console.log(`  [Continuity] (all classes, incl. footway/steps/corridor: ${total})`);
   if (!total) {
