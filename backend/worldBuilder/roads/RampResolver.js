@@ -18,6 +18,9 @@
 import { resolveBaseLayer, LAYER_STEP } from './LayerResolver.js';
 import { mercatorToWorld } from '../../projection.js';
 
+/** RAMP_DEBUG_WAYS=id,id — trace what the tunnel branch decided for specific ways. */
+const _RAMP_DEBUG = new Set((process.env.RAMP_DEBUG_WAYS || '').split(',').map((x) => x.trim()).filter(Boolean));
+
 // Ramp grade limits (rise/run). MAX_RAMP_GRADE matches the validator's flag threshold
 // (tools/tunnel-inspect.mjs --validate). CONSTRUCT_RAMP_GRADE is the gentler target used
 // when building Case-C valley ramps so constructed ramps sit comfortably under the flag.
@@ -149,6 +152,10 @@ export function resolveRamps(graph) {
     //   [C] Both endpoints → surface roads: short tunnel between surface sections;
     //       deferred — keeping flat (known limitation, see Section 5.5 of roadmap).
     if (way.tunnel) {
+      // Targeted trace: RAMP_DEBUG_WAYS=id,id,... prints exactly what this branch decided for those
+      // ways. Three hypotheses about this code have now been tested by full bakes and two were
+      // wrong; asking the function what it did costs one run instead of one guess.
+      const _dbg = _RAMP_DEBUG.has(String(wayId));
       // N-46: ask for the SURFACE connection first. If a non-tunnel way meets this end, that is
       // where the portal belongs and its height is the target — full stop. Only when no surface way
       // is present does the old "largest height difference" question apply, which is the right
@@ -163,9 +170,15 @@ export function resolveRamps(graph) {
       // Heights are multiples of LAYER_STEP (6m) so 0.5m threshold is safe.
       const startIsSurface = Math.abs(startTarget - baseHeight) > 0.5;
       const endIsSurface   = Math.abs(endTarget   - baseHeight) > 0.5;
+      if (_dbg) {
+        console.log(`  [ramp-dbg] way ${wayId} layer ${way.layer} base ${baseHeight} nodes ${n}`
+          + ` | startNode ${nodeIds[0]} surf=${startSurf} target=${startTarget} isSurface=${startIsSurface}`
+          + ` | endNode ${nodeIds[n - 1]} surf=${endSurf} target=${endTarget} isSurface=${endIsSurface}`);
+      }
 
       if (!startIsSurface && !endIsSurface) {
         // Case [A]: neither endpoint reaches surface — mid-tunnel segment, keep flat.
+        if (_dbg) console.log('  [ramp-dbg]   -> case A (flat, neither end reaches surface)');
         result.set(wayId, { isRamp: false, baseHeight });
         continue;
       }
@@ -276,6 +289,9 @@ export function resolveRamps(graph) {
         const s = t * t * (3 - 2 * t);
         return groundH + s * (deepH - groundH);
       });
+      if (_dbg) console.log(`  [ramp-dbg]   -> case B portal: ground ${groundH} deep ${deepH} `
+        + `len ${bLen.toFixed(1)} reach ${bReach.toFixed(1)} first ${vertexHeights[0].toFixed(1)} `
+        + `last ${vertexHeights[n - 1].toFixed(1)}`);
       result.set(wayId, { isRamp: true, vertexHeights });
       tunnelRampCount++;
       continue;
