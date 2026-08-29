@@ -244,7 +244,13 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
   // raw DEM says water (SRTM bakes open sea at 0 m). aCoast masks the procedural green shader off
   // these vertices so it can't repaint them. Gated on the tile actually touching sea level or
   // carrying beach polys, so inland lowlands never trigger it.
-  const SEA_RAW = 0.15;   // raw DEM metres — at/below = open water
+  const SEA_RAW = 0.15;   // raw DEM metres — at/below = open water, BUT ONLY NEAR THE COAST (N-50)
+  /**
+   * How close to the coastline a below-sea-level vertex must be before depth alone marks it as sea.
+   * Barcelona's shore is the only place real ground sits at 0 m; anything else at that height inland
+   * is something we DUG — a trench carve — and painting it blue turns a road cut into a canal.
+   */
+  const SEA_DEPTH_NEEDS_COAST_M = 120;
   const beachPolys = (beaches || []).filter((f) => !f.isLine && f.polygon?.length >= 3).map((f) => {
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const p of f.polygon) {
@@ -490,7 +496,17 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
       const inBeach = inBeachPoly(vx, vz);
       const cs = seaTileGate ? coastSample(vx, vz) : null;
       const shoreD = cs ? cs.dist : Infinity;
-      if ((cs && cs.sea && !inBeach) || dSea === 0 || raw <= SEA_RAW) {
+      // ── N-50 · BELOW SEA LEVEL IS NOT THE SEA ─────────────────────────────────────────────────
+      // `raw <= SEA_RAW` used to be enough on its own, which reads as "any ground at or under 0.15 m
+      // is open water". That was safe while the terrain was only ever the DEM. It stopped being safe
+      // when the trench carve started digging road cuts INTO the grid: a tunnel at layer −4 puts the
+      // carved floor below zero, and the whole cut then painted as deep Mediterranean blue. The user
+      // photographed it twice at Glòries — a road trench rendering as a canal.
+      //
+      // Sea is a PLACE, not an altitude. So the bare depth test now also has to be near the coast;
+      // the coastline and sea-polygon tests above are unchanged and still carry the real waterline.
+      const deepAndCoastal = raw <= SEA_RAW && dSea <= SEA_DEPTH_NEEDS_COAST_M;
+      if ((cs && cs.sea && !inBeach) || dSea === 0 || deepAndCoastal) {
         // Open sea — deep desaturated Mediterranean blue (mid-dark: the grade brightens), with a
         // whisper of large-scale variation so it doesn't read as one flat poster fill.
         const sn = terrainNoise(vx, vz, 0.012, 13.0) * 0.03;
