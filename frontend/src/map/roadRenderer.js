@@ -3068,6 +3068,28 @@ function buildBridgePillarMeshes(roads, options) {
         const z = a.y + t * dz;
 
         skip.candidates++;
+
+        // ── ORDER MATTERS: HEIGHT FIRST, POSITION SECOND (N-51b) ──────────────────────────────
+        // The position filters used to run first, which was safe while only `bridge` ways were
+        // candidates — a bridge does not lie on a ground road. Once N-51 made every road a
+        // candidate, every ground road was tested against the ground-road set and found ITSELF:
+        // `spots 499 — built 0, onGroundRoad 499`, in every tile, 100% rejected. And because the
+        // height was computed after the rejection, `tallest` read 0.0 m and hid the cause.
+        //
+        // Asking "is this deck in the air?" before "is something underneath it?" removes ground
+        // roads by the only test that actually describes them, and leaves the position filters
+        // doing the job they were written for: keeping a real pier out of a real roadway.
+        const bridgeY = (1 - t) * roadHeights[i] + t * roadHeights[i + 1];
+        const { lat, lon } = worldToLatLon(x, z);
+        const groundY = getPillarBottomY(lat, lon, getElevationAt);
+        const height = bridgeY - groundY;
+        if (height > skip.maxHeight) skip.maxHeight = height;
+        if (height < MIN_BRIDGE_STRUCTURE_HEIGHT) {
+          skip.tooLow++;
+          nextPillarAt += PILLAR_SPACING;
+          continue;
+        }
+
         // Skip if pillar would land on a ground-level road
         if (groundRoadSegs.length > 0 && isOnGroundRoad(x, z, groundRoadSegs)) {
           skip.onGroundRoad++;
@@ -3082,19 +3104,12 @@ function buildBridgePillarMeshes(roads, options) {
           continue;
         }
 
-        const bridgeY = (1 - t) * roadHeights[i] + t * roadHeights[i + 1];
-        const { lat, lon } = worldToLatLon(x, z);
-        const groundY = getPillarBottomY(lat, lon, getElevationAt);
-        const height = bridgeY - groundY;
-        if (height > skip.maxHeight) skip.maxHeight = height;
-        if (height >= MIN_BRIDGE_STRUCTURE_HEIGHT) {
+        {
           skip.built++;
           const geom = new THREE.CylinderGeometry(PILLAR_RADIUS, PILLAR_RADIUS, height, 8);
           geom.translate(x, (groundY + bridgeY) / 2, z);
           pillarGeoms.push(geom);
           pillarPositions.push({ x, z, groundY, height });
-        } else {
-          skip.tooLow++;
         }
         nextPillarAt += PILLAR_SPACING;
       }
