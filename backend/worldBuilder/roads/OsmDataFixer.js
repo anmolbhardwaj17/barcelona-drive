@@ -1033,6 +1033,147 @@ function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
   return stats;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RULE 9 · A NAMED STREET THAT RESUMES ACROSS A GAP
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Rule 7 joins two free ends FACING each other. Rule 8 joins a stub dying BESIDE a flank. Neither
+ * catches the case the dead-end triage put at the top of the city:
+ *
+ *   score gap same width  len   class      name
+ *      14   38  YES   12    279  trunk      Gran Via de les Corts Catalanes
+ *      13   43  YES 15.5    125  motorway   Autovia de Castelldefels
+ *      13   64  YES   12    200  primary    Avinguda Meridiana
+ *      12   76  YES 10.9    318  secondary  Rambla de Prim
+ *
+ * A 15.5 m motorway that stops dead, with a way of THE SAME NAME resuming 43 m further on, is not a
+ * cul-de-sac. Rule 7 cannot see it because it demands both ends be free and mutually aimed; here the
+ * street resumes part-way along another way, so the far end is not an end at all.
+ *
+ * The name IS the evidence. Two ways carrying the same street name, one ending and one resuming
+ * within 90 m along the same heading, are one street with its middle missing. That is a much
+ * stronger signal than geometry alone, which is why this rule may reach 90 m where rule 8 stops at
+ * 12: rule 8 has only proximity to go on.
+ *
+ * Measured population before writing it (`backend/tools/deadEndTriage.mjs`): of 1,176 unjoined
+ * drivable ends, 69 score >= 8 and 29 score >= 10; 11 of the 29 carry a same-named continuation.
+ * The long tail — 542 at score 1 — is ordinary cul-de-sacs and is deliberately left alone.
+ */
+const RESUME_MIN_M = 5;
+const RESUME_MAX_M = 90;
+const RESUME_COS = 0.60;   // the stub must actually point at it, not merely be near it
+
+function rule9_namedStreetResumes(wayMap, nodeToWays, nodeMap) {
+  const stats = { freeEnds: 0, named: 0, candidates: 0, created: 0, nodesAdded: 0,
+                  rejectedAim: 0, rejectedCrossing: 0, rejectedClass: 0 };
+
+  const ways = [...wayMap.values()].filter((w) =>
+    w.nodeIds && w.nodeIds.length >= 2 && MERGEABLE.has(w.highwayType));
+
+  // name -> ways carrying it. A street with no name gives no evidence and is skipped entirely.
+  const byName = new Map();
+  for (const w of ways) {
+    const n = String(w.tags?.name ?? '').trim();
+    if (!n) continue;
+    if (!byName.has(n)) byName.set(n, []);
+    byName.get(n).push(w);
+  }
+
+  const touch = new Map();
+  for (const w of ways) for (const nid of w.nodeIds) touch.set(nid, (touch.get(nid) || 0) + 1);
+
+  const crossesAnyWay = (aLat, aLon, bLat, bLon, skipA, skipB) => {
+    const o = toMeters(aLat, aLon, bLat, bLon);
+    for (const w of ways) {
+      if (w.id === skipA || w.id === skipB) continue;
+      if (w.tunnel || (w.layer ?? 0) !== 0) continue;
+      const ids = w.nodeIds;
+      for (let i = 0; i < ids.length - 1; i++) {
+        const p = nodeMap.get(ids[i]), q = nodeMap.get(ids[i + 1]);
+        if (!p || !q) continue;
+        const P = toMeters(aLat, aLon, p.lat, p.lon), Q = toMeters(aLat, aLon, q.lat, q.lon);
+        if (segmentsIntersect(0, 0, o.dx, o.dz, P.dx, P.dz, Q.dx, Q.dz)) return true;
+      }
+    }
+    return false;
+  };
+
+  for (const w of ways) {
+    const name = String(w.tags?.name ?? '').trim();
+    const n = w.nodeIds.length;
+    for (const [nid, innerId] of [[w.nodeIds[0], w.nodeIds[1]], [w.nodeIds[n - 1], w.nodeIds[n - 2]]]) {
+      if ((touch.get(nid) || 0) > 1) continue;
+      stats.freeEnds++;
+      if (!name) continue;
+      stats.named++;
+      const e = nodeMap.get(nid), inner = nodeMap.get(innerId);
+      if (!e || !inner) continue;
+      const out = toMeters(inner.lat, inner.lon, e.lat, e.lon);
+      const ol = Math.hypot(out.dx, out.dz) || 1;
+      const sx = out.dx / ol, sz = out.dz / ol;
+
+      let best = null;
+      for (const o of byName.get(name) || []) {
+        if (o.id === w.id) continue;
+        // The missing middle of a street is the same KIND of road at both ends. A footway sharing a
+        // plaza's name must not be welded to its carriageway.
+        if (o.highwayType !== w.highwayType) { stats.rejectedClass++; continue; }
+        for (const oid of o.nodeIds) {
+          const q = nodeMap.get(oid);
+          if (!q) continue;
+          const d = toMeters(e.lat, e.lon, q.lat, q.lon);
+          const dist = Math.hypot(d.dx, d.dz);
+          if (dist < RESUME_MIN_M || dist > RESUME_MAX_M) continue;
+          if ((d.dx * sx + d.dz * sz) / dist < RESUME_COS) continue;
+          if (!best || dist < best.dist) best = { dist, oid, o, q };
+        }
+      }
+      if (!best) continue;
+      stats.candidates++;
+      if (crossesAnyWay(e.lat, e.lon, best.q.lat, best.q.lon, w.id, best.o.id)) {
+        stats.rejectedCrossing++; continue;
+      }
+
+      const id = nextSyntheticId();
+      const nodeIds = [nid];
+      const steps = Math.max(2, Math.ceil(best.dist / LINK_NODE_SPACING_M));
+      for (let k = 1; k < steps; k++) {
+        const f = k / steps;
+        const mid = nextSyntheticId();
+        nodeMap.set(mid, { lat: e.lat + (best.q.lat - e.lat) * f,
+                           lon: e.lon + (best.q.lon - e.lon) * f });
+        nodeIds.push(mid);
+        stats.nodesAdded++;
+      }
+      nodeIds.push(best.oid);
+
+      // Same convention as rule 7: a long gap is a road passing under something, a short one is a
+      // join that was never made. Keeps portals, lining and colliders coming from one pipeline.
+      const deep = best.dist > SHORT_LINK_M;
+      wayMap.set(id, {
+        id,
+        nodeIds,
+        tags: { ...(w.tags || {}), ...(deep ? { tunnel: 'yes', layer: '-1' } : {}),
+                _synthetic: 'named_resume' },
+        bridge: false,
+        tunnel: deep,
+        layer: deep ? -1 : 0,
+        highwayType: w.highwayType,
+        closedLoop: false,
+        points: null,
+      });
+      for (const id2 of nodeIds) {
+        if (!nodeToWays.has(id2)) nodeToWays.set(id2, new Set());
+        nodeToWays.get(id2).add(id);
+      }
+      touch.set(nid, (touch.get(nid) || 0) + 1);
+      stats.created++;
+    }
+  }
+  return stats;
+}
+
 export function fixOsmData(graph, nodeMap) {
   const { wayMap, nodeToWays } = graph;
 
@@ -1049,10 +1190,12 @@ export function fixOsmData(graph, nodeMap) {
   // N-44: runs after rule 7, so an end that rule 7 has already joined is no longer free and this
   // rule will not also weld it sideways into a neighbour.
   const rule8 = rule8_stubMergeConnector(wayMap, nodeToWays, nm);
+  // N-49: last, so an end already joined by 7 or 8 is no longer free and cannot be joined twice.
+  const rule9 = rule9_namedStreetResumes(wayMap, nodeToWays, nm);
 
-  return { rule4, rule5, rule1, rule6, rule7, rule8 };
+  return { rule4, rule5, rule1, rule6, rule7, rule8, rule9 };
 }
 
 /** Exported for tests only — see frontend/test/duplicateRoadRemover.test.js (N-1). */
 export const __test__ = { rule5_duplicateRoadRemover, rule7_missingLinkSynthesiser,
-                          rule8_stubMergeConnector };
+                          rule8_stubMergeConnector, rule9_namedStreetResumes };
