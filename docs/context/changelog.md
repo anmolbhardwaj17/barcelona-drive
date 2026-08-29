@@ -2894,3 +2894,7 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   Cause: street and tunnel both ramped at the portal node in opposite directions, each targeting the
   other's base height rather than its actual profile. New: `junctionContinuity.js` runs every bake.
   Still failing on one road — the documented tunnel-under-water case, out of scope in v1.
+- **N-49 rule 9** — a named street resuming across a gap is one street with its middle missing.
+  Triage-first (`deadEndTriage.mjs`): 1,176 unjoined drivable ends scored by class, same-name-ahead,
+  width and length. Rule 9 connected 199; the five worst dead ends in the city are gone, score ≥ 10
+  went 29 → 19, and the 542-strong cul-de-sac tail moved by 2.
