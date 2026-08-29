@@ -893,6 +893,132 @@ function rule6_groundRoadOffset(wayMap, nodeToWays, nodeMap) {
  * @param {Map} nodeMap - nodeId → { lat, lon }
  * @returns {{ rule4, rule5, rule1, rule6 }} counts of fixes applied per rule
  */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RULE 8 · A SLIP ROAD THAT DIES BESIDE THE ROAD IT SHOULD JOIN
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * User: "2 roads very close to each other but no ramp and just exiting like this thats wrong for
+ * sure — they should have a smooth ramp or just a ramp for now, first lets connect the roads".
+ *
+ * Rule 7 joins two free ends FACING each other. A merge is a different shape and rule 7 is blind to
+ * it: a slip road ends ALONGSIDE the carriageway it should join, pointing roughly the SAME way, and
+ * its endpoint lands on the other road's FLANK rather than on another dead end.
+ *
+ * Measured over the shipped tiles before writing a line of this (`backend/tools/missedMergeAudit.mjs`):
+ *   10,258 drivable ways · 3,865 free ends
+ *   445 of those die beside another road's flank (<= 14 m, |cos| >= 0.7)
+ *   389 of the 445 are within 1 m of it VERTICALLY — connectable at grade
+ *
+ * This rule takes the at-grade 389 only. The other 56 need a real ramp, and a connector that climbs
+ * 6 m over 12 m of ground is a wall, not a road.
+ *
+ * ⚠ It connects to the target's nearest EXISTING NODE rather than splitting the target at the
+ * projection point. Splitting is geometrically prettier and mutates a way that other rules, the
+ * ramp resolver and the trench flagger have all already reasoned about; joining to a node that is
+ * already there cannot invalidate any of that. The connector is a few metres off perpendicular as a
+ * result, which at these distances is invisible.
+ */
+const MERGE_NEAR_M = 12;      // how close the dead end must be to the other road's flank
+const MERGE_COS = 0.70;       // |cos| between the stub's heading and that flank — parallel, not crossing
+const MERGE_MAX_CONNECT_M = 22;  // longest connector worth drawing to the nearest existing node
+
+function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
+  const stats = { freeEnds: 0, beside: 0, created: 0, nodesAdded: 0,
+                  rejectedLayer: 0, rejectedAim: 0, rejectedFar: 0, rejectedCrossing: 0 };
+
+  const ways = [...wayMap.values()].filter((w) =>
+    w.nodeIds && w.nodeIds.length >= 2 && DRIVABLE_FOR_LINK.has(w.highwayType));
+
+  const touch = new Map();
+  for (const w of ways) for (const nid of w.nodeIds) touch.set(nid, (touch.get(nid) || 0) + 1);
+
+  for (const w of ways) {
+    const n = w.nodeIds.length;
+    for (const [nid, innerId] of [[w.nodeIds[0], w.nodeIds[1]], [w.nodeIds[n - 1], w.nodeIds[n - 2]]]) {
+      if ((touch.get(nid) || 0) > 1) continue;
+      const e = nodeMap.get(nid), inner = nodeMap.get(innerId);
+      if (!e || !inner) continue;
+      stats.freeEnds++;
+      const out = toMeters(inner.lat, inner.lon, e.lat, e.lon);   // stub heading, pointing outward
+      const ol = Math.hypot(out.dx, out.dz) || 1;
+      const sx = out.dx / ol, sz = out.dz / ol;
+
+      let best = null;
+      for (const o of ways) {
+        if (o.id === w.id) continue;
+        // AT GRADE ONLY, and the fixer has no DEM — so layer/bridge/tunnel is the whole height
+        // model available here, and it is exactly what separates the 389 from the 56.
+        if (!!o.tunnel !== !!w.tunnel || !!o.bridge !== !!w.bridge) { continue; }
+        if ((o.layer ?? 0) !== (w.layer ?? 0)) continue;
+        const ids = o.nodeIds;
+        for (let i = 0; i < ids.length - 1; i++) {
+          const a = nodeMap.get(ids[i]), b = nodeMap.get(ids[i + 1]);
+          if (!a || !b) continue;
+          const A = toMeters(e.lat, e.lon, a.lat, a.lon), B = toMeters(e.lat, e.lon, b.lat, b.lon);
+          const dx = B.dx - A.dx, dz = B.dz - A.dz;
+          const l2 = dx * dx + dz * dz;
+          if (l2 < 1e-6) continue;
+          const t = Math.max(0, Math.min(1, (-A.dx * dx + -A.dz * dz) / l2));
+          if (t <= 0.01 || t >= 0.99) continue;      // near the target's own END is rule 7's job
+          const d = Math.hypot(A.dx + t * dx, A.dz + t * dz);
+          if (d > MERGE_NEAR_M) continue;
+          const cos = Math.abs((sx * dx + sz * dz) / Math.sqrt(l2));
+          if (cos < MERGE_COS) { stats.rejectedAim++; continue; }
+          // join to whichever END of this segment is nearer — an EXISTING node, never a new split
+          const dA = Math.hypot(A.dx, A.dz), dB = Math.hypot(B.dx, B.dz);
+          const targetNid = dA <= dB ? ids[i] : ids[i + 1];
+          const targetD = Math.min(dA, dB);
+          if (!best || targetD < best.targetD) best = { o, targetNid, targetD, d };
+        }
+      }
+      if (!best) continue;
+      stats.beside++;
+      if (best.targetD > MERGE_MAX_CONNECT_M) { stats.rejectedFar++; continue; }
+      if (best.targetNid === nid) continue;
+
+      const t = nodeMap.get(best.targetNid);
+      if (!t) continue;
+      const id = nextSyntheticId();
+      // Densified for the same reason rule 7's links are — a two-point way gives the terrain
+      // machinery a straight line to work from where the ground is not straight.
+      const g = toMeters(e.lat, e.lon, t.lat, t.lon);
+      const gap = Math.hypot(g.dx, g.dz);
+      const nodeIds = [nid];
+      const steps = Math.max(2, Math.ceil(gap / LINK_NODE_SPACING_M));
+      for (let k = 1; k < steps; k++) {
+        const f = k / steps;
+        const mid = nextSyntheticId();
+        nodeMap.set(mid, { lat: e.lat + (t.lat - e.lat) * f, lon: e.lon + (t.lon - e.lon) * f });
+        nodeIds.push(mid);
+        stats.nodesAdded++;
+      }
+      nodeIds.push(best.targetNid);
+
+      wayMap.set(id, {
+        id,
+        nodeIds,
+        // The connector inherits the STUB's class, not the target's: a service road joining a trunk
+        // is still a service road, and promoting it would put a trunk-width ribbon on a driveway.
+        tags: { ...(w.tags || {}), _synthetic: 'stub_merge' },
+        bridge: !!w.bridge,
+        tunnel: !!w.tunnel,
+        layer: w.layer ?? 0,
+        highwayType: w.highwayType,
+        closedLoop: false,
+        points: null,
+      });
+      for (const id2 of nodeIds) {
+        if (!nodeToWays.has(id2)) nodeToWays.set(id2, new Set());
+        nodeToWays.get(id2).add(id);
+      }
+      touch.set(nid, (touch.get(nid) || 0) + 1);
+      stats.created++;
+    }
+  }
+  return stats;
+}
+
 export function fixOsmData(graph, nodeMap) {
   const { wayMap, nodeToWays } = graph;
 
@@ -906,9 +1032,13 @@ export function fixOsmData(graph, nodeMap) {
   // N-32: runs LAST — it reads the connectivity the other rules leave behind, so a gap created by
   // rule 5 removing a duplicate is a gap it should consider, not one it should have pre-empted.
   const rule7 = rule7_missingLinkSynthesiser(wayMap, nodeToWays, nm);
+  // N-44: runs after rule 7, so an end that rule 7 has already joined is no longer free and this
+  // rule will not also weld it sideways into a neighbour.
+  const rule8 = rule8_stubMergeConnector(wayMap, nodeToWays, nm);
 
-  return { rule4, rule5, rule1, rule6, rule7 };
+  return { rule4, rule5, rule1, rule6, rule7, rule8 };
 }
 
 /** Exported for tests only — see frontend/test/duplicateRoadRemover.test.js (N-1). */
-export const __test__ = { rule5_duplicateRoadRemover, rule7_missingLinkSynthesiser };
+export const __test__ = { rule5_duplicateRoadRemover, rule7_missingLinkSynthesiser,
+                          rule8_stubMergeConnector };
