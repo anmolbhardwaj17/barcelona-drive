@@ -46,6 +46,29 @@ const DRIVABLE_TUNNEL_TYPES = new Set([
   'tertiary', 'tertiary_link', 'residential', 'unclassified', 'living_street',
 ]);
 
+/**
+ * N-42 · WHAT CAN CROSS A TRENCH IS NOT WHAT CAN CARVE ONE.
+ *
+ * `DRIVABLE_TUNNEL_TYPES` answers "which tunnels get a trench cut for them", and drivable-only is
+ * exactly right there: carving an open trench for a pedestrian subway would gouge the street.
+ *
+ * The two CROSSING passes below borrowed the same set, and that is a different question. A pavement
+ * over a daylighted trench is still a pavement over a hole. Measured on the shipped tiles — surface
+ * roads (layer 0, no bridge/tunnel/ramp) floating more than 2 m above their own terrain:
+ *
+ *   in the whitelist      534   (32%)  — and 533 of them ALREADY have crossesTrench set, so their
+ *                                        float is a deck bridging an open cut. Correct by design.
+ *   NOT in the whitelist 1135   (68%)  — and ZERO have it. 842 footway, 115 cycleway, 86 pedestrian,
+ *                                        47 service, 26 steps, 12 path.
+ *
+ * The split is that clean because it is not a tuning problem, it is a missing category: every
+ * pavement crossing the Glòries and Ronda trenches hangs in the air with no deck and no barrier.
+ */
+const TRENCH_CROSSING_TYPES = new Set([
+  ...DRIVABLE_TUNNEL_TYPES,
+  'footway', 'cycleway', 'pedestrian', 'path', 'steps', 'service', 'busway', 'track',
+]);
+
 const mercToLatLon = (mx, mz) => ({
   lon: (mx / R_EARTH) * (180 / Math.PI),
   lat: (2 * Math.atan(Math.exp(mz / R_EARTH)) - Math.PI / 2) * (180 / Math.PI),
@@ -146,7 +169,7 @@ export function flagTrenchCrossings(allRoads, corridors, demSampler) {
   const shoulders = [];
   for (const road of allRoads) {
     if (road.tunnel || !road.points || road.points.length < 2) continue;
-    if (!DRIVABLE_TUNNEL_TYPES.has(road.highwayType)) continue; // same drivable whitelist
+    if (!TRENCH_CROSSING_TYPES.has(road.highwayType)) continue; // N-42: crossing, not carving
     let hit = false;
     const nearSegs = new Set(); // segment indices anywhere near a corridor (for shoulder cuts)
     const absAt = new Map();    // cached endpoint absolute Y
@@ -236,7 +259,7 @@ export function flagFloatersOverCarve(allRoads, cutters, demSampler) {
   let flagged = 0;
   for (const road of allRoads) {
     if (road.tunnel || road.crossesTrench || !road.points || road.points.length < 2) continue;
-    if (!DRIVABLE_TUNNEL_TYPES.has(road.highwayType)) continue;
+    if (!TRENCH_CROSSING_TYPES.has(road.highwayType)) continue;
     const pf = (p) => (p.length >= 4 && Number.isFinite(p[3]) ? p[3] : p[1]) || 0;
     let hit = false;
     for (let i = 0; i < road.points.length - 1 && !hit; i++) {
