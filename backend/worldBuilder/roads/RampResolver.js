@@ -216,8 +216,16 @@ export function resolveRamps(graph) {
       const vertexHeights = nodeIds.map((_, i) => {
         let t;
         if (bReach > 0) {
-          const dFromDeep = startIsGround ? (bLen - bDist[i]) : bDist[i];
-          t = Math.max(0, Math.min(1, 1 - dFromDeep / bReach));
+          // ⚠ MEASURED FROM THE GROUND END, and the direction is the whole point. N-41 shapes a
+          // BRIDGE APPROACH: flat at grade, climbing only near the elevated end, because the street
+          // is genuinely at grade for most of its length. A PORTAL is the mirror image — the road
+          // leaves the surface AT THE MOUTH and the tunnel interior is deep. Copying N-41's shape
+          // here kept the tunnel at surface level for most of its length, so `buildTrenchCorridors`
+          // (which only emits a corridor where the profile is below −MIN_CUT) carved nothing under
+          // the flat stretch, and the commit-blocking floor validator caught it: 56 violations on 3
+          // roads. Descend at the mouth, then run flat at depth.
+          const dFromGround = startIsGround ? bDist[i] : (bLen - bDist[i]);
+          t = Math.max(0, Math.min(1, dFromGround / bReach));
         } else {
           const rawT = n <= 1 ? 0 : i / (n - 1);
           const fwd = startIsGround ? rawT : 1 - rawT;
