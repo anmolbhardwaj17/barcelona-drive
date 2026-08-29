@@ -226,7 +226,10 @@ export function flagTrenchCrossings(allRoads, corridors, demSampler) {
       }
     }
   }
-  console.log(`[Trench] crossesTrench flagged: ${flagged} drivable surface roads; shoulder-cut segments: ${shoulders.length}`);
+  // N-42: no longer "drivable" — the crossing test covers the path family too, and a log line that
+  // misnames its own population is how a number gets read as a regression later.
+  console.log(`[Trench] crossesTrench flagged: ${flagged} surface ways (drivable + path family); `
+    + `shoulder-cut segments: ${shoulders.length}`);
   return { flagged, shoulders };
 }
 
