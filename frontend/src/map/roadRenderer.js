@@ -3731,10 +3731,6 @@ if (typeof window !== 'undefined') {
  */
 function computeGuardRailMask(roads, options) {
   const mask = new Map();
-  // `?norails` — one gate, at the single point BOTH the geometry builder and the collider builder
-  // go through. Switching it off anywhere else would leave rail colliders standing invisibly in
-  // the road, which is worse than the rails.
-  if (CONFIG.ENABLE_GUARD_RAILS === false) return mask;
   if (!roads || !roads.length) return mask;
   const surface = roads.filter((r) => r && !r.tunnel);
   // includeTees: a rail is a COLLIDER, so a missed T-junction is a wall across a street you have to
@@ -4272,6 +4268,12 @@ export function emitGuardRailRun(innerEdge, outerEdge, atVals, atMax, railGeoms,
  * longer pile up at junctions/roundabouts or double-wall parallel carriageways.
  */
 function buildBridgeGuardRailGeometry(roads, options) {
+  // `?norails` — gated HERE, not in computeGuardRailMask. Returning an empty mask from there does
+  // the OPPOSITE of switching rails off: consumers read `keep: m && m.keepL`, so a road missing
+  // from the mask has no per-point restrictions and gets railed along its ENTIRE length. The first
+  // attempt did exactly that and the user reported rails still everywhere, with
+  // `p1 rg:guardrail 310ms/24` in the load breakdown proving the phase still ran.
+  if (CONFIG.ENABLE_GUARD_RAILS === false) return { wallMesh: null, railingMesh: null, skirtMesh: null };
   const railGeoms = [];
   const skirtGeoms = [];   // N-31 edge skirt — closes the void under an elevated edge
   const railingGeoms = [];   // posts
@@ -4405,6 +4407,9 @@ function buildBridgeGuardRailGeometry(roads, options) {
  * @returns {object|null} CANNON.Body or null if no guard rails
  */
 export function buildBridgeGuardRailColliders(roads, options, CANNON, physicsOrigin) {
+  // `?norails` hides the rails, so it must remove their COLLIDERS too — an invisible wall you
+  // crash into while diagnosing road geometry is worse than the rail it replaced.
+  if (CONFIG.ENABLE_GUARD_RAILS === false) return null;
   const body = new CANNON.Body({ mass: 0 });
   let shapeCount = 0;
   // Same smart suppression mask the visual rails use → colliders line up exactly with
