@@ -2889,3 +2889,8 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   (534), pavements over trenches with no deck at all (1,135 → fixed by N-42), and ramp profiles
   (N-41 — which turned out to fix little float but rescue 120 roads from deletion). Remaining real
   defect after both: **35 ramps (10.2%) and 45 non-ramps (0.1%)**, from 84/1,669.
+- **N-45 / N-47** tunnel portals. Drivable height-steps at shared nodes 462 → 142, surface-meets-
+  tunnel 366 → 71, and `BrokenRamp` 171 → 29 (≈142 roads no longer deleted for impossible grades).
+  Cause: street and tunnel both ramped at the portal node in opposite directions, each targeting the
+  other's base height rather than its actual profile. New: `junctionContinuity.js` runs every bake.
+  Still failing on one road — the documented tunnel-under-water case, out of scope in v1.
