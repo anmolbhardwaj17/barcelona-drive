@@ -3016,20 +3016,31 @@ function buildGroundRoadSegments(roads) {
 // corridor never drops pillars into the open trench/roadway below it.
 const TRENCH_PILLAR_SKIP_MARGIN = 12;
 
-/** Build flat array of trench-corridor segments (carved tunnel roads) for pillar exclusion. */
-/** Same 6-wide layout as buildGroundRoadSegments so both can be read by isOnGroundRoad. */
-function buildTrenchCorridorSegments(roads) {
+/**
+ * Trench-corridor footprints, 6-wide like buildGroundRoadSegments so both read through isOnGroundRoad.
+ *
+ * `margin` is the whole argument (N-51f). The default, TRENCH_PILLAR_SKIP_MARGIN, is the SPACING
+ * loop's exclusion and is deliberately generous: it covers the carve's batter so a routine pier can
+ * never land in the cut. An ABUTMENT is a different question. A deck crossing a cut has to be held
+ * up SOMEWHERE, and outside the wide corridor the ground is already back at deck level — nothing to
+ * support, which is why the first abutment pass produced 1-3 per tile against 18-62 skips. The place
+ * a real bridge takes its load is the bench against the trench wall: inside the wide corridor, well
+ * clear of the carriageway. Passing a small margin describes exactly that band.
+ */
+function buildTrenchCorridorSegments(roads, margin = TRENCH_PILLAR_SKIP_MARGIN) {
   const segs = [];
   for (const road of roads || []) {
     if (!road.tunnel) continue;
     const pts = road.points || [];
-    const hw = kerbOffset(road) + TRENCH_PILLAR_SKIP_MARGIN;   // R-W1
+    const hw = kerbOffset(road) + margin;   // R-W1
     for (let i = 0; i < pts.length - 1; i++) {
       segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw, road.id);
     }
   }
   return segs;
 }
+/** Clearance from the trench CARRIAGEWAY that an abutment pier must keep, metres. */
+const TRENCH_ABUTMENT_CLEAR_M = 2.5;
 
 /**
  * Build bridge pillar meshes for roads with bridge=yes.
@@ -3045,6 +3056,9 @@ function buildBridgePillarMeshes(roads, options) {
   // (the slice-② carve sank the heightfield there, so getElevationAt returns the deep
   // trench floor → 10-15m columns standing in the open roadway = the black-mass bug).
   const trenchSegs = buildTrenchCorridorSegments(roads);
+  // The narrow band: the carriageway plus a small clearance. Everything between this and
+  // `trenchSegs` is trench bench — where an abutment belongs.
+  const trenchRoadwaySegs = buildTrenchCorridorSegments(roads, TRENCH_ABUTMENT_CLEAR_M);
 
   const pillarGeoms = [];
   const pillarPositions = [];  // { x, z, groundY, height }
@@ -3183,10 +3197,14 @@ function buildBridgePillarMeshes(roads, options) {
       for (let i = 0; i < pts.length; i++) {
         const inTr = isOnGroundRoad(pts[i].x, pts[i].y, trenchSegs, road.id);
         if (prevIn !== null && inTr !== prevIn) {
-          const oi = inTr ? i - 1 : i;          // the point on the SOLID side of the transition
+          // Take the point on the CUT side, not the solid side. Outside the corridor the ground is
+          // back at deck level and there is nothing to support — that is what made the first
+          // version yield 1-3 abutments against 18-62 skips. Inside, the ground has dropped away
+          // and the pier has something to span. It only has to clear the carriageway itself.
+          const oi = inTr ? i : i - 1;
           const p2 = pts[oi];
           if (!isOnGroundRoad(p2.x, p2.y, groundRoadSegs, road.id)
-              && !isOnGroundRoad(p2.x, p2.y, trenchSegs, road.id)) {
+              && !isOnGroundRoad(p2.x, p2.y, trenchRoadwaySegs, road.id)) {
             const bY = roadHeights[oi];
             const ll2 = worldToLatLon(p2.x, p2.y);
             const gY = getPillarBottomY(ll2.lat, ll2.lon, getElevationAt);
