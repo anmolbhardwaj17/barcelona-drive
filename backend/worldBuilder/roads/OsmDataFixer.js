@@ -479,6 +479,25 @@ function rule5_duplicateRoadRemover(wayMap, nodeToWays, nodeMap) {
 
   const removedSet = new Set();
 
+  // ── N-40 · NEVER DELETE THE LAST WAY CARRYING A STREET NAME ───────────────────────────────────
+  //
+  // Measured with a PAIRED bake — same district, same bbox, removals on vs off, so nothing but this
+  // rule differs. It deletes 791 ways in Eixample, 617 of them `footway`; ~79 are drivable. That is
+  // the rule working. But TWO named streets lost every way they had — `Mestres Casals i Martorell`
+  // and `passatge de Francesca Simon` — and a street that disappears from the city is not a
+  // deduplicated street, it is a missing one. Those two are the entire downside of the rule, and
+  // they are cheap to prevent: keep a live count per name and refuse the removal that would take a
+  // name to zero.
+  //
+  // Unnamed ways are not counted — there is no street to lose, and a duplicate footway with no name
+  // is exactly what this rule is for.
+  const nameCount = new Map();
+  for (const e of wayEntries) {
+    const n = String(e.way.tags?.name ?? '').trim();
+    if (n) nameCount.set(n, (nameCount.get(n) || 0) + 1);
+  }
+  let keptLastOfName = 0;   // D-23: a guard that never fires must be visibly a no-op, not invisible
+
   for (let i = 0; i < wayEntries.length; i++) {
     const ea = wayEntries[i];
     if (removedSet.has(ea.wayId)) continue;
@@ -526,7 +545,13 @@ function rule5_duplicateRoadRemover(wayMap, nodeToWays, nodeMap) {
       }
 
       if (withinCount / samples.length >= lim.minRatio) {
+        const shorterName = String(shorter.way.tags?.name ?? '').trim();
+        if (shorterName && (nameCount.get(shorterName) || 0) <= 1) {
+          keptLastOfName++;                 // N-40: this is the last of its name — keep the street
+          continue;
+        }
         // Remove the shorter road
+        if (shorterName) nameCount.set(shorterName, nameCount.get(shorterName) - 1);
         removedSet.add(shorter.wayId);
         wayMap.delete(shorter.wayId);
         // Clean nodeToWays
@@ -543,7 +568,7 @@ function rule5_duplicateRoadRemover(wayMap, nodeToWays, nodeMap) {
     }
   }
 
-  return { removed, strict: removedStrict, sameName: removedSameName };
+return { removed, strict: removedStrict, sameName: removedSameName, keptLastOfName };
 }
 
 

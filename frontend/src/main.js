@@ -233,8 +233,34 @@ window._ddPick = (x, y) => {
  * (`worldGroup.scale.x = -1`, CLAUDE.md line 1) and hand-converting broke three probes in one day.
  */
 window._ddColumn = (x, z) => {
-  const from = new THREE.Vector3(
-    x == null ? camera.position.x : x, 1000, z == null ? camera.position.z : z);
+  // NO ARGUMENTS is the normal way to call this: look at the thing, type `_ddColumn()`.
+  // It first casts through the centre of the screen to find WHERE YOU ARE LOOKING, then drops a
+  // vertical ray there. Defaulting to the column under the CAMERA was the obvious implementation
+  // and the wrong one — in fly mode the camera is 200 m up over somewhere you are not looking at.
+  if (x == null || z == null) {
+    const aim = new THREE.Raycaster();
+    aim.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const aimTargets = [];
+    scene.traverse((o) => {
+      if (!(o.isMesh || o.isInstancedMesh || o.isBatchedMesh)) return;
+      // The SKY is a mesh and it is in front of everything you could ever point at, so an
+      // unfiltered aim ray answers "what am I looking at?" with "the sky" and hands back a
+      // coordinate 39 km outside the world. Measured, first run.
+      if (o === sky) return;
+      for (let p = o; p; p = p.parent) { if (!p.visible) return; if (p === sky) return; }
+      aimTargets.push(o);
+    });
+    // Backstop for any other dome-shaped thing: the world is ~±4 km, so a hit past that is not a
+    // surface you are looking at.
+    const aimHit = aim.intersectObjects(aimTargets, false)
+      .find((h) => Math.abs(h.point.x) < 6000 && Math.abs(h.point.z) < 6000);
+    if (aimHit) { x = aimHit.point.x; z = aimHit.point.z; }
+    else {
+      console.log('[column] nothing in the centre of the screen — point the camera at a surface.');
+      return [];
+    }
+  }
+  const from = new THREE.Vector3(x, 1000, z);
   const ray = new THREE.Raycaster(from, new THREE.Vector3(0, -1, 0), 0, 4000);
   const targets = [];
   scene.traverse((o) => {
@@ -262,6 +288,20 @@ window._ddColumn = (x, z) => {
   console.table(rows);
   console.log(`[column] x ${from.x.toFixed(1)} z ${from.z.toFixed(1)} — ${rows.length} surfaces, `
     + `top ${rows[0].y} bottom ${rows[rows.length - 1].y}`);
+  // A PLAIN-ENGLISH VERDICT, because the table alone still needs interpreting and the whole point
+  // of this probe is to stop a number being read wrong. A kerb is 0.15 m; anything up to ~0.5 m is
+  // ordinary street construction; a metre or more between two ground surfaces is the "floating"
+  // defect. Say which of those it is rather than leaving it to be inferred.
+  const worst = rows.reduce((a, r) => (r.dropToNext > (a?.dropToNext ?? -1) ? r : a), null);
+  if (worst && worst.dropToNext != null) {
+    const g = worst.dropToNext;
+    const verdict = g < 0.5 ? 'NORMAL — kerb/kerb-ish, nothing floating here'
+      : g < 1.5 ? 'suspicious — bigger than a kerb, worth a look'
+      : 'FLOATING — this is the defect';
+    console.log(`[column] biggest gap: ${g} m, "${worst.what}" over the surface below it → ${verdict}`);
+  } else if (rows.length === 1) {
+    console.log(`[column] only ONE surface here ("${rows[0].what}") — nothing is stacked, so nothing can float.`);
+  }
   return rows;
 };
 
