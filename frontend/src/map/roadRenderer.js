@@ -3052,7 +3052,7 @@ function buildBridgePillarMeshes(roads, options) {
   // is on a ground road, the spot is in a trench corridor, or the computed height is under the
   // minimum — and a bare "no pillars" tells you nothing about which. Counted, and reported once per
   // tile when anything qualified, so "I don't see them" becomes answerable in one reload.
-  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0, nudged: 0,
+  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0, nudged: 0, abutments: 0,
                  roadsIn: (roads || []).length, passedGate: 0, noHeights: 0, tooShort: 0 };
   for (const road of roads || []) {
     // ── N-51 · SUPPORT WHAT IS ACTUALLY IN THE AIR, NOT WHAT OSM CALLED A BRIDGE ───────────────
@@ -3166,6 +3166,47 @@ function buildBridgePillarMeshes(roads, options) {
       }
       totalDist += segLen;
     }
+
+    // ── ABUTMENT PIERS AT THE EDGES OF A CUT (N-51e) ───────────────────────────────────────────
+    //
+    // The spacing loop above refuses any pier that would land inside a carved trench, and it is
+    // right to: a column in the open roadway below is worse than a bare deck. But refusing is where
+    // it stopped, and trench decks are the BIGGEST unsupported group — 682 ways, 43 km, against
+    // 2.5 km of tagged bridge. Per-tile the counters read `inTrench 18..62`, all of it skipped.
+    //
+    // A real bridge over a cut is not unsupported; its load goes into ABUTMENTS at the two banks.
+    // So walk the deck, find where it crosses into and out of the corridor, and put a pier at the
+    // last solid point on each side. Spacing does not apply — an abutment is where the cut is, not
+    // where the ruler lands.
+    if (trenchSegs.length > 0 && pts.length >= 2) {
+      let prevIn = null;
+      for (let i = 0; i < pts.length; i++) {
+        const inTr = isOnGroundRoad(pts[i].x, pts[i].y, trenchSegs, road.id);
+        if (prevIn !== null && inTr !== prevIn) {
+          const oi = inTr ? i - 1 : i;          // the point on the SOLID side of the transition
+          const p2 = pts[oi];
+          if (!isOnGroundRoad(p2.x, p2.y, groundRoadSegs, road.id)
+              && !isOnGroundRoad(p2.x, p2.y, trenchSegs, road.id)) {
+            const bY = roadHeights[oi];
+            const ll2 = worldToLatLon(p2.x, p2.y);
+            const gY = getPillarBottomY(ll2.lat, ll2.lon, getElevationAt);
+            const hh = bY - gY;
+            // Don't double up on a pier the spacing loop already placed near here.
+            const dup = pillarPositions.some((q) =>
+              Math.hypot(q.x - p2.x, q.z - p2.y) < PILLAR_SPACING * 0.5);
+            if (hh >= MIN_BRIDGE_STRUCTURE_HEIGHT && !dup) {
+              const geom = new THREE.CylinderGeometry(PILLAR_RADIUS, PILLAR_RADIUS, hh, 8);
+              geom.translate(p2.x, (gY + bY) / 2, p2.y);
+              pillarGeoms.push(geom);
+              pillarPositions.push({ x: p2.x, z: p2.y, groundY: gY, height: hh });
+              skip.abutments++;
+              skip.built++;
+            }
+          }
+        }
+        prevIn = inTr;
+      }
+    }
   }
 
   // UNCONDITIONAL. The first version only logged when `candidates > 0`, so the one outcome it
@@ -3181,6 +3222,7 @@ function buildBridgePillarMeshes(roads, options) {
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
     + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, nudged ${skip.nudged}, `
+    + `abutments ${skip.abutments}, `
     + `tallest ${skip.maxHeight.toFixed(1)} m`);
   if (pillarGeoms.length === 0) return { mesh: null, positions: [] };
   const merged = mergeGeometries(pillarGeoms);
