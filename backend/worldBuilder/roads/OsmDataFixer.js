@@ -919,6 +919,20 @@ function rule6_groundRoadOffset(wayMap, nodeToWays, nodeMap) {
  * already there cannot invalidate any of that. The connector is a few metres off perpendicular as a
  * result, which at these distances is invisible.
  */
+/**
+ * Rule 8's own way set — WIDER than rule 7's, and the difference is the point.
+ *
+ * Rule 7 synthesises TUNNELS between named streets, so `DRIVABLE_FOR_LINK` deliberately excludes
+ * `service`: boring a tunnel for a driveway is absurd. Rule 8 draws a short connector at grade,
+ * which is exactly what a car-park aisle or a slip lane needs.
+ *
+ * Sharing rule 7's set cost the first bake most of its yield. The counters said it plainly —
+ * `freeEnds: 858` here against **3,865** in the audit, `beside: 64` against **445** — because the
+ * audit counted `service` and the rule did not, and the audit's closest merges were almost all
+ * service-to-service. Same trap as N-42: a set named for one question reused to answer another.
+ */
+const MERGEABLE = new Set([...DRIVABLE_FOR_LINK, 'service', 'busway']);
+
 const MERGE_NEAR_M = 12;      // how close the dead end must be to the other road's flank
 const MERGE_COS = 0.70;       // |cos| between the stub's heading and that flank — parallel, not crossing
 const MERGE_MAX_CONNECT_M = 22;  // longest connector worth drawing to the nearest existing node
@@ -928,7 +942,7 @@ function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
                   rejectedLayer: 0, rejectedAim: 0, rejectedFar: 0, rejectedCrossing: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
-    w.nodeIds && w.nodeIds.length >= 2 && DRIVABLE_FOR_LINK.has(w.highwayType));
+    w.nodeIds && w.nodeIds.length >= 2 && MERGEABLE.has(w.highwayType));
 
   const touch = new Map();
   for (const w of ways) for (const nid of w.nodeIds) touch.set(nid, (touch.get(nid) || 0) + 1);
