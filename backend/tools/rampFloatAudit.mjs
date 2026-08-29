@@ -34,7 +34,6 @@ for(const f of files){
     const x0=Math.floor(fx),y0=Math.floor(fy),x1=Math.min(gridCols-1,x0+1),y1=Math.min(gridRows-1,y0+1);
     const tx=fx-x0,ty=fy-y0,g=(r,c)=>grid[r*gridCols+c];
     return (g(y0,x0)*(1-tx)+g(y0,x1)*tx)*(1-ty)+(g(y1,x0)*(1-tx)+g(y1,x1)*tx)*ty; };
-  const toLL=(mx,my)=>({lon:(mx/R)*(180/Math.PI), lat:(2*Mathc(my))});
   for(const r of h.roads){
     // ONLY surface roads. A bridge is meant to be above the ground and a tunnel below it; including
     // them would drown the signal in correct-by-design cases (the same reason scanTerrainConflict
