@@ -3025,7 +3025,8 @@ function buildBridgePillarMeshes(roads, options) {
   // is on a ground road, the spot is in a trench corridor, or the computed height is under the
   // minimum — and a bare "no pillars" tells you nothing about which. Counted, and reported once per
   // tile when anything qualified, so "I don't see them" becomes answerable in one reload.
-  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0 };
+  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0,
+                 roadsIn: (roads || []).length, passedGate: 0, noHeights: 0, tooShort: 0 };
   for (const road of roads || []) {
     // ── N-51 · SUPPORT WHAT IS ACTUALLY IN THE AIR, NOT WHAT OSM CALLED A BRIDGE ───────────────
     //
@@ -3045,8 +3046,9 @@ function buildBridgePillarMeshes(roads, options) {
     // `height >= MIN_BRIDGE_STRUCTURE_HEIGHT` below. A road that is not really elevated produces no
     // pillars regardless of its tags, so removing the gate cannot decorate flat streets.
     if (road.tunnel || !road.points?.length) continue;
+    skip.passedGate++;
     const roadHeights = getRoadPointHeights(road, options);
-    if (!roadHeights) continue;
+    if (!roadHeights) { skip.noHeights++; continue; }
 
     const pts = road.points;
     let totalDist = 0;
@@ -3100,12 +3102,14 @@ function buildBridgePillarMeshes(roads, options) {
     }
   }
 
-  if (skip.candidates > 0) {
-    console.log(`[pillars] ${skip.candidates} spots — built ${skip.built}, `
-      + `skipped: onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
-      + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow} — tallest deck seen `
-      + `${skip.maxHeight.toFixed(1)} m`);
-  }
+  // UNCONDITIONAL. The first version only logged when `candidates > 0`, so the one outcome it
+  // could not report was the one that happened: no spot was ever considered. An instrument that
+  // goes quiet in the failing case is worse than none — it reads as "feature absent" when it means
+  // "never reached".
+  console.log(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
+    + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
+    + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
+    + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, tallest ${skip.maxHeight.toFixed(1)} m`);
   if (pillarGeoms.length === 0) return { mesh: null, positions: [] };
   const merged = mergeGeometries(pillarGeoms);
   pillarGeoms.forEach((g) => g.dispose());
