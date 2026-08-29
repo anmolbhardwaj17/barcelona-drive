@@ -2884,3 +2884,8 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   them did not: a two-point way up to 224 m long gives the trench carve a straight-line floor under
   a DEM-draped road. Links are now densified to 5 m, `ceil` with a minimum of two steps. Bake green,
   0 violations, 47 links shipped (9 tunnel / 38 at-grade).
+- **N-41 / N-42** the floating-road investigation. `_ddNoGround` located it, the baked tiles proved
+  it was a BAKE defect not a runtime one, and it split in three: correct-by-design trench decks
+  (534), pavements over trenches with no deck at all (1,135 → fixed by N-42), and ramp profiles
+  (N-41 — which turned out to fix little float but rescue 120 roads from deletion). Remaining real
+  defect after both: **35 ramps (10.2%) and 45 non-ramps (0.1%)**, from 84/1,669.

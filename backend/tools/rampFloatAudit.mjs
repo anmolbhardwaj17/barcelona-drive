@@ -38,7 +38,10 @@ for(const f of files){
     // ONLY surface roads. A bridge is meant to be above the ground and a tunnel below it; including
     // them would drown the signal in correct-by-design cases (the same reason scanTerrainConflict
     // excludes them).
-    if(r.bridge||r.tunnel||(r.layer??0)!==0) continue;
+    // N-42: `crossesTrench` joins bridge/tunnel as CORRECT BY DESIGN. A deck spanning a daylighted
+    // trench is supposed to stand above the carved ground, so counting it as "floating" measures
+    // the feature, not the defect — and it was 534 of the 1,669, a third of the total.
+    if(r.bridge||r.tunnel||r.crossesTrench||(r.layer??0)!==0) continue;
     if(r.pointsOffset===undefined||seen.has(r.id)) continue;
     seen.add(r.id);
     const p=new Float32Array(ab, r.pointsOffset, r.pointCount*3);
@@ -68,7 +71,7 @@ for(const f of files){
   }
 }
 const pct=(a,b)=>b?((100*a/b).toFixed(1)+'%'):'—';
-console.log(`SURFACE roads only (layer 0, no bridge, no tunnel), floating > ${FLOAT_M} m above baked terrain\n`);
+console.log(`SURFACE roads only (layer 0, no bridge/tunnel/trench-crossing), floating > ${FLOAT_M} m above baked terrain\n`);
 console.log(`  isRamp = true : ${stat.ramp.float} of ${stat.ramp.n}  (${pct(stat.ramp.float,stat.ramp.n)})   worst ${stat.ramp.worst.toFixed(2)} m  ?spawn=${stat.ramp.worstAt}`);
 console.log(`  isRamp = false: ${stat.plain.float} of ${stat.plain.n}  (${pct(stat.plain.float,stat.plain.n)})   worst ${stat.plain.worst.toFixed(2)} m  ?spawn=${stat.plain.worstAt}`);
 console.log(`\nROAD POINTS in the air (the number N-41 actually moves — how much of the road is lifted):`);
