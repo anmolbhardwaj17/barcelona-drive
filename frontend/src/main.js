@@ -406,8 +406,12 @@ window._ddNoGround = (maxSamples = 4000) => {
   const stride = Math.max(1, Math.ceil(totalVerts / maxSamples));
   const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 4000);
   const v = new THREE.Vector3();
+  // How far above the terrain a road has to sit before it counts as floating. A kerb is 0.15 m
+  // and a bridge deck legitimately clears the ground, so this is deliberately generous: the target
+  // is road hanging in the air, not ordinary construction.
+  const FLOAT_M = 2.0;
   const misses = [];
-  let sampled = 0, underground = 0;
+  let sampled = 0, grounded = 0;
   for (const road of roads) {
     const pos = road.geometry?.getAttribute('position');
     if (!pos) continue;
@@ -415,31 +419,34 @@ window._ddNoGround = (maxSamples = 4000) => {
       v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
       road.localToWorld(v);
       sampled++;
-      // ── A TUNNEL IS NOT A FLOATING ROAD ───────────────────────────────────────────────────────
-      // First run of this probe reported 42 places, and the roadY column gave it away: -33, -40,
-      // -46, -57, -62 m. Those are tunnels. A tunnel road has no terrain BENEATH it because the
-      // terrain is ABOVE it, and flagging every one of them buried the single case the user was
-      // actually pointing at (roadY ~4.7) in noise.
+      // ── ONE RAY, FROM ABOVE EVERYTHING ────────────────────────────────────────────────────────
+      // Two earlier versions of this test were wrong, each in a way that looked like a finding:
       //
-      // So ask both directions. Terrain overhead means underground — correct by design, skip it.
-      // Only a road with no ground below AND none above is genuinely in the air.
-      ray.ray.direction.set(0, 1, 0);
-      ray.ray.origin.set(v.x, v.y + 0.5, v.z);
-      const above = ray.intersectObjects(terrain, false).length > 0;
-      ray.ray.direction.set(0, -1, 0);
-      ray.ray.origin.set(v.x, v.y + 1, v.z);
-      const below = ray.intersectObjects(terrain, false).length > 0;
-      if (above) { underground++; continue; }
-      if (!below) misses.push(v.clone());
+      //   1. "no terrain below the road" flagged the whole tunnel network — a tunnel has terrain
+      //      ABOVE it, not below, and 42 rows of -33/-46/-62 m buried the one real case.
+      //   2. casting a second ray UPWARD to detect that did nothing, because the terrain material
+      //      is single-sided: a ray travelling up passes straight through the back of it and
+      //      reports no hit. The deep tunnels came back unchanged, which is what gave it away.
+      //
+      // So drop ONE ray from above the whole scene and read the terrain height in this column.
+      // That works regardless of facing, and it yields the float HEIGHT instead of a boolean.
+      ray.ray.origin.set(v.x, 3000, v.z);
+      const hit = ray.intersectObjects(terrain, false)[0];
+      if (!hit) { misses.push({ v: v.clone(), gap: null }); continue; }   // no ground in this column at all
+      const gap = v.y - hit.point.y;
+      if (gap < FLOAT_M) { grounded++; continue; }   // resting on it, or under it (a tunnel)
+      misses.push({ v: v.clone(), gap });
     }
   }
   // Cluster, so one hole is one row rather than forty.
   const CLUSTER_M = 25;
   const clusters = [];
-  for (const m of misses) {
+  for (const { v: m, gap } of misses) {
     const c = clusters.find((k) => Math.hypot(k.x - m.x, k.z - m.z) < CLUSTER_M);
-    if (c) { c.n++; c.x = (c.x * (c.n - 1) + m.x) / c.n; c.z = (c.z * (c.n - 1) + m.z) / c.n; }
-    else clusters.push({ x: m.x, z: m.z, y: m.y, n: 1 });
+    if (c) {
+      c.n++; c.x = (c.x * (c.n - 1) + m.x) / c.n; c.z = (c.z * (c.n - 1) + m.z) / c.n;
+      if (gap != null && (c.gap == null || gap > c.gap)) c.gap = gap;
+    } else clusters.push({ x: m.x, z: m.z, y: m.y, n: 1, gap });
   }
   // Rank by DISTANCE FROM THE CAMERA, not by size. The first run's biggest cluster was 7 km away
   // in a tile that was never baked (16_33154_24499; the region stops at y 24488) — real enough to
@@ -452,12 +459,15 @@ window._ddNoGround = (maxSamples = 4000) => {
     const ll = worldToLatLon(local.x, local.z);
     const t = latLonToTile(ll.lat, ll.lon, TILE_ZOOM);
     return { away_m: Math.round(c.dist), roadPoints: c.n, roadY: +c.y.toFixed(2),
+             // The number that decides what this IS. A height means the ground is there and the
+             // road is above it. NO TERRAIN means the column is empty — a different bug entirely.
+             floatsBy_m: c.gap == null ? 'NO TERRAIN' : +c.gap.toFixed(2),
              spawn: `${ll.lat.toFixed(5)},${ll.lon.toFixed(5)}`,
              tile: `${TILE_ZOOM}_${t.x}_${t.y}` };
   });
   console.log(`[noground] sampled ${sampled} road vertices (stride ${stride}) against `
-    + `${terrain.length} terrain meshes — ${underground} were UNDERGROUND (terrain overhead, correct by `
-    + `design, skipped), ${misses.length} had no ground above OR below, in ${rows.length} places`);
+    + `${terrain.length} terrain meshes — ${grounded} sit within ${FLOAT_M} m of the ground (or under `
+    + `it: tunnels), ${misses.length} do not, in ${rows.length} places`);
   if (rows.length) console.table(rows.slice(0, 15));
   else console.log('[noground] every road sampled has terrain under it. Nothing is floating right now.');
   return rows;
