@@ -832,7 +832,9 @@ function facesMedian(x, z, selfRoad, segs) {
 // concrete face at the road edge from deck up to the natural bank, IN FRONT of the jagged carved
 // earth — occluding the sawtooth for a driver in the trench.
 export function buildTrenchRetainingWalls(trenchRoads, getGroundY) {
-  if (!CONFIG.ENABLE_RETAINING_WALLS || !trenchRoads?.length || typeof getGroundY !== 'function') return null;
+  if (!CONFIG.ENABLE_RETAINING_WALLS || !trenchRoads?.length) return null;
+  if (typeof getGroundY !== 'function') { _portalStats.noGroundFn++; return null; }
+  _portalStats.roadsSeen += trenchRoads.length;
   const segs = buildTrenchSegList(trenchRoads);
   const geoms = [];
   for (const road of trenchRoads) {
@@ -983,6 +985,21 @@ export function buildTrenchCliffWalls(elevation) {
 // cover portal look. Terrain-relative (depth measured vs the probed natural bank, no
 // absolute-Y constant — G-47 clean), gated with the trench walls under ENABLE_RETAINING_WALLS.
 const PORTAL_ENTER_DEPTH = 3.0;   // m the road must sit below the natural bank to warrant a portal
+/**
+ * Cover overhead, in metres, below which the tunnel is treated as OPEN CUT.
+ *
+ * In a carved trench the grid sits at the deck (the carve targets roadY − FLOOR_BELOW_ROAD), so the
+ * value hovers around zero; under cover it is natural terrain, a storey or more up. 1.5 m splits
+ * those two populations with room for carve slop and bilinear smear, and is far under
+ * TUNNEL_CLEARANCE so a real covered section can never read as open.
+ */
+const COVER_OPEN_M = 1.5;
+/** D-23: a mouth detector that finds nothing looks exactly like one with nothing to find. */
+const _portalStats = { coverMouths: 0, roadsSeen: 0, noGroundFn: 0 };
+if (typeof window !== 'undefined') {
+  /** `_ddPortals()` — how many cover-transition mouths N-48 has placed this session. */
+  window._ddPortals = () => ({ ..._portalStats });
+}
 const PORTAL_CLEARANCE   = 5.2;   // m lintel underside above the deck (legal underpass headroom)
 const PORTAL_LINTEL_H    = 1.6;   // m lintel beam height
 const PORTAL_POST_W      = 1.2;   // m side-post width
@@ -1024,8 +1041,45 @@ export function buildTrenchPortals(trenchRoads, getGroundY) {
       const crossedOut = depth[i - 1] >= PORTAL_ENTER_DEPTH && depth[i] < PORTAL_ENTER_DEPTH;
       if (crossedIn || crossedOut) marks.push(i);
     }
-    if (!marks.length) continue;
-    const chosen = marks.length <= 2 ? marks : [marks[0], marks[marks.length - 1]];
+    let chosen = marks.length <= 2 ? marks : [marks[0], marks[marks.length - 1]];
+
+    // ── N-48 · THE MOUTH WHERE AN OPEN CUT GOES UNDER COVER ───────────────────────────────────
+    //
+    // User: "ramp to tunnel is there but then a wall is there, it goes nowhere." The detector above
+    // asks how far the road sits below the BANK BESIDE IT, so it fires where the cut gets shallow —
+    // the ends of the trench. It cannot fire at the transition the user is looking at, where the
+    // road stays just as deep and the GROUND OVERHEAD closes in.
+    //
+    // That transition is exactly the seam in `authored-tunnels-design.md`: an open-cut trench is
+    // carved INTO the elevation grid, a covered section keeps UNTOUCHED grid. Terrain is a
+    // heightfield and cannot hold a hole, so the covered end can never open itself — the mouth has
+    // to be built, and nothing was building it.
+    //
+    // Detect it by asking what is directly ABOVE the deck rather than beside it: in an open cut the
+    // carve puts the ground at the deck (FLOOR_BELOW_ROAD under it, so cover ≈ 0); under cover the
+    // natural grid sits a storey or more above. The sign flip between those two states IS the mouth.
+    const cover = pts.map((p) => {
+      const g = getGroundY(p.x, p.y);
+      const deck = _normTunnelElev(p.elevation) ?? 0;
+      return Number.isFinite(g) ? g - deck : 0;
+    });
+    const coverMarks = [];
+    for (let i = 1; i < cover.length; i++) {
+      const openPrev = cover[i - 1] < COVER_OPEN_M;
+      const openCur  = cover[i] < COVER_OPEN_M;
+      if (openPrev !== openCur) coverMarks.push(openPrev ? i : i - 1);
+    }
+    if (coverMarks.length) {
+      // Union, nearest-first dedupe: a trench end that is ALSO a cover transition must not get two
+      // portal frames standing in each other.
+      const merged = [...chosen];
+      for (const m of coverMarks) {
+        if (!merged.some((e) => Math.abs(e - m) <= 1)) merged.push(m);
+      }
+      chosen = merged;
+      _portalStats.coverMouths += coverMarks.length;
+    }
+    if (!chosen.length) continue;
     for (const i of chosen) {
       const p = pts[i];
       const q = pts[Math.min(i + 1, pts.length - 1)];
