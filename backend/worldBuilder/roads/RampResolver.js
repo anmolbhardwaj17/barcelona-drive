@@ -52,7 +52,8 @@ function cumulativeGroundDist(points) {
  * @param {boolean} onlyElevated - when true, only consider bridge/elevated (layer≥1)
  *   connections (used for bridge ways so ground roads don't pull height to 0).
  */
-function getEndpointTargetHeight(nodeId, selfWayId, selfBaseHeight, wayMap, nodeToWays, onlyElevated) {
+function getEndpointTargetHeight(nodeId, selfWayId, selfBaseHeight, wayMap, nodeToWays, onlyElevated,
+                                 selfIsAtGrade = false) {
   const wayIds = nodeToWays.get(nodeId);
   if (!wayIds) return selfBaseHeight;
   let bestHeight = selfBaseHeight;
@@ -64,6 +65,18 @@ function getEndpointTargetHeight(nodeId, selfWayId, selfBaseHeight, wayMap, node
     const w = wayMap.get(wid);
     if (!w) continue;
     const { baseLayer, baseHeight } = resolveBaseLayer(w);
+    // ── N-47 · A STREET DOES NOT DIVE TO MEET A TUNNEL ────────────────────────────────────────
+    // At a portal node the tunnel and the street BOTH used to ramp, in opposite directions, each
+    // targeting the other's BASE height rather than the other's actual profile. The tunnel reads
+    // its neighbour as surface (0) and comes up; the street reads its neighbour as a tunnel (−24)
+    // and goes down; they pass through each other and leave a 24 m step at the node they share.
+    // Measured: 462 drivable steps, 366 of them at a tunnel's own end with the tunnel side already
+    // ramped — every one of them this.
+    //
+    // The asymmetry is physical. A tunnel mouth is where the tunnel rises to the street; the street
+    // stays where it is. So a way that is itself at grade — no bridge, no tunnel, layer 0 — ignores
+    // tunnel neighbours when choosing a ramp target, because the tunnel is coming to IT.
+    if (selfIsAtGrade && w.tunnel) continue;
     if (onlyElevated && !w.bridge && baseLayer <= 0) {
       // Track that ground roads exist at this node even though we skip them
       hasGroundConnection = true;
@@ -302,8 +315,11 @@ export function resolveRamps(graph) {
     // For non-bridge ways: look at all connections (classic ramp: ground→bridge).
     const onlyElevated = !!way.bridge;
 
-    const startH = getEndpointTargetHeight(nodeIds[0],                  wayId, baseHeight, wayMap, nodeToWays, onlyElevated);
-    const endH   = getEndpointTargetHeight(nodeIds[nodeIds.length - 1], wayId, baseHeight, wayMap, nodeToWays, onlyElevated);
+    // At grade: no bridge, no tunnel, and the layer model puts it on the ground. Such a way holds
+    // its height against tunnel neighbours (N-47) — the tunnel ramps to meet it, not the reverse.
+    const selfIsAtGrade = !way.bridge && !way.tunnel && resolveBaseLayer(way).baseLayer === 0;
+    const startH = getEndpointTargetHeight(nodeIds[0],                  wayId, baseHeight, wayMap, nodeToWays, onlyElevated, selfIsAtGrade);
+    const endH   = getEndpointTargetHeight(nodeIds[nodeIds.length - 1], wayId, baseHeight, wayMap, nodeToWays, onlyElevated, selfIsAtGrade);
 
     if (startH === endH) {
       // Both endpoints at the same height — not a ramp.

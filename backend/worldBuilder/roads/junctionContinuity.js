@@ -94,7 +94,12 @@ export function collectJunctionContinuity(roads) {
     // than a small one — so ask the structural question instead of trying a third variation.
     const tunEnd = tun && tun.nodeIds
       ? (tun.nodeIds[0] === nid || tun.nodeIds[tun.nodeIds.length - 1] === nid) : null;
-    worst.push({ nid, dy, reason, drivable, a: a.highwayType, b: b.highwayType,
+    // EVERY way at this node, with the height each one assigns here. The resolver trace proved the
+    // portal reaches 0 at its surface end, so the disagreement must be at a node whose membership
+    // the two disagree about — and a list of who is actually there ends that argument.
+    const members = list.map((m) => `${m.r.id}${m.r.tunnel ? '(tun)' : ''}`
+      + `${m.r.bridge ? '(br)' : ''}@${m.y.toFixed(1)}`).join(' ');
+    worst.push({ nid, members, dy, reason, drivable, a: a.highwayType, b: b.highwayType,
                  aId: a.id, bId: b.id,
                  tunId: tun ? tun.id : null,
                  tunLayer: tun ? (tun.layer ?? 0) : null,
@@ -117,9 +122,8 @@ export function reportJunctionContinuity(result) {
     console.log(`     ${String(v).padStart(5)}  ${k}`);
   }
   for (const w of worst.slice(0, 6)) {
-    console.log(`     worst drivable: ${w.dy.toFixed(1)} m  ${w.a}/${w.b}  ways ${w.aId}+${w.bId}`
-      + (w.tunId ? `  tunnel ${w.tunId} layer ${w.tunLayer} nodes ${w.tunNodes} ramp ${w.tunRamp}` : '')
-      + `  ${w.name || '(unnamed)'}`);
+    console.log(`     worst drivable: ${w.dy.toFixed(1)} m  node ${w.nid}  [${w.members}]`
+      + (w.tunId ? `  tunEnd=${w.tunEnd}` : '') + `  ${w.name || '(unnamed)'}`);
   }
   // How many of the tunnel-side ways got a ramp profile at all? If a portal belongs at a node and
   // the tunnel there is NOT a ramp, RampResolver never classified it as a portal — which is a
