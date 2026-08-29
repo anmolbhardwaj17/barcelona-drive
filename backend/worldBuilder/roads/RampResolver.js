@@ -185,21 +185,46 @@ export function resolveRamps(graph) {
         continue;
       }
 
-      // Case [B]: exactly one surface endpoint — ramp from underground to surface.
-      // startH/endH follow the same convention as non-tunnel ramps below.
+      // ── Case [B]: exactly one surface endpoint — THE PORTAL. ────────────────────────────────
+      //
+      // N-45. This interpolated by INDEX FRACTION (`i / (n - 1)`), which is the same defect N-41
+      // fixed on the non-tunnel path and which was never applied here — and here it does more
+      // damage, because this is the case that builds tunnel MOUTHS. 247 ways take it.
+      //
+      // With unevenly spaced nodes, index fraction puts a large share of the descent between two
+      // nodes that happen to be metres apart, so the LOCAL grade spikes. `isBrokenRampRoad` then
+      // measures exactly that local grade, finds it over 60%, and DELETES the way — 205 dropped
+      // last bake. A deleted portal is the user's report: the surface road stops, the tunnel sits
+      // buried directly beneath it, and there is nothing joining them.
+      //
+      // Distance-based, and the descent takes the length the grade needs (capped by the way), so
+      // the profile the backstop measures is the one the grade promised. LAYER_STEP is untouched —
+      // depth is still layer-derived, which the LOCKED vertical-model spec lists as correct.
       const startH = startIsSurface ? startTarget : baseHeight;
       const endH   = endIsSurface   ? endTarget   : baseHeight;
       const startIsGround = Math.abs(startH) < Math.abs(endH);
+      const groundH = startIsGround ? startH : endH;
+      const deepH = startIsGround ? endH : startH;
+      const bPts = way.points || [];
+      const bDist = (bPts.length === n && n >= 2) ? cumulativeGroundDist(bPts) : null;
+      const bLen = bDist ? bDist[n - 1] : 0;
+      // A portal needs this much road to descend at the construction grade. If the way is shorter,
+      // the whole way ramps and the grade is as gentle as the length allows — still far under the
+      // backstop, where index fraction was landing at 600%.
+      const bReach = (bDist && bLen > 0)
+        ? Math.min(bLen, Math.abs(deepH - groundH) / CONSTRUCT_RAMP_GRADE) : 0;
       const vertexHeights = nodeIds.map((_, i) => {
-        const rawT = n <= 1 ? 0 : i / (n - 1);
         let t;
-        if (startIsGround) {
-          t = rawT <= FLAT_FRACTION ? 0 : (rawT - FLAT_FRACTION) / (1 - FLAT_FRACTION);
+        if (bReach > 0) {
+          const dFromDeep = startIsGround ? (bLen - bDist[i]) : bDist[i];
+          t = Math.max(0, Math.min(1, 1 - dFromDeep / bReach));
         } else {
-          t = rawT >= (1 - FLAT_FRACTION) ? 1 : rawT / (1 - FLAT_FRACTION);
+          const rawT = n <= 1 ? 0 : i / (n - 1);
+          const fwd = startIsGround ? rawT : 1 - rawT;
+          t = fwd <= FLAT_FRACTION ? 0 : (fwd - FLAT_FRACTION) / (1 - FLAT_FRACTION);
         }
         const s = t * t * (3 - 2 * t);
-        return startH + s * (endH - startH);
+        return groundH + s * (deepH - groundH);
       });
       result.set(wayId, { isRamp: true, vertexHeights });
       tunnelRampCount++;
