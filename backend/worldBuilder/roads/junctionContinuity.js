@@ -30,6 +30,20 @@
 const CONTINUITY_TOL_M = 1.0;
 
 /**
+ * DRIVABLE only, split out — because the first run of this check reported 938 breaks and 586 of them
+ * "surface meets TUNNEL", which read as 586 missing road portals. It is not: 464 of the 466
+ * non-drivable underground ways in this city are indoor `corridor` (metro passageways), and a
+ * pedestrian subway meeting a footway at a node is not a missing tunnel mouth — it is a staircase.
+ * Counting them made the number big and unactionable, and would have sent the next fix at the wrong
+ * population. A car cannot drive a corridor, so the number that matters is the drivable one.
+ */
+const DRIVABLE = new Set([
+  'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link',
+  'secondary', 'secondary_link', 'tertiary', 'tertiary_link',
+  'residential', 'unclassified', 'living_street', 'service', 'busway',
+]);
+
+/**
  * @param {object[]} roads - post-geometry roads: { id, nodeIds, points:[[x,y,z,absY]], ... }
  * @returns {{ total: number, byReason: object, worst: object[] }}
  */
@@ -48,9 +62,9 @@ export function collectJunctionContinuity(roads) {
     }
   }
 
-  const byReason = {};
+  const byReason = {}, byReasonDrivable = {};
   const worst = [];
-  let total = 0;
+  let total = 0, totalDrivable = 0;
   for (const [nid, list] of atNode) {
     if (list.length < 2) continue;
     let lo = list[0], hi = list[0];
@@ -66,16 +80,28 @@ export function collectJunctionContinuity(roads) {
       : (!!a.isRamp !== !!b.isRamp) ? 'one side carries a RAMP profile and the other does not'
       : 'NO REASON IN THE TAGS — both at the same layer, neither bridge nor tunnel';
     byReason[reason] = (byReason[reason] || 0) + 1;
-    worst.push({ nid, dy, reason, a: a.highwayType, b: b.highwayType,
+    const drivable = DRIVABLE.has(a.highwayType) && DRIVABLE.has(b.highwayType);
+    if (drivable) { totalDrivable++; byReasonDrivable[reason] = (byReasonDrivable[reason] || 0) + 1; }
+    worst.push({ nid, dy, reason, drivable, a: a.highwayType, b: b.highwayType,
                  name: a.name || b.name || '' });
   }
   worst.sort((x, y2) => y2.dy - x.dy);
-  return { total, byReason, worst: worst.slice(0, 10) };
+  return { total, byReason, totalDrivable, byReasonDrivable,
+           worst: worst.filter((w) => w.drivable).slice(0, 10) };
 }
 
 /** Print it the way the other bake censuses print — one block, no throw. */
 export function reportJunctionContinuity(result) {
-  const { total, byReason, worst } = result;
+  const { total, byReason, totalDrivable, byReasonDrivable, worst } = result;
+  console.log(`  [Continuity] DRIVABLE-to-drivable steps > ${CONTINUITY_TOL_M} m at a shared node: `
+    + `${totalDrivable}   ← the number that matters; a car cannot drive a metro corridor`);
+  for (const [k, v] of Object.entries(byReasonDrivable).sort((a, b) => b[1] - a[1])) {
+    console.log(`     ${String(v).padStart(5)}  ${k}`);
+  }
+  for (const w of worst.slice(0, 5)) {
+    console.log(`     worst drivable: ${w.dy.toFixed(1)} m  ${w.a} / ${w.b}  ${w.name || '(unnamed)'}`);
+  }
+  console.log(`  [Continuity] (all classes, incl. footway/steps/corridor: ${total})`);
   if (!total) {
     console.log('  [Continuity] ✅ every shared node meets in height (tol '
       + `${CONTINUITY_TOL_M} m) — no steps in the road network.`);
