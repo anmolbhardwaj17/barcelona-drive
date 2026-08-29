@@ -81,6 +81,40 @@ function getEndpointTargetHeight(nodeId, selfWayId, selfBaseHeight, wayMap, node
   return bestHeight;
 }
 
+
+/**
+ * N-46 · The height of a SURFACE road connected at this node, or null if none is.
+ *
+ * `getEndpointTargetHeight` answers "which connected way differs most in height from me", and the
+ * tunnel branch then calls the result `startIsSurface` when it differs by more than 0.5 m. Those are
+ * not the same question, and the name hides it: a tunnel at −6 connected to a DEEPER tunnel at −12
+ * satisfies "differs by more than 0.5" perfectly well. Where a tunnel meets BOTH a surface road and
+ * a deeper tunnel at one node — an interchange, which is exactly where portals live — the largest
+ * difference can be the deeper tunnel. The portal then ramps the wrong way and the surface road is
+ * left standing at ground level over a way that dived away from it.
+ *
+ * That is the step the user photographed and the continuity census counts: 462 drivable breaks,
+ * 366 of them "surface meets TUNNEL", and of the worst 40 the tunnel side was ALREADY a ramp in 32.
+ * The portal was not missing. It was aimed somewhere else.
+ *
+ * A portal exists where a tunnel meets the SURFACE network. So ask that directly.
+ */
+function getEndpointSurfaceHeight(nodeId, selfWayId, wayMap, nodeToWays) {
+  const wayIds = nodeToWays.get(nodeId);
+  if (!wayIds) return null;
+  let best = null;
+  for (const wid of wayIds) {
+    if (wid === selfWayId) continue;
+    const w = wayMap.get(wid);
+    if (!w || w.tunnel) continue;                 // a tunnel is not the surface
+    const { baseHeight } = resolveBaseLayer(w);
+    // Prefer the SHALLOWEST surface connection: at a portal the tunnel must come up to meet the
+    // street, and if several surface ways meet here the street is the highest of them.
+    if (best === null || baseHeight > best) best = baseHeight;
+  }
+  return best;
+}
+
 /**
  * Detect ramps and compute vertexHeights for each way.
  * @param {object} graph - { wayMap, nodeToWays } from RoadGraph
@@ -115,8 +149,16 @@ export function resolveRamps(graph) {
     //   [C] Both endpoints → surface roads: short tunnel between surface sections;
     //       deferred — keeping flat (known limitation, see Section 5.5 of roadmap).
     if (way.tunnel) {
-      const startTarget = getEndpointTargetHeight(nodeIds[0],     wayId, baseHeight, wayMap, nodeToWays, false);
-      const endTarget   = getEndpointTargetHeight(nodeIds[n - 1], wayId, baseHeight, wayMap, nodeToWays, false);
+      // N-46: ask for the SURFACE connection first. If a non-tunnel way meets this end, that is
+      // where the portal belongs and its height is the target — full stop. Only when no surface way
+      // is present does the old "largest height difference" question apply, which is the right
+      // fallback for a tunnel meeting another tunnel at a different depth.
+      const startSurf = getEndpointSurfaceHeight(nodeIds[0],     wayId, wayMap, nodeToWays);
+      const endSurf   = getEndpointSurfaceHeight(nodeIds[n - 1], wayId, wayMap, nodeToWays);
+      const startTarget = startSurf !== null ? startSurf
+        : getEndpointTargetHeight(nodeIds[0],     wayId, baseHeight, wayMap, nodeToWays, false);
+      const endTarget   = endSurf !== null ? endSurf
+        : getEndpointTargetHeight(nodeIds[n - 1], wayId, baseHeight, wayMap, nodeToWays, false);
       // A height difference > 0.5m means a connected road at a different layer was found.
       // Heights are multiples of LAYER_STEP (6m) so 0.5m threshold is safe.
       const startIsSurface = Math.abs(startTarget - baseHeight) > 0.5;
