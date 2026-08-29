@@ -468,6 +468,14 @@ window._ddNoGround = (maxSamples = 4000) => {
   console.log(`[noground] sampled ${sampled} road vertices (stride ${stride}) against `
     + `${terrain.length} terrain meshes — ${grounded} sit within ${FLOAT_M} m of the ground (or under `
     + `it: tunnels), ${misses.length} do not, in ${rows.length} places`);
+  // ⚠ WHAT THIS LIST IS NOT. It cannot tell a bridge or a trench deck from a broken road: both are
+  // road geometry with air under them, and the flags that separate them (`bridge`, `crossesTrench`)
+  // live in the tile data, not on the merged runtime mesh. Measured on the same bake: 534 of these
+  // are decks that are SUPPOSED to stand above a carved trench, against 80 real defects. So a long
+  // list here is the normal state of a city with flyovers, and shrinking it is not the goal.
+  // `backend/tools/rampFloatAudit.mjs` is the defect count; this is the "show me where" tool.
+  console.log('[noground] ⚠ includes bridges and trench decks — they are road-over-air BY DESIGN and '
+    + 'this probe cannot see the flags that say so. For a defect COUNT use backend/tools/rampFloatAudit.mjs.');
   if (rows.length) console.table(rows.slice(0, 15));
   else console.log('[noground] every road sampled has terrain under it. Nothing is floating right now.');
   return rows;
