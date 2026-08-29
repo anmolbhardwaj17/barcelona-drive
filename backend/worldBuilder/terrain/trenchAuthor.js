@@ -88,6 +88,7 @@ const latLonToMerc = (lat, lon) => ({
 export function buildTrenchCorridors(allRoads, demSampler) {
   const corridors = [];
   let roadsTouched = 0;
+  const noCorridorButDescends = [];
   for (const road of allRoads) {
     if (!road.tunnel || !road.points || road.points.length < 2) continue;
     if (!DRIVABLE_TUNNEL_TYPES.has(road.highwayType)) continue;
@@ -135,8 +136,29 @@ export function buildTrenchCorridors(allRoads, demSampler) {
       emitted = true;
     }
     if (emitted) roadsTouched++;
+    else {
+      // A drivable tunnel road that produced NO corridor is a road with no floor waiting to happen,
+      // and the floor validator will only tell you afterwards, per SAMPLE, without naming the cause.
+      // Record the profile range so the reason is visible: a road whose profile never goes below
+      // −MIN_CUT is genuinely at grade (fine), while one that clearly descends and still emitted
+      // nothing is a bug in this function.
+      let lo = Infinity, hi = -Infinity;
+      for (const v of prof) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (Number.isFinite(lo) && lo < -MIN_CUT) {
+        noCorridorButDescends.push({ id: road.id, type: road.highwayType,
+                                     minProf: +lo.toFixed(2), maxProf: +hi.toFixed(2),
+                                     pts: pts.length });
+      }
+    }
   }
   console.log(`[Trench] authored corridors: ${corridors.length} segments from ${roadsTouched} drivable tunnel roads (MARGIN=${TRENCH_MARGIN} FLOOR_BELOW=${FLOOR_BELOW_ROAD} OPTION-L open end-to-end)`);
+  if (noCorridorButDescends.length) {
+    console.log(`[Trench] ⚠ ${noCorridorButDescends.length} drivable tunnel roads DESCEND but produced `
+      + 'no corridor — these are floors that will not exist:');
+    for (const r of noCorridorButDescends.slice(0, 8)) {
+      console.log(`     way ${r.id} ${r.type}  profile ${r.minProf}..${r.maxProf} m  ${r.pts} pts`);
+    }
+  }
   return corridors;
 }
 
