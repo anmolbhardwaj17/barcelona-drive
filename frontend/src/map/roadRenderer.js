@@ -3022,7 +3022,24 @@ function buildBridgePillarMeshes(roads, options) {
   const pillarGeoms = [];
   const pillarPositions = [];  // { x, z, groundY, height }
   for (const road of roads || []) {
-    if (!road.bridge || !road.points?.length) continue;
+    // ── N-51 · SUPPORT WHAT IS ACTUALLY IN THE AIR, NOT WHAT OSM CALLED A BRIDGE ───────────────
+    //
+    // This used to require `road.bridge`. That tag answers "did a mapper write bridge=yes", and the
+    // question a pillar answers is "is this deck standing in the air". Measured over the shipped
+    // tiles, drivable decks more than 2 m above the terrain beneath them:
+    //
+    //     bridge        50 ways   2,522 m   <- the only ones that got pillars
+    //     trench deck  682 ways  43,751 m
+    //     ramp          39 ways   2,601 m
+    //     other          1 way       79 m
+    //
+    // 46 km of deck unsupported against 2.5 km supported. Same shape as N-42's carve set and rule
+    // 8's way list: one flag borrowed to answer a different question.
+    //
+    // No height test is added here because there already is one — the per-pillar
+    // `height >= MIN_BRIDGE_STRUCTURE_HEIGHT` below. A road that is not really elevated produces no
+    // pillars regardless of its tags, so removing the gate cannot decorate flat streets.
+    if (road.tunnel || !road.points?.length) continue;
     const roadHeights = getRoadPointHeights(road, options);
     if (!roadHeights) continue;
 
