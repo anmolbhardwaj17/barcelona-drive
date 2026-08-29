@@ -3748,16 +3748,18 @@ function computeGuardRailMask(roads, options) {
     const heights = getRoadPointHeights(road, options);
     const edges = getRibbonEdgeVerts(pts, guardRailWidth(road) + GUARD_RAIL_THICKNESS * 2, heights);
     if (!edges) continue;
-    // N-35: WHY it qualified decides whether the rail runs end to end. A bridge or a ramp is railed
-    // along its whole deck — the structure is elevated everywhere. A road admitted only by the
-    // lateral-drop PROBE is different: `hasLateralDrop` returns true if a fall exists ANYWHERE
-    // along it, and the rail was then drawn along the ENTIRE road, including the stretch where it
-    // merges with another carriageway at the same height. That is the user's report — a barrier
-    // running down the middle of a merge, walling off two lanes that are joining.
-    const structural = !!(road.bridge || road.isRamp || (road.layer != null && road.layer > 0)
-      || road.crossesTrench === true);
-    elevated.push({ road, seq: seq++, pts, left: edges.leftEdge, right: edges.rightEdge,
-                    heights, structural });
+    // N-43: this used to carry a `structural` flag — bridge / ramp / layer>0 / crossesTrench — that
+    // EXEMPTED a road from the per-point drop test and railed it end to end. The reasoning was that
+    // a bridge deck is elevated along its whole length, so asking per point was wasted work.
+    //
+    // It was wrong twice over. The per-point probe handles a bridge correctly on its own: beside a
+    // deck there is air, the probe finds terrain far below, the rail stays. And the exemption did
+    // real damage — the user's merge is still walled off because the merging ways are ramps, which
+    // the exemption skipped. Then N-42 widened `crossesTrench` from 610 ways to 1,964, and every
+    // one of those inherited an end-to-end rail it had not earned.
+    //
+    // So there is no exemption. One rule, applied everywhere: a rail exists where a fall does.
+    elevated.push({ road, seq: seq++, pts, left: edges.leftEdge, right: edges.rightEdge, heights });
   }
 
   // Spatial hash of every elevated edge point for parallel-dedup
@@ -3862,12 +3864,12 @@ function computeGuardRailMask(roads, options) {
         drop = true; break;
       }
       if (drop) { keepL[i] = 0; keepR[i] = 0; continue; }
-      // rule 3b (N-35): a probe-only road keeps a rail only where a fall is actually beside it.
-      // Structural roads (bridge/ramp/layer/trench) are railed end to end and skip this.
-      if (!e.structural) {
-        if (!pointHasDrop(e, i, -1)) keepL[i] = 0;
-        if (!pointHasDrop(e, i, 1)) keepR[i] = 0;
-      }
+      // rule 3b (N-35/N-43): a rail exists where a fall does — per point, per side, no exemptions.
+      // `pointHasDrop` returns TRUE whenever it cannot tell (no terrain function, no heights,
+      // degenerate segment), so the failure mode is a rail that should not be there rather than a
+      // missing barrier at a drop.
+      if (!pointHasDrop(e, i, -1)) keepL[i] = 0;
+      if (!pointHasDrop(e, i, 1)) keepR[i] = 0;
       if (losesDedup(e.left[i].x, e.left[i].z, e.seq)) keepL[i] = 0;   // rule 4
       if (losesDedup(e.right[i].x, e.right[i].z, e.seq)) keepR[i] = 0;
     }
