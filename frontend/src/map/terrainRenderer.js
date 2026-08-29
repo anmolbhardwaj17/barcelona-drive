@@ -554,10 +554,20 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
           b = b * (1 - sandF) + sb2 * sandF;
           coastAttr[i] = sandF;
         }
-      } else if (raw < SEA_RAW + 0.6) {
+      } else if (raw < SEA_RAW + 0.6 && dSea <= SEA_DEPTH_NEEDS_COAST_M) {
         // Non-beach waterline (port aprons, breakwaters) — partial wet-grey blend so the sea
         // doesn't butt straight into bright green.
-        const s2 = (1 - (raw - SEA_RAW) / 0.6) * 0.7;
+        //
+        // ⚠ N-50b · `s2` MUST be clamped, and the branch MUST be coast-gated. This blend factor
+        // extrapolates: it is (1 − (raw − 0.15) / 0.6) × 0.7, which at a trench floor of −24 m
+        // evaluates to 28.9. Substituted into the three lerps below that gives r 5.4, g −1.3,
+        // b 5.0, clamping to exactly (1, 0, 1) — magenta. The whole Glòries trench turned bright
+        // pink the moment N-50 stopped the sea branch from swallowing those vertices first.
+        //
+        // The bug was always here; it was unreachable because a deeper test caught the same
+        // vertices earlier. Worth remembering: "unreachable" is a property of the CALLERS, and
+        // fixing one of them is exactly what makes latent arithmetic like this reachable.
+        const s2 = Math.max(0, Math.min(1, (1 - (raw - SEA_RAW) / 0.6) * 0.7));
         r = r * (1 - s2) + 0.38 * s2;
         g = g * (1 - s2) + 0.36 * s2;
         b = b * (1 - s2) + 0.30 * s2;
