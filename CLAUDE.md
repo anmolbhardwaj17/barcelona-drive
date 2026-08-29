@@ -83,6 +83,13 @@ BAKE_SINGLE_TILE=16_33161_24477 node worldBuilder/buildRegion.js --area eixample
   produced one retracted bug report ("the sidewalk floats 7.8 m" was two hits 4.36 m apart on the
   ray = a 173% grade). x/z are SCENE coordinates — the same numbers `_ddPick` prints, so a finding
   carries straight across; do not hand-convert (the scene is X-mirrored).
+- **Find every floating road (`_ddNoGround`)**: `window._ddNoGround()` walks every road surface
+  currently drawn, drops a ray from each sampled vertex, and lists the places where no TERRAIN
+  catches it — clustered, with a `?spawn=` and tile id per cluster. **No aiming.** It exists because
+  `_ddColumn` needs the defect under the crosshair, and in fly mode the crosshair lands on a
+  building; three consecutive attempts to probe a visibly-floating road stub measured the building
+  behind it instead. A road resting on another road still counts as floating — only terrain is
+  ground.
 - **Geometry-leak probe (task #39)**: `?debug=leak` — per-tile-unload accounting. Prints what the
   unload walk HELD, FREED and skipped as shared, alongside what `renderer.info.memory.geometries`
   actually did across the same unload. The two disagree in different ways for different bugs: `held`

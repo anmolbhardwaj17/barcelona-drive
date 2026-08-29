@@ -373,6 +373,76 @@ window._ddColumn = (x, z) => {
   return rows;
 };
 
+/**
+ * `_ddNoGround()` — FIND every road with no ground under it. No aiming required.
+ *
+ * `_ddColumn` answers "what is under THIS spot", which needs you to put the spot under the
+ * crosshair — and in fly mode the crosshair lands on a building three times out of three. That is a
+ * bad way to hunt a defect you can see but cannot point at. This walks every road surface currently
+ * drawn, drops a ray from each sampled vertex, and reports the places where nothing catches it.
+ *
+ * Only TERRAIN counts as ground. A road resting on another road is still a road in the air.
+ *
+ * Prints a `?spawn=` for each cluster, because a defect that cannot be re-measured offline against
+ * the baked tiles is a screenshot, not a finding.
+ */
+window._ddNoGround = (maxSamples = 4000) => {
+  const isTagged = (o, tag) => {
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    return !!m?.userData?._patchTags?.includes(tag);
+  };
+  const terrain = [], roads = [];
+  scene.traverse((o) => {
+    if (!(o.isMesh || o.isInstancedMesh || o.isBatchedMesh)) return;
+    for (let p = o; p; p = p.parent) if (!p.visible) return;
+    if (isTagged(o, 'terrain')) terrain.push(o);
+    else if (isTagged(o, 'roadAO')) roads.push(o);
+  });
+  if (!terrain.length) {
+    console.log('[noground] no terrain meshes are drawn at all — fix that first, every road would report as floating.');
+    return [];
+  }
+  const totalVerts = roads.reduce((a, r) => a + (r.geometry?.getAttribute('position')?.count || 0), 0);
+  const stride = Math.max(1, Math.ceil(totalVerts / maxSamples));
+  const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 4000);
+  const v = new THREE.Vector3();
+  const misses = [];
+  let sampled = 0;
+  for (const road of roads) {
+    const pos = road.geometry?.getAttribute('position');
+    if (!pos) continue;
+    for (let i = 0; i < pos.count; i += stride) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+      road.localToWorld(v);
+      sampled++;
+      ray.ray.origin.set(v.x, v.y + 1, v.z);
+      if (ray.intersectObjects(terrain, false).length === 0) misses.push(v.clone());
+    }
+  }
+  // Cluster, so one hole is one row rather than forty.
+  const CLUSTER_M = 25;
+  const clusters = [];
+  for (const m of misses) {
+    const c = clusters.find((k) => Math.hypot(k.x - m.x, k.z - m.z) < CLUSTER_M);
+    if (c) { c.n++; c.x = (c.x * (c.n - 1) + m.x) / c.n; c.z = (c.z * (c.n - 1) + m.z) / c.n; }
+    else clusters.push({ x: m.x, z: m.z, y: m.y, n: 1 });
+  }
+  clusters.sort((a, b) => b.n - a.n);
+  const rows = clusters.map((c) => {
+    const local = worldGroup.worldToLocal(new THREE.Vector3(c.x, 0, c.z));
+    const ll = worldToLatLon(local.x, local.z);
+    const t = latLonToTile(ll.lat, ll.lon, TILE_ZOOM);
+    return { roadPoints: c.n, roadY: +c.y.toFixed(2),
+             spawn: `${ll.lat.toFixed(5)},${ll.lon.toFixed(5)}`,
+             tile: `${TILE_ZOOM}_${t.x}_${t.y}` };
+  });
+  console.log(`[noground] sampled ${sampled} road vertices (stride ${stride}) against `
+    + `${terrain.length} terrain meshes — ${misses.length} had NO GROUND beneath, in ${rows.length} places`);
+  if (rows.length) console.table(rows.slice(0, 15));
+  else console.log('[noground] every road sampled has terrain under it. Nothing is floating right now.');
+  return rows;
+};
+
 window._ddGround = () => {
   const by = new Map();
   scene.traverse((o) => {
