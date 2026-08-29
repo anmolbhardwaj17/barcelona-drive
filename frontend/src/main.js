@@ -275,19 +275,54 @@ window._ddColumn = (x, z) => {
   }
   const rows = hits.map((h, i) => {
     const m = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+    // IDENTIFY, don't just measure. The first real use of this probe returned four anonymous rows
+    // reading "Mesh" — a 14.58 m gap with no way to tell whether the thing on top was a floating
+    // pavement or an ordinary building roof, which are the same number and opposite conclusions.
+    // Most ground meshes carry no `userData.type`, so fall back to what `_ddPick` uses: the colour,
+    // the texture (or the shader patch that stands in for one), and the parent's name.
+    let parent = null;
+    for (let p = h.object.parent; p; p = p.parent) if (p.name) { parent = p.name; break; }
+    let vcol = null;
+    const ca = h.object.geometry?.getAttribute?.('color');
+    if (ca && h.face) {
+      const to255 = (v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0');
+      vcol = '#' + [ca.getX(h.face.a), ca.getY(h.face.a), ca.getZ(h.face.a)].map(to255).join('');
+    }
     return {
-      what: h.object.userData?.type || h.object.name || h.object.constructor.name,
+      what: h.object.userData?.type || h.object.name || parent || h.object.constructor.name,
       y: +h.point.y.toFixed(3),
+      colour: m?.color ? '#' + m.color.getHexString() : null,
+      vertexTint: vcol,
+      texture: m?.map ? (m.map.name || 'map')
+        : (m?.userData?._patchTags?.length ? m.userData._patchTags.join('+') : 'none'),
       // The gap to the NEXT surface down. This is the number every "floating" report is really
       // about, and it is the one neither _ddPick nor a screenshot can give you.
       dropToNext: i < hits.length - 1 ? +(h.point.y - hits[i + 1].point.y).toFixed(3) : null,
       material: m?.type,
       layer: h.object.userData?.layer ?? null,
+      tris: h.object.geometry?.index ? h.object.geometry.index.count / 3 : null,
     };
   });
   console.table(rows);
+  // ── THE COORDINATE THAT CROSSES THE DIVIDE ────────────────────────────────────────────────────
+  // A finding on screen is only actionable if it can be re-measured against the BAKED TILES, and
+  // that needs lat/lon, not scene XZ. Convert through `worldGroup.worldToLocal` rather than by
+  // hand: the scene is X-mirrored (`worldGroup.scale.x = -1`) and every hand-rolled conversion this
+  // project has attempted got the sign wrong — three probes in one day, each failing silently by
+  // "finding nothing", which reads as "no problem here".
+  const local = worldGroup.worldToLocal(new THREE.Vector3(from.x, 0, from.z));
+  const ll = worldToLatLon(local.x, local.z);
+  const tile = latLonToTile(ll.lat, ll.lon, TILE_ZOOM);
   console.log(`[column] x ${from.x.toFixed(1)} z ${from.z.toFixed(1)} — ${rows.length} surfaces, `
     + `top ${rows[0].y} bottom ${rows[rows.length - 1].y}`);
+  console.log(`[column] HERE: ?spawn=${ll.lat.toFixed(5)},${ll.lon.toFixed(5)}   `
+    + `tile ${TILE_ZOOM}_${tile.x}_${tile.y}   — paste this, it is what makes the spot checkable offline`);
+  // ONE surface and nothing under it is its own diagnosis and deserves saying out loud: the road is
+  // there and the ground is not. It is the N-23/N-30 defect, and it is invisible from above.
+  if (rows.length === 1) {
+    console.log(`[column] ⚠ ONLY ONE SURFACE — "${rows[0].what}" at y ${rows[0].y} with NOTHING BENEATH IT. `
+      + 'Not a gap between two things: there is no ground under this at all.');
+  }
   // A PLAIN-ENGLISH VERDICT, because the table alone still needs interpreting and the whole point
   // of this probe is to stop a number being read wrong. A kerb is 0.15 m; anything up to ~0.5 m is
   // ordinary street construction; a metre or more between two ground surfaces is the "floating"
@@ -297,6 +332,13 @@ window._ddColumn = (x, z) => {
     const g = worst.dropToNext;
     const verdict = g < 0.5 ? 'NORMAL — kerb/kerb-ish, nothing floating here'
       : g < 1.5 ? 'suspicious — bigger than a kerb, worth a look'
+      // A Barcelona block is 3-6 storeys, so 9-20 m of air under the TOP surface of a column is far
+      // more likely to be a roof than a floating pavement. Calling that "FLOATING" would invent a
+      // defect out of a correctly-built building, so the probe declines to guess and says which
+      // reading to check instead.
+      : (worst === rows[0] && g > 8 && g < 25)
+        ? `${g} m under the TOP surface — that is building height. Check "what"/colour above: a roof `
+          + 'is expected here, a pavement is not.'
       : 'FLOATING — this is the defect';
     console.log(`[column] biggest gap: ${g} m, "${worst.what}" over the surface below it → ${verdict}`);
   } else if (rows.length === 1) {
