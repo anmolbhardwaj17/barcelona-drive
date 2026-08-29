@@ -268,6 +268,22 @@ window._ddColumn = (x, z) => {
     for (let p = o; p; p = p.parent) if (!p.visible) return;
     targets.push(o);
   });
+  // ── CULLED IS NOT ABSENT, AND THEY READ IDENTICALLY ───────────────────────────────────────────
+  // The visible-only pass is what you want 99% of the time. But "the ray found no ground" has two
+  // completely different causes — the terrain mesh is not there, or it is there and hidden by LOD /
+  // a `visible = false` — and they produce the SAME empty answer. `_ddGround` exists because that
+  // exact ambiguity cost a round trip once already. So sweep the hidden meshes too and label them,
+  // rather than reporting an absence that might be a cull.
+  const hiddenTargets = [];
+  scene.traverse((o) => {
+    if (!(o.isMesh || o.isInstancedMesh || o.isBatchedMesh)) return;
+    if (o === sky) return;
+    let shown = true;
+    for (let p = o; p; p = p.parent) if (!p.visible) { shown = false; break; }
+    if (!shown) hiddenTargets.push(o);
+  });
+  const hiddenHits = ray.intersectObjects(hiddenTargets, false);
+
   const hits = ray.intersectObjects(targets, false);
   if (!hits.length) {
     console.log(`[column] nothing under (${from.x.toFixed(1)}, ${from.z.toFixed(1)}) — no terrain, no road, nothing.`);
@@ -322,6 +338,16 @@ window._ddColumn = (x, z) => {
   if (rows.length === 1) {
     console.log(`[column] ⚠ ONLY ONE SURFACE — "${rows[0].what}" at y ${rows[0].y} with NOTHING BENEATH IT. `
       + 'Not a gap between two things: there is no ground under this at all.');
+  }
+  const hiddenBelow = hiddenHits.filter((h) => h.point.y < rows[0].y - 0.01);
+  if (hiddenBelow.length) {
+    console.log(`[column] …but ${hiddenBelow.length} HIDDEN surface(s) are in this column, top one at `
+      + `y ${hiddenBelow[0].point.y.toFixed(3)} ("${hiddenBelow[0].object.userData?.type
+        || hiddenBelow[0].object.name || 'Mesh'}"). The ground EXISTS and is not being drawn — `
+      + 'that is a CULLING/LOD bug, not missing geometry. Completely different fix.');
+  } else if (rows.length === 1) {
+    console.log('[column] and NOTHING hidden here either — the geometry genuinely does not exist. '
+      + 'A bake/build problem, not a culling one.');
   }
   // A PLAIN-ENGLISH VERDICT, because the table alone still needs interpreting and the whole point
   // of this probe is to stop a number being read wrong. A kerb is 0.15 m; anything up to ~0.5 m is
