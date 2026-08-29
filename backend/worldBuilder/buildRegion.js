@@ -157,6 +157,7 @@ const _censusV5 = [];        // P-R1b: surface roads whose height disagrees with
 const _censusV5Seen = new Set();   // a way is split across tiles — count each road once
 import { resolveBridgeToBridge } from './roads/BridgeToBridgeResolver.js';
 import { fixOsmData } from './roads/OsmDataFixer.js';
+import { collectJunctionContinuity, reportJunctionContinuity } from './roads/junctionContinuity.js';
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
 import { clipPathsAgainstCarriageways } from './roads/pathCoverageClipper.js';
 import { bakeSidewalks } from './sidewalkBaker.js';
@@ -717,6 +718,10 @@ async function main() {
   const b2bCount = resolveBridgeToBridge(graph, rampResult);
   if (b2bCount > 0) console.log('  Bridge-to-bridge transitions resolved:', b2bCount);
   const roadsToSimplify = buildRoadGeometry(fixed.ways, nodeMap, rampResult);
+  // Do the ways that SHARE A NODE agree about the height there? Every other validator in this bake
+  // compares a road to the GROUND; none asks whether a road meets the road it is connected to, and
+  // that is where the missing tunnel portals hide. Report only — see junctionContinuity.js.
+  reportJunctionContinuity(collectJunctionContinuity(roadsToSimplify));
   console.log('[2/8] Road graph + ramp resolution, roads:', roadsToSimplify.length);
   if (skipTopologyMutation) console.log('[3/8] Skipping way stitching');
   console.log('[4/8] Roads ready:', roadsToSimplify.length);
