@@ -407,7 +407,7 @@ window._ddNoGround = (maxSamples = 4000) => {
   const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 4000);
   const v = new THREE.Vector3();
   const misses = [];
-  let sampled = 0;
+  let sampled = 0, underground = 0;
   for (const road of roads) {
     const pos = road.geometry?.getAttribute('position');
     if (!pos) continue;
@@ -415,8 +415,22 @@ window._ddNoGround = (maxSamples = 4000) => {
       v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
       road.localToWorld(v);
       sampled++;
+      // ── A TUNNEL IS NOT A FLOATING ROAD ───────────────────────────────────────────────────────
+      // First run of this probe reported 42 places, and the roadY column gave it away: -33, -40,
+      // -46, -57, -62 m. Those are tunnels. A tunnel road has no terrain BENEATH it because the
+      // terrain is ABOVE it, and flagging every one of them buried the single case the user was
+      // actually pointing at (roadY ~4.7) in noise.
+      //
+      // So ask both directions. Terrain overhead means underground — correct by design, skip it.
+      // Only a road with no ground below AND none above is genuinely in the air.
+      ray.ray.direction.set(0, 1, 0);
+      ray.ray.origin.set(v.x, v.y + 0.5, v.z);
+      const above = ray.intersectObjects(terrain, false).length > 0;
+      ray.ray.direction.set(0, -1, 0);
       ray.ray.origin.set(v.x, v.y + 1, v.z);
-      if (ray.intersectObjects(terrain, false).length === 0) misses.push(v.clone());
+      const below = ray.intersectObjects(terrain, false).length > 0;
+      if (above) { underground++; continue; }
+      if (!below) misses.push(v.clone());
     }
   }
   // Cluster, so one hole is one row rather than forty.
@@ -437,7 +451,8 @@ window._ddNoGround = (maxSamples = 4000) => {
              tile: `${TILE_ZOOM}_${t.x}_${t.y}` };
   });
   console.log(`[noground] sampled ${sampled} road vertices (stride ${stride}) against `
-    + `${terrain.length} terrain meshes — ${misses.length} had NO GROUND beneath, in ${rows.length} places`);
+    + `${terrain.length} terrain meshes — ${underground} were UNDERGROUND (terrain overhead, correct by `
+    + `design, skipped), ${misses.length} had no ground above OR below, in ${rows.length} places`);
   if (rows.length) console.table(rows.slice(0, 15));
   else console.log('[noground] every road sampled has terrain under it. Nothing is floating right now.');
   return rows;
