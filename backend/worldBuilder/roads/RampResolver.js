@@ -90,6 +90,7 @@ export function resolveRamps(graph) {
   const { wayMap, nodeToWays } = graph;
   const result = new Map();
   let tunnelRampCount = 0;  // logged at end for diagnostics
+  let rampReachClamped = 0; // N-41: ways whose climb no longer spans the whole street
   let caseCValley = 0;      // Case C short tunnels given a valley ramp
   let caseCFlatten = 0;     // Case C short tunnels flattened to surface (covered road)
   const flattenedShortTunnels = []; // wayIds flattened — reported by the bake
@@ -219,28 +220,57 @@ export function resolveRamps(graph) {
       continue;
     }
 
-    // Interpolate vertex heights from startH to endH with a flat buffer at the
-    // ground-level end so the ramp stays flush with the road it connects to
-    // before climbing.  The flat fraction keeps ~20% of the road at ground height.
+    // ── N-41 · THE CLIMB IS A LOCAL FEATURE, NOT A PROPERTY OF THE WHOLE STREET ───────────────
+    //
+    // This used to interpolate startH → endH across the ENTIRE way by index fraction. So an
+    // ordinary at-grade street that merely TOUCHES a flyover at one end was lifted along its whole
+    // length — halfway down the street it sat half the layer step in the air. Measured over the
+    // baked region: of surface roads (layer 0, no bridge, no tunnel), `isRamp` ones float > 2 m
+    // above their own terrain **27.5% of the time (84/306, worst 14.12 m)** against 4.4% for
+    // everything else. Being handed a ramp profile made a street SIX TIMES more likely to float.
+    //
+    // A bridge approach is a local thing: it climbs over the distance the grade needs and the rest
+    // of the street stays on the ground. So the climb now happens over REACH metres adjacent to the
+    // elevated end, measured in real metres, with the remainder flat at the ground height.
+    //
+    // Still DEM-free (the header's promise, and decisions.md §183 depends on it): this asks the
+    // GRADE how long a ramp must be, never the terrain how high the ground is.
     const startIsGround = Math.abs(startH) < Math.abs(endH);
+    const groundH = startIsGround ? startH : endH;
+    const topH = startIsGround ? endH : startH;
+    const pts = way.points || [];
+    const dist = (pts.length === n && n >= 2) ? cumulativeGroundDist(pts) : null;
+    const L = dist ? dist[n - 1] : 0;
+    // How much road a rise of this size actually needs at the construction grade. A 6 m layer step
+    // wants 50 m of ramp; anything beyond that is a street being lifted, not a ramp climbing.
+    const needed = Math.abs(topH - groundH) / CONSTRUCT_RAMP_GRADE;
+    const reach = (dist && L > 0) ? Math.min(L, needed) : 0;
+    if (reach > 0 && reach < L) rampReachClamped++;
+
     const vertexHeights = nodeIds.map((_, i) => {
-      const rawT = n <= 1 ? 0 : i / (n - 1);
       let t;
-      if (startIsGround) {
-        // Ground at start → ramp up toward end; flat buffer at start
-        t = rawT <= FLAT_FRACTION ? 0 : (rawT - FLAT_FRACTION) / (1 - FLAT_FRACTION);
+      if (reach > 0) {
+        // Distance from THIS point to the elevated end, in metres.
+        const dFromTop = startIsGround ? (L - dist[i]) : dist[i];
+        t = Math.max(0, Math.min(1, 1 - dFromTop / reach));
       } else {
-        // Ground at end → ramp down from start; flat buffer at end
-        t = rawT >= (1 - FLAT_FRACTION) ? 1 : rawT / (1 - FLAT_FRACTION);
+        // No usable geometry — fall back to the original index-fraction ramp with its flat buffer,
+        // so a way with missing points behaves exactly as it did before rather than unpredictably.
+        const rawT = n <= 1 ? 0 : i / (n - 1);
+        const fwd = startIsGround ? rawT : 1 - rawT;
+        t = fwd <= FLAT_FRACTION ? 0 : (fwd - FLAT_FRACTION) / (1 - FLAT_FRACTION);
       }
-      // Smoothstep for gentle slope transition
-      const s = t * t * (3 - 2 * t);
-      return startH + s * (endH - startH);
+      const s = t * t * (3 - 2 * t);   // smoothstep: no kink where the climb starts
+      return groundH + s * (topH - groundH);
     });
 
     result.set(wayId, { isRamp: true, vertexHeights });
   }
 
+  if (rampReachClamped > 0) {
+    console.log(`  [N-41] ramp climb limited to the grade's reach on ${rampReachClamped} ways `
+      + `(was spread over the whole street)`);
+  }
   if (tunnelRampCount > 0) {
     console.log(`  Tunnel portals reclassified as ramps: ${tunnelRampCount} (single-surface Case B)`);
   }
