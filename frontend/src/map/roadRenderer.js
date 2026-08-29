@@ -3731,6 +3731,10 @@ if (typeof window !== 'undefined') {
  */
 function computeGuardRailMask(roads, options) {
   const mask = new Map();
+  // `?norails` — one gate, at the single point BOTH the geometry builder and the collider builder
+  // go through. Switching it off anywhere else would leave rail colliders standing invisibly in
+  // the road, which is worse than the rails.
+  if (CONFIG.ENABLE_GUARD_RAILS === false) return mask;
   if (!roads || !roads.length) return mask;
   const surface = roads.filter((r) => r && !r.tunnel);
   // includeTees: a rail is a COLLIDER, so a missed T-junction is a wall across a street you have to

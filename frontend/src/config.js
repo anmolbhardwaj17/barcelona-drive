@@ -15,6 +15,12 @@ const LEGACY_TREE_VARIANT_COUNT = 4;
 const TREE_CARDS_ON = (() => {
   try { return new URLSearchParams(location.search).get('treecards') !== '0'; } catch { return true; }
 })();
+/** URL flag test that is safe in Node (tests import this module with no `location`). */
+function _urlHas(name) {
+  try { return typeof location !== 'undefined' && new URLSearchParams(location.search).has(name); }
+  catch { return false; }
+}
+
 // export const CONFIG = {
 
 //   ENABLE_BUILDINGS: true,
@@ -156,7 +162,14 @@ export const CONFIG = {
   // remain off pending their own verification pass on the new terrain.
   ENABLE_BUILDINGS: true,
   ENABLE_SIDEWALKS: true,     // OSM-driven panot sidewalks (Phase 2 bake provides road.sidewalk)
-  ENABLE_TREES: true,
+  // `?notrees` / `?norails` — LOOK-AT-THE-ROAD switches, not preferences.
+  //
+  // Diagnosing road geometry means seeing the carriageway, and trees and barriers are the two
+  // things standing directly in front of it. Read once at load like every other URL toggle here
+  // (CLAUDE.md), so a reload is the whole workflow. Neither touches road DATA — they hide what is
+  // drawn on top of it, so a merge fixed with `?norails` on is still fixed with rails back on.
+  ENABLE_TREES: !_urlHas('notrees'),
+  ENABLE_GUARD_RAILS: !_urlHas('norails'),
   ENABLE_PROCEDURAL_INFILL: false, // Delhi-era procedural building infill — keep off
   ENABLE_TRAFFIC: true, // AI traffic cars driving the loaded road network (car mode only)
   ENABLE_PARKED_CARS: true, // instanced parked cars lining both curbs (the Barcelona look)

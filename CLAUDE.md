@@ -90,6 +90,11 @@ BAKE_SINGLE_TILE=16_33161_24477 node worldBuilder/buildRegion.js --area eixample
   building; three consecutive attempts to probe a visibly-floating road stub measured the building
   behind it instead. A road resting on another road still counts as floating — only terrain is
   ground.
+- **See the road (`?notrees`, `?norails`)**: hide the two things that stand in front of the
+  carriageway while diagnosing road geometry. Neither touches road DATA — they suppress what is
+  drawn on top of it, so a merge fixed with `?norails` on is still fixed with rails back on.
+  `?norails` gates `computeGuardRailMask` itself, the one point BOTH the geometry builder and the
+  collider builder pass through, so it cannot leave invisible rail colliders standing in the road.
 - **Geometry-leak probe (task #39)**: `?debug=leak` — per-tile-unload accounting. Prints what the
   unload walk HELD, FREED and skipped as shared, alongside what `renderer.info.memory.geometries`
   actually did across the same unload. The two disagree in different ways for different bugs: `held`
