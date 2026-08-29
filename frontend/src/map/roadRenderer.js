@@ -141,6 +141,12 @@ const MARKING_RULES = {
 const PILLAR_SPACING = 30;
 /** Bridge pillar radius (m). */
 const PILLAR_RADIUS = 0.5;
+/**
+ * Offsets ALONG the deck to try when the ideal pier spot lands on a road, in metres, nearest first.
+ * Zero is the ideal spacing; the rest are the search. Along the deck only — sideways would put the
+ * pier beside the thing it holds up.
+ */
+const PILLAR_NUDGES = [0, 3, -3, 6, -6, 9, -9, 12, -12];
 /** Concrete slab depth below bridge deck (m). */
 const SLAB_THICKNESS = 1.2;
 /** Bridge structures (slab, guard rails, pillars) hidden below this height above ground (m). */
@@ -3025,7 +3031,7 @@ function buildBridgePillarMeshes(roads, options) {
   // is on a ground road, the spot is in a trench corridor, or the computed height is under the
   // minimum — and a bare "no pillars" tells you nothing about which. Counted, and reported once per
   // tile when anything qualified, so "I don't see them" becomes answerable in one reload.
-  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0,
+  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0, nudged: 0,
                  roadsIn: (roads || []).length, passedGate: 0, noHeights: 0, tooShort: 0 };
   for (const road of roads || []) {
     // ── N-51 · SUPPORT WHAT IS ACTUALLY IN THE AIR, NOT WHAT OSM CALLED A BRIDGE ───────────────
@@ -3063,9 +3069,9 @@ function buildBridgePillarMeshes(roads, options) {
 
       while (nextPillarAt <= totalDist + segLen) {
         const local = nextPillarAt - totalDist;
-        const t = local / segLen;
-        const x = a.x + t * dx;
-        const z = a.y + t * dz;
+        let t = local / segLen;
+        let x = a.x + t * dx;
+        let z = a.y + t * dz;
 
         skip.candidates++;
 
@@ -3080,7 +3086,7 @@ function buildBridgePillarMeshes(roads, options) {
         // roads by the only test that actually describes them, and leaves the position filters
         // doing the job they were written for: keeping a real pier out of a real roadway.
         const bridgeY = (1 - t) * roadHeights[i] + t * roadHeights[i + 1];
-        const { lat, lon } = worldToLatLon(x, z);
+        const { lat, lon } = worldToLatLon(x, z);   // recomputed below if the pier is nudged
         const groundY = getPillarBottomY(lat, lon, getElevationAt);
         const height = bridgeY - groundY;
         if (height > skip.maxHeight) skip.maxHeight = height;
@@ -3090,26 +3096,48 @@ function buildBridgePillarMeshes(roads, options) {
           continue;
         }
 
-        // Skip if pillar would land on a ground-level road
-        if (groundRoadSegs.length > 0 && isOnGroundRoad(x, z, groundRoadSegs)) {
-          skip.onGroundRoad++;
+        // ── NUDGE ALONG THE DECK BEFORE GIVING UP (N-51c) ─────────────────────────────────────
+        // A rigid 30 m spacing in a dense grid puts almost every pier on a street: measured, of the
+        // spots that passed the height test on real viaducts, ALL were rejected here — `tallest
+        // 13.2 m, onGroundRoad 9, built 0`. Refusing is right (a column in a live roadway is worse
+        // than a floating deck) but giving up is not what a bridge engineer does — piers go BETWEEN
+        // the obstacles. So try the ideal spot, then step along the deck looking for clear ground.
+        //
+        // Along the deck only, never sideways: moving a pier off the centreline would put it beside
+        // the road it is meant to hold up.
+        let px = x, pz = z, pt = t, clear = false;
+        for (const off of PILLAR_NUDGES) {
+          const nt = t + off / segLen;
+          if (nt < 0 || nt > 1) continue;
+          const cx = a.x + nt * dx, cz = a.y + nt * dz;
+          if (groundRoadSegs.length > 0 && isOnGroundRoad(cx, cz, groundRoadSegs)) continue;
+          if (trenchSegs.length > 0 && isOnGroundRoad(cx, cz, trenchSegs)) continue;
+          px = cx; pz = cz; pt = nt; clear = true;
+          if (off !== 0) skip.nudged++;
+          break;
+        }
+        if (!clear) {
+          // Nowhere clear within reach — the deck really is over continuous roadway here.
+          if (trenchSegs.length > 0 && isOnGroundRoad(x, z, trenchSegs)) skip.inTrench++;
+          else skip.onGroundRoad++;
           nextPillarAt += PILLAR_SPACING;
           continue;
         }
-
-        // Skip if pillar would stand inside a carved trench corridor (Option L)
-        if (trenchSegs.length > 0 && isOnGroundRoad(x, z, trenchSegs)) {
-          skip.inTrench++;
-          nextPillarAt += PILLAR_SPACING;
-          continue;
-        }
+        x = px; z = pz; t = pt;
 
         {
+          // Re-measure at the FINAL position: a nudged pier stands on different ground and under a
+          // slightly different point of the deck. Using the pre-nudge numbers would sink or float it.
+          const fBridgeY = (1 - t) * roadHeights[i] + t * roadHeights[i + 1];
+          const fll = worldToLatLon(x, z);
+          const fGroundY = getPillarBottomY(fll.lat, fll.lon, getElevationAt);
+          const fHeight = fBridgeY - fGroundY;
+          if (fHeight < MIN_BRIDGE_STRUCTURE_HEIGHT) { skip.tooLow++; nextPillarAt += PILLAR_SPACING; continue; }
           skip.built++;
-          const geom = new THREE.CylinderGeometry(PILLAR_RADIUS, PILLAR_RADIUS, height, 8);
-          geom.translate(x, (groundY + bridgeY) / 2, z);
+          const geom = new THREE.CylinderGeometry(PILLAR_RADIUS, PILLAR_RADIUS, fHeight, 8);
+          geom.translate(x, (fGroundY + fBridgeY) / 2, z);
           pillarGeoms.push(geom);
-          pillarPositions.push({ x, z, groundY, height });
+          pillarPositions.push({ x, z, groundY: fGroundY, height: fHeight });
         }
         nextPillarAt += PILLAR_SPACING;
       }
@@ -3128,7 +3156,8 @@ function buildBridgePillarMeshes(roads, options) {
   console.warn(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
-    + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, tallest ${skip.maxHeight.toFixed(1)} m`);
+    + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, nudged ${skip.nudged}, `
+    + `tallest ${skip.maxHeight.toFixed(1)} m`);
   if (pillarGeoms.length === 0) return { mesh: null, positions: [] };
   const merged = mergeGeometries(pillarGeoms);
   pillarGeoms.forEach((g) => g.dispose());
