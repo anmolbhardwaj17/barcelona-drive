@@ -26,7 +26,7 @@ const DRIVABLE = new Set(['motorway','motorway_link','trunk','trunk_link','prima
 const files = [];
 (function w(d){ for (const e of fs.readdirSync(d, { withFileTypes: true })) {
   const p = path.join(d, e.name); if (e.isDirectory()) w(p); else if (e.name.endsWith('.bin')) files.push(p);
-} })(ROOT);
+} })(process.env.TILES || ROOT);
 
 // ── one pass: gather every drivable way's polyline in metres, deduped by id (H18) ──
 const ways = new Map();
@@ -76,13 +76,18 @@ for (const w of ways.values()) {
   for (const endIdx of [0, w.pts.length - 1]) {
     const e = w.pts[endIdx];
     const nb = around(e.x, e.z);
-    // FREE END? nothing else's vertex sits on it
+    // FREE END? nothing else's vertex sits on it.
+    //
+    // ⚠ This tested only the other way's ENDPOINTS at first, and that made the audit unable to see
+    // its own fix. Rule 8 joins a stub to an INTERIOR node of the target, so after the fix the
+    // connector's far end sits mid-way along another road — topologically joined, but invisible to
+    // an endpoint-only test, which then counted it as a fresh free end. Each connector removed one
+    // free end and appeared to create another: 173 connectors shipped and the audit moved by 58.
+    // A road is joined where it shares a NODE, and a node can be anywhere along a way.
     let joined = false;
-    for (const { w: o } of nb) {
+    for (const { w: o, i } of nb) {
       if (o.id === w.id) continue;
-      for (const q of [o.pts[0], o.pts[o.pts.length - 1]])
-        if (Math.hypot(q.x - e.x, q.z - e.z) <= JOIN_TOL) { joined = true; break; }
-      if (joined) break;
+      if (Math.hypot(o.pts[i].x - e.x, o.pts[i].z - e.z) <= JOIN_TOL) { joined = true; break; }
     }
     if (joined) continue;
     freeEnds++;
