@@ -147,6 +147,10 @@ const PILLAR_RADIUS = 0.5;
  * pier beside the thing it holds up.
  */
 const PILLAR_NUDGES = [0, 3, -3, 6, -6, 9, -9, 12, -12];
+/** `?debug=pillars` — per-tile pier accounting. Off by default; it fires once per tile. */
+const _PILLAR_DEBUG = (() => {
+  try { return new URLSearchParams(location.search).get('debug') === 'pillars'; } catch { return false; }
+})();
 /** Concrete slab depth below bridge deck (m). */
 const SLAB_THICKNESS = 1.2;
 /** Bridge structures (slab, guard rails, pillars) hidden below this height above ground (m). */
@@ -3149,11 +3153,12 @@ function buildBridgePillarMeshes(roads, options) {
   // could not report was the one that happened: no spot was ever considered. An instrument that
   // goes quiet in the failing case is worse than none — it reads as "feature absent" when it means
   // "never reached".
-  // console.WARN, not console.log — every diagnostic that actually reaches the console in this
-  // project uses warn (`[perf]`, `[quality]`, `[facadeArray]`), and a plain log here printed
-  // nothing at all while the user hard-reloaded four times and I chased dead code paths. The
-  // convention was visible in the very console screenshots I was reading.
-  console.warn(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
+  // console.WARN, not console.log — every diagnostic that reaches the console in this project uses
+  // warn (`[perf]`, `[quality]`, `[facadeArray]`); a plain log printed nothing at all.
+  //
+  // Behind `?debug=pillars` because it fires PER TILE: left on it buries the console the moment you
+  // fly anywhere, which is the state the boot-chatter flag exists to prevent (CLAUDE.md).
+  if (_PILLAR_DEBUG) console.warn(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
     + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, nudged ${skip.nudged}, `
