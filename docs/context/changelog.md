@@ -2898,3 +2898,8 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   Triage-first (`deadEndTriage.mjs`): 1,176 unjoined drivable ends scored by class, same-name-ahead,
   width and length. Rule 9 connected 199; the five worst dead ends in the city are gone, score ≥ 10
   went 29 → 19, and the 542-strong cul-de-sac tail moved by 2.
+- **N-51 pillars** — now support every deck that is genuinely in the air, not only OSM `bridge=yes`.
+  46 km of deck was unsupported against 2.5 km supported. Four bugs on the way, three of them the
+  same shape (a set built for one question reused to answer another): position filters running
+  before the height test, rigid 30 m spacing in a dense grid, and the deck matching its own
+  footprint in the ground-road set. Confirmed on screen.
