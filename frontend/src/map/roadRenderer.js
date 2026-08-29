@@ -2964,8 +2964,12 @@ function getPillarMaterial() {
  * Check if position (x, z) is on a ground-level road surface.
  * Uses a flat array of ground road segments: [ax, az, bx, bz, halfWidth, ...]
  */
-function isOnGroundRoad(x, z, groundRoadSegs) {
-  for (let k = 0; k < groundRoadSegs.length; k += 5) {
+/**
+ * @param {number} [skipId] way id to ignore — see the self-match note in buildGroundRoadSegments.
+ */
+function isOnGroundRoad(x, z, groundRoadSegs, skipId) {
+  for (let k = 0; k < groundRoadSegs.length; k += 6) {
+    if (skipId !== undefined && groundRoadSegs[k + 5] === skipId) continue;
     const ax = groundRoadSegs[k], az = groundRoadSegs[k + 1];
     const bx = groundRoadSegs[k + 2], bz = groundRoadSegs[k + 3];
     const hw = groundRoadSegs[k + 4];
@@ -2980,6 +2984,18 @@ function isOnGroundRoad(x, z, groundRoadSegs) {
 }
 
 /** Build flat array of ground-level (layer 0, non-bridge) road segments for collision check. */
+/**
+ * Ground-level road footprints, as flat [ax, az, bx, bz, halfWidth, wayId] sextuples.
+ *
+ * ⚠ THE WAY ID IS LOAD-BEARING (N-51d). "Ground level" here means no bridge tag, no tunnel tag,
+ * layer 0 — and a road lifted by TERRAIN rather than by layer satisfies all three. A trench deck or
+ * a ramp climbing out of a cut is in this list, so when the pillar builder asks "is my candidate
+ * spot on a ground road?" the answer comes back yes because the spot is on the deck ITSELF.
+ *
+ * That is why `nudged 0` appeared in every tile with `built 0`: all nine offsets along the deck
+ * were blocked, because moving along a road does not get you off that road. Callers that are
+ * testing a point belonging to a known way must pass its id.
+ */
 function buildGroundRoadSegments(roads) {
   const segs = [];
   for (const road of roads || []) {
@@ -2989,7 +3005,7 @@ function buildGroundRoadSegments(roads) {
     const pts = road.points || [];
     const hw = kerbOffset(road) + 1; // R-W1: kerb + margin
     for (let i = 0; i < pts.length - 1; i++) {
-      segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw);
+      segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw, road.id);
     }
   }
   return segs;
@@ -3001,6 +3017,7 @@ function buildGroundRoadSegments(roads) {
 const TRENCH_PILLAR_SKIP_MARGIN = 12;
 
 /** Build flat array of trench-corridor segments (carved tunnel roads) for pillar exclusion. */
+/** Same 6-wide layout as buildGroundRoadSegments so both can be read by isOnGroundRoad. */
 function buildTrenchCorridorSegments(roads) {
   const segs = [];
   for (const road of roads || []) {
@@ -3008,7 +3025,7 @@ function buildTrenchCorridorSegments(roads) {
     const pts = road.points || [];
     const hw = kerbOffset(road) + TRENCH_PILLAR_SKIP_MARGIN;   // R-W1
     for (let i = 0; i < pts.length - 1; i++) {
-      segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw);
+      segs.push(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, hw, road.id);
     }
   }
   return segs;
@@ -3114,15 +3131,17 @@ function buildBridgePillarMeshes(roads, options) {
           const nt = t + off / segLen;
           if (nt < 0 || nt > 1) continue;
           const cx = a.x + nt * dx, cz = a.y + nt * dz;
-          if (groundRoadSegs.length > 0 && isOnGroundRoad(cx, cz, groundRoadSegs)) continue;
-          if (trenchSegs.length > 0 && isOnGroundRoad(cx, cz, trenchSegs)) continue;
+          // N-51d: skip the deck's OWN footprint. Without this the road matches itself and no
+          // offset can ever be clear — which is exactly what `nudged 0, built 0` was reporting.
+          if (groundRoadSegs.length > 0 && isOnGroundRoad(cx, cz, groundRoadSegs, road.id)) continue;
+          if (trenchSegs.length > 0 && isOnGroundRoad(cx, cz, trenchSegs, road.id)) continue;
           px = cx; pz = cz; pt = nt; clear = true;
           if (off !== 0) skip.nudged++;
           break;
         }
         if (!clear) {
           // Nowhere clear within reach — the deck really is over continuous roadway here.
-          if (trenchSegs.length > 0 && isOnGroundRoad(x, z, trenchSegs)) skip.inTrench++;
+          if (trenchSegs.length > 0 && isOnGroundRoad(x, z, trenchSegs, road.id)) skip.inTrench++;
           else skip.onGroundRoad++;
           nextPillarAt += PILLAR_SPACING;
           continue;
