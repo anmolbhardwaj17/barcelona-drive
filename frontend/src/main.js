@@ -441,12 +441,17 @@ window._ddNoGround = (maxSamples = 4000) => {
     if (c) { c.n++; c.x = (c.x * (c.n - 1) + m.x) / c.n; c.z = (c.z * (c.n - 1) + m.z) / c.n; }
     else clusters.push({ x: m.x, z: m.z, y: m.y, n: 1 });
   }
-  clusters.sort((a, b) => b.n - a.n);
+  // Rank by DISTANCE FROM THE CAMERA, not by size. The first run's biggest cluster was 7 km away
+  // in a tile that was never baked (16_33154_24499; the region stops at y 24488) — real enough to
+  // look into, but not the thing on screen, and sorting by count put it top. What you are looking
+  // at is what you asked about.
+  for (const c of clusters) c.dist = Math.hypot(c.x - camera.position.x, c.z - camera.position.z);
+  clusters.sort((a, b) => a.dist - b.dist);
   const rows = clusters.map((c) => {
     const local = worldGroup.worldToLocal(new THREE.Vector3(c.x, 0, c.z));
     const ll = worldToLatLon(local.x, local.z);
     const t = latLonToTile(ll.lat, ll.lon, TILE_ZOOM);
-    return { roadPoints: c.n, roadY: +c.y.toFixed(2),
+    return { away_m: Math.round(c.dist), roadPoints: c.n, roadY: +c.y.toFixed(2),
              spawn: `${ll.lat.toFixed(5)},${ll.lon.toFixed(5)}`,
              tile: `${TILE_ZOOM}_${t.x}_${t.y}` };
   });
