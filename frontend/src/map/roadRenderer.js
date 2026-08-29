@@ -3106,7 +3106,11 @@ function buildBridgePillarMeshes(roads, options) {
   // could not report was the one that happened: no spot was ever considered. An instrument that
   // goes quiet in the failing case is worse than none — it reads as "feature absent" when it means
   // "never reached".
-  console.log(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
+  // console.WARN, not console.log — every diagnostic that actually reaches the console in this
+  // project uses warn (`[perf]`, `[quality]`, `[facadeArray]`), and a plain log here printed
+  // nothing at all while the user hard-reloaded four times and I chased dead code paths. The
+  // convention was visible in the very console screenshots I was reading.
+  console.warn(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
     + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, tallest ${skip.maxHeight.toFixed(1)} m`);
