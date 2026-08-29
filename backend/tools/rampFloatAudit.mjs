@@ -16,9 +16,9 @@
 import fs from 'node:fs'; import path from 'node:path';
 const R=6378137, FLOAT_M=2.0;
 const files=[]; (function w(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){
-  const p=path.join(d,e.name); if(e.isDirectory()) w(p); else if(e.name.endsWith('.bin')) files.push(p);}})('backend/tiles/barcelona');
+  const p=path.join(d,e.name); if(e.isDirectory()) w(p); else if(e.name.endsWith('.bin')) files.push(p);}})(process.env.TILES || 'backend/tiles/barcelona');
 const seen=new Set();
-const stat={ramp:{n:0,float:0,worst:0,worstAt:''},plain:{n:0,float:0,worst:0,worstAt:''}};
+const stat={ramp:{n:0,float:0,worst:0,worstAt:'',pts:0,ptsFloat:0},plain:{n:0,float:0,worst:0,worstAt:'',pts:0,ptsFloat:0}};
 const byType={};
 for(const f of files){
   const b=fs.readFileSync(f); const hl=b.readUInt32LE(0);
@@ -43,14 +43,22 @@ for(const f of files){
     seen.add(r.id);
     const p=new Float32Array(ab, r.pointsOffset, r.pointCount*3);
     const k=r.isRamp?'ramp':'plain'; stat[k].n++;
-    let worst=0, worstLL=null;
+    // ── MEASURE WHAT THE FIX CHANGES ──────────────────────────────────────────────────────────
+    // `worst` is the peak float, and the peak lives at the ELEVATED END, which N-41 does not touch
+    // and should not: a ramp reaching a layer-2 deck is meant to arrive at layer-2 height. What
+    // N-41 changes is how much of the road is carried up with it. Reporting only the peak said the
+    // fix did nothing while 176 ways had been visibly corrected — the same mistake as measuring a
+    // dedupe by its own counter. So also count the FRACTION OF LENGTH in the air.
+    let worst=0, worstLL=null, floatPts=0, ptsSeen=0;
     for(let i=0;i<r.pointCount;i++){
       const lon=(p[i*3]/R)*(180/Math.PI);
       const lat=(2*Math.atan(Math.exp(p[i*3+2]/R))-Math.PI/2)*(180/Math.PI);
       const t=sample(lat,lon); if(t==null) continue;
       const d=p[i*3+1]-t;
+      ptsSeen++; if(d>FLOAT_M) floatPts++;
       if(d>worst){ worst=d; worstLL={lat,lon}; }
     }
+    if(ptsSeen){ stat[k].pts+=ptsSeen; stat[k].ptsFloat+=floatPts; }
     if(worst>FLOAT_M){
       stat[k].float++;
       byType[r.highwayType]=(byType[r.highwayType]||0)+1;
@@ -63,5 +71,8 @@ const pct=(a,b)=>b?((100*a/b).toFixed(1)+'%'):'—';
 console.log(`SURFACE roads only (layer 0, no bridge, no tunnel), floating > ${FLOAT_M} m above baked terrain\n`);
 console.log(`  isRamp = true : ${stat.ramp.float} of ${stat.ramp.n}  (${pct(stat.ramp.float,stat.ramp.n)})   worst ${stat.ramp.worst.toFixed(2)} m  ?spawn=${stat.ramp.worstAt}`);
 console.log(`  isRamp = false: ${stat.plain.float} of ${stat.plain.n}  (${pct(stat.plain.float,stat.plain.n)})   worst ${stat.plain.worst.toFixed(2)} m  ?spawn=${stat.plain.worstAt}`);
+console.log(`\nROAD POINTS in the air (the number N-41 actually moves — how much of the road is lifted):`);
+console.log(`  isRamp = true : ${stat.ramp.ptsFloat} of ${stat.ramp.pts}  (${pct(stat.ramp.ptsFloat,stat.ramp.pts)})`);
+console.log(`  isRamp = false: ${stat.plain.ptsFloat} of ${stat.plain.pts}  (${pct(stat.plain.ptsFloat,stat.plain.pts)})`);
 console.log('\nfloating surface roads by type:');
 for(const [k,v] of Object.entries(byType).sort((a,b)=>b[1]-a[1]).slice(0,10)) console.log(`   ${String(v).padStart(5)}  ${k}`);
