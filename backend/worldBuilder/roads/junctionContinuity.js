@@ -86,12 +86,21 @@ export function collectJunctionContinuity(roads) {
     // 12345, tunnel, layer -1, 2 nodes, both ends underground" is something to fix. Without this
     // the next step is another offline probe re-deriving what the bake already knew.
     const tun = a.tunnel ? a : (b.tunnel ? b : null);
+    // ── IS THE BREAK AT THE TUNNEL'S END, OR PARTWAY ALONG IT? ────────────────────────────────
+    // RampResolver pins a portal's profile to surface height at the way's ENDPOINTS only. A surface
+    // road that joins partway along a tunnel meets it at DEPTH, and no amount of fixing which
+    // neighbour the endpoint targets can reach that node. N-46 aimed at the endpoint question and
+    // moved the count by exactly zero, which is the signature of a change with no effect rather
+    // than a small one — so ask the structural question instead of trying a third variation.
+    const tunEnd = tun && tun.nodeIds
+      ? (tun.nodeIds[0] === nid || tun.nodeIds[tun.nodeIds.length - 1] === nid) : null;
     worst.push({ nid, dy, reason, drivable, a: a.highwayType, b: b.highwayType,
                  aId: a.id, bId: b.id,
                  tunId: tun ? tun.id : null,
                  tunLayer: tun ? (tun.layer ?? 0) : null,
                  tunNodes: tun && tun.nodeIds ? tun.nodeIds.length : null,
                  tunRamp: tun ? !!tun.isRamp : null,
+                 tunEnd,
                  name: a.name || b.name || '' });
   }
   worst.sort((x, y2) => y2.dy - x.dy);
@@ -115,11 +124,17 @@ export function reportJunctionContinuity(result) {
   // How many of the tunnel-side ways got a ramp profile at all? If a portal belongs at a node and
   // the tunnel there is NOT a ramp, RampResolver never classified it as a portal — which is a
   // different bug from a portal that exists and is shaped wrong.
-  const tunCases = { rampedTunnel: 0, flatTunnel: 0 };
-  for (const w of worst) if (w.tunId != null) tunCases[w.tunRamp ? 'rampedTunnel' : 'flatTunnel']++;
+  const tunCases = { rampedTunnel: 0, flatTunnel: 0, atTunnelEnd: 0, midTunnel: 0 };
+  for (const w of worst) if (w.tunId != null) {
+    tunCases[w.tunRamp ? 'rampedTunnel' : 'flatTunnel']++;
+    if (w.tunEnd === true) tunCases.atTunnelEnd++;
+    else if (w.tunEnd === false) tunCases.midTunnel++;
+  }
   if (tunCases.rampedTunnel + tunCases.flatTunnel > 0) {
     console.log(`     of the worst listed, tunnel side ramped: ${tunCases.rampedTunnel}, `
       + `FLAT (never classified as a portal): ${tunCases.flatTunnel}`);
+    console.log(`     break sits AT the tunnel's end: ${tunCases.atTunnelEnd}, `
+      + `PARTWAY ALONG it: ${tunCases.midTunnel}   ← a portal can only be pinned at an END`);
   }
   console.log(`  [Continuity] (all classes, incl. footway/steps/corridor: ${total})`);
   if (!total) {
