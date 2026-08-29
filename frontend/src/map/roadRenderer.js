@@ -3021,6 +3021,11 @@ function buildBridgePillarMeshes(roads, options) {
 
   const pillarGeoms = [];
   const pillarPositions = [];  // { x, z, groundY, height }
+  // D-23 proof of work. There are FOUR ways a pillar fails to appear — the road is skipped, the spot
+  // is on a ground road, the spot is in a trench corridor, or the computed height is under the
+  // minimum — and a bare "no pillars" tells you nothing about which. Counted, and reported once per
+  // tile when anything qualified, so "I don't see them" becomes answerable in one reload.
+  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0 };
   for (const road of roads || []) {
     // ── N-51 · SUPPORT WHAT IS ACTUALLY IN THE AIR, NOT WHAT OSM CALLED A BRIDGE ───────────────
     //
@@ -3060,14 +3065,17 @@ function buildBridgePillarMeshes(roads, options) {
         const x = a.x + t * dx;
         const z = a.y + t * dz;
 
+        skip.candidates++;
         // Skip if pillar would land on a ground-level road
         if (groundRoadSegs.length > 0 && isOnGroundRoad(x, z, groundRoadSegs)) {
+          skip.onGroundRoad++;
           nextPillarAt += PILLAR_SPACING;
           continue;
         }
 
         // Skip if pillar would stand inside a carved trench corridor (Option L)
         if (trenchSegs.length > 0 && isOnGroundRoad(x, z, trenchSegs)) {
+          skip.inTrench++;
           nextPillarAt += PILLAR_SPACING;
           continue;
         }
@@ -3076,11 +3084,15 @@ function buildBridgePillarMeshes(roads, options) {
         const { lat, lon } = worldToLatLon(x, z);
         const groundY = getPillarBottomY(lat, lon, getElevationAt);
         const height = bridgeY - groundY;
+        if (height > skip.maxHeight) skip.maxHeight = height;
         if (height >= MIN_BRIDGE_STRUCTURE_HEIGHT) {
+          skip.built++;
           const geom = new THREE.CylinderGeometry(PILLAR_RADIUS, PILLAR_RADIUS, height, 8);
           geom.translate(x, (groundY + bridgeY) / 2, z);
           pillarGeoms.push(geom);
           pillarPositions.push({ x, z, groundY, height });
+        } else {
+          skip.tooLow++;
         }
         nextPillarAt += PILLAR_SPACING;
       }
@@ -3088,6 +3100,12 @@ function buildBridgePillarMeshes(roads, options) {
     }
   }
 
+  if (skip.candidates > 0) {
+    console.log(`[pillars] ${skip.candidates} spots — built ${skip.built}, `
+      + `skipped: onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
+      + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow} — tallest deck seen `
+      + `${skip.maxHeight.toFixed(1)} m`);
+  }
   if (pillarGeoms.length === 0) return { mesh: null, positions: [] };
   const merged = mergeGeometries(pillarGeoms);
   pillarGeoms.forEach((g) => g.dispose());
