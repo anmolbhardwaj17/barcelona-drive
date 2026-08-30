@@ -25,7 +25,13 @@ export const ROOF_LAYERS = ['pantile', 'terrat_gravel', 'concrete'];
 /** Real-world metres per repeat. Must match `ROOF_REPEAT_M` in buildingWorker. */
 export const ROOF_REPEAT_M = 4.0;
 
-const PLACEHOLDER_PX = 256;
+/**
+ * Array size. Raised from 256 to 1024 when the authored plates landed: they are 1024 and a
+ * DataArrayTexture cannot be resized after the material holds it, so the array is allocated at the
+ * authored size from the start and the procedural fill simply paints bigger.
+ */
+const ROOF_PX = 1024;
+const PLACEHOLDER_PX = ROOF_PX;
 
 /**
  * Which roof a building gets.
@@ -107,7 +113,56 @@ export function createRoofArray(THREE) {
   tex.generateMipmaps = false;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
+  // The procedural fill above is now a FIRST FRAME, not the final surface: the authored plates
+  // replace it in place as soon as they decode. Painting first means a roof is never black while
+  // three PNGs are in flight, which is what a plain async load would give on a cold cache.
+  loadAuthoredRoofPlates(THREE, tex);
   return tex;
+}
+
+/** Where the plates live. `tools/build-roof-plates.py` writes them; names match ROOF_LAYERS. */
+const ROOF_PLATE_URL = (name) => `/textures/roof/${name}_albedo.png`;
+
+let _authoredLoaded = false;
+
+/**
+ * Swap the authored plates into an existing array texture, in place.
+ *
+ * ⚠ IN PLACE, and that is the whole trick. `tex.image.data` is the Uint8Array the GPU was uploaded
+ * from; writing into it and setting `needsUpdate` re-uploads the same texture object, so every
+ * material already holding this array picks the plates up with no rebinding and no second upload
+ * path. Creating a new texture instead would leave the roof material pointing at the placeholder.
+ *
+ * Failure is silent by design: if a plate 404s the roof keeps the procedural fill it already has,
+ * which is a working roof rather than a black one. The count is logged once so a missing plate is
+ * still visible to anyone looking.
+ */
+export async function loadAuthoredRoofPlates(THREE, tex) {
+  if (_authoredLoaded || typeof document === 'undefined') return;
+  _authoredLoaded = true;
+  const px = ROOF_PX;
+  const canvas = typeof OffscreenCanvas !== 'undefined'
+    ? new OffscreenCanvas(px, px)
+    : Object.assign(document.createElement('canvas'), { width: px, height: px });
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let loaded = 0;
+  for (let i = 0; i < ROOF_LAYERS.length; i++) {
+    try {
+      const res = await fetch(ROOF_PLATE_URL(ROOF_LAYERS[i]));
+      if (!res.ok) continue;
+      const bmp = await createImageBitmap(await res.blob());
+      ctx.clearRect(0, 0, px, px);
+      ctx.drawImage(bmp, 0, 0, px, px);
+      bmp.close?.();
+      tex.image.data.set(ctx.getImageData(0, 0, px, px).data, i * px * px * 4);
+      loaded++;
+    } catch { /* keep the procedural fill for this layer */ }
+  }
+  if (loaded > 0) {
+    tex.needsUpdate = true;
+    console.warn(`[roofArray] authored plates loaded: ${loaded}/${ROOF_LAYERS.length} `
+      + `(${ROOF_PX}px, ${ROOF_REPEAT_M} m span) — replacing the procedural fill`);
+  }
 }
 
 /**

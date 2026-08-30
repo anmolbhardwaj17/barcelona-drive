@@ -1,0 +1,54 @@
+{
+  "surfaces": [
+    {
+      "name": "pantile",
+      "spanM": 4.0,
+      "texelsPerM": 256.0,
+      "surfaceClass": "roof_clay",
+      "featureMm": 93.8,
+      "featurePlausible": true,
+      "featureEnforced": true,
+      "tileRatio": 0.004,
+      "tileVerifyPass": true,
+      "tileRepair": "aligned (roll 942,189)",
+      "desaturated": true,
+      "normalBand": "masonry",
+      "normalMeanXY": 0.25,
+      "normalBandPass": true
+    },
+    {
+      "name": "terrat_gravel",
+      "spanM": 4.0,
+      "texelsPerM": 256.0,
+      "surfaceClass": "roof_terrat",
+      "featureMm": 31.2,
+      "featurePlausible": true,
+      "featureEnforced": true,
+      "tileRatio": 0.003,
+      "tileVerifyPass": true,
+      "tileRepair": "aligned (roll 326,920)",
+      "desaturated": true,
+      "normalBand": "ground",
+      "normalMeanXY": 0.16,
+      "normalBandPass": true
+    },
+    {
+      "name": "concrete",
+      "spanM": 4.0,
+      "texelsPerM": 256.0,
+      "surfaceClass": "roof_terrat",
+      "featureMm": 54.7,
+      "featurePlausible": true,
+      "featureEnforced": false,
+      "tileRatio": 0.002,
+      "tileVerifyPass": true,
+      "tileRepair": "aligned (roll 551,1017)",
+      "desaturated": true,
+      "normalBand": "masonry",
+      "normalMeanXY": 0.25,
+      "normalBandPass": true
+    }
+  ],
+  "spanM": 4.0,
+  "note": "Near-neutral by design (D-31): roof colour is vertex colour, these carry detail only."
+}
