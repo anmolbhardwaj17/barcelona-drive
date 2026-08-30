@@ -203,6 +203,14 @@ const ROOF_PALETTES = {
   commercial_glass: [0xA0B0C0, 0xA8B8C8, 0xB0C0D0],
 };
 
+/**
+ * How close to a road a building must be for its roof to get terrat dressing, metres.
+ *
+ * 30 m is roughly one Eixample building depth: the block's street-facing ring qualifies and its
+ * interior does not. Anything you can see the top of from a car is in that ring.
+ */
+const TERRAT_STREET_VIS_M = 30;
+
 const roofMaterialCache = new Map();
 function getRoofMaterial(hexColor) {
   if (hexColor == null) hexColor = 0xD9CFC1;
@@ -835,7 +843,7 @@ const TYPE_TO_CATEGORY = {
  * @param {number} worldZ
  * @returns {string} one of the FACADE_PRESETS keys
  */
-function getBuildingCategory(building, roads, worldX, worldZ) {
+function getBuildingCategory(building, roads, worldX, worldZ, nearestRoad) {
   // Tall towers are GLASS — MUST MATCH buildingWorker.getBuildingCategory (LOD buildings would
   // otherwise flip masonry↔glass at the LOD boundary). ≥55m or explicit glass tag, churches exempt.
   const _mat = (building.material || '').toLowerCase();
@@ -850,7 +858,8 @@ function getBuildingCategory(building, roads, worldX, worldZ) {
   // so the default is 'residential' (warm facade + wrought-iron balconies), NOT 'commercial'/glass.
   // Buildings fronting a busy artery get warm 'commercial' (ground-floor shops) for street variety.
   if (roads && roads.length > 0) {
-    const nearest = findNearestRoadSegment(roads, worldX, worldZ);
+    const nearest = nearestRoad !== undefined ? nearestRoad
+      : findNearestRoadSegment(roads, worldX, worldZ);
     if (nearest) {
       const t = nearest.highwayType;
       if (t === 'primary' || t === 'secondary' || t === 'primary_link' || t === 'secondary_link') {
@@ -1280,7 +1289,10 @@ export function renderTileBuildings(tileData, options) {
       baseY = BUILDING_Z_OFFSET;
     }
 
-    let category = getBuildingCategory(b, roads, cx, cy);
+    // N-53b: one nearest-road lookup, used twice — the category test and the terrat gate below.
+    // Calling it again per building would double an O(roads x points) scan for no new information.
+    const nearestRoad = roads.length > 0 ? findNearestRoadSegment(roads, cx, cy) : null;
+    let category = getBuildingCategory(b, roads, cx, cy, nearestRoad);
     // Barcelona redesign: NO height-based auto-glass. The old `commercial && height>=18 → glass`
     // rule turned every default 18 m building into a dark reflective tower — the entire reason the
     // city read as a glass office district. Glass now appears ONLY when OSM explicitly tags it
@@ -1489,7 +1501,18 @@ export function renderTileBuildings(tileData, options) {
     // Deterministic on the building id like every other detail here, so a roof does not reshuffle
     // between frames or between machines. Everything is placed with `pointInFootprint`, because a
     // stair hut hanging off the edge of its own building is worse than no stair hut.
-    if (b.height > 8 && b.footprint?.length >= 3 && (b.roofShape || 'flat') === 'flat') {
+    // ── N-53b · ONLY DRESS ROOFS YOU CAN ACTUALLY SEE ─────────────────────────────────────────
+    // User: "lets have these in corner buildings only or building close to road, because from car
+    // anyways you wont be able to see the top a lot." Right on both counts. From a car you only ever
+    // see the tops of buildings LINING the street, at a glancing angle; an interior-block roof is
+    // invisible from the ground, and from altitude the dressing is a few pixels anyway (this whole
+    // feature reads as specks in an aerial shot). Geometry spent there buys nothing.
+    //
+    // The distance comes from the nearest-road lookup the category test already performs, so the
+    // gate costs nothing — it is the same scan, read twice instead of once.
+    const streetVisible = !nearestRoad || nearestRoad.distance <= TERRAT_STREET_VIS_M;
+    if (streetVisible && b.height > 8 && b.footprint?.length >= 3
+        && (b.roofShape || 'flat') === 'flat') {
       const fp = b.footprint;
       let tmnX = Infinity, tmxX = -Infinity, tmnZ = Infinity, tmxZ = -Infinity;
       for (const p of fp) {
