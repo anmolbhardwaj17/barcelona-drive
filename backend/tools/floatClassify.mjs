@@ -62,8 +62,13 @@ for(const w of ways.values()){
    if(p.y-(a.y+t*(b2.y-a.y))>=UNDER_CLEAR_M){just=true;break;} }
   if(just)break; }
  if(just) continue;
- // classify by what the HIGHEST point touches
- const top=w.pts.reduce((m,p)=>p.y>m.y?p:m,w.pts[0]);
+ // ── CLASSIFY AT THE FLOATING END, NOT THE HIGHEST ONE (N-56) ─────────────────────────────────
+ // This used to take the point of greatest absolute Y. On a hillside that is the UPHILL end, which
+ // is sitting flat on the ground — so all three "ORPHAN" verdicts were read off the wrong end of
+ // the road. `Viaducte de Vallcarca` was reported as meeting NOTHING; its floating end joins
+ // `Viaducte de Vallcarca [BRIDGE] L1` at exactly its own height. The question is "what does the
+ // part that is IN THE AIR touch", so the anchor is max FLOAT, which is `at`.
+ const top=at;
  let struct=null, sameH=null;
  for(const o of ways.values()){ if(o.id===w.id)continue;
   for(const q of o.pts){ if(Math.hypot(q.x-top.x,q.z-top.z)>END_R)continue;

@@ -2937,3 +2937,21 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   by rule 9's 53° cone, and relaxing that gate risks reintroducing the z-fighting the gates fixed.
   **Dead-end work is closed**; new tool `deadEndCause.mjs`, and the fixer's `rejectedOverlap`
   counter is split into `rejectedHairline` / `rejectedOnExistingRoad` so a refusal names its cause.
+- **N-56 junction height-steps — hypothesis MEASURED AND REVERTED.** Chasing "3 orphan ramps" found
+  no orphans. Two were an artefact of `floatClassify` anchoring on the point of greatest ABSOLUTE Y,
+  which on a hillside is the uphill end sitting flat on the ground — `Viaducte de Vallcarca` was
+  reported as meeting NOTHING while its floating end joins `Viaducte de Vallcarca [BRIDGE] L1` at
+  exactly its own height. Anchored on max FLOAT instead: **ORPHAN 3 → 1, APPROACH 18 → 20**.
+  The survivor was not an orphan either: it shares a node with `Moll Adossat` (bridge, L1) at zero
+  distance and the two disagree about that node by exactly 6.0 m. So it is one of the 133 junction
+  steps left after N-45/47, and new `junctionStepAudit.mjs` shows those have an unambiguous
+  fingerprint — **every one is an exact integer multiple of LAYER_STEP** (124 at 6 m, 8 at 12 m,
+  1 at 24 m; nothing at 3 or 7). A profile error cannot land on multiples of a constant; reading a
+  base height instead of a profile does exactly that.
+  The FIX was wrong, and the bake said so: an at-grade road was stopped from climbing to a bridge's
+  base height (the mirror of N-47's tunnel rule). Steps went **133 → 177** and ramps 52 → 42.
+  `otherElevatedAtNode` only inspects the shared node, so it cannot tell a bridge that is LANDING
+  there from a long bridge genuinely elevated there — and refusing the climb onto the second kind
+  creates more steps than it removes. **Reverted and re-baked; tiles verified back at 133/124/8/1.**
+  The real fix needs the neighbour's ACTUAL height at the node, which does not exist when the
+  resolver runs — a two-pass RampResolver, not a guard. Left as a decision, not started.
