@@ -375,7 +375,10 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       const tx = dx / gap, tz = dz / gap;
       if ((a.dx * tx + a.dz * tz) < LINK_COS) { stats.rejectedAim++; continue; }
       if ((b.dx * -tx + b.dz * -tz) < LINK_COS) { stats.rejectedAim++; continue; }
-      if (!hasRealSurfaceGap(gap, a.way, b.way)) { stats.rejectedOverlap++; continue; }
+      if (!hasRealSurfaceGap(gap, a.way, b.way)
+          || lineLiesOnExistingRoad(a.lat, a.lon, b.lat, b.lon, ways, nodeMap, a.way.id, b.way.id)) {
+        stats.rejectedOverlap++; continue;
+      }
       if (crossesAnyWay(a.lat, a.lon, b.lat, b.lon, a.way.id, b.way.id)) {
         stats.rejectedCrossing++; continue;
       }
@@ -911,6 +914,46 @@ function rule6_groundRoadOffset(wayMap, nodeToWays, nodeMap) {
  *
  * Exactly the N-1 lesson repeating: centreline distance is not ribbon distance.
  */
+/**
+ * N-52b · Does the proposed connector LIE ON a road that is already there?
+ *
+ * `hasRealSurfaceGap` tests the distance to the target NODE, and that is the endpoint, not the path.
+ * A connector reaching a node off to one side runs diagonally ACROSS the target's ribbon for most of
+ * its length while its endpoint distance looks fine. Measured after the endpoint gate shipped: the
+ * count fell 366 → 184 but **134 of the survivors, 73%, still lay inside an existing ribbon.**
+ *
+ * So sample the line itself — the same test the offline probe uses to find the problem. Testing the
+ * thing being drawn rather than a proxy for it is the whole lesson of this session, applied to my
+ * own fix.
+ */
+function lineLiesOnExistingRoad(aLat, aLon, bLat, bLon, ways, nodeMap, skipA, skipB) {
+  const SAMPLES = 8;
+  let inside = 0, seen = 0;
+  for (let k = 0; k <= SAMPLES; k++) {
+    const f = k / SAMPLES;
+    const lat = aLat + (bLat - aLat) * f, lon = aLon + (bLon - aLon) * f;
+    seen++;
+    let hit = false;
+    for (const w of ways) {
+      if (w.id === skipA || w.id === skipB || w.tunnel) continue;
+      const half = ((Number.isFinite(w.width) && w.width > 0 ? w.width : 6) / 2);
+      const ids = w.nodeIds;
+      for (let i = 0; i < ids.length - 1 && !hit; i++) {
+        const p = nodeMap.get(ids[i]), q = nodeMap.get(ids[i + 1]);
+        if (!p || !q) continue;
+        const P = toMeters(lat, lon, p.lat, p.lon), Q = toMeters(lat, lon, q.lat, q.lon);
+        const dx = Q.dx - P.dx, dz = Q.dz - P.dz, l2 = dx * dx + dz * dz;
+        if (l2 < 1e-9) continue;
+        const t = Math.max(0, Math.min(1, (-P.dx * dx + -P.dz * dz) / l2));
+        if (Math.hypot(P.dx + t * dx, P.dz + t * dz) < half) hit = true;
+      }
+      if (hit) break;
+    }
+    if (hit) inside++;
+  }
+  return seen > 0 && inside / seen > 0.5;
+}
+
 function hasRealSurfaceGap(gapM, wayA, wayB) {
   const wA = Number.isFinite(wayA?.width) && wayA.width > 0 ? wayA.width : 6;
   const wB = Number.isFinite(wayB?.width) && wayB.width > 0 ? wayB.width : 6;
@@ -1016,7 +1059,11 @@ function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
       if (best.targetD > MERGE_MAX_CONNECT_M) { stats.rejectedFar++; continue; }
       if (best.targetNid === nid) continue;
       // N-52: if the two ribbons already overlap there is no gap to fill, only a duplicate to draw.
-      if (!hasRealSurfaceGap(best.targetD, w, best.o)) { stats.rejectedOverlap++; continue; }
+      if (!hasRealSurfaceGap(best.targetD, w, best.o)
+          || lineLiesOnExistingRoad(e.lat, e.lon, nodeMap.get(best.targetNid).lat,
+                                    nodeMap.get(best.targetNid).lon, ways, nodeMap, w.id, best.o.id)) {
+        stats.rejectedOverlap++; continue;
+      }
 
       const t = nodeMap.get(best.targetNid);
       if (!t) continue;
@@ -1158,7 +1205,10 @@ function rule9_namedStreetResumes(wayMap, nodeToWays, nodeMap) {
       }
       if (!best) continue;
       stats.candidates++;
-      if (!hasRealSurfaceGap(best.dist, w, best.o)) { stats.rejectedOverlap++; continue; }
+      if (!hasRealSurfaceGap(best.dist, w, best.o)
+          || lineLiesOnExistingRoad(e.lat, e.lon, best.q.lat, best.q.lon, ways, nodeMap, w.id, best.o.id)) {
+        stats.rejectedOverlap++; continue;
+      }
       if (crossesAnyWay(e.lat, e.lon, best.q.lat, best.q.lon, w.id, best.o.id)) {
         stats.rejectedCrossing++; continue;
       }
