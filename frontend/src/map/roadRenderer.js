@@ -29,6 +29,8 @@ import { BCN_COLORS, BCN_DIMS } from './barcelona-constants.js';
 import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CURB_HEIGHT } from './groundLayers.js';
 import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, ROAD_V2_NORMAL_PARS, ROAD_V2_NORMAL_APPLY, createAsphaltTexture } from './roadMaterial.js';   // v3 P3-07 / P3-07c
 import { getRoadSurface } from './roadTexturePack.js';   // v3 P3-07b / P3-08 — authored surfaces
+import { getConcreteTextures } from './tunnelTextures.js';   // N-54 — embankments reuse the trench retaining plate
+import { resampleForSkirt, findEmbankedRuns } from './embankment.js';   // N-54 — the testable half
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -155,6 +157,10 @@ const _PILLAR_DEBUG = (() => {
 let _lastPillarStats = null;
 if (typeof window !== 'undefined') {
   window._ddPillarStats = () => (_lastPillarStats ? { ..._lastPillarStats } : 'no tile built yet');
+  // N-54's counterpart. The two are read TOGETHER: a spot the pillar builder reports as `embanked`
+  // must appear in the skirt's `embanked` too, and a disagreement between them means one of the
+  // two beneath-tests drifted and a span is being held up by nothing.
+  window._ddEmbankStats = () => (getEmbankmentStats() ? { ...getEmbankmentStats() } : 'no tile built yet');
 }
 /** Concrete slab depth below bridge deck (m). */
 const SLAB_THICKNESS = 1.2;
@@ -3052,18 +3058,31 @@ const TRENCH_ABUTMENT_CLEAR_M = 2.5;
  * Pillars every PILLAR_SPACING m along road, cylinder from ground/SEA_LEVEL to bridge deck.
  * Skips pillar placement where it would intersect a ground-level road or a trench corridor.
  */
-function buildBridgePillarMeshes(roads, options) {
+/**
+ * The segment sets that answer "is anything underneath this point". Pillars and embankments are
+ * the two answers to that one question (N-54), so it is computed once and handed to both rather
+ * than walked twice per tile.
+ */
+function buildStructureSegs(roads) {
+  return {
+    groundRoadSegs: buildGroundRoadSegments(roads),
+    trenchSegs: buildTrenchCorridorSegments(roads),
+    trenchRoadwaySegs: buildTrenchCorridorSegments(roads, TRENCH_ABUTMENT_CLEAR_M),
+  };
+}
+
+function buildBridgePillarMeshes(roads, options, shared) {
   const getElevationAt = options?.getElevationAt || (() => 0);
 
   // Pre-compute ground road segments to avoid placing pillars on roads
-  const groundRoadSegs = buildGroundRoadSegments(roads);
+  const groundRoadSegs = shared?.groundRoadSegs || buildGroundRoadSegments(roads);
   // Trench corridors: a bridge over a daylighted trench must not plant pillars in it
   // (the slice-② carve sank the heightfield there, so getElevationAt returns the deep
   // trench floor → 10-15m columns standing in the open roadway = the black-mass bug).
-  const trenchSegs = buildTrenchCorridorSegments(roads);
+  const trenchSegs = shared?.trenchSegs || buildTrenchCorridorSegments(roads);
   // The narrow band: the carriageway plus a small clearance. Everything between this and
   // `trenchSegs` is trench bench — where an abutment belongs.
-  const trenchRoadwaySegs = buildTrenchCorridorSegments(roads, TRENCH_ABUTMENT_CLEAR_M);
+  const trenchRoadwaySegs = shared?.trenchRoadwaySegs || buildTrenchCorridorSegments(roads, TRENCH_ABUTMENT_CLEAR_M);
 
   const pillarGeoms = [];
   const pillarPositions = [];  // { x, z, groundY, height }
@@ -3071,7 +3090,7 @@ function buildBridgePillarMeshes(roads, options) {
   // is on a ground road, the spot is in a trench corridor, or the computed height is under the
   // minimum — and a bare "no pillars" tells you nothing about which. Counted, and reported once per
   // tile when anything qualified, so "I don't see them" becomes answerable in one reload.
-  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0, nudged: 0, abutments: 0,
+  const skip = { candidates: 0, onGroundRoad: 0, inTrench: 0, tooLow: 0, built: 0, maxHeight: 0, nudged: 0, abutments: 0, embanked: 0,
                  roadsIn: (roads || []).length, passedGate: 0, noHeights: 0, tooShort: 0 };
   for (const road of roads || []) {
     // ── N-51 · SUPPORT WHAT IS ACTUALLY IN THE AIR, NOT WHAT OSM CALLED A BRIDGE ───────────────
@@ -3145,6 +3164,20 @@ function buildBridgePillarMeshes(roads, options) {
         //
         // Along the deck only, never sideways: moving a pier off the centreline would put it beside
         // the road it is meant to hold up.
+        // ── N-54 · A CLEAR SPOT IS AN EMBANKMENT, NOT A COLUMN ────────────────────────────────
+        // The nudge loop below builds a pier wherever the ground happens to be clear. That is
+        // backwards as structure: you stand a column up to CROSS something. Where nothing is
+        // crossed and the deck is within filling height, the skirt in
+        // `buildEmbankmentSkirtMeshes` takes this span and the pier is not built — the two use
+        // the identical beneath-test, so every spot is claimed by exactly one of them.
+        if (height <= EMBANKMENT_MAX_H
+            && !(groundRoadSegs.length > 0 && isOnGroundRoad(x, z, groundRoadSegs, road.id))
+            && !(trenchSegs.length > 0 && isOnGroundRoad(x, z, trenchSegs, road.id))) {
+          skip.embanked++;
+          nextPillarAt += PILLAR_SPACING;
+          continue;
+        }
+
         let px = x, pz = z, pt = t, clear = false;
         for (const off of PILLAR_NUDGES) {
           const nt = t + off / segLen;
@@ -3244,7 +3277,7 @@ function buildBridgePillarMeshes(roads, options) {
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
     + `tooLow(<${MIN_BRIDGE_STRUCTURE_HEIGHT}m) ${skip.tooLow}, nudged ${skip.nudged}, `
-    + `abutments ${skip.abutments}, `
+    + `abutments ${skip.abutments}, embanked ${skip.embanked}, `
     + `tallest ${skip.maxHeight.toFixed(1)} m`);
   if (pillarGeoms.length === 0) return { mesh: null, positions: [] };
   const merged = mergeGeometries(pillarGeoms);
@@ -3257,6 +3290,184 @@ function buildBridgePillarMeshes(roads, options) {
   mesh.frustumCulled = true;
   mesh.userData.type = 'bridgePillar';
   return { mesh, positions: pillarPositions };
+}
+
+// ── N-54 · EMBANKMENTS: THE OTHER HALF OF "WHAT HOLDS THIS ROAD UP" ────────────────────────────
+//
+// 21 drivable surface roads sit >2 m above their own terrain with CLEAR GROUND beneath them.
+// The reflex reading was the layer model — `layer x LAYER_STEP` hoisting streets that cross
+// nothing — and the measurement killed it outright: of those 21, the layer model is responsible
+// for ZERO (`floatClassify.mjs`: APPROACH 18, ORPHAN 3, TAG 0). The locked vertical-model spec
+// needs no amendment.
+//
+// What they actually are is bridge APPROACHES. Their high end meets a real deck at exactly their
+// own top height, so the height is correct and forcing them down would tear the road off the
+// bridge. What is missing is underneath: a real approach is carried on an EMBANKMENT — earth fill
+// behind a retaining wall — and this project has no fill geometry of any kind.
+//
+// ── WHY THIS IS NOT "ADD MORE PILLARS" ────────────────────────────────────────────────────────
+// These decks are not unsupported. N-51 already generalised pillars past the `bridge` tag, so a
+// 6 m ramp over open ground gets COLUMNS today. That is the wrong structure: nobody carries a
+// residential street 6 m up on stilts when the ground under it is empty — they fill it. And the
+// rule that separates the two cases is the one the audit already runs:
+//
+//     something passes beneath  ->  viaduct     (pillars, nudged clear of the roadway below)
+//     clear ground beneath      ->  embankment  (a solid retained skirt)
+//
+// Read the pillar loop below and that split is free: a pillar is BUILT only when the spot is clear
+// of every ground road and trench corridor, and is nudged or skipped when it is not. So the
+// embankment set is exactly the set that was already getting columns. This adds no structure
+// anywhere new — it changes WHAT STANDS in the places that already had something standing, which
+// is why it cannot invent supports in open country the way a fresh height test could.
+//
+// ── THE HEIGHT CAP IS THE WHOLE SAFETY ARGUMENT ───────────────────────────────────────────────
+// Earth has an angle of repose and a build cost, so above roughly 9 m a city stops filling and
+// starts building a viaduct. Without the cap this would wall in genuinely tall structures —
+// `tallest 13.2 m` in the pillar counters is a real viaduct — turning an open deck into a dam.
+// Over the cap, nothing changes and the columns stay.
+const EMBANKMENT_STEP_M = 4.0;   // spacing of skirt cross-sections; set by how fast TERRAIN moves,
+                                 // not by the road's own points, which can be 50 m apart
+const EMBANKMENT_MAX_H  = 9.0;   // above this it is a viaduct — keep the pillars
+const EMBANKMENT_BURY_M = 0.6;   // sink the wall foot, so a slightly-off terrain read never opens
+                                 // a strip of daylight along the bottom of the wall
+
+let _lastEmbankStats = null;
+/** @returns {object|null} last tile's embankment counters — D-23 proof of work, on demand. */
+export function getEmbankmentStats() { return _lastEmbankStats; }
+
+/** Push one quad (A->B->C->D around the face) as two triangles. UVs are in METRES. */
+function pushSkirtQuad(pos, uv, A, B, C, D, uA, uB) {
+  const p = (v) => pos.push(v.x, v.y, v.z);
+  p(A); p(B); p(C);
+  p(A); p(C); p(D);
+  // u runs along the wall, v is world height — so board seams stay level across the whole city
+  // instead of restarting at every run.
+  uv.push(uA, A.y, uB, B.y, uB, C.y);
+  uv.push(uA, A.y, uB, C.y, uA, D.y);
+}
+
+/**
+ * Build the two retaining faces (and the two end caps) for one contiguous embanked run.
+ * @param {number} s first cross-section index of the run, {number} e the last.
+ */
+function buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e) {
+  let u = 0;
+  for (let i = s; i < e; i++) {
+    const L0 = leftEdge[i], L1 = leftEdge[i + 1];
+    const R0 = rightEdge[i], R1 = rightEdge[i + 1];
+    const b0 = groundY[i] - EMBANKMENT_BURY_M, b1 = groundY[i + 1] - EMBANKMENT_BURY_M;
+    const du = Math.hypot(rs.pts[i + 1].x - rs.pts[i].x, rs.pts[i + 1].y - rs.pts[i].y);
+    pushSkirtQuad(pos, uv,
+      { x: L0.x, y: L0.y, z: L0.z }, { x: L1.x, y: L1.y, z: L1.z },
+      { x: L1.x, y: b1, z: L1.z },   { x: L0.x, y: b0, z: L0.z }, u, u + du);
+    pushSkirtQuad(pos, uv,
+      { x: R0.x, y: R0.y, z: R0.z }, { x: R1.x, y: R1.y, z: R1.z },
+      { x: R1.x, y: b1, z: R1.z },   { x: R0.x, y: b0, z: R0.z }, u, u + du);
+    u += du;
+  }
+  // End caps. A run stops where the deck drops under 2 m or where something appears beneath it,
+  // and at that cross-section the wall is still ~2 m tall — without a cap you look straight into
+  // the hollow between the two faces.
+  for (const i of [s, e]) {
+    const L = leftEdge[i], R = rightEdge[i], b = groundY[i] - EMBANKMENT_BURY_M;
+    const w = Math.hypot(R.x - L.x, R.z - L.z);
+    pushSkirtQuad(pos, uv,
+      { x: L.x, y: L.y, z: L.z }, { x: R.x, y: R.y, z: R.z },
+      { x: R.x, y: b, z: R.z },   { x: L.x, y: b, z: L.z }, 0, w);
+  }
+}
+
+let sharedEmbankmentMaterial = null;
+function getEmbankmentMaterial() {
+  if (sharedEmbankmentMaterial) return sharedEmbankmentMaterial;
+  // Deliberately the SAME board-formed concrete the trench retaining walls use (tunnelRenderer's
+  // `retwall`), not a new plate: an approach wall and a trench wall are the same object in the
+  // same city, and giving this one its own look would read as a different material for no reason.
+  // No `vertexColors` — that material has them and this geometry carries no colour attribute,
+  // which renders black.
+  sharedEmbankmentMaterial = new THREE.MeshLambertMaterial({
+    color: 0x8a8a85,                 // RETAINING_COLOR, tunnelRenderer.js:58
+    ...getConcreteTextures(),
+    side: THREE.DoubleSide,
+    // Same emissive floor as the pillars, for the same measured reason: this is a lit surface that
+    // can end up in deep shade against a fill slope, and with no floor it goes near-black — the
+    // "giant black mass" the pillar material carries a comment about.
+    emissive: 0x35322f,
+    emissiveIntensity: 1.0,
+  });
+  return sharedEmbankmentMaterial;
+}
+
+/**
+ * Solid retained skirts under decks that stand on clear ground.
+ * @returns {THREE.Mesh|null} one merged mesh per tile, or null if nothing qualified.
+ */
+function buildEmbankmentSkirtMeshes(roads, options, shared) {
+  const getElevationAt = options?.getElevationAt || (() => 0);
+  const groundRoadSegs = shared?.groundRoadSegs || buildGroundRoadSegments(roads);
+  const trenchSegs     = shared?.trenchSegs     || buildTrenchCorridorSegments(roads);
+
+  const pos = [], uv = [];
+  // D-23 proof of work: a skirt builder that finds nothing looks identical to one that is never
+  // reached, and the pillar counters exist because that exact ambiguity cost a session.
+  const st = { roadsIn: (roads || []).length, considered: 0, sections: 0, embanked: 0,
+               belowMin: 0, tooTall: 0, obstructed: 0, runs: 0, tris: 0 };
+
+  for (const road of roads || []) {
+    if (road.tunnel || !road.points || road.points.length < 2) continue;
+    const heights = getRoadPointHeights(road, options);
+    if (!heights) continue;
+    const rs = resampleForSkirt(road.points, heights, EMBANKMENT_STEP_M);
+    if (!rs) continue;
+    const edges = getRibbonEdgeVerts(rs.pts, pavedWidth(road), rs.heights);   // R-W1
+    if (!edges) continue;
+    st.considered++;
+    const { leftEdge, rightEdge } = edges;
+    const n = rs.pts.length;
+    if (leftEdge.length < n || rightEdge.length < n) continue;
+
+    const ok = new Array(n).fill(false);
+    const groundY = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      const p = rs.pts[i];
+      const { lat, lon } = worldToLatLon(p.x, p.y);
+      const g = getPillarBottomY(lat, lon, getElevationAt);
+      groundY[i] = g;
+      st.sections++;
+      const h = rs.heights[i] - g;
+      if (h < MIN_BRIDGE_STRUCTURE_HEIGHT) { st.belowMin++; continue; }
+      if (h > EMBANKMENT_MAX_H) { st.tooTall++; continue; }
+      // The viaduct test, and the reason this cannot wall up an underpass: anything crossing
+      // beneath — a ground road or a carved trench corridor — means the deck spans something and
+      // the columns keep it. `road.id` is skipped or the deck matches its OWN footprint (N-51d).
+      if ((groundRoadSegs.length > 0 && isOnGroundRoad(p.x, p.y, groundRoadSegs, road.id))
+       || (trenchSegs.length > 0 && isOnGroundRoad(p.x, p.y, trenchSegs, road.id))) {
+        st.obstructed++; continue;
+      }
+      ok[i] = true; st.embanked++;
+    }
+
+    for (const { s, e } of findEmbankedRuns(ok)) {
+      buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e);
+      st.runs++;
+    }
+  }
+
+  st.tris = pos.length / 9;
+  _lastEmbankStats = { ...st };
+  if (pos.length === 0) return null;
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  // Non-indexed, so this gives flat per-face normals — which is what a poured concrete face wants.
+  geom.computeVertexNormals();
+  const mesh = new THREE.Mesh(geom, getEmbankmentMaterial());
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = true;
+  mesh.userData.type = 'roadEmbankment';
+  return mesh;
 }
 
 let sharedSlabMaterial = null;
@@ -5366,7 +5577,7 @@ function applyRampDivergence(roads) {
 export async function renderTileRoads(tileData, options, yieldFn) {
   const rawRoads = tileData?.roads || [];
   if (rawRoads.length === 0) {
-    return { roadMeshes: [], whiteMarkingsMesh: null, yellowMarkingsMesh: null, sidewalkMesh: null, edgeStripMesh: null, crosswalkMesh: null, onewayArrowMesh: null, bcnSidewalkMesh: null, bcnCurbMesh: null, bcnBikeLaneMesh: null, bcnBikePictoMesh: null, noParkingMesh: null, zona30Mesh: null, tactileMesh: null, bluezoneMesh: null, pillarMesh: null, blendStripMesh: null };
+    return { roadMeshes: [], whiteMarkingsMesh: null, yellowMarkingsMesh: null, sidewalkMesh: null, edgeStripMesh: null, crosswalkMesh: null, onewayArrowMesh: null, bcnSidewalkMesh: null, bcnCurbMesh: null, bcnBikeLaneMesh: null, bcnBikePictoMesh: null, noParkingMesh: null, zona30Mesh: null, tactileMesh: null, bluezoneMesh: null, pillarMesh: null, embankmentMesh: null, blendStripMesh: null };
   }
 
   // Apply ramp divergence (lateral offset at junction ends)
@@ -5547,7 +5758,11 @@ export async function renderTileRoads(tileData, options, yieldFn) {
 
   // --- Bridge structures ---
   ph('p1 rg:pillars');
-  const { mesh: pillarMesh, positions: pillarPositions } = buildBridgePillarMeshes(roads, options);
+  const structSegs = buildStructureSegs(roads);
+  const { mesh: pillarMesh, positions: pillarPositions } = buildBridgePillarMeshes(roads, options, structSegs);
+  if (yieldFn) await yieldFn();
+  ph('p1 rg:embankment');
+  const embankmentMesh = buildEmbankmentSkirtMeshes(roads, options, structSegs);
   if (yieldFn) await yieldFn();
   ph('p1 rg:slab');
   const bridgeSlabMesh = buildBridgeSlabGeometry(roads, options);
@@ -5596,6 +5811,7 @@ export async function renderTileRoads(tileData, options, yieldFn) {
     tactileMesh,
     bluezoneMesh,
     pillarMesh,
+    embankmentMesh,
     pillarPositions,
     bridgeSlabMesh,
     bridgeGuardRailMesh,
@@ -6030,6 +6246,7 @@ export async function createRoadMeshes(roads, options, yieldFn) {
   if (result.tactileMesh)      meshes.push(result.tactileMesh);
   if (result.bluezoneMesh)     meshes.push(result.bluezoneMesh);
   if (result.pillarMesh) meshes.push(result.pillarMesh);
+  if (result.embankmentMesh) meshes.push(result.embankmentMesh);
   if (result.bridgeSlabMesh) meshes.push(result.bridgeSlabMesh);
   if (result.bridgeGuardRailMesh) meshes.push(result.bridgeGuardRailMesh);
   if (result.metalRailingMesh) meshes.push(result.metalRailingMesh);

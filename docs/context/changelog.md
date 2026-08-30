@@ -2903,3 +2903,19 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   same shape (a set built for one question reused to answer another): position filters running
   before the height test, rigid 30 m spacing in a dense grid, and the deck matching its own
   footprint in the ground-road set. Confirmed on screen.
+- **N-54 approach embankments** — the ~80 "floating roads" were re-measured before anything was
+  built, and the measurement overturned the plan. The standing theory was the LAYER MODEL
+  (`layer × LAYER_STEP` hoisting streets that cross nothing), which would have meant amending the
+  LOCKED vertical-model spec. `floatJustifyAudit.mjs` then `floatClassify.mjs` split the population:
+  of 34 drivable surface roads floating > 2 m, 13 have something passing beneath and have earned
+  their height; of the remaining 21 — **APPROACH 18, ORPHAN 3, TAG 0**. The layer model causes
+  ZERO of them. **The spec needs no change and the conversation it was going to require is moot.**
+  The 18 are bridge APPROACHES: the high end meets a real deck at exactly its own top height, so
+  the height is CORRECT and clamping them down would have torn 18 roads off the bridges they join.
+  What is missing is underneath them — the embankment — and this project has no fill geometry.
+  New `buildEmbankmentSkirtMeshes` (roadRenderer) + pure helpers in `map/embankment.js` (9 tests).
+  The split rule is physical and free: **something beneath → viaduct (pillars); clear ground →
+  embankment (retained skirt)**, both reading the identical beneath-test, capped at 9 m because
+  above that a city builds a viaduct rather than filling. Because a pillar was only ever BUILT on
+  clear ground, this adds no structure anywhere new — it changes what stands where columns already
+  stood. Reuses the trench retaining plate rather than a new asset. ⚠ NOT YET SEEN ON SCREEN.
