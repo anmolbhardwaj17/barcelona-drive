@@ -153,14 +153,41 @@ const PILLAR_NUDGES = [0, 3, -3, 6, -6, 9, -9, 12, -12];
 const _PILLAR_DEBUG = (() => {
   try { return new URLSearchParams(location.search).get('debug') === 'pillars'; } catch { return false; }
 })();
+/**
+ * ⚠ THESE ARE PER-TILE COUNTERS AND THAT MISLED A VERIFICATION (N-54).
+ * The build runs once per tile and each run overwrites the previous, so `_last*` describes
+ * WHICHEVER TILE FINISHED LAST — which, on a 14-tile spawn, is very often a quiet one. Reading
+ * `embanked: 0` off it and concluding "the feature emitted nothing" was wrong: it meant "the last
+ * tile had nothing", and the geometry was on screen at the time. So both counters now also carry a
+ * CUMULATIVE total across every tile built this session, which is the number that answers "did
+ * this feature do anything". Same D-23 lesson one level up: an instrument that cannot report the
+ * question you are actually asking is worse than none.
+ */
+function _accum(into, from) {
+  const out = into || { tiles: 0 };
+  out.tiles++;
+  for (const [k, v] of Object.entries(from)) {
+    if (typeof v !== 'number') continue;
+    // maxHeight is a MAXIMUM, not a total — summing it would be meaningless.
+    out[k] = k === 'maxHeight' ? Math.max(out[k] ?? 0, v) : (out[k] ?? 0) + v;
+  }
+  return out;
+}
+
 /** Last tile's pier accounting, readable on demand instead of printed. */
 let _lastPillarStats = null;
+let _cumPillarStats = null;
+let _cumEmbankStats = null;
 if (typeof window !== 'undefined') {
-  window._ddPillarStats = () => (_lastPillarStats ? { ..._lastPillarStats } : 'no tile built yet');
+  window._ddPillarStats = () => (_cumPillarStats
+    ? { allTiles: { ..._cumPillarStats }, lastTile: { ..._lastPillarStats } }
+    : 'no tile built yet');
   // N-54's counterpart. The two are read TOGETHER: a spot the pillar builder reports as `embanked`
   // must appear in the skirt's `embanked` too, and a disagreement between them means one of the
   // two beneath-tests drifted and a span is being held up by nothing.
-  window._ddEmbankStats = () => (getEmbankmentStats() ? { ...getEmbankmentStats() } : 'no tile built yet');
+  window._ddEmbankStats = () => (_cumEmbankStats
+    ? { allTiles: { ..._cumEmbankStats }, lastTile: { ...getEmbankmentStats() } }
+    : 'no tile built yet');
 }
 /** Concrete slab depth below bridge deck (m). */
 const SLAB_THICKNESS = 1.2;
@@ -3273,6 +3300,7 @@ function buildBridgePillarMeshes(roads, options, shared) {
   // buries the console the moment you fly anywhere — and the flag is easy to leave on by accident,
   // which is exactly what happened. `window._ddPillarStats()` gives the same numbers on demand.
   _lastPillarStats = { ...skip };
+  _cumPillarStats = _accum(_cumPillarStats, skip);
   if (_PILLAR_DEBUG) console.warn(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
@@ -3330,6 +3358,18 @@ const EMBANKMENT_STEP_M = 4.0;   // spacing of skirt cross-sections; set by how 
 const EMBANKMENT_MAX_H  = 9.0;   // above this it is a viaduct — keep the pillars
 const EMBANKMENT_BURY_M = 0.6;   // sink the wall foot, so a slightly-off terrain read never opens
                                  // a strip of daylight along the bottom of the wall
+// ── WHY THE WALL STARTS BELOW THE DECK (user-reported z-fighting, first drive) ─────────────────
+// Every road this feature targets is `isRamp`, and `buildBridgeSlabGeometry` treats `isRamp` as
+// elevated — so it already draws a SLAB_THICKNESS-deep band down from the deck at exactly the edge
+// this skirt occupies. Two coplanar vertical faces at the same edge is textbook z-fighting, and
+// the slab's material is an UNLIT MeshBasicMaterial 0xa9a49d, which is why the flicker reads as
+// white patches rather than as concrete.
+//
+// So the skirt starts at the slab's UNDERSIDE and the two stack instead of overlapping. The small
+// inward inset is belt-and-braces: the slab TAPERS at its ends, so its edge is not always exactly
+// where the full-width edge is, and a few centimetres of reveal reads as the shadow line a real
+// deck-on-wall joint has anyway.
+const EMBANKMENT_INSET_M = 0.05;
 
 let _lastEmbankStats = null;
 /** @returns {object|null} last tile's embankment counters — D-23 proof of work, on demand. */
@@ -3350,30 +3390,33 @@ function pushSkirtQuad(pos, uv, A, B, C, D, uA, uB) {
  * Build the two retaining faces (and the two end caps) for one contiguous embanked run.
  * @param {number} s first cross-section index of the run, {number} e the last.
  */
-function buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e) {
+function buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e, topDrop) {
+  // Pull an edge point toward the centreline and drop its top under the slab.
+  const nudge = (E, i) => {
+    const c = rs.pts[i];
+    const dx = c.x - E.x, dz = c.y - E.z;
+    const d = Math.hypot(dx, dz);
+    const k = d > 1e-6 ? EMBANKMENT_INSET_M / d : 0;
+    return { x: E.x + dx * k, y: E.y - topDrop, z: E.z + dz * k };
+  };
   let u = 0;
   for (let i = s; i < e; i++) {
-    const L0 = leftEdge[i], L1 = leftEdge[i + 1];
-    const R0 = rightEdge[i], R1 = rightEdge[i + 1];
+    const L0 = nudge(leftEdge[i], i), L1 = nudge(leftEdge[i + 1], i + 1);
+    const R0 = nudge(rightEdge[i], i), R1 = nudge(rightEdge[i + 1], i + 1);
     const b0 = groundY[i] - EMBANKMENT_BURY_M, b1 = groundY[i + 1] - EMBANKMENT_BURY_M;
     const du = Math.hypot(rs.pts[i + 1].x - rs.pts[i].x, rs.pts[i + 1].y - rs.pts[i].y);
-    pushSkirtQuad(pos, uv,
-      { x: L0.x, y: L0.y, z: L0.z }, { x: L1.x, y: L1.y, z: L1.z },
-      { x: L1.x, y: b1, z: L1.z },   { x: L0.x, y: b0, z: L0.z }, u, u + du);
-    pushSkirtQuad(pos, uv,
-      { x: R0.x, y: R0.y, z: R0.z }, { x: R1.x, y: R1.y, z: R1.z },
-      { x: R1.x, y: b1, z: R1.z },   { x: R0.x, y: b0, z: R0.z }, u, u + du);
+    pushSkirtQuad(pos, uv, L0, L1, { x: L1.x, y: b1, z: L1.z }, { x: L0.x, y: b0, z: L0.z }, u, u + du);
+    pushSkirtQuad(pos, uv, R0, R1, { x: R1.x, y: b1, z: R1.z }, { x: R0.x, y: b0, z: R0.z }, u, u + du);
     u += du;
   }
   // End caps. A run stops where the deck drops under 2 m or where something appears beneath it,
   // and at that cross-section the wall is still ~2 m tall — without a cap you look straight into
   // the hollow between the two faces.
   for (const i of [s, e]) {
-    const L = leftEdge[i], R = rightEdge[i], b = groundY[i] - EMBANKMENT_BURY_M;
+    const L = nudge(leftEdge[i], i), R = nudge(rightEdge[i], i);
+    const b = groundY[i] - EMBANKMENT_BURY_M;
     const w = Math.hypot(R.x - L.x, R.z - L.z);
-    pushSkirtQuad(pos, uv,
-      { x: L.x, y: L.y, z: L.z }, { x: R.x, y: R.y, z: R.z },
-      { x: R.x, y: b, z: R.z },   { x: L.x, y: b, z: L.z }, 0, w);
+    pushSkirtQuad(pos, uv, L, R, { x: R.x, y: b, z: R.z }, { x: L.x, y: b, z: L.z }, 0, w);
   }
 }
 
@@ -3421,6 +3464,11 @@ function buildEmbankmentSkirtMeshes(roads, options, shared) {
     if (!rs) continue;
     const edges = getRibbonEdgeVerts(rs.pts, pavedWidth(road), rs.heights);   // R-W1
     if (!edges) continue;
+    // The SAME condition buildBridgeSlabGeometry uses. Read from there, never re-derived: if the
+    // slab's notion of "elevated" ever changes, a copy here would silently start overlapping again.
+    const hasSlab = road.bridge || (road.layer != null && road.layer > 0)
+      || road.isRamp || road.crossesTrench === true;
+    const topDrop = hasSlab ? SLAB_THICKNESS : 0;
     st.considered++;
     const { leftEdge, rightEdge } = edges;
     const n = rs.pts.length;
@@ -3448,13 +3496,14 @@ function buildEmbankmentSkirtMeshes(roads, options, shared) {
     }
 
     for (const { s, e } of findEmbankedRuns(ok)) {
-      buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e);
+      buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e, topDrop);
       st.runs++;
     }
   }
 
   st.tris = pos.length / 9;
   _lastEmbankStats = { ...st };
+  _cumEmbankStats = _accum(_cumEmbankStats, st);
   if (pos.length === 0) return null;
 
   const geom = new THREE.BufferGeometry();
