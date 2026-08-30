@@ -151,6 +151,11 @@ const PILLAR_NUDGES = [0, 3, -3, 6, -6, 9, -9, 12, -12];
 const _PILLAR_DEBUG = (() => {
   try { return new URLSearchParams(location.search).get('debug') === 'pillars'; } catch { return false; }
 })();
+/** Last tile's pier accounting, readable on demand instead of printed. */
+let _lastPillarStats = null;
+if (typeof window !== 'undefined') {
+  window._ddPillarStats = () => (_lastPillarStats ? { ..._lastPillarStats } : 'no tile built yet');
+}
 /** Concrete slab depth below bridge deck (m). */
 const SLAB_THICKNESS = 1.2;
 /** Bridge structures (slab, guard rails, pillars) hidden below this height above ground (m). */
@@ -3231,11 +3236,10 @@ function buildBridgePillarMeshes(roads, options) {
   // could not report was the one that happened: no spot was ever considered. An instrument that
   // goes quiet in the failing case is worse than none — it reads as "feature absent" when it means
   // "never reached".
-  // console.WARN, not console.log — every diagnostic that reaches the console in this project uses
-  // warn (`[perf]`, `[quality]`, `[facadeArray]`); a plain log printed nothing at all.
-  //
-  // Behind `?debug=pillars` because it fires PER TILE: left on it buries the console the moment you
-  // fly anywhere, which is the state the boot-chatter flag exists to prevent (CLAUDE.md).
+  // Kept as a RETURNED counter, not a console line. It fires per tile, so even behind a flag it
+  // buries the console the moment you fly anywhere — and the flag is easy to leave on by accident,
+  // which is exactly what happened. `window._ddPillarStats()` gives the same numbers on demand.
+  _lastPillarStats = { ...skip };
   if (_PILLAR_DEBUG) console.warn(`[pillars] roads in ${skip.roadsIn}, past gate ${skip.passedGate}, `
     + `no heights ${skip.noHeights} | spots ${skip.candidates} — built ${skip.built}, `
     + `onGroundRoad ${skip.onGroundRoad}, inTrench ${skip.inTrench}, `
