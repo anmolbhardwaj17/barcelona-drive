@@ -28,6 +28,8 @@ OUT = 'frontend/public/textures/roof'
 SIZE = 1024
 SPAN_M = 4.0                 # MUST match ROOF_REPEAT_M in roofArray.js and buildingWorker
 NORMALIZE_VERSION = 1
+# Write the calibrated normal maps? Off: nothing samples them yet (see the note at the save).
+WRITE_NORMALS = '--with-normals' in sys.argv
 SOURCE_TYPE = 'ai'           # k = 0.35
 
 # Per-surface expectations. The plausible band is what the drawn feature SHOULD measure at a 4 m
@@ -121,7 +123,13 @@ def main(paths):
         print(f'   |N.xy| {nb:.3f}->{na:.3f} band {nband} {"OK" if n_ok else "OUT-OF-BAND"}')
 
         Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_albedo.png')
-        Image.fromarray((np.clip(nrm, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_normal.png')
+        # ⚠ NORMALS ARE COMPUTED AND CHECKED BUT NOT WRITTEN. `roofArray` binds an albedo array only —
+        # nothing in the roof material samples a normal map — and the three normal PNGs were 7.6 MB
+        # of the project's <=24 MB art budget doing nothing. They are calibrated above so the number
+        # is still reported, and a single `--with-normals` re-run produces them the moment the
+        # material grows a slot for them.
+        if WRITE_NORMALS:
+            Image.fromarray((np.clip(nrm, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_normal.png')
         manifest['surfaces'].append({'name': name, 'spanM': SPAN_M,
             'texelsPerM': round(SIZE / SPAN_M, 1), 'surfaceClass': sclass,
             'featureMm': round(float(mm), 1), 'featurePlausible': bool(plaus),
