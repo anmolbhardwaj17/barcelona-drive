@@ -100,8 +100,21 @@ def main(paths):
         # D-31 guard: whatever the source did, these ship desaturated. A plate that keeps chroma
         # multiplies the vertex tint twice.
         lum = rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
+        # ── D-31 IS ABOUT BRIGHTNESS AS WELL AS CHROMA, AND I MISSED HALF OF IT ──────────────────
+        # The plates first shipped at L* 48-58 — honest mid-grey — and every roof in the city went
+        # dark maroon. Roof colour is the VERTEX colour MULTIPLIED by this plate, so a mid-grey plate
+        # halves the brightness of a palette that was tuned against the near-WHITE procedural
+        # placeholder (#eceae6, L* ~93). "Near-neutral" means near-white: this layer carries
+        # RELATIVE detail, and its absolute level must sit close to 1.0 or it re-tints the city.
+        #
+        # So: normalise the mean to PLATE_MEAN and compress contrast around it. Detail survives,
+        # multiplication stops darkening.
+        PLATE_MEAN, PLATE_CONTRAST = 0.88, 0.55
+        m = float(lum.mean())
+        lum = np.clip(PLATE_MEAN + (lum - m) * PLATE_CONTRAST, 0.0, 1.0)
         rgb = np.repeat(lum[..., None], 3, axis=2)
-        print(f'   L* {st["src_L_mean"]:.1f}->{st["L_mean"]:.1f}  desaturated to luminance (D-31)')
+        print(f'   L* {st["src_L_mean"]:.1f}->{st["L_mean"]:.1f}; plate mean {m:.2f}->{lum.mean():.2f} '
+              f'contrast x{PLATE_CONTRAST} (D-31: near-WHITE, not mid-grey)')
 
         nrm = AN.height_normal(rgb, strength=3.0 if name != 'pantile' else 5.0)
         nrm, nb, na, n_ok = AN.step4_calibrate_normal(nrm, nband)

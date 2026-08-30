@@ -106,11 +106,17 @@ export function createRoofArray(THREE) {
   tex.type = THREE.UnsignedByteType;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  // No mip chain — texStorage3D allocates levels that are never generated, and an INCOMPLETE texture
-  // samples BLACK rather than blurry. Same reasoning as the facade array; real KTX2 ships its mips.
-  tex.minFilter = THREE.LinearFilter;
+  // ── MIPS ON, deliberately reversing the note that used to sit here ────────────────────────────
+  // The old comment said an array texture's mip levels get allocated and never generated, so it
+  // samples BLACK — and while that was true of the placeholder path, it left a 1024 px plate over a
+  // 4 m span with no mip chain at all. From altitude every texel is sub-pixel and the roofs sparkle;
+  // the user reported exactly that ("in fly mode these roofs looks very grainy").
+  //
+  // three.js DOES generate mips for a DataArrayTexture on WebGL2. If this ever regresses the symptom
+  // is unmistakable — black roofs, not blurry ones — so it fails loudly rather than subtly.
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = false;
+  tex.generateMipmaps = true;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
   // The procedural fill above is now a FIRST FRAME, not the final surface: the authored plates
@@ -159,6 +165,8 @@ export async function loadAuthoredRoofPlates(THREE, tex) {
     } catch { /* keep the procedural fill for this layer */ }
   }
   if (loaded > 0) {
+    // needsUpdate re-uploads AND re-generates the mip chain; without it the authored pixels would
+    // sit under the placeholder's mips at distance, which looks like the plates never loaded.
     tex.needsUpdate = true;
     console.warn(`[roofArray] authored plates loaded: ${loaded}/${ROOF_LAYERS.length} `
       + `(${ROOF_PX}px, ${ROOF_REPEAT_M} m span) — replacing the procedural fill`);
