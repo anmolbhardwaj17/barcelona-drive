@@ -2919,3 +2919,21 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   above that a city builds a viaduct rather than filling. Because a pillar was only ever BUILT on
   clear ground, this adds no structure anywhere new — it changes what stands where columns already
   stood. Reuses the trench retaining plate rather than a new asset. ⚠ NOT YET SEEN ON SCREEN.
+- **N-55 dead-end metric correction — and a decision NOT to build.** The 49 → 56 regression from
+  the N-52 overlap gates was going to be paid back with an endpoint-WELD rule (where a connector is
+  refused because a road already lies along its path, join the topology instead of drawing a second
+  ribbon). Counting first killed it twice over:
+  1. **The metric counts correct endings as defects.** `deadEndTriage` scores wrongness from class,
+     name-ahead, width and length, and never asks whether the road should continue AS A ROAD. Of
+     1,180 unjoined drivable ends: **30 are tunnel portals** (the road continues underground) and
+     **249 become pedestrian** (Barcelona pedestrianises street-ends; the top-scored defect in the
+     city, `Carrer d'Esteve Terradas` at 12, continues as a *footway* of the same name). The old
+     top-of-list was mostly these, so "score ≥ 8 = 56" was never 56 defects.
+  2. **The weld population is 14**, nearly all unnamed service roads dying into pedestrian plazas —
+     several of which are correct refusals. Building for that is N-48 again.
+  Corrected number: **258** ends have a drivable road ahead past the hairline gate, but 250 of those
+  rest on "same class, other name" — two unnamed service roads in adjacent car parks are both
+  `service`, which is not evidence. **Name-backed, the safely actionable set is 8**, refused mostly
+  by rule 9's 53° cone, and relaxing that gate risks reintroducing the z-fighting the gates fixed.
+  **Dead-end work is closed**; new tool `deadEndCause.mjs`, and the fixer's `rejectedOverlap`
+  counter is split into `rejectedHairline` / `rejectedOnExistingRoad` so a refusal names its cause.

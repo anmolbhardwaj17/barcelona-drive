@@ -309,7 +309,7 @@ const LINK_NODE_SPACING_M = 5;          // ~25 deg
 function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
   const stats = { pairsConsidered: 0, freeEnds: 0, created: 0, shortUnnamedLinks: 0,
                   rejectedName: 0, rejectedAim: 0, rejectedCrossing: 0, nodesAdded: 0,
-                  rejectedOverlap: 0 };
+                  rejectedHairline: 0, rejectedOnExistingRoad: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && DRIVABLE_FOR_LINK.has(w.highwayType));
@@ -375,9 +375,16 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       const tx = dx / gap, tz = dz / gap;
       if ((a.dx * tx + a.dz * tz) < LINK_COS) { stats.rejectedAim++; continue; }
       if ((b.dx * -tx + b.dz * -tz) < LINK_COS) { stats.rejectedAim++; continue; }
-      if (!hasRealSurfaceGap(gap, a.way, b.way)
-          || lineLiesOnExistingRoad(a.lat, a.lon, b.lat, b.lon, ways, nodeMap, a.way.id, b.way.id)) {
-        stats.rejectedOverlap++; continue;
+      // ── SPLIT, BECAUSE ONE COUNTER CANNOT NAME A CAUSE (D-23, one level down) ────────────────
+      // These two gates reject for opposite reasons and want opposite fixes. `hairline` means the
+      // ends are already touching and no connector is wanted at all. `onExistingRoad` means a road
+      // ALREADY RUNS along the path — the street does continue, it just continues as a different
+      // way, so what is missing is a topological JOIN, not a new ribbon. Counted together, those
+      // two are indistinguishable, and the recovery plan for the 49 -> 56 dead-end regression
+      // depends entirely on which one dominates.
+      if (!hasRealSurfaceGap(gap, a.way, b.way)) { stats.rejectedHairline++; continue; }
+      if (lineLiesOnExistingRoad(a.lat, a.lon, b.lat, b.lon, ways, nodeMap, a.way.id, b.way.id)) {
+        stats.rejectedOnExistingRoad++; continue;
       }
       if (crossesAnyWay(a.lat, a.lon, b.lat, b.lon, a.way.id, b.way.id)) {
         stats.rejectedCrossing++; continue;
@@ -1007,7 +1014,7 @@ const MERGE_MAX_CONNECT_M = 22;  // longest connector worth drawing to the neare
 function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
   const stats = { freeEnds: 0, beside: 0, created: 0, nodesAdded: 0,
                   rejectedLayer: 0, rejectedAim: 0, rejectedFar: 0, rejectedCrossing: 0,
-                  rejectedOverlap: 0 };
+                  rejectedHairline: 0, rejectedOnExistingRoad: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && MERGEABLE.has(w.highwayType));
@@ -1059,10 +1066,10 @@ function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
       if (best.targetD > MERGE_MAX_CONNECT_M) { stats.rejectedFar++; continue; }
       if (best.targetNid === nid) continue;
       // N-52: if the two ribbons already overlap there is no gap to fill, only a duplicate to draw.
-      if (!hasRealSurfaceGap(best.targetD, w, best.o)
-          || lineLiesOnExistingRoad(e.lat, e.lon, nodeMap.get(best.targetNid).lat,
-                                    nodeMap.get(best.targetNid).lon, ways, nodeMap, w.id, best.o.id)) {
-        stats.rejectedOverlap++; continue;
+      if (!hasRealSurfaceGap(best.targetD, w, best.o)) { stats.rejectedHairline++; continue; }
+      if (lineLiesOnExistingRoad(e.lat, e.lon, nodeMap.get(best.targetNid).lat,
+          nodeMap.get(best.targetNid).lon, ways, nodeMap, w.id, best.o.id)) {
+        stats.rejectedOnExistingRoad++; continue;
       }
 
       const t = nodeMap.get(best.targetNid);
@@ -1140,7 +1147,7 @@ const RESUME_COS = 0.60;   // the stub must actually point at it, not merely be 
 
 function rule9_namedStreetResumes(wayMap, nodeToWays, nodeMap) {
   const stats = { freeEnds: 0, named: 0, candidates: 0, created: 0, nodesAdded: 0,
-                  rejectedAim: 0, rejectedCrossing: 0, rejectedClass: 0, rejectedOverlap: 0 };
+                  rejectedAim: 0, rejectedCrossing: 0, rejectedClass: 0, rejectedHairline: 0, rejectedOnExistingRoad: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && MERGEABLE.has(w.highwayType));
@@ -1205,9 +1212,9 @@ function rule9_namedStreetResumes(wayMap, nodeToWays, nodeMap) {
       }
       if (!best) continue;
       stats.candidates++;
-      if (!hasRealSurfaceGap(best.dist, w, best.o)
-          || lineLiesOnExistingRoad(e.lat, e.lon, best.q.lat, best.q.lon, ways, nodeMap, w.id, best.o.id)) {
-        stats.rejectedOverlap++; continue;
+      if (!hasRealSurfaceGap(best.dist, w, best.o)) { stats.rejectedHairline++; continue; }
+      if (lineLiesOnExistingRoad(e.lat, e.lon, best.q.lat, best.q.lon, ways, nodeMap, w.id, best.o.id)) {
+        stats.rejectedOnExistingRoad++; continue;
       }
       if (crossesAnyWay(e.lat, e.lon, best.q.lat, best.q.lon, w.id, best.o.id)) {
         stats.rejectedCrossing++; continue;
