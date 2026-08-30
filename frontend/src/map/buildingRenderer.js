@@ -1218,6 +1218,8 @@ export function renderTileBuildings(tileData, options) {
   const acUnitGeoms = [];       // AC outdoor unit boxes
   const acFanGeoms = [];        // AC fan circles (dark disc on front face)
   const parapetGeoms = [];      // parapet wall on roof edge
+  const terratGeoms = [];       // N-53: Barcelona rooftop terrace — stair hut, chimneys
+  const terratLineGeoms = [];   // N-53: washing-line posts and cords
   const pillarGeoms = [];       // ground floor columns
   const signboardGeoms = [];    // signboard backing panels
   const barExtrudeGeoms = [];   // random decorative bar extrusions
@@ -1467,6 +1469,72 @@ export function renderTileBuildings(tileData, options) {
           if (!pointInFootprint(tx, tz, fp)) continue;
           const s = 0.55 + (deterministicIndex(b.id * 11 + ti + gi * 7 + 41) % 55) / 100;
           tankInstances.push({ x: tx, y: roofY, z: tz, scale: s });
+        }
+      }
+    }
+
+    // ── N-53 · THE BARCELONA TERRAT ───────────────────────────────────────────────────────────
+    //
+    // `buildingRenderer` already says it, two hundred lines up: "Barcelona rooftops are terraces,
+    // not tank farms." The Delhi tank farm was removed and NOTHING replaced it, so 40,607 of the
+    // city's 40,685 buildings — 99.8%, median height 18 m — present a bare plane to anyone above
+    // street level. Roofs are the largest untextured, undressed surface in the game.
+    //
+    // What makes a terrat read as Barcelona, in order of how much it carries:
+    //   · the CASETÓ, the stair bulkhead — on nearly every block, and the one silhouette that says
+    //     "you can walk up here"
+    //   · chimney and vent stacks, clustered rather than spread
+    //   · washing lines — the most recognisable rooftop feature in the city
+    //
+    // Deterministic on the building id like every other detail here, so a roof does not reshuffle
+    // between frames or between machines. Everything is placed with `pointInFootprint`, because a
+    // stair hut hanging off the edge of its own building is worse than no stair hut.
+    if (b.height > 8 && b.footprint?.length >= 3 && (b.roofShape || 'flat') === 'flat') {
+      const fp = b.footprint;
+      let tmnX = Infinity, tmxX = -Infinity, tmnZ = Infinity, tmxZ = -Infinity;
+      for (const p of fp) {
+        if (p.x < tmnX) tmnX = p.x; if (p.x > tmxX) tmxX = p.x;
+        if (p.y < tmnZ) tmnZ = p.y; if (p.y > tmxZ) tmxZ = p.y;
+      }
+      const rY = baseY + b.height + ROOF_Y_OFFSET;
+      const rW = tmxX - tmnX, rD = tmnZ === tmxZ ? 0 : tmxZ - tmnZ;
+      // A box on the roof, axis-aligned. makeBoxGeom draws a wall between two points, so a box is
+      // just a wall of the right thickness — reusing it keeps one geometry path, not two.
+      const roofBox = (cx, cz, w, d, h, out) => {
+        out.push(makeBoxGeom(cx - w / 2, cz, cx + w / 2, cz, 0, 1, d, rY, h));
+      };
+      // ── casetó: one stair hut, set in from the edge ──
+      if (rW > 7 && rD > 7 && deterministicIndex(b.id + 71) % 100 < 68) {
+        const cx = tmnX + rW * (0.3 + (deterministicIndex(b.id * 3 + 7) % 40) / 100);
+        const cz = tmnZ + rD * (0.3 + (deterministicIndex(b.id * 3 + 19) % 40) / 100);
+        if (pointInFootprint(cx, cz, fp)) {
+          const w = 2.2 + (deterministicIndex(b.id + 5) % 12) / 10;
+          roofBox(cx, cz, w, 2.4, 2.3, terratGeoms);
+        }
+      }
+      // ── chimney / vent stacks: a cluster, not a scatter ──
+      if (rW > 5 && rD > 5) {
+        const stacks = 2 + deterministicIndex(b.id + 23) % 3;
+        const hx = tmnX + rW * (0.2 + (deterministicIndex(b.id * 7 + 3) % 60) / 100);
+        const hz = tmnZ + rD * (0.2 + (deterministicIndex(b.id * 7 + 29) % 60) / 100);
+        for (let i = 0; i < stacks; i++) {
+          const ang = (i / stacks) * Math.PI * 2 + deterministicIndex(b.id + i) * 0.4;
+          const cx = hx + Math.cos(ang) * (0.7 + (deterministicIndex(b.id + i * 13) % 90) / 100);
+          const cz = hz + Math.sin(ang) * (0.7 + (deterministicIndex(b.id + i * 17) % 90) / 100);
+          if (!pointInFootprint(cx, cz, fp)) continue;
+          roofBox(cx, cz, 0.45, 0.45, 0.9 + (deterministicIndex(b.id + i * 5) % 70) / 100, terratGeoms);
+        }
+      }
+      // ── washing line: two posts and the cords between them ──
+      if (rW > 9 && rD > 9 && deterministicIndex(b.id + 37) % 100 < 42) {
+        const lz = tmnZ + rD * (0.35 + (deterministicIndex(b.id * 11 + 2) % 30) / 100);
+        const x0 = tmnX + rW * 0.28, x1 = tmnX + rW * 0.72;
+        if (pointInFootprint(x0, lz, fp) && pointInFootprint(x1, lz, fp)) {
+          roofBox(x0, lz, 0.12, 0.12, 1.6, terratLineGeoms);
+          roofBox(x1, lz, 0.12, 0.12, 1.6, terratLineGeoms);
+          for (const ch of [1.25, 1.5]) {
+            terratLineGeoms.push(makeBoxGeom(x0, lz, x1, lz, 0, 1, 0.035, rY + ch, 0.035));
+          }
         }
       }
     }
@@ -2364,6 +2432,9 @@ export function renderTileBuildings(tileData, options) {
       { geoms: parapetGeoms,     color: 0x9A9590 },
       { geoms: pillarGeoms,      color: 0xC0BCB6 },
       { geoms: barExtrudeGeoms,  color: 0xA8A4A0 },
+      // N-53: stair huts and chimney stacks are the same render-cost-free concrete as the parapets
+      // they stand behind, so they ride the same merged mesh rather than adding a draw call.
+      { geoms: terratGeoms,      color: 0xB0AAA0 },
     ].filter(g => g.geoms.length > 0);
     const m = mergeColoredGroups(concreteGroups, shadowsOn, true);
     if (m) meshes.push(m);
@@ -2376,6 +2447,8 @@ export function renderTileBuildings(tileData, options) {
       { geoms: gateGeoms,       color: 0x2E2C2A },
       { geoms: acFanGeoms,      color: 0x2A3A4A },
       { geoms: flagPoleGeoms,   color: 0x5A5550 },
+      // N-53: washing-line posts and cords — thin, dark, and no shadow, like the railings.
+      { geoms: terratLineGeoms, color: 0x4A4642 },
     ].filter(g => g.geoms.length > 0);
     const m = mergeColoredGroups(metalGroups, shadowsOn, false);
     if (m) meshes.push(m);
