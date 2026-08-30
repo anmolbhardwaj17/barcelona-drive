@@ -308,7 +308,8 @@ const LINK_NODE_SPACING_M = 5;          // ~25 deg
 
 function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
   const stats = { pairsConsidered: 0, freeEnds: 0, created: 0, shortUnnamedLinks: 0,
-                  rejectedName: 0, rejectedAim: 0, rejectedCrossing: 0, nodesAdded: 0 };
+                  rejectedName: 0, rejectedAim: 0, rejectedCrossing: 0, nodesAdded: 0,
+                  rejectedOverlap: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && DRIVABLE_FOR_LINK.has(w.highwayType));
@@ -374,6 +375,7 @@ function rule7_missingLinkSynthesiser(wayMap, nodeToWays, nodeMap) {
       const tx = dx / gap, tz = dz / gap;
       if ((a.dx * tx + a.dz * tz) < LINK_COS) { stats.rejectedAim++; continue; }
       if ((b.dx * -tx + b.dz * -tz) < LINK_COS) { stats.rejectedAim++; continue; }
+      if (!hasRealSurfaceGap(gap, a.way, b.way)) { stats.rejectedOverlap++; continue; }
       if (crossesAnyWay(a.lat, a.lon, b.lat, b.lon, a.way.id, b.way.id)) {
         stats.rejectedCrossing++; continue;
       }
@@ -894,6 +896,28 @@ function rule6_groundRoadOffset(wayMap, nodeToWays, nodeMap) {
  * @returns {{ rule4, rule5, rule1, rule6 }} counts of fixes applied per rule
  */
 
+
+/**
+ * N-52 · IS THERE ACTUALLY A GAP IN THE ROAD SURFACE?
+ *
+ * Measured on the shipped tiles after rules 8 and 9 first ran: **313 of 366 synthetic at-grade
+ * connectors (86%) lay more than half inside an existing road ribbon at the same height, several of
+ * them 100%.** That is what the user saw as z-fighting and "choppy" roads — a second coplanar
+ * ribbon drawn over a carriageway that was already continuous.
+ *
+ * The cause is measuring the wrong gap. Two carriageways whose CENTRELINES are 8 m apart, each 12 m
+ * wide, already touch: the surface is continuous and only the topology is missing. Connecting them
+ * adds no drivable ground — the car could already cross — and costs a duplicate ribbon.
+ *
+ * Exactly the N-1 lesson repeating: centreline distance is not ribbon distance.
+ */
+function hasRealSurfaceGap(gapM, wayA, wayB) {
+  const wA = Number.isFinite(wayA?.width) && wayA.width > 0 ? wayA.width : 6;
+  const wB = Number.isFinite(wayB?.width) && wayB.width > 0 ? wayB.width : 6;
+  // Half of each ribbon, plus a metre so a hairline gap does not qualify either.
+  return gapM > (wA + wB) / 2 + 1;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // RULE 8 · A SLIP ROAD THAT DIES BESIDE THE ROAD IT SHOULD JOIN
 // ═══════════════════════════════════════════════════════════════════════════
@@ -939,7 +963,8 @@ const MERGE_MAX_CONNECT_M = 22;  // longest connector worth drawing to the neare
 
 function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
   const stats = { freeEnds: 0, beside: 0, created: 0, nodesAdded: 0,
-                  rejectedLayer: 0, rejectedAim: 0, rejectedFar: 0, rejectedCrossing: 0 };
+                  rejectedLayer: 0, rejectedAim: 0, rejectedFar: 0, rejectedCrossing: 0,
+                  rejectedOverlap: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && MERGEABLE.has(w.highwayType));
@@ -990,6 +1015,8 @@ function rule8_stubMergeConnector(wayMap, nodeToWays, nodeMap) {
       stats.beside++;
       if (best.targetD > MERGE_MAX_CONNECT_M) { stats.rejectedFar++; continue; }
       if (best.targetNid === nid) continue;
+      // N-52: if the two ribbons already overlap there is no gap to fill, only a duplicate to draw.
+      if (!hasRealSurfaceGap(best.targetD, w, best.o)) { stats.rejectedOverlap++; continue; }
 
       const t = nodeMap.get(best.targetNid);
       if (!t) continue;
@@ -1066,7 +1093,7 @@ const RESUME_COS = 0.60;   // the stub must actually point at it, not merely be 
 
 function rule9_namedStreetResumes(wayMap, nodeToWays, nodeMap) {
   const stats = { freeEnds: 0, named: 0, candidates: 0, created: 0, nodesAdded: 0,
-                  rejectedAim: 0, rejectedCrossing: 0, rejectedClass: 0 };
+                  rejectedAim: 0, rejectedCrossing: 0, rejectedClass: 0, rejectedOverlap: 0 };
 
   const ways = [...wayMap.values()].filter((w) =>
     w.nodeIds && w.nodeIds.length >= 2 && MERGEABLE.has(w.highwayType));
@@ -1131,6 +1158,7 @@ function rule9_namedStreetResumes(wayMap, nodeToWays, nodeMap) {
       }
       if (!best) continue;
       stats.candidates++;
+      if (!hasRealSurfaceGap(best.dist, w, best.o)) { stats.rejectedOverlap++; continue; }
       if (crossesAnyWay(e.lat, e.lon, best.q.lat, best.q.lon, w.id, best.o.id)) {
         stats.rejectedCrossing++; continue;
       }

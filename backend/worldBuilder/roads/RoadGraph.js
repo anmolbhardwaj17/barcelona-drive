@@ -25,6 +25,10 @@ export function buildFromWays(roads, nodeMap) {
       layer: road.layer,
       highwayType: road.highwayType,
       closedLoop: road.closedLoop,
+      // N-52: the fixer needs the DRAWN width to tell a centreline gap from a ribbon gap. Without
+      // it every connector rule reasons about centrelines and happily lays a second ribbon on top
+      // of a road that was already there.
+      width: road.width,
       points: road.points,
     });
 
