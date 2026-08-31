@@ -108,7 +108,8 @@ export function getKTX2Texture(url, opts = {}) {
 }
 
 /** The ONE place sampler state is decided. Never set these at a call site. */
-export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso, wrapS, wrapT } = {}) {
+export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso, wrapS, wrapT,
+                                          offset, repeat } = {}) {
   if (!tex) return tex;
   tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   // `tiling` sets both axes; wrapS/wrapT override one axis each. The equirectangular sky needs the
@@ -119,6 +120,19 @@ export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso, wra
   tex.wrapS = wrapS ?? dflt;
   tex.wrapT = wrapT ?? dflt;
   tex.anisotropy = Math.min(aniso ?? 8, _maxAniso);
+  // ── ATLAS SUB-RECTS BELONG HERE, NOT AT THE CALL SITE ────────────────────────────────────────
+  // A call site that sets `offset`/`repeat` on a handle from getKTX2TextureSync loses them: the
+  // load copies the cached texture over the handle, and Texture.copy carries offset/repeat with it
+  // — the clobber this file's header already warns about. Routing them through the policy means
+  // they are re-applied AFTER that copy, which is the only point at which they survive.
+  //
+  // Cloning the handle instead is worse and was tried: the handle starts as an EMPTY
+  // CompressedTexture, so `clone()` before the fetch lands throws
+  // `Cannot read properties of undefined (reading 'slice')` inside `copy()` — three tiles failed to
+  // build that way. Each cell takes its own handle instead; `copy` carries `source` across, so they
+  // still share one GPU upload.
+  if (offset) tex.offset.set(offset[0], offset[1]);
+  if (repeat) tex.repeat.set(repeat[0], repeat[1]);
   // NOTE: flipY is deliberately NOT touched for compressed textures — WebGL ignores
   // UNPACK_FLIP_Y_WEBGL for them, so it must be handled at ENCODE time, not here.
   tex.needsUpdate = true;
@@ -145,7 +159,13 @@ export function applySamplerPolicy(tex, { srgb = true, tiling = true, aniso, wra
 export function getKTX2TextureSync(url, opts = {}) {
   const tex = new THREE.CompressedTexture();
   getKTX2Texture(url, opts)
-    .then((loaded) => { tex.copy(loaded); tex.needsUpdate = true; })
+    .then((loaded) => {
+      tex.copy(loaded);
+      // Re-apply per-CALL state the copy just overwrote from the shared cached texture. Without
+      // this, two call sites asking for different sub-rects of one atlas both get the cache's.
+      applySamplerPolicy(tex, opts);
+      tex.needsUpdate = true;
+    })
     .catch((e) => console.error('[assets] KTX2 load failed for %s', url, e));
   return tex;
 }

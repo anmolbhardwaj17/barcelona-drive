@@ -37,16 +37,25 @@ let _matForecourtBand, _matForecourtTrim, _matForecourtRoof,
 // v = 0.5..1.0. Getting that backwards swaps steel for concrete and red for dark metal — visible
 // but easy to mis-read as "the atlas is wrong" rather than "the offset is flipped".
 const FURNITURE_ATLAS = '/textures/urban/furniture_atlas_albedo.ktx2';
-let _atlasBase = null;
-/** @param {number} col 0|1 @param {number} row 0=top row of the image */
+/**
+ * One handle per cell. NOT a clone of a shared handle — `getKTX2TextureSync` hands back an EMPTY
+ * CompressedTexture and fills it when the fetch lands, so cloning it immediately throws
+ * `Cannot read properties of undefined (reading 'slice')` inside `copy()`. That shipped and failed
+ * three tile builds before the console showed it.
+ *
+ * `offset`/`repeat` go through the loader's sampler policy so they are re-applied after the load
+ * copies the cached texture over this handle — set here they would simply be overwritten. The four
+ * handles still share ONE GPU upload, because `copy` carries `source` across.
+ *
+ * @param {number} col 0|1 @param {number} row 0 = TOP row of the image
+ */
 function atlasCell(col, row) {
-  if (!_atlasBase) _atlasBase = getKTX2TextureSync(FURNITURE_ATLAS, { srgb: true, tiling: false });
-  const t = _atlasBase.clone();
-  t.needsUpdate = true;
-  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;   // a cell must never bleed into its neighbour
-  t.repeat.set(0.5, 0.5);
-  t.offset.set(col * 0.5, (1 - row) * 0.5);
-  return t;
+  return getKTX2TextureSync(FURNITURE_ATLAS, {
+    srgb: true,
+    tiling: false,                       // a cell must never bleed into its neighbour
+    repeat: [0.5, 0.5],
+    offset: [col * 0.5, (1 - row) * 0.5],
+  });
 }
 
 // `color` goes WHITE on every material that gains a map: the cell carries the tone (steel L* 58,
