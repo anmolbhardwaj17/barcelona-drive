@@ -70,7 +70,6 @@ const CSS = `
 .dd-mm-cash .lbl { font-size:9px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--e-dim); }
 .dd-mm-cash .amt { font:700 20px 'Inter',system-ui,sans-serif; color:var(--e-accent); letter-spacing:0.04em;
   font-variant-numeric:tabular-nums; line-height:1; }
-.dd-mm-topright { display:flex; align-items:center; gap:10px; }
 /* Tabs, not a second screen. GARAGE and SETTINGS are two views of one menu — the whole reason
    the ESC overlay was folded in here was that two menus with two looks answering one key is
    duplication, not depth. */
@@ -140,10 +139,19 @@ const CSS = `
 .dd-mm-stage canvas { position:absolute; inset:0; }
 .dd-mm-stage::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:8px; text-align:center;
   font-size:10px; font-weight:700; letter-spacing:0.22em; color:var(--e-dim); opacity:.7; pointer-events:none; }
-.dd-mm-garage { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px;
+/* Paint sits ABOVE the car as a thin bar. Below the stage it was a full-width block competing with
+   the car for the column's height; the swatches are a strip, so they get a strip. */
+.dd-mm-paintbar { flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:8px 13px;
+  background:var(--e-plate); border:1px solid var(--e-line); border-bottom:none; }
+.dd-mm-paintbar .lbl { font-size:9px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase;
+  color:var(--e-dim); flex:0 0 auto; }
+.dd-mm-paint { display:flex; align-items:center; gap:7px; min-width:0; flex-wrap:wrap; }
+/* Higher specificity than escMenu's own #dd-car-color-panel rule, so the swatches shrink to bar size
+   here without changing them anywhere else. */
+#dd-mm .dd-mm-paint > div[style*="50%"] { width:26px !important; height:26px !important; }
+.dd-mm-garage { flex:0 0 auto; display:flex; align-items:center; justify-content:center;
   padding:12px 14px; background:var(--e-plate); border:1px solid var(--e-line); border-top:none; }
-.dd-mm-paint { display:flex; align-items:center; gap:10px; min-width:0; flex-wrap:wrap; }
-.dd-mm-drive { flex:0 0 auto; padding:13px 34px; font-size:13px; letter-spacing:0.2em; }
+.dd-mm-drive { flex:0 0 auto; padding:13px 44px; font-size:13px; letter-spacing:0.2em; }
 
 /* ── RIGHT: the city map ── */
 .dd-mm-mapwrap { flex:0 0 auto; position:relative; background:#10151b; border:1px solid var(--e-line); }
@@ -157,8 +165,12 @@ const CSS = `
 .dd-mm-place:hover { color:var(--e-text); background:linear-gradient(180deg,#242d38,#1b222b); }
 .dd-mm-place:hover::before { transform:scaleY(1); }
 
-.dd-mm-foot { flex:0 0 auto; padding:10px 4vw 16px; border-top:1px solid var(--e-line);
-  font-size:10px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:var(--e-dim); }
+/* Bottom-centre nav. Garage / Settings / Resume are navigation, not header furniture — they belong
+   where the thumbs and the eye end up, not tucked beside the logo. */
+.dd-mm-foot { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:8px;
+  padding:12px 4vw 16px; border-top:1px solid var(--e-line); }
+.dd-mm-nav { display:flex; align-items:stretch; gap:10px; }
+.dd-mm-hint { font-size:10px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:var(--e-dim); }
 
 .dd-mm-modelist::-webkit-scrollbar, .dd-mm-places::-webkit-scrollbar { width:8px; }
 .dd-mm-modelist::-webkit-scrollbar-track, .dd-mm-places::-webkit-scrollbar-track { background:#111720; }
@@ -216,15 +228,13 @@ export function createMainMenu(refs = {}) {
   cash.appendChild(cashAmt);
   topLeft.appendChild(logo); topLeft.appendChild(cash);
   top.appendChild(topLeft);
-  const topRight = el('div', 'dd-mm-topright');
+  // Nav is built here but lives in the FOOTER, centred — see below.
   const tabGarage = el('div', 'dd-mm-tab on', 'Garage');
   const tabSettings = el('div', 'dd-mm-tab', 'Settings');
   const resumeBtn = el('div', 'dd-mm-btn', 'Resume');
   tabGarage.addEventListener('click', () => { uiSound.click(); setTab('garage'); });
   tabSettings.addEventListener('click', () => { uiSound.click(); setTab('settings'); });
   resumeBtn.addEventListener('click', () => setOpen(false));
-  topRight.appendChild(tabGarage); topRight.appendChild(tabSettings); topRight.appendChild(resumeBtn);
-  top.appendChild(topRight);
   root.appendChild(top);
 
   // Live, not read-once: a mode can pay out while the hub is open behind a result screen.
@@ -266,9 +276,12 @@ export function createMainMenu(refs = {}) {
   // ── CENTRE: the car ──
   const midCol = el('div', 'dd-mm-col');
   midCol.appendChild(el('div', 'dd-mm-head', 'Your Car'));
+  const paintBar = el('div', 'dd-mm-paintbar');
+  paintBar.appendChild(el('div', 'lbl', 'Paint'));
+  const paint = el('div', 'dd-mm-paint'); paintBar.appendChild(paint);
+  midCol.appendChild(paintBar);
   const stage = el('div', 'dd-mm-stage'); midCol.appendChild(stage);
   const garage = el('div', 'dd-mm-garage');
-  const paint = el('div', 'dd-mm-paint'); garage.appendChild(paint);
   const driveBtn = el('div', 'dd-mm-btn primary dd-mm-drive', 'Drive');
   driveBtn.addEventListener('click', () => drive());
   garage.appendChild(driveBtn);
@@ -315,7 +328,12 @@ export function createMainMenu(refs = {}) {
     refs.onSettingsShown?.();   // re-sync toggles whose state can change outside this menu
   }
 
-  root.appendChild(el('div', 'dd-mm-foot', 'Esc — close · Double-click a mode to start it'));
+  const foot = el('div', 'dd-mm-foot');
+  const nav = el('div', 'dd-mm-nav');
+  nav.appendChild(tabGarage); nav.appendChild(tabSettings); nav.appendChild(resumeBtn);
+  foot.appendChild(nav);
+  foot.appendChild(el('div', 'dd-mm-hint', 'Esc — close · Double-click a mode to start it'));
+  root.appendChild(foot);
   document.body.appendChild(root);
 
   const fab = el('div', 'dd-mm-fab', '☰'); fab.title = 'Menu (Esc)';
