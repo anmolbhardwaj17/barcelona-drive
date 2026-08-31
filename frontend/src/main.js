@@ -1611,15 +1611,20 @@ function animate(time = 0) {
     // ── REAL PAUSE (U-1) ────────────────────────────────────────────────────────────────────
     // The ESC menu blocked INPUT and nothing else, so opening it mid-drive left the car rolling,
     // traffic driving and the clock running — you could come back to a crashed car after reading
-    // the settings. `carDriver.update`'s second argument already skips the physics step (the title
-    // cinematic uses it to pin the car), so a genuine pause is that flag plus the systems that
-    // update on their own.
+    // the settings.
+    //
+    // ⚠ PAUSE IS ITS OWN ARGUMENT, not the cinematic or freeze flag. The first version passed it as
+    // `cinematic`, which zeroes the chassis velocities every frame AND parks the chase camera — so
+    // ESC threw the car's momentum away 60 times a second and it resumed stopped, with the
+    // suspension settling as a stutter. Both of those behaviours are right for their own case and
+    // wrong for a pause, which must hold momentum and keep the camera live.
     //
     // Rendering deliberately CONTINUES: the menu draws a live car showcase, and the frame loop also
     // owns the adaptive-resolution probe and the shader-variant watch. Freezing the loop to freeze
     // the simulation would stop those too.
     const _paused = !!escMenu?.isOpen?.();
-    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp || _paused, _carHold);
+    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp,
+                     _carHold, _paused);
 
     // Live title: descend FROM the cloud deck into the city (clouds part in sync), then settle into a
     // slow orbit under the logo/PLAY. Picking a mode releases the camera — carCam's lerp glides it down

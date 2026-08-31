@@ -134,11 +134,17 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   }
 
   // ── Per-frame update ──────────────────────────────────────────────────────
-  function update(dt, cinematic = false, freeze = false) {
+  /**
+   * @param {boolean} freeze  title/streaming FREEZE — skips the step AND pins the car (zero
+   *   velocities), because its ground may not be loaded yet and it must not creep during b-roll.
+   * @param {boolean} paused  ESC PAUSE — skips the step and holds momentum. NOT the same thing:
+   *   see the note in step 2.
+   */
+  function update(dt, cinematic = false, freeze = false, paused = false) {
     // 1. Advance physics (fixed 60 Hz, max 3 sub-steps, capped dt to prevent catch-up stutter).
     //    `freeze` skips the step entirely — used while the title screen streams tiles around the
     //    cinematic centre (the car's own ground may be unloaded; stepping would drop it into the void).
-    if (!freeze) { if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3); }
+    if (!freeze && !paused) { if (physics.step) physics.step(dt); else world.step(1 / 60, Math.min(dt, 0.035), 3); }
     _ct?.lap('step');   // pure physics-step cost; the remainder of this update lands in main's 'phys' lap
 
     // 2. Read inputs → apply to vehicle. During a game-mode cinematic (or while frozen), ignore input
@@ -148,6 +154,17 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     if (cinematic || freeze) {
       physics.chassisBody.velocity.set(0, 0, 0);
       physics.chassisBody.angularVelocity.set(0, 0, 0);
+    } else if (paused) {
+      // ── A PAUSE KEEPS YOUR MOMENTUM; A FREEZE DOES NOT (U-1a) ──────────────────────────────
+      // U-1 first wired ESC into `freeze`, and freeze ZEROES the velocities every frame — correct
+      // for the title cinematic, where the car must not creep while its ground is still streaming,
+      // and wrong for a pause. The user hit it immediately: "when i press esc and then esc again
+      // car get that collision stutter and stops it doesnt resume from there". It resumed stopped
+      // because its momentum had been thrown away 60 times a second, and the stutter was the
+      // suspension settling once stepping restarted.
+      //
+      // So a pause does NOTHING here. The step is already skipped above, so velocity simply sits
+      // untouched in the body and the car carries on at the speed you left it.
     } else {
       physics.applyInputs(state, dt);
     }
