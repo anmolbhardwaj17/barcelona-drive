@@ -46,7 +46,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createFastElevation } from './fastElevation.js';
 import { initWorkerPool, processBuildings as workerProcessBuildings, processVegetation as workerProcessVegetation, cancelTile } from '../workers/workerPool.js';
 import { materializeBuildingMeshes, materializeVegetationMeshes, getVegPools } from '../workers/meshMaterializer.js';
-import { buildTrafficSignals, axisForHeading, isRedFor } from './trafficSignalRenderer.js';   // T-2 / T-3
+import { buildTrafficSignals } from './trafficSignalRenderer.js';   // T-2 / T-3 / T-4
 
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
 // v3: ?debug=paint — per-second report of road-paint mesh state for the tile the car is in.
@@ -2656,15 +2656,15 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         }
         return bestD < 400 ? best : null;   // 20 m — beyond that it is not this signal's road
       };
-      const sigMesh = buildTrafficSignals(data.trafficSignals, getGroundY, nearestRoad);
-      if (sigMesh) { entry.trafficSignalMesh = sigMesh; safeSceneAdd(scene, sigMesh); }
-      // T-3: the same axis the renderer lit, published for the traffic AI. Derived once, here, so a
-      // car and the lamp it is looking at cannot disagree about which phase they are on.
-      entry.trafficSignalAxes = data.trafficSignals.map((sg) => {
-        const r = nearestRoad(sg.point[0], sg.point[1]);
-        return { x: sg.point[0], z: sg.point[1],
-                 axis: axisForHeading(r?.tx ?? 0, r?.tz ?? 1) };
-      });
+      // T-3/T-4: the builder returns the metadata it ACTUALLY drew — axis and per-junction phase —
+      // and the traffic AI consumes that rather than recomputing it. Deriving the same thing twice
+      // is how a car ends up obeying a different phase from the lamp in front of it.
+      const sig = buildTrafficSignals(data.trafficSignals, getGroundY, nearestRoad);
+      if (sig?.mesh) {
+        entry.trafficSignalMesh = sig.mesh;
+        entry.trafficSignalAxes = sig.meta;
+        safeSceneAdd(scene, sig.mesh);
+      }
     }
 
     // Decals

@@ -51,3 +51,41 @@ test('axis is chosen by the dominant heading component', () => {
   assert.equal(axisForHeading(0.2, 0.98), 0, 'mostly north-south');
   assert.equal(axisForHeading(-0.99, 0.1), 1, 'mostly east-west, direction-agnostic');
 });
+
+// ── T-4 · per-junction phases ─────────────────────────────────────────────────────────────────
+import { clusterJunctions } from '../src/map/trafficSignalRenderer.js';
+
+test('signals at one crossing share a junction; the next crossing does not', () => {
+  // Four corners of a junction, then a separate junction ~80 m away.
+  const pts = [
+    { x: 0, z: 0 }, { x: 9, z: 0 }, { x: 0, z: 9 }, { x: 9, z: 9 },
+    { x: 80, z: 0 }, { x: 89, z: 0 },
+  ];
+  const g = clusterJunctions(pts);
+  assert.equal(g[0].cluster, g[1].cluster, 'same crossing');
+  assert.equal(g[0].cluster, g[3].cluster, 'opposite corner, same crossing');
+  assert.notEqual(g[0].cluster, g[4].cluster, 'a junction 80 m away is a different junction');
+});
+
+test('a junction keeps its phase across rebuilds — no shared counter to lose', () => {
+  // The offset is derived from the cluster centroid, so a tile reloading (or a neighbouring tile
+  // containing the same crossing) must produce the SAME phase, or a junction would visibly jump.
+  const a = clusterJunctions([{ x: 120, z: -40 }, { x: 128, z: -40 }]);
+  const b = clusterJunctions([{ x: 120, z: -40 }, { x: 128, z: -40 }]);
+  assert.equal(a[0].offset, b[0].offset);
+  assert.equal(a[0].offset, a[1].offset, 'both poles of one junction share its phase');
+});
+
+test('different junctions genuinely land on different phases', () => {
+  // The whole point of T-4: a single global phase made every junction in the city flip together.
+  const offs = new Set();
+  for (let i = 0; i < 40; i++) offs.add(clusterJunctions([{ x: i * 137, z: i * 91 }])[0].offset);
+  assert.ok(offs.size > 8, `expected a spread of phases, got ${offs.size}`);
+});
+
+test('the offset never pushes a signal outside the cycle', () => {
+  for (let i = 0; i < 200; i++) {
+    const o = clusterJunctions([{ x: i * 53, z: -i * 31 }])[0].offset;
+    assert.ok(o >= 0 && o < SIGNAL_CYCLE_S, `offset ${o} out of range`);
+  }
+});

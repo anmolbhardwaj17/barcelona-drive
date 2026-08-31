@@ -438,7 +438,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
           const ahead = ax * fdx + az * fdz;
           if (ahead < SIGNAL_NEAR_M || ahead > SIGNAL_LOOK_M) continue;
           if (Math.abs(-ax * fdz + az * fdx) > SIGNAL_LAT_M) continue;
-          if (isRedFor(sg.axis, _signalTime)) { atRed = true; break; }
+          if (isRedFor(sg.axis, _signalTime, sg.phase)) { atRed = true; break; }
         }
       }
       const target = (blocked || atRed) ? 0 : car.speed * cornerCap;
