@@ -36,7 +36,26 @@ export const CAR_KIT_PATH = '/models/cars/';
 export const CITY_CARS = [
   'sedan', 'sedan-sports', 'suv', 'suv-luxury',
   'hatchback-sports', 'van', 'taxi', 'police', 'delivery',
+  'hatchback-euro',
 ];
+
+// ── AUTHORED CARS RIDE THE SHARED MATERIAL WITHOUT ITS ATLAS (V-4) ────────────────────────────
+// Every car in the world shares ONE BatchedMesh and therefore ONE material, built from
+// CITY_CARS[0]. A model brought in from outside the kit has its own UV layout, so left alone it
+// samples the SEDAN's colour atlas through unrelated coordinates and renders as garbage — the real
+// blocker behind "can traffic look like the BMW", and it is not fixed by better art.
+//
+// A second BatchedMesh would mean splitting instance allocation across two pools in both the
+// traffic and parked-car systems. Not needed: `aPart` already ASSIGNS the colour of glass, lamps,
+// rubber, chrome and cabin in the shader, so an authored car does not want the atlas at all — it
+// only needs the map to get out of the way.
+//
+// So its UVs are pinned to a texel that is pure white. Measured, not guessed: the kit atlas is
+// 512x512 and has an all-white block of radius 12 px centred at (402,370), which stays white down
+// to mip level 4 — so bilinear filtering and mipmapping cannot bleed a neighbouring swatch in.
+// White multiplies to nothing, leaving vertex colour (the per-car tint) and aPart doing the work.
+const AUTHORED_CARS = new Set(['hatchback-euro']);
+const WHITE_UV = [0.78516, 0.27734];
 
 // ── Caches. Keyed by URL, never evicted: the whole kit is 1.7 MB and lives for the session. ──
 const _gltfCache = new Map();   // url -> Promise<gltf>
@@ -110,8 +129,12 @@ function getKitMaterial() {
         } else if (vPart > 2.5 && vPart < 3.5) {
           // Rubber: near-black and, crucially, NOT tinted by the per-car body colour.
           diffuseColor.rgb = vec3(0.045);
-        } else if (vPart > 3.5) {
+        } else if (vPart > 3.5 && vPart < 4.5) {
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.63, 0.66), 0.75);
+        } else if (vPart > 4.5) {
+          // Cabin. Seen THROUGH the glass, so a body-coloured interior is the giveaway that a car
+          // is a painted shell — and it is never tinted by the per-car paint colour.
+          diffuseColor.rgb = vec3(0.075, 0.072, 0.068);
         }`);
     };
     // Distinct key or three reuses a program compiled WITHOUT this patch — the same cache-key trap
@@ -147,20 +170,44 @@ function getKitMaterial() {
 // `colormap` material, so only wheels separate — the point of this is that a model with real
 // material names (the hero M3 has CarPaint / Window / RearLight / Rims / Tires) classifies fully
 // and drops straight in. See R5 in docs/context/asset-requests.md.
-export const PART = { BODY: 0, GLASS: 1, LIGHT: 2, TYRE: 3, CHROME: 4 };
+export const PART = { BODY: 0, GLASS: 1, LIGHT: 2, TYRE: 3, CHROME: 4, INTERIOR: 5 };
+
+// ── THE NAMES ARE NOT IN ENGLISH, AND THAT IS NOT AN EDGE CASE ────────────────────────────────
+// First real model tested against this classifier — a Turkish-authored hatchback — matched 5 of its
+// 14 materials. The miss that mattered: **`CAM` is Turkish for GLASS**, so the windscreen would
+// have rendered as body paint. That is precisely the failure `aPart` was built to prevent, and it
+// would have looked like the whole feature was broken.
+//
+// Free car models come from everywhere, so the vocabulary is multilingual by necessity: Turkish
+// (cam, far, lastik, jant, ayna), Russian (okna, kuzov, kolesa, steklo, zerkalo), Spanish, German,
+// French, Italian. Cheap to add, and each term is one more model that drops in without code.
+//
+// ⚠ ORDER MATTERS: LIGHT is tested BEFORE GLASS. `ÖNFARCAM` is a headlight LENS — it contains both
+// "far" (light) and "cam" (glass) — and it should read bright, not as a dark window. Testing glass
+// first would darken every lamp lens on the car.
+// `far(?!be)` and not `\bfar`: Turkish compounds run the words together — `önfarışıkları`,
+// `ÖNFARCAM` — so a word boundary never matches, and those are a headlight and a headlight
+// LENS. The lookahead excludes German `farbe` (paint), the one plausible false positive.
+const RE_LIGHT  = /light|lamp|headlamp|blinker|indicator|far(?!be)|lamba|sinyal|fener|svet|luz|licht|phare/;
+const RE_GLASS  = /glass|window|windscreen|windshield|transparent|\bcam\b|camlar|okna|steklo|vidrio|glas|scheibe|verre|vetro/;
+const RE_TYRE   = /tyre|tire|rubber|lastik|kolesa|shina|rueda|reifen|pneu|goma/;
+const RE_CHROME = /rim|chrome|metal|trim|exhaust|mirror|jant|ayna|disk|krom|zerkalo|espejo|spiegel|grill|izgara|bumper/;
+const RE_INNER  = /interior|salon|cabin|seat|koltuk|sitze|dashboard|dash\b/;
+
 function classifyPart(meshName, matName) {
   const n = `${meshName || ''} ${matName || ''}`.toLowerCase();
-  if (/glass|window|windscreen|windshield|transparent/.test(n)) return PART.GLASS;
-  if (/light|lamp|headlamp|blinker|indicator/.test(n)) return PART.LIGHT;
-  if (/tyre|tire|rubber/.test(n)) return PART.TYRE;
-  if (/rim|chrome|metal|trim|exhaust|mirror/.test(n)) return PART.CHROME;
+  if (RE_LIGHT.test(n)) return PART.LIGHT;      // before GLASS — see the order note above
+  if (RE_GLASS.test(n)) return PART.GLASS;
+  if (RE_TYRE.test(n)) return PART.TYRE;
+  if (RE_CHROME.test(n)) return PART.CHROME;
+  if (RE_INNER.test(n)) return PART.INTERIOR;
   // `wheel` last: it matches whole wheel assemblies where rim and tyre are one mesh, and the tyre
   // is the larger, more visible half of that.
   if (/wheel/.test(n)) return PART.TYRE;
   return PART.BODY;
 }
 
-function prepGeo(src, isWheel, keepIndex, part = PART.BODY) {
+function prepGeo(src, isWheel, keepIndex, part = PART.BODY, authored = false) {
   let g = src.clone();
   if (g.index && !keepIndex) g = g.toNonIndexed();
   for (const name of Object.keys(g.attributes)) {
@@ -169,6 +216,12 @@ function prepGeo(src, isWheel, keepIndex, part = PART.BODY) {
   if (!g.attributes.normal) g.computeVertexNormals();
   const n = g.attributes.position.count;
   if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+  if (authored) {
+    // Overwrite, not fill-if-missing: an authored model HAS UVs, and they point into its own atlas.
+    const uv = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) { uv[i * 2] = WHITE_UV[0]; uv[i * 2 + 1] = WHITE_UV[1]; }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  }
   const cv = isWheel ? 0.03 : 1.0;
   const col = new Float32Array(n * 3);
   for (let i = 0; i < n * 3; i++) col[i] = cv;
@@ -186,6 +239,7 @@ function prepGeo(src, isWheel, keepIndex, part = PART.BODY) {
 function getCanonicalGeometry(url) {
   let p = _canonCache.get(url);
   if (p) return p;
+  const isAuthored = AUTHORED_CARS.has((url.split('/').pop() || '').replace('.glb', ''));
   p = loadGLTF(url).then((gltf) => {
     const model = gltf.scene;
     model.updateMatrixWorld(true);
@@ -199,7 +253,7 @@ function getCanonicalGeometry(url) {
     const geos = [];
     for (const m of meshes) {
       const g = prepGeo(m.geometry, /wheel/i.test(m.name), keepIndex,
-                        classifyPart(m.name, m.material?.name));
+                        classifyPart(m.name, m.material?.name), isAuthored);
       g.applyMatrix4(m.matrixWorld);
       geos.push(g);
     }
