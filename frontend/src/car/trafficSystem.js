@@ -50,7 +50,46 @@ const SPAWN_GAP   = 16;   // m — don't spawn within this of another car (avoid
 const STOP_DIST = 7;      // m — brake if something is this close ahead in-lane
 const LANE_HALF = 2.0;    // m — lateral tolerance for "in my lane"
 const DEADLOCK_T = 5;     // s stuck at ~0 speed before we despawn a jammed car
-const HIT_RADIUS  = 3.4;  // m — player this close + moving → shove the car aside
+// ── CONTACT IS A BOX TEST, NOT A CIRCLE (V-12) ────────────────────────────────────────────────
+// This was `HIT_RADIUS = 3.4 m`, a circle around the player's CENTRE, while the thing it predicts
+// is two 4.5 m boxes touching. The numbers do not work at all:
+//
+//   player M3   4.79 x 2.18   half-extents 2.40 x 1.09
+//   hatchback   4.30 x 2.12   half-extents 2.15 x 1.06
+//   head-on contact happens at 4.55 m between centres; the shove waited for 3.4 m
+//
+// So on a head-on the player drove more than a METRE into a static, infinite-mass box before the
+// shove fired, and the solver resolving that penetration every step is the stutter. On a glancing
+// pass the centres often never reach 3.4 m at all, so the shove never fired: the player was
+// deflected by a wall and the traffic car sailed on untouched. Both symptoms, one cause — a circle
+// cannot describe two long boxes.
+//
+// Replaced with a 2D separating-axis test on the two ORIENTED boxes: correct head-on, side-on, and
+// at every angle between. CONTACT_MARGIN fires it just BEFORE the hulls touch, so the shove starts
+// as they meet rather than after the solver has already produced an impulse.
+const CONTACT_MARGIN = 0.28;   // m of lead, so the shove precedes hard contact
+/** Player chassis half-extents, metres — carModel.js: 1.90 W x 4.79 L. */
+const PLAYER_HALF_W = 0.95, PLAYER_HALF_L = 2.395;
+
+/**
+ * Do two oriented boxes overlap in plan? Standard 2D SAT — if any of the four face normals
+ * separates them they are apart. No allocation: this runs per car per frame.
+ */
+export function obbOverlap(dx, dz, yawA, halfWA, halfLA, yawB, halfWB, halfLB, margin) {
+  const ca = Math.cos(yawA), sa = Math.sin(yawA);
+  const cb = Math.cos(yawB), sb = Math.sin(yawB);
+  // Forward is (sin yaw, cos yaw): a rotation about +Y maps +Z there, which is how both the traffic
+  // cars and getHeadingDeg() define heading.
+  const axes = [ca, -sa, sa, ca, cb, -sb, sb, cb];   // (right.x, right.z, fwd.x, fwd.z) per box
+  for (let i = 0; i < 8; i += 2) {
+    const nx = axes[i], nz = axes[i + 1];
+    const dist = Math.abs(dx * nx + dz * nz);
+    const ra = halfWA * Math.abs(ca * nx - sa * nz) + halfLA * Math.abs(sa * nx + ca * nz);
+    const rb = halfWB * Math.abs(cb * nx - sb * nz) + halfLB * Math.abs(sb * nx + cb * nz);
+    if (dist > ra + rb + margin) return false;
+  }
+  return true;
+}
 const HIT_MIN_KMH = 4;    // shove kicks in at low speed too (was 12 → cars felt like immovable walls on a bump)
 const YAXIS = new CANNON.Vec3(0, 1, 0);
 
@@ -233,6 +272,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       // Colour is chosen ONCE at spawn and carried on the car. Deriving it per frame from the slot
       // id would repaint a car every time a slot was recycled, which reads as flickering traffic.
       cars.push({ slot, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl, tplIdx,
+                  hw, hl,   // V-12: the contact test needs real half-extents, not a radius
                   bodyColor: bodyColorFor(_colorSeed++) });
       return true;
     }
@@ -246,7 +286,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     world.removeBody(car.body);
   }
 
-  function update(playerPx, playerPz, dt, carSpeedKmh = 0) {
+  function update(playerPx, playerPz, dt, carSpeedKmh = 0, playerYaw = 0) {
     if (!_enabled || !world) return;
     const origin = getOrigin();
     const d = Math.min(dt || 0.016, 0.05);
@@ -365,7 +405,12 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       const yaw = Math.atan2(b.x - a.x, b.z - a.z);
 
       // ── hit by the player (fast + close)? shove it aside + stop being an immovable wall ──
-      if (Math.abs(carSpeedKmh) > HIT_MIN_KMH && (x - playerPx) ** 2 + (z - playerPz) ** 2 < HIT_RADIUS * HIT_RADIUS) {
+      // Either car moving is enough. Gating on the PLAYER's speed alone let a traffic car drive
+      // into a parked player and pass clean through — the same "it glides" defect from the other side.
+      const approachKmh = Math.max(Math.abs(carSpeedKmh), Math.abs(car.cur) * 3.6);
+      if (approachKmh > HIT_MIN_KMH
+          && obbOverlap(x - playerPx, z - playerPz, yaw, car.hw, car.hl,
+                        playerYaw, PLAYER_HALF_W, PLAYER_HALF_L, CONTACT_MARGIN)) {
         const dx = x - playerPx, dz = z - playerPz, dl = Math.hypot(dx, dz) || 1;
         const mps = Math.min(Math.abs(carSpeedKmh) / 3.6, 25);
         car.shoved = true; car.shoveT = 0;
