@@ -7,7 +7,8 @@
     "start": "nodemon server.js",
     "start:prod": "node server.js",
     "build:region": "node worldBuilder/buildRegion.js",
-    "build:test": "node worldBuilder/buildRegion.js --area aiims"
+    "build:test": "node worldBuilder/buildRegion.js --area aiims",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "express": "^4.21.0",
