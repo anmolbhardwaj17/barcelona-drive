@@ -85,6 +85,38 @@ function getKitMaterial() {
     });
     material.vertexColors = true; // wheels black / body white baked in prepGeo
     material.needsUpdate = true;
+    // ── SHADE BY PART, STILL ONE DRAW (V-3) ──────────────────────────────────────────────────
+    // `aPart` is baked per vertex in prepGeo. Without this patch it is inert data and a dropped-in
+    // model renders body paint on its glass.
+    //
+    // ⚠ Declares its OWN varying rather than reusing three's. `vColor` exists only under
+    // USE_COLOR and `vMapUv` only under USE_MAP — D-30 cost a drive when a patch assumed one of
+    // those was present. This one compiles whether or not the fleet material ends up with a map.
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aPart;\nvarying float vPart;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = aPart;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vPart;')
+        .replace('#include <color_fragment>', `#include <color_fragment>
+        // 1 glass · 2 light · 3 tyre · 4 chrome. Compared with a tolerance because the value is
+        // interpolated across the triangle even when every vertex agrees.
+        if (vPart > 0.5 && vPart < 1.5) {
+          // Dark, slightly blue: a car window reads as a hole with a sky sheen, never as paint.
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.055, 0.065, 0.085), 0.88);
+        } else if (vPart > 1.5 && vPart < 2.5) {
+          // Lamp lenses stay bright at any angle so traffic reads at distance.
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.93, 0.86), 0.6);
+        } else if (vPart > 2.5 && vPart < 3.5) {
+          // Rubber: near-black and, crucially, NOT tinted by the per-car body colour.
+          diffuseColor.rgb = vec3(0.045);
+        } else if (vPart > 3.5) {
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.63, 0.66), 0.75);
+        }`);
+    };
+    // Distinct key or three reuses a program compiled WITHOUT this patch — the same cache-key trap
+    // roofArray documents.
+    material.customProgramCacheKey = () => 'cityCarParts-v1';
     material.userData.sharedMaterial = true;   // ⚠ H6: shared-material disposal defaults to DISPOSE
     registerMaterial(material, 'cityCar');
     return material;
@@ -101,7 +133,34 @@ function getKitMaterial() {
 // kit from 31,887 vertices to 59,106 — 1.85×, i.e. 46% more vertex-shader work on the largest
 // instanced population in the scene (~250 parked cars) — and buys nothing, because the vertex
 // colour is per-PART, not per-face, so it survives shared vertices intact.
-function prepGeo(src, isWheel, keepIndex) {
+// ── PART IDS: REAL MATERIALS INSIDE ONE DRAW CALL (V-3) ───────────────────────────────────────
+// Every car in the world, traffic and parked, lives in ONE BatchedMesh with ONE material — that is
+// what took the fleet from 41 draw calls to 1, and a BatchedMesh cannot have per-part materials.
+// So a better car model dropped in today would render with body paint on its windows.
+//
+// The fix is the trick this codebase already uses twice: facades and roofs carry a per-VERTEX
+// attribute and a shader patch selects behaviour from it. Cars now carry `aPart`, so glass, lights,
+// tyres and chrome shade differently while still costing one draw.
+//
+// Classification reads the MESH name and the MATERIAL name, because GLB exporters disagree about
+// which one carries the meaning. The current Kenney-style kit names meshes but has a single
+// `colormap` material, so only wheels separate — the point of this is that a model with real
+// material names (the hero M3 has CarPaint / Window / RearLight / Rims / Tires) classifies fully
+// and drops straight in. See R5 in docs/context/asset-requests.md.
+export const PART = { BODY: 0, GLASS: 1, LIGHT: 2, TYRE: 3, CHROME: 4 };
+function classifyPart(meshName, matName) {
+  const n = `${meshName || ''} ${matName || ''}`.toLowerCase();
+  if (/glass|window|windscreen|windshield|transparent/.test(n)) return PART.GLASS;
+  if (/light|lamp|headlamp|blinker|indicator/.test(n)) return PART.LIGHT;
+  if (/tyre|tire|rubber/.test(n)) return PART.TYRE;
+  if (/rim|chrome|metal|trim|exhaust|mirror/.test(n)) return PART.CHROME;
+  // `wheel` last: it matches whole wheel assemblies where rim and tyre are one mesh, and the tyre
+  // is the larger, more visible half of that.
+  if (/wheel/.test(n)) return PART.TYRE;
+  return PART.BODY;
+}
+
+function prepGeo(src, isWheel, keepIndex, part = PART.BODY) {
   let g = src.clone();
   if (g.index && !keepIndex) g = g.toNonIndexed();
   for (const name of Object.keys(g.attributes)) {
@@ -114,6 +173,12 @@ function prepGeo(src, isWheel, keepIndex) {
   const col = new Float32Array(n * 3);
   for (let i = 0; i < n * 3; i++) col[i] = cv;
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  // Per-vertex, not per-face: the id is constant across a part, so it survives shared vertices and
+  // the geometry can stay INDEXED. Keeping the index matters — `toNonIndexed` takes the kit from
+  // 31,887 to 59,106 vertices, on the largest instanced population in the scene.
+  const parts = new Float32Array(n);
+  parts.fill(part);
+  g.setAttribute('aPart', new THREE.BufferAttribute(parts, 1));
   return g;
 }
 
@@ -133,7 +198,8 @@ function getCanonicalGeometry(url) {
     const keepIndex = meshes.every((m) => m.geometry.index && m.geometry.attributes.normal);
     const geos = [];
     for (const m of meshes) {
-      const g = prepGeo(m.geometry, /wheel/i.test(m.name), keepIndex);
+      const g = prepGeo(m.geometry, /wheel/i.test(m.name), keepIndex,
+                        classifyPart(m.name, m.material?.name));
       g.applyMatrix4(m.matrixWorld);
       geos.push(g);
     }
