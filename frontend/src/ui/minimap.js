@@ -46,6 +46,12 @@ const MM_PULLBACK = 0.14;        // how much the map shrinks at speed, showing m
 const MM_SPEED_FULL = 90;        // km/h at which the look-ahead is fully extended
 const MM_PERSPECTIVE = 460;      // px — lower is a stronger, more dramatic tilt
 const MM_LOOK_LERP = 0.06;       // the look-ahead EASES; snapping it with throttle reads as a lurch
+// ⚠ ONE constant, because there are TWO places that size this div — creation, and the collapse out
+// of expanded mode. 1.5x was right for a flat top-down square; a tilted plane reaches much further
+// at its far edge and anything past the drawn area shows as empty backing, the "map ran out" look.
+// The collapse path had its own hardcoded 1.5, so expanding and closing the map silently undid the
+// drone view's coverage.
+const MM_INNER_SIZE = MINIMAP_SIZE * 2.1;
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
@@ -186,10 +192,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     cursor: pointer;
   `;
 
-  // 1.5x was sized for a flat top-down square. A tilted plane reaches much further at its far
-  // edge, and anything past the drawn area shows as empty backing — the "map ran out" look. 2.1x
-  // covers the tilt; the redraw stays cheap because it is throttled to UPDATE_INTERVAL_MS anyway.
-  const mapInnerSize = MINIMAP_SIZE * 2.1;
+  const mapInnerSize = MM_INNER_SIZE;
   mapInner = document.createElement('div');
   mapInner.id = 'minimap-inner';
   mapInner.style.cssText = `
@@ -242,15 +245,32 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   // down with it. Leaving the icon at the container centre would draw it somewhere the car is not,
   // which is the one thing a "you are here" marker must never do. Updated in update() below.
   const mc = markerSize / 2;
-  // Blue "you-are-here" pin with a heading wedge (matches the expanded-map marker). Points UP =
-  // forward, since the map itself rotates heading-up.
+  // ── NAVIGATION CHEVRON (M-2) ─────────────────────────────────────────────────────────────────
+  // The old marker was a top-down PIN — a dot with a wedge, correct for a flat map and wrong the
+  // moment the plane tilted, where it read as a sticker floating above the ground rather than a
+  // vehicle on it. User: "this cursor needs to chnage as well have like google maps only this seems
+  // topdown".
+  //
+  // A navigation arrow instead: a chevron with a notched tail, which is what makes it read as
+  // pointing rather than as a triangle. Two details do the work — the darker underside gives it a
+  // thickness so it is a solid object catching light, and the soft ellipse beneath is a contact
+  // shadow, which is what actually plants it ON the road instead of above it.
+  //
+  // The tilt itself is applied in update(): the marker sits outside the transformed map div, so it
+  // has to be laid onto the same plane by hand or it stands upright while the world leans away.
   const CAR_MARKER_SVG = `
     <svg viewBox="0 0 ${markerSize} ${markerSize}" width="${markerSize}" height="${markerSize}">
-      <circle cx="${mc}" cy="${mc}" r="24" fill="#2a7fff" opacity="0.14"/>
-      <polygon points="${mc},3 ${mc + 10},${mc - 4} ${mc},${mc - 9} ${mc - 10},${mc - 4}"
-               fill="#2a7fff" stroke="#ffffff" stroke-width="1.5"/>
-      <circle cx="${mc}" cy="${mc}" r="10.5" fill="#2a7fff" stroke="#ffffff" stroke-width="3.5"/>
-      <circle cx="${mc}" cy="${mc}" r="4.3" fill="#ffffff" opacity="0.9"/>
+      <defs>
+        <linearGradient id="mm-nav-face" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#5fa8ff"/>
+          <stop offset="100%" stop-color="#1a6fe8"/>
+        </linearGradient>
+      </defs>
+      <ellipse cx="${mc}" cy="${mc + 7}" rx="13" ry="5" fill="#0b1a2e" opacity="0.30"/>
+      <polygon points="${mc},${mc - 13} ${mc + 11},${mc + 11} ${mc},${mc + 5} ${mc - 11},${mc + 11}"
+               fill="#12539f" transform="translate(0,2.2)"/>
+      <polygon points="${mc},${mc - 13} ${mc + 11},${mc + 11} ${mc},${mc + 5} ${mc - 11},${mc + 11}"
+               fill="url(#mm-nav-face)" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
     </svg>
   `;
   // Low-poly Batman flying top-down — arms forward, cape flowing, dark colours
@@ -560,11 +580,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       zoomBtns.style.display = 'none';
       wrapper.style.cursor = 'pointer';
       wrapper.classList.remove('minimap-expanded');
-      const innerSize = MINIMAP_SIZE * 1.5;
-      mapInner.style.width = `${innerSize}px`;
-      mapInner.style.height = `${innerSize}px`;
+      mapInner.style.width = `${MM_INNER_SIZE}px`;
+      mapInner.style.height = `${MM_INNER_SIZE}px`;
       mapInner.style.left = '50%';
       mapInner.style.top = '50%';
+      // Flat for this frame only; update() reapplies the drone tilt on the very next one.
       mapInner.style.transform = `translate(-50%, -50%) rotate(${-currentRotationDeg}deg)`;
       mapInner.style.filter = (_isNight ? FILTER_NIGHT : FILTER_DAY);
       innerShadow.style.display = '';
@@ -622,7 +642,13 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       // shift * cos(tilt) — using the raw shift would place the icon below where the car actually is.
       if (markerEl) {
         const screenDrop = shift * Math.cos(tilt * Math.PI / 180) * zoom;
-        markerEl.style.transform = `translate(-50%, calc(-50% + ${screenDrop.toFixed(1)}px))`;
+        // LAY IT ON THE PLANE. The marker lives outside the transformed map div, so without the
+        // same rotateX it stands bolt upright while the world leans away — which is precisely what
+        // made the old pin read as top-down. Slightly less tilt than the map (0.82) so the arrow
+        // stays readable instead of foreshortening into a line at speed.
+        markerEl.style.transform =
+          `translate(-50%, calc(-50% + ${screenDrop.toFixed(1)}px)) `
+          + `perspective(${MM_PERSPECTIVE}px) rotateX(${(tilt * 0.82).toFixed(1)}deg)`;
       }
       if (_compassRotateGroup) {
         _compassRotateGroup.setAttribute('transform', `rotate(${-currentRotationDeg} ${_compassCx} ${_compassCx})`);
