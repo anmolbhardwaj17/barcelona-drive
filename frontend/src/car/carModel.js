@@ -17,6 +17,16 @@ const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this 
 // lifted to body height; the visual body is lifted the same amount so it aligns with the box.
 const CHASSIS_BOX_OFFSET_Y = 0.5;
 
+// ── THE BODY'S MEASURED EXTENT, IN CHASSIS-ORIGIN SPACE ───────────────────────────────────────
+// Local +Z is forward (see the _localForward.set(0,0,1) in update). The load path recentres the
+// body on Y ONLY — nothing touches Z — so the nose is at `max.z`, which is NOT half the car length
+// and is not knowable from M3_TARGET_LENGTH. Two camera placements were guessed against an assumed
+// centre and both landed inside the shell. Anything that needs to sit clear of the bodywork reads
+// this instead of assuming.
+let _bodyBounds = null;
+/** @returns {{min:THREE.Vector3,max:THREE.Vector3}|null} body bbox in chassis-origin space, or null before load. */
+export function getBodyBounds() { return _bodyBounds; }
+
 /** The sky PMREM the hero car's paint reflects. Shared so the traffic fleet reflects the same sky. */
 let _sharedCarEnvMap = null;
 const _envWaiters = [];
@@ -211,6 +221,8 @@ export async function createCarModel(scene) {
   for (const mesh of bodyMeshes) {
     mesh.geometry.translate(0, yShift, 0);
   }
+
+  _bodyBounds = new THREE.Box3().setFromObject(bodyGroup);
 
   console.log('[CarModel] Body ready, bounds after centering:',
     new THREE.Box3().setFromObject(bodyGroup).min.toArray().map(v => v.toFixed(2)),

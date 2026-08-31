@@ -10,17 +10,25 @@
 import * as THREE from 'three';
 import { isInTunnelZone } from '../tunnelZones.js';
 import { isInputBlocked } from '../inputGate.js';
+import { getBodyBounds } from './carModel.js';
 
-const BASE_CAM_DISTANCE   = 6.2;   // follow distance behind car (8.2→7.3→6.2: still felt too far at spawn on Mac fullscreen)
+const BASE_CAM_DISTANCE   = 6.6;   // follow distance behind car (8.2→7.3→6.2, then 6.6 with the height fix below)
 const SPEED_DISTANCE_BOOST = 0.3;  // 0.6→0.3: camera drifted too far back at speed
-const BASE_CAM_HEIGHT     = 1.9;   // camera height above car (dropped with the pull-in to keep a natural, not top-down, angle)
+// ── WHY 2.5 AND NOT 1.9 ───────────────────────────────────────────────────────────────────────
+// At 1.9 the eye sat 0.7 m over a 1.2 m roofline, so the car was seen almost edge-on and became a
+// wall across the bottom of the frame. The arithmetic: rear roof edge 4 m away and 0.7 m below eye
+// = 10.4 deg down, rear sill = 28.9 deg down, against a 35 deg half-FOV — the car ate 79% of the
+// lower half-frame and hid the road directly ahead of it. The complaint reads as "too close" but
+// the distance was fine; the ANGLE was flat. At 2.5 m the same car spans 8.6..24.1 deg down = ~22%
+// of frame height, with open road visible over the roof. Raise height before pulling back.
+const BASE_CAM_HEIGHT     = 2.5;   // camera height above the chassis origin (roofline is ~1.2)
 const SPEED_HEIGHT_DROP   = 0.25;
-const BASE_LOOK_AHEAD     = 2.5;
+const BASE_LOOK_AHEAD     = 4.0;   // with the higher eye, a short target pitches the view into the roof
 const SPEED_LOOK_BOOST    = 3.0;
-const TUNNEL_CAM_HEIGHT   = 1.2;
-const TUNNEL_CAM_DISTANCE = 5.5;   // follow distance in tunnel zones (was hardcoded 4.0 — too tight per user)
+const TUNNEL_CAM_HEIGHT   = 1.95;  // same flat-angle problem as BASE_CAM_HEIGHT, and worse for being lower
+const TUNNEL_CAM_DISTANCE = 6.0;   // follow distance in tunnel zones (was hardcoded 4.0 — too tight per user)
 const MIN_CAM_ABOVE_CAR   = 0.5;
-const LOOK_ABOVE          = 0.5;
+const LOOK_ABOVE          = 0.9;   // lifted with the eye so the pitch-down stays ~8-9 deg
 const MAX_H_DIST          = 9.3;   // horizontal clamp — MUST stay above BASE_CAM_DISTANCE+SPEED_DISTANCE_BOOST or it caps the pull-back
 const LERP_POSITION       = 0.16;
 const LERP_LOOK           = 0.22;
@@ -51,21 +59,27 @@ export const VIEW_CHASE = 0;
 export const VIEW_HOOD = 1;
 const VIEW_COUNT = 2;
 
-/** Bonnet camera, relative to the chassis origin (which sits low — see CHASSIS_BOX_OFFSET_Y). */
-// ⚠ MUST SIT OUTSIDE THE BODYWORK, AND 1.06 m WAS NOT. First attempt put the camera at 1.34 m
-// forward, 1.06 m up and it landed INSIDE the front of the car — the user's shot shows the inside
-// of the bonnet, the backs of the headlights and road through the gaps between panels.
+// ── NOSE CAMERA — PLACED AGAINST MEASURED GEOMETRY, NOT AGAINST ARITHMETIC ────────────────────
+// This landed inside the bodywork TWICE (1.34 m fwd / 1.06 m up, then 1.05 / 1.46), both times
+// because the offsets were reasoned from CHASSIS_BOX_OFFSET_Y and half of M3_TARGET_LENGTH. Both
+// premises were wrong for this purpose: the collision box is not the visual shell, and the load
+// path recentres the body on Y ONLY — nothing recentres Z — so the nose is NOT at half the car
+// length. Nobody had ever read where it actually is.
 //
-// The arithmetic I should have done first: the physics chassis box is lifted CHASSIS_BOX_OFFSET_Y
-// (0.5 m) above the body origin and is 1.43 m tall, so the shell spans roughly p.y - 0.2 to
-// p.y + 1.2. Anything inside that band is inside the car, and with no interior modelled that means
-// looking at culled backfaces — the same trap as the cabin, met at the bonnet instead.
+// It now reads `getBodyBounds()`, the post-centring bbox in this same chassis-origin space, and
+// sits NOSE_CLEAR ahead of `max.z`. That puts the whole car BEHIND the camera, which is what makes
+// this correct by construction rather than by tuning: with no geometry in front of the eye there is
+// no interior to see through, no matter what the model turns out to measure.
 //
-// So the camera goes ABOVE the shell rather than into it: clear of the roofline, far enough forward
-// to look down the bonnet. Slightly high for a true hood cam, and that is the deliberate trade —
-// being definitively outside the geometry beats being nominally correct and inside it.
-const HOOD_FORWARD = 1.05;   // m ahead of centre — over the bonnet
-const HOOD_HEIGHT  = 1.46;   // m above the chassis origin — ABOVE the p.y+1.2 roofline, not in it
+// The trade is honest and worth naming: you get the road, not the bonnet. A view that SHOWS the
+// bonnet has to sit behind the windscreen, and that is the cockpit case the enum comment above
+// already rules out for a model with no interior. This is a bumper cam wearing the hood cam's slot.
+const NOSE_CLEAR   = 0.38;   // m ahead of the measured nose — clear of wipers, badge, licence plate
+const NOSE_DROP    = 0.30;   // m below the measured roofline — bonnet-level, not roof-level
+// Fallbacks, used only if the model has not loaded yet. Deliberately generous: an over-long guess
+// floats the eye in clear air, an under-long one puts it back inside the car.
+const HOOD_FORWARD = 3.05;
+const HOOD_HEIGHT  = 0.95;
 const HOOD_LOOK    = 14.0;   // look well down the road; a short target makes the view feel nose-down
 // Rigid, unlike the chase cam. A bonnet camera is BOLTED to the car — lerping it makes the road
 // swim under a nose that should be fixed, which reads as motion sickness rather than smoothness.
@@ -75,6 +89,7 @@ const HOOD_LERP    = 0.85;
 const _euler    = new THREE.Euler();
 const _yawOnly  = new THREE.Quaternion();
 const _idealPos = new THREE.Vector3();
+let _noseLogged = false;
 const _lookAt   = new THREE.Vector3();
 const _fwdDir   = new THREE.Vector3();
 const _smoothLookAt = new THREE.Vector3();
@@ -196,14 +211,29 @@ export function createCarCamera(camera, domElement) {
       // Orbit still applies, so the mouse can look around from the bonnet.
       const lookX = _fwdDir.x * cosY - _fwdDir.z * sinY;
       const lookZ = _fwdDir.x * sinY + _fwdDir.z * cosY;
+      // Measured every frame rather than cached: the bounds are null until the GLB resolves, and
+      // this view can be active across that boundary (the mode is restored from sessionStorage
+      // before the model exists).
+      const _bb = getBodyBounds();
+      const fwd = _bb ? _bb.max.z + NOSE_CLEAR : HOOD_FORWARD;
+      const eyeY = _bb ? _bb.max.y - NOSE_DROP : HOOD_HEIGHT;
+      // One-shot placement census. Two rounds of reasoning put this camera inside the shell and
+      // neither was diagnosable from a screenshot; this makes the third round a number, not a guess.
+      if (_bb && !_noseLogged) {
+        _noseLogged = true;
+        console.log('[carCamera] nose cam — body z', _bb.min.z.toFixed(2), '..', _bb.max.z.toFixed(2),
+          '· y', _bb.min.y.toFixed(2), '..', _bb.max.y.toFixed(2),
+          '→ eye fwd', fwd.toFixed(2), 'up', eyeY.toFixed(2),
+          fwd > _bb.max.z ? '(OUTSIDE, correct)' : '(INSIDE THE BODYWORK — wrong)');
+      }
       _idealPos.set(
-        p.x + _fwdDir.x * HOOD_FORWARD,
-        p.y + HOOD_HEIGHT,
-        p.z + _fwdDir.z * HOOD_FORWARD,
+        p.x + _fwdDir.x * fwd,
+        p.y + eyeY,
+        p.z + _fwdDir.z * fwd,
       );
       _hoodLook.set(
         p.x + lookX * HOOD_LOOK,
-        p.y + HOOD_HEIGHT + _orbitPitch * HOOD_LOOK,
+        p.y + eyeY + _orbitPitch * HOOD_LOOK,
         p.z + lookZ * HOOD_LOOK,
       );
     }
