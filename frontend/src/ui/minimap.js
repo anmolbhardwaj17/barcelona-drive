@@ -38,20 +38,22 @@ const ROTATION_LERP = 0.15;
 // Done with a CSS 3D transform on the existing rotated div — the canvas pipeline, the tile drawing
 // and the expanded (north-up) mode are all untouched. A tilted DIV costs the compositor nothing;
 // re-projecting the canvas per frame would cost a redraw.
-const MM_TILT_DEG = 54;          // plane tilt — enough to read as perspective, short of a horizon
-const MM_TILT_SPEED_DEG = 5;     // a little flatter at speed, so the far distance stays legible
+const MM_TILT_DEG = 62;          // plane tilt — user asked for more; Google sits around 60-65
+const MM_TILT_SPEED_DEG = 6;     // a little flatter at speed, so the far distance stays legible
 const MM_SHIFT_REST = 0.16;      // car sits this far below centre at a standstill (fraction of size)
 const MM_SHIFT_FAST = 0.30;      // and this far at speed — more road ahead when you need it
 const MM_PULLBACK = 0.14;        // how much the map shrinks at speed, showing more ground
 const MM_SPEED_FULL = 90;        // km/h at which the look-ahead is fully extended
-const MM_PERSPECTIVE = 460;      // px — lower is a stronger, more dramatic tilt
+const MM_PERSPECTIVE = 395;      // px — lower is a stronger, more dramatic tilt
 const MM_LOOK_LERP = 0.06;       // the look-ahead EASES; snapping it with throttle reads as a lurch
 // ⚠ ONE constant, because there are TWO places that size this div — creation, and the collapse out
 // of expanded mode. 1.5x was right for a flat top-down square; a tilted plane reaches much further
 // at its far edge and anything past the drawn area shows as empty backing, the "map ran out" look.
 // The collapse path had its own hardcoded 1.5, so expanding and closing the map silently undid the
 // drone view's coverage.
-const MM_INNER_SIZE = MINIMAP_SIZE * 2.1;
+// Grew with the tilt: at 62° the far edge reaches further, and short-changing this is what
+// leaves empty backing at the top of the circle.
+const MM_INNER_SIZE = MINIMAP_SIZE * 2.45;
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
