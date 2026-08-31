@@ -119,6 +119,20 @@ before R1–R3.
 
 ---
 
+## ⚠ How to check whether a texture is actually used
+
+`rock_atlas` was found dead by grepping its filename across `frontend/src/`. **That method also
+flags six textures that are very much alive** — `panot_*`, `asphalt_worn_*`, `asphalt_fresh_*` —
+because `roadTexturePack.js:39` composes the filename at the call site:
+
+```js
+albedo: load(`${BASE}/${name}_albedo.ktx2`, true),
+```
+
+Those are the highest-screen-coverage surfaces in the game. Trusting the grep would have archived
+the road. **Always find the loader and check whether the name is a literal or composed** before
+concluding anything is orphaned; when it is composed, trace what gets passed in.
+
 ## Notes for whoever processes these
 
 - Everything goes through `tools/artNormalize.py` before shipping — de-light, Lab rescale, palette
