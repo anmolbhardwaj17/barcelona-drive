@@ -108,6 +108,7 @@ import { initCollisionDebug, updateCollisionDebug } from './collisionDebug.js';
 import { initWorkerPool } from './workers/workerPool.js';
 import { warmAllBuildingMaterials } from './workers/meshMaterializer.js';
 import { getWaterMaterial } from './map/waterRenderer.js';
+import { updateSignals } from './map/trafficSignalRenderer.js';   // T-2
 
 const container = document.getElementById('app');
 container.tabIndex = 0;
@@ -1706,6 +1707,10 @@ function animate(time = 0) {
     // car alone would leave the city moving around a stopped player.
     // V-12: the contact test is an oriented-box overlap now, so it needs the player's heading —
     // a circle around the centre could not tell a head-on from a glancing pass.
+    // T-2: one uniform write advances every signal in the city — no geometry is touched.
+    // `time` is the rAF timestamp in ms and is already in scope; a pause freezes the phase with
+    // everything else, which is what you want — coming back to a signal mid-cycle, not reset.
+    if (!_paused) updateSignals(time / 1000);
     if (trafficSystem && !_paused) {
       trafficSystem.update(lp.lx, lp.lz, frameDt, speedKmh,
                            (carDriver.getHeadingDeg?.() ?? 0) * (Math.PI / 180));

@@ -172,6 +172,10 @@ export const CONFIG = {
   ENABLE_GUARD_RAILS: !_urlHas('norails'),
   ENABLE_PROCEDURAL_INFILL: false, // Delhi-era procedural building infill — keep off
   ENABLE_TRAFFIC: true, // AI traffic cars driving the loaded road network (car mode only)
+  // T-2: signals from the BAKED OSM nodes (4,225 across the centre, previously parsed and
+  // dropped). The old generateTrafficLights was disabled because it synthesised positions and
+  // offset them to the LEFT — Delhi-era code — putting every signal in the driving path.
+  ENABLE_TRAFFIC_SIGNALS: true,
   ENABLE_PARKED_CARS: true, // instanced parked cars lining both curbs (the Barcelona look)
   ENABLE_PEDESTRIANS: true, // real low-poly people baked to static instanced meshes (light crowd)
 

@@ -46,6 +46,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createFastElevation } from './fastElevation.js';
 import { initWorkerPool, processBuildings as workerProcessBuildings, processVegetation as workerProcessVegetation, cancelTile } from '../workers/workerPool.js';
 import { materializeBuildingMeshes, materializeVegetationMeshes, getVegPools } from '../workers/meshMaterializer.js';
+import { buildTrafficSignals } from './trafficSignalRenderer.js';   // T-2
 
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
 // v3: ?debug=paint — per-second report of road-paint mesh state for the tile the car is in.
@@ -2629,6 +2630,36 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       for (const m of entry.roadInfraMeshes) { safeSceneAdd(scene, m); }
     }
 
+    // ── T-2 · TRAFFIC SIGNALS, FROM THE BAKED OSM NODES ──────────────────────────────────────
+    // `data.trafficSignals` has been parsed all the way here and dropped for a long time (the v3
+    // census counts them: 4,225 across the centre). They carry surveyed positions, so they sit at
+    // real kerbs — unlike the old generateTrafficLights, which synthesised positions from
+    // intersection geometry AND offset them to the left because it was written for Delhi.
+    if (CONFIG.ENABLE_TRAFFIC_SIGNALS && data.trafficSignals?.length) {
+      buildPhase('p4 signals');
+      // Nearest road tangent, so a head faces oncoming traffic instead of an arbitrary direction —
+      // lenses edge-on to the driver is most of why the old ones read as anonymous dark boxes.
+      const nearestRoad = (x, z) => {
+        let best = null, bestD = 1e9;
+        for (const r of roads) {
+          const pts = r.points;
+          if (!pts || pts.length < 2) continue;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const ax = pts[i].x, az = pts[i].y, bx = pts[i + 1].x, bz = pts[i + 1].y;
+            const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+            if (l2 < 1e-6) continue;
+            const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2));
+            const qx = ax + t * dx, qz = az + t * dz;
+            const d = (x - qx) ** 2 + (z - qz) ** 2;
+            if (d < bestD) { bestD = d; const l = Math.sqrt(l2); best = { tx: dx / l, tz: dz / l }; }
+          }
+        }
+        return bestD < 400 ? best : null;   // 20 m — beyond that it is not this signal's road
+      };
+      const sigMesh = buildTrafficSignals(data.trafficSignals, getGroundY, nearestRoad);
+      if (sigMesh) { entry.trafficSignalMesh = sigMesh; safeSceneAdd(scene, sigMesh); }
+    }
+
     // Decals
     // v3 P1-15: decalRenderer DELETED — Delhi-era wall posters.
 
@@ -2945,6 +2976,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         for (const meshKey of ['shoulderMesh', 'dividerMesh', 'streetlightWireMesh'] /* streetlight parts live in global pools now */) {
           collectAndRemove(entry[meshKey]);
         }
+        // T-2 signals own their merged geometry per tile (the MATERIAL is shared and must not be
+        // disposed — userData.sharedMaterial marks it). tileDisposal.test.js caught this field
+        // leaking the moment it was added, which is exactly what that test is for.
+        if (entry.trafficSignalMesh) { scene.remove(entry.trafficSignalMesh); allMeshes.push(entry.trafficSignalMesh); }
         if (entry.crosswalkMesh)    { scene.remove(entry.crosswalkMesh);    allMeshes.push(entry.crosswalkMesh); }
         if (entry.onewayArrowMesh)  { scene.remove(entry.onewayArrowMesh);  allMeshes.push(entry.onewayArrowMesh); }
         if (entry.bcnSidewalkMesh)  { scene.remove(entry.bcnSidewalkMesh);  allMeshes.push(entry.bcnSidewalkMesh); }
