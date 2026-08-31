@@ -159,13 +159,22 @@ function getKitMaterial() {
         // Real lamps EMIT. Applied at emissivemap_fragment because that is where
         // totalEmissiveRadiance exists; doing it in color_fragment would only tint the albedo.
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        if (vPart > 1.5 && vPart < 2.5) totalEmissiveRadiance += vec3(0.34, 0.31, 0.26);`)
+        if (vPart > 1.5 && vPart < 2.5) totalEmissiveRadiance += vec3(0.34, 0.31, 0.26);
+        else if (vPart > 5.5 && vPart < 6.5) totalEmissiveRadiance += vec3(0.30, 0.020, 0.012);
+        else if (vPart > 6.5) totalEmissiveRadiance += vec3(0.26, 0.115, 0.010);`)
         .replace('#include <color_fragment>', `#include <color_fragment>
         // 1 glass · 2 light · 3 tyre · 4 chrome. Compared with a tolerance because the value is
         // interpolated across the triangle even when every vertex agrees.
         if (vPart > 0.5 && vPart < 1.5) {
           // Dark, slightly blue: a car window reads as a hole with a sky sheen, never as paint.
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.055, 0.065, 0.085), 0.88);
+        } else if (vPart > 5.5 && vPart < 6.5) {
+          // Tail lamps. Deep red lens, and RED emissive — a white-emitting tail light is the single
+          // most obvious tell that a car is faked.
+          diffuseColor.rgb = vec3(0.42, 0.045, 0.035);
+        } else if (vPart > 6.5) {
+          // Indicators: amber.
+          diffuseColor.rgb = vec3(0.62, 0.30, 0.03);
         } else if (vPart > 1.5 && vPart < 2.5) {
           // Lamp lenses stay bright at any angle so traffic reads at distance. Diffuse alone is not
           // enough — a Lambert surface facing away from the sun goes dark, and headlights that
@@ -216,7 +225,8 @@ function getKitMaterial() {
 // `colormap` material, so only wheels separate — the point of this is that a model with real
 // material names (the hero M3 has CarPaint / Window / RearLight / Rims / Tires) classifies fully
 // and drops straight in. See R5 in docs/context/asset-requests.md.
-export const PART = { BODY: 0, GLASS: 1, LIGHT: 2, TYRE: 3, CHROME: 4, INTERIOR: 5 };
+export const PART = { BODY: 0, GLASS: 1, LIGHT: 2, TYRE: 3, CHROME: 4, INTERIOR: 5,
+                      TAIL: 6, SIGNAL: 7 };
 
 // ── THE NAMES ARE NOT IN ENGLISH, AND THAT IS NOT AN EDGE CASE ────────────────────────────────
 // First real model tested against this classifier — a Turkish-authored hatchback — matched 5 of its
@@ -240,8 +250,21 @@ const RE_TYRE   = /tyre|tire|rubber|lastik|kolesa|shina|rueda|reifen|pneu|goma/;
 const RE_CHROME = /rim|chrome|metal|trim|exhaust|mirror|jant|ayna|disk|krom|zerkalo|espejo|spiegel|grill|izgara|bumper/;
 const RE_INNER  = /interior|salon|cabin|seat|koltuk|sitze|dashboard|dash\b/;
 
+// ── A LAMP IS NOT JUST A LAMP (V-9) ───────────────────────────────────────────────────────────
+// The first version collapsed every lamp into one LIGHT class and painted them all warm white, so
+// traffic drove around with WHITE tail lights — user-reported, and obviously wrong next to the
+// player's car, which has proper red ones because its GLB keeps its own materials.
+//
+// The information was there all along and I threw it away: the model separates `rearlight`,
+// `frontlight` and `sinyal`. Tested BEFORE the general light pattern, most specific first, or
+// `rearlight` matches "light" and lands in the white bucket.
+const RE_TAIL   = /tail|rear\s*(light|lamp)|(light|lamp)\s*rear|rearlight|arka|brake\s*light|stop\s*lamp/;
+const RE_SIGNAL = /signal|sinyal|blinker|indicator|turn\s*(light|lamp)|amber/;
+
 function classifyPart(meshName, matName) {
   const n = `${meshName || ''} ${matName || ''}`.toLowerCase();
+  if (RE_SIGNAL.test(n)) return PART.SIGNAL;    // most specific first
+  if (RE_TAIL.test(n)) return PART.TAIL;
   if (RE_LIGHT.test(n)) return PART.LIGHT;      // before GLASS — see the order note above
   if (RE_GLASS.test(n)) return PART.GLASS;
   if (RE_TYRE.test(n)) return PART.TYRE;
