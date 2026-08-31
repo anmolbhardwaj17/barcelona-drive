@@ -224,3 +224,45 @@ far more often than they produce usable cars. Judge on two things before anythin
 a separate material, and does the silhouette read as a car in profile at 30 m. Everything else is
 fixable in the loader; those two are not.
 
+
+---
+
+## R6 · Game-mode card art — five images, replacing files that already exist
+
+**User, 2026-09-01:** wants new mode art matching the ETS2-style menu. The hub (`ui/mainMenu.js`)
+and the title screen both read the SAME five files, so one set covers both.
+
+- **Goes to:** `frontend/public/modes/mode-{free,dash,taxi,delivery,police}.webp` — **keep these exact
+  names**; both screens reference them and there is no code change needed to swap them.
+- **Size:** 1024 × 576 (16:9). Both consumers use `background-size: cover`, so the centre survives
+  every crop — the hub thumbnail is a narrow 78 px column and the title card is much wider.
+- **Budget:** these are UI art, not world texture — they do NOT count against the 24 MB texture cap.
+  ~60-80 KB each as WebP, which is what the current set weighs.
+- **Fallback if one is missing:** the row keeps its CSS gradient + emoji glyph. Deliberate — a
+  missing card is legible, not broken.
+
+> **Shared style block — append to every one of the five:**
+> Cinematic key art for a stylised Barcelona driving game. 16:9. Dusk golden hour, warm amber street
+> light against deep blue-teal shadows. Slightly stylised realism: clean geometric architecture,
+> smooth surfaces, no photographic grain. Low camera near road level, strong depth. Muted
+> teal-and-amber grade. No text, no logos, no UI, no watermark, no faces near camera.
+
+**mode-free** — Free Roam
+> An empty Barcelona avenue at dusk seen from low behind a silver coupe cruising away from camera,
+> the Eixample's chamfered corners receding into haze, palm trees and lit shopfronts on both sides.
+
+**mode-dash** — Checkpoint Dash
+> A silver coupe hard on the throttle through a wide Barcelona junction at dusk, motion blur on the
+> road surface, a glowing amber checkpoint arch of light ahead of it.
+
+**mode-taxi** — City Cab
+> A black-and-yellow Barcelona taxi waiting at a lit kerb on a narrow Gothic Quarter street at dusk,
+> warm light spilling from a doorway, roof sign glowing.
+
+**mode-delivery** — Rush Hour
+> A small white panel van cornering through dense dusk traffic on a Barcelona avenue, brake lights
+> streaking, cardboard parcels visible through the rear glass.
+
+**mode-police** — Heat
+> A silver coupe seen in a rear-view perspective fleeing down a Barcelona seafront road at dusk,
+> blue and red police lights flaring in the haze behind it, palm trees whipping past.
