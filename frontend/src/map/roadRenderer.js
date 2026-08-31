@@ -189,6 +189,8 @@ if (typeof window !== 'undefined') {
     ? { allTiles: { ..._cumEmbankStats }, lastTile: { ...getEmbankmentStats() } }
     : 'no tile built yet');
 }
+/** Declared span of the authored soffit plate, metres — see textures/road/surface_plates.json. */
+const SLAB_SOFFIT_SPAN_M = 4.0;
 /** Concrete slab depth below bridge deck (m). */
 const SLAB_THICKNESS = 1.2;
 /** Bridge structures (slab, guard rails, pillars) hidden below this height above ground (m). */
@@ -3526,7 +3528,25 @@ function getSlabMaterial() {
   // is visible when looking up. Concrete viaduct grey: 0x706b66 read as "black border lines"
   // alongside every elevated ramp in daylight (user report ×3 — this was the real culprit,
   // after the edge strips and railways were ruled out).
-  sharedSlabMaterial = new THREE.MeshBasicMaterial({ color: 0xa9a49d, side: THREE.DoubleSide });
+  // ── TEXTURED, STILL UNLIT — the decision above is preserved, not overruled ─────────────────
+  // The comment above records `0x706b66` reading as "black border lines" alongside every elevated
+  // ramp in daylight, user-reported THREE times, and MeshBasic is what fixed it. Adding a map does
+  // not touch that: an unlit material renders the plate at full value from every angle, which is
+  // exactly the property that was wanted. What changes is that the surface stops being a flat fill.
+  //
+  // The user photographed this surface flashing WHITE against the N-54 embankment beside it — an
+  // unlit mid-grey next to a lit concrete wall cannot match at any time of day, and a plate at
+  // least gives it the same material identity.
+  //
+  // `color` goes WHITE: the plate now carries the colour (L* 62, dE 8.0 from P6_panot_grey), and
+  // leaving the old tint in would multiply it and darken the soffit by a third.
+  const soffit = getKTX2TextureSync('/textures/road/slab_soffit_albedo.ktx2');
+  soffit.wrapS = soffit.wrapT = THREE.RepeatWrapping;
+  // UVs above are in ROAD_UV_REPEAT_M units; the plate's declared span is SLAB_SOFFIT_SPAN_M.
+  soffit.repeat.set(ROAD_UV_REPEAT_M / SLAB_SOFFIT_SPAN_M, ROAD_UV_REPEAT_M / SLAB_SOFFIT_SPAN_M);
+  sharedSlabMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff, map: soffit, side: THREE.DoubleSide,
+  });
   return sharedSlabMaterial;
 }
 
@@ -3688,6 +3708,7 @@ function buildBridgeSlabGeometry(roads, options) {
     for (const edge of [leftEdge, rightEdge]) {
       const pos = new Float32Array(n * 6);
       const uvs = new Float32Array(n * 4);
+      let slabU = 0;
       const idx = [];
       for (let i = 0; i < n; i++) {
         const e = edge[i];
@@ -3706,9 +3727,19 @@ function buildBridgeSlabGeometry(roads, options) {
         const depth = SLAB_THICKNESS * taper;
         pos[i * 6 + 0] = e.x; pos[i * 6 + 1] = e.y;           pos[i * 6 + 2] = e.z;
         pos[i * 6 + 3] = e.x; pos[i * 6 + 4] = e.y - depth;   pos[i * 6 + 5] = e.z;
-        const u = i / Math.max(1, n - 1);
-        uvs[i * 4 + 0] = u; uvs[i * 4 + 1] = 1;
-        uvs[i * 4 + 2] = u; uvs[i * 4 + 3] = 0;
+        // ── UVs MUST MATCH THE BOTTOM FACE, WHICH IS MERGED INTO THE SAME GEOMETRY ───────────
+        // These were `i / (n-1)` — normalised across the WHOLE road — while the bottom face built
+        // by `buildFlatRibbonGeometry` uses `lengthAlong / ROAD_UV_REPEAT_M`. Two conventions in
+        // one merged mesh means one texture repeat cannot serve both: the soffit plate would tile
+        // correctly underneath and stretch a single repeat along a 500 m viaduct's edge.
+        //
+        // Distance along, in ROAD_UV_REPEAT_M units, on both. V is WORLD HEIGHT in the same units,
+        // so the form-board lines stay level across adjacent slabs instead of restarting per way —
+        // the same reason the N-54 embankment uses world Y for its V.
+        if (i > 0) slabU += Math.hypot(e.x - edge[i - 1].x, e.z - edge[i - 1].z);
+        const u = slabU / ROAD_UV_REPEAT_M;
+        uvs[i * 4 + 0] = u; uvs[i * 4 + 1] = e.y / ROAD_UV_REPEAT_M;
+        uvs[i * 4 + 2] = u; uvs[i * 4 + 3] = (e.y - depth) / ROAD_UV_REPEAT_M;
       }
       for (let i = 0; i < n - 1; i++) {
         const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
