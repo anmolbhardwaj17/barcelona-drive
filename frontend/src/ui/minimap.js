@@ -29,6 +29,23 @@ const UPDATE_INTERVAL_MS = 350;   // Leaflet setView (tile re-center) is a DOM s
                                   // often. Rotation + the car arrow still update every frame (cheap CSS),
                                   // so the map stays lively — only the tile re-centre steps a touch larger.
 const ROTATION_LERP = 0.15;
+
+// ── DRONE VIEW (M-1) ──────────────────────────────────────────────────────────────────────────
+// The map was dead top-down, which tells you where you ARE and almost nothing about where you are
+// GOING. Every navigation view solves this the same way: tilt the plane, sit the vehicle low in the
+// frame, and pull back as speed rises so the driver sees further ahead the faster they travel.
+//
+// Done with a CSS 3D transform on the existing rotated div — the canvas pipeline, the tile drawing
+// and the expanded (north-up) mode are all untouched. A tilted DIV costs the compositor nothing;
+// re-projecting the canvas per frame would cost a redraw.
+const MM_TILT_DEG = 54;          // plane tilt — enough to read as perspective, short of a horizon
+const MM_TILT_SPEED_DEG = 5;     // a little flatter at speed, so the far distance stays legible
+const MM_SHIFT_REST = 0.16;      // car sits this far below centre at a standstill (fraction of size)
+const MM_SHIFT_FAST = 0.30;      // and this far at speed — more road ahead when you need it
+const MM_PULLBACK = 0.14;        // how much the map shrinks at speed, showing more ground
+const MM_SPEED_FULL = 90;        // km/h at which the look-ahead is fully extended
+const MM_PERSPECTIVE = 460;      // px — lower is a stronger, more dramatic tilt
+const MM_LOOK_LERP = 0.06;       // the look-ahead EASES; snapping it with throttle reads as a lurch
 const BORDER_WIDTH = 4;
 const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 
@@ -169,7 +186,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     cursor: pointer;
   `;
 
-  const mapInnerSize = MINIMAP_SIZE * 1.5;
+  // 1.5x was sized for a flat top-down square. A tilted plane reaches much further at its far
+  // edge, and anything past the drawn area shows as empty backing — the "map ran out" look. 2.1x
+  // covers the tilt; the redraw stays cheap because it is throttled to UPDATE_INTERVAL_MS anyway.
+  const mapInnerSize = MINIMAP_SIZE * 2.1;
   mapInner = document.createElement('div');
   mapInner.id = 'minimap-inner';
   mapInner.style.cssText = `
@@ -217,6 +237,10 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     pointer-events: none;
     z-index: 1000;
   `;
+  // ⚠ The marker is NOT part of mapInner, so the drone-view shift has to be applied to it too —
+  // the map is drawn centred on the car, so pushing the map down moves the car's actual position
+  // down with it. Leaving the icon at the container centre would draw it somewhere the car is not,
+  // which is the one thing a "you are here" marker must never do. Updated in update() below.
   const mc = markerSize / 2;
   // Blue "you-are-here" pin with a heading wedge (matches the expanded-map marker). Points UP =
   // forward, since the map itself rotates heading-up.
@@ -572,13 +596,34 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   const _compassRotateGroup = compassRing.querySelector('.compass-rotate');
   const _compassCx = compassSize / 2;
 
-  function update(worldX, worldZ, headingDeg) {
+  let _lookAhead = 0;   // eased 0..1 speed factor driving tilt, shift and pull-back
+
+  function update(worldX, worldZ, headingDeg, speedKmh = 0) {
     // Rotation updates every frame (smooth compass + map rotation)
     const targetDeg = Number.isFinite(headingDeg) ? headingDeg : 0;
     currentRotationDeg += (targetDeg - currentRotationDeg) * ROTATION_LERP;
 
+    // Speed shapes the view: eased, never snapped — the map lunging on every throttle blip is
+    // worse than a map that lags slightly behind the car.
+    const _spd = Math.min(1, Math.abs(speedKmh || 0) / MM_SPEED_FULL);
+    _lookAhead += (_spd - _lookAhead) * MM_LOOK_LERP;
+
     if (!expanded) {
-      mapInner.style.transform = `translate(-50%, -50%) rotate(${-currentRotationDeg}deg)`;
+      const tilt = MM_TILT_DEG - MM_TILT_SPEED_DEG * _lookAhead;
+      const shift = MINIMAP_SIZE * (MM_SHIFT_REST + (MM_SHIFT_FAST - MM_SHIFT_REST) * _lookAhead);
+      const zoom = 1 - MM_PULLBACK * _lookAhead;
+      // Order matters: centre the element FIRST, then establish the tilted space, then push the map
+      // down and spin it to heading. Putting the translate after rotateX would move it along the
+      // tilted plane instead of down the screen.
+      mapInner.style.transform =
+        `translate(-50%, -50%) perspective(${MM_PERSPECTIVE}px) rotateX(${tilt.toFixed(1)}deg) `
+        + `translateY(${shift.toFixed(1)}px) scale(${zoom.toFixed(3)}) rotate(${-currentRotationDeg}deg)`;
+      // Keep the marker on the car. The map's own shift is in TILTED space, so its on-screen drop is
+      // shift * cos(tilt) — using the raw shift would place the icon below where the car actually is.
+      if (markerEl) {
+        const screenDrop = shift * Math.cos(tilt * Math.PI / 180) * zoom;
+        markerEl.style.transform = `translate(-50%, calc(-50% + ${screenDrop.toFixed(1)}px))`;
+      }
       if (_compassRotateGroup) {
         _compassRotateGroup.setAttribute('transform', `rotate(${-currentRotationDeg} ${_compassCx} ${_compassCx})`);
       }

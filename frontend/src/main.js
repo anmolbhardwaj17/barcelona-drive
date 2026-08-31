@@ -1794,7 +1794,8 @@ function animate(time = 0) {
   }
   speedLines?.update(speedKmh);
   const { lat, lon } = worldToLatLon(worldWx, worldWz);
-  minimap?.update(worldWx, worldWz, -headingDeg); // negate: physics X mirrored
+  // M-1: speed drives the drone view's tilt, look-ahead shift and pull-back.
+  minimap?.update(worldWx, worldWz, -headingDeg, carDriver?.getSpeedKmh?.() ?? 0); // negate: physics X mirrored
   compassBar?.update(headingDeg);
   metricsPanel?.update({ x: viewerWx, z: viewerWz, lat, lon, roadType: nearest ? nearest.highwayType : null, headingDeg, speedKmh: Math.abs(speedKmh) });
   // Shadow camera follows the viewer — throttled to update only when moved >5m
