@@ -272,3 +272,52 @@ composition brief — the old set was made for a small thumbnail beside text.
 **mode-police** — Heat
 > A silver coupe fleeing along the Barcelona seafront, seen from behind and slightly above, with
 > blue and red police lights flaring through the haze close behind it and palm trees whipping past.
+
+---
+
+## R7 · Loading-screen artwork — rotating full-bleed stills
+
+**User, 2026-09-01:** "the whole page doesn't have any image, there should be images coming there
+rotating and facts on top left". The mode loader (`#dd-modeload`, the bottom-left counter you get
+after PLAY) now crossfades a rotating set behind the UI with a slow Ken Burns push.
+
+- **Goes to:** `frontend/public/loading/load-1.webp` … `load-8.webp`
+- **Size:** 1920 × 1080 (16:9), full-bleed
+- **⚠ COMPOSITION:** facts sit **top-left**, the % counter **bottom-left**, both white over a scrim
+  weighted to the top and bottom edges. **Keep the left third calm; put the subject right of
+  centre.** A busy left edge survives the scrim but fights both text blocks.
+- **Budget:** UI art, NOT the 24 MB texture cap. ~150-250 KB each as WebP.
+- **Ship any number.** `index.html` probes 1-8 and rotates only what loads, so two now and six later
+  is fine, and a missing slot is skipped rather than flashed as black.
+
+> **Shared style block — append to every one:**
+> Cinematic 16:9 wallpaper for a stylised Barcelona driving game. Dusk or blue hour: warm amber
+> street light against deep blue-teal shadow. Stylised realism — clean geometric architecture,
+> smooth surfaces, soft volumetric haze, no photographic grain. Wide establishing view with strong
+> depth. Keep the LEFT THIRD calm and uncluttered — sky, road, water or haze — for text overlays.
+> No text, no logos, no UI, no watermark, no faces, no borders.
+
+**load-1** — the Eixample grid
+> A high wide view over Barcelona's Eixample at dusk, the chamfered octagonal city blocks receding
+> in a lit grid, warm window light and amber street lamps, the Sagrada Família silhouetted on the
+> right horizon.
+
+**load-2** — the seafront
+> The Barcelona waterfront at blue hour seen along the beach, palm trees and a lit promenade curving
+> away to the right, calm sea and open sky filling the left of the frame.
+
+**load-3** — a Gothic Quarter street
+> A narrow Gothic Quarter street at night, stone walls and iron balconies, a single warm lantern
+> throwing light across wet paving, the alley opening into a lit square on the right.
+
+**load-4** — the ring road
+> A Barcelona ring road at dusk from a low bridge, empty carriageways sweeping right, city lights
+> and the Collserola hills beyond, an open dark sky over the left half.
+
+**load-5** — Montjuïc overlook
+> Barcelona seen from Montjuïc at sunset, the port and the whole lit city spread below and to the
+> right, calm hazy sky and sea filling the left of the frame.
+
+**load-6** — Passeig de Gràcia
+> A wide Barcelona boulevard at dusk lined with modernista façades and ornate street lamps, tram
+> tracks and crossings catching the light, the buildings massed on the right.
