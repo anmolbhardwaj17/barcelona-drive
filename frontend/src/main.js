@@ -657,6 +657,9 @@ function compileForComposer() {
 // every feature that changes the generated GLSL — map / vertexColors / fog / side / transparent /
 // LIGHT COUNTS / shadows — plus our own patch tags. Two materials sharing all of that share ONE
 // program; differ in any one and it is a whole new compile.
+/** Longest the light-grid recompile may wait for streaming to quiesce before going anyway. */
+const LG_COMPILE_MAX_DEFER_MS = 3000;
+
 let _progSeen = renderer.info.programs?.length ?? 0;
 function watchShaderVariants() {
   const list = renderer.info.programs;
@@ -1924,7 +1927,21 @@ function animate(time = 0) {
     // bring new materials in. compileAsync uses KHR_parallel_shader_compile to build them off the
     // critical path instead. Debounced: tiles register materials in bursts, and one compile per
     // material would be worse than the stall it replaces.
-    if (_lgDirtyPrograms && time - _lgLastCompile > 500) {
+    //
+    // ⚠ NOT WHILE TILES ARE CHURNING. three's readiness poll reads
+    // `properties.get(material).currentProgram` on a timer; a material DISPOSED between the compile
+    // and the poll yields an empty properties object, so the poll throws `Cannot read properties of
+    // undefined (reading 'isReady')` from inside a setTimeout — uncatchable, and the promise never
+    // settles. The warm-up at boot already carries a timeout backstop for exactly this. Tile unload
+    // is what disposes materials, so waiting for the disposal queue to drain removes the race at
+    // the only site that had no backstop, instead of catching an error that cannot be caught.
+    //
+    // Deferral is bounded: if streaming never quiesces (continuous driving) the compile still runs
+    // after LG_COMPILE_MAX_DEFER_MS, because the stall it exists to prevent is worse than the race.
+    const _lgSt = tileManager?.getInitialLoadState?.();
+    const _lgChurning = !!_lgSt && (_lgSt.inFlight > 0 || _lgSt.pending > 0 || _lgSt.disposals > 0);
+    if (_lgDirtyPrograms && time - _lgLastCompile > 500
+        && (!_lgChurning || time - _lgLastCompile > LG_COMPILE_MAX_DEFER_MS)) {
       _lgDirtyPrograms = false; _lgLastCompile = time;
       compileForComposer()?.catch(() => { /* falls back to sync compile on first draw */ });
     }

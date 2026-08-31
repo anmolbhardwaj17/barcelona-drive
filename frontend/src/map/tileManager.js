@@ -3836,7 +3836,14 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
   /** What the load is waiting on, so a caller that gives up can say what it gave up on. */
   function getInitialLoadState() {
-    return { inFlight: inFlightCount, pending: pendingQueue.length, resident: tileCache.size, started: _startedLoading };
+    // `disposals` is the one that matters to a shader compile. three's compileAsync polls
+    // `properties.get(material).currentProgram` on a timer, and a DISPOSED material returns an
+    // empty properties object — so the poll throws `Cannot read properties of undefined (reading
+    // 'isReady')` from inside a setTimeout, where no `.catch()` can reach it, and the promise never
+    // settles. Tile unload is what disposes materials, so a caller can avoid the whole race by not
+    // starting a compile while this is non-zero.
+    return { inFlight: inFlightCount, pending: pendingQueue.length, disposals: _pendingDisposals.length,
+             resident: tileCache.size, started: _startedLoading };
   }
 
   return {
