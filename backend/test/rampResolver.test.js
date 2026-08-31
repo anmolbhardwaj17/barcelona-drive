@@ -90,17 +90,23 @@ test('N-57 — reconciliation leaves the FAR end of a way exactly where it was',
     `the far end must be untouched by any reconciliation, got ${ha[0]}`);
 });
 
-test('N-57 — a tunnel is never moved: floor slabs are baked under it', () => {
-  // Moving a tunnel would lift it off its floor, and drivable-surface-implies-floor is
-  // COMMIT-BLOCKING — that trades a visible step for an aborted bake.
+test('N-59 — a tunnel may RISE to meet a street, but is never dragged deeper', () => {
+  // The rule changed deliberately, so this test changed with it. The original refused to move a
+  // tunnel at all, fearing it would be lifted off its baked floor — but the floor is carved from
+  // the RESOLVED heights (buildTrenchCorridors runs long after resolveRamps), so a tunnel that
+  // moves takes its floor with it. Refusing also contradicted N-47, whose whole point is that a
+  // portal is where the tunnel rises to the street. The old guard skipped 97 of 149 nodes.
+  //
+  // What must still hold: the tunnel never goes DEEPER to meet something. That is not a portal,
+  // and the carve would have to follow it into ground that was never cut.
   const t = makeWay('t', { nodeIds: ['t0', 't1', 'JOIN'], pts: 3, len: 150, tunnel: true });
   const s = makeWay('s', { nodeIds: ['JOIN', 's1', 's2'], pts: 3, len: 150, x0: 150 });
   const res = resolveRamps(graphOf([t, s]));
   const ht = heights(res, 't', 3);
-  for (const h of ht) {
-    assert.ok(Number.isFinite(h), 'tunnel heights must stay finite');
-    assert.ok(h <= 0.01, `a tunnel must never be raised above grade by reconciliation, got ${h}`);
-  }
+  for (const h of ht) assert.ok(Number.isFinite(h), 'tunnel heights must stay finite');
+  // The far (deep) end stays down; the joining end is allowed to come up to the street.
+  assert.ok(ht[0] < ht[2] + 0.01, 'the deep end must not be raised above the portal end');
+  assert.ok(ht[0] <= 0.01, `the deep end must stay at or below grade, got ${ht[0]}`);
 });
 
 test('every way gets a result, and no height is NaN', () => {

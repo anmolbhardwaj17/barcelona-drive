@@ -445,9 +445,14 @@ export function resolveRamps(graph) {
  * case of bridge-meets-bridge.
  *
  * ── THE THREE RULES THAT KEEP IT FROM CAUSING WHAT IT CURES ────────────────────────────────────
- * 1. A TUNNEL IS NEVER MOVED. Tunnel roads have floor slabs baked under them and the
- *    drivable-surface-implies-floor validator is commit-blocking; lifting a tunnel off its floor
- *    would trade a visible step for an aborted bake.
+ * 1. THE ANCHOR IS THE STREET, AND THE TUNNEL COMES UP TO IT — N-47's rule, one level down.
+ *    This used to refuse to move a tunnel at all, for fear of lifting it off its baked floor. That
+ *    was wrong on both counts. The floor is carved from the RESOLVED heights
+ *    (`buildTrenchCorridors(simplified)` runs long after `resolveRamps`), so a tunnel that moves
+ *    takes its floor with it — and refusing contradicted N-47, which exists precisely because a
+ *    portal is where the tunnel rises to the street. Measured cost of the old guard: of 149
+ *    disagreeing nodes, **97 were skipped solely because the way that needed to move was a
+ *    tunnel**. The commit-blocking floor validator is the check that this stayed honest.
  * 2. THE FAR END NEVER MOVES. The blend decays to zero over `reach` metres, and a way is skipped
  *    unless `reach < L`. Without that, fixing one node drags the other end and simply relocates the
  *    step — which is precisely how N-56 turned 133 into 177.
@@ -525,8 +530,12 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
 
     // Rule 3 — the anchor is whichever way has the least freedom to move. A way passing THROUGH
     // the node has none at all, so it outranks even a tunnel that merely ends here.
-    const anchor = through.find(a => a.w.tunnel) || through[0]
-      || at.find(a => a.w.tunnel)
+    // A way passing through has no freedom at all, so it outranks everything. Among ways that end
+    // here, prefer a SURFACE way: at a portal the street holds its height and the tunnel rises to
+    // meet it (N-47). Preferring the tunnel here inverted that rule and left the step standing.
+    const anchor = through[0]
+      || at.find(a => !a.w.tunnel && !result.get(a.wid)?.vertexHeights)
+      || at.find(a => !a.w.tunnel)
       || at.find(a => !result.get(a.wid)?.vertexHeights)
       || at[0];
 
@@ -535,7 +544,10 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
       if (a === anchor) continue;
       const delta = anchor.h - a.h;
       if (Math.abs(delta) <= TOL) continue;
-      if (a.w.tunnel) { st.skipTunnel++; continue; }          // rule 1
+      // A tunnel MAY move now (see rule 1), but only toward the surface — never deeper. Dragging a
+      // tunnel further down to meet something is not a portal, and the carve would have to follow
+      // it into ground that was never cut.
+      if (a.w.tunnel && delta < 0) { st.skipTunnel++; continue; }
 
       const pts = a.w.points || [];
       if (pts.length !== a.n || a.n < 2) { st.skipNoGeom++; continue; }
