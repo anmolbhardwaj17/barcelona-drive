@@ -26,6 +26,29 @@ const CHASSIS_MASS = 1730;                      // kg — real G80 M3 kerb+drive
 const WHEEL_Y = 0.20;              // connection point above the low origin (cannon WHEEL_CONNECT_Y)
 const HALF_W = 0.78, FRONT_Z = 1.43, REAR_Z = -1.43, WHEEL_R = 0.34, REST_LEN = 0.32;
 const MAX_STEER = 0.64;            // rad — Rapier's wheel steering bites less than cannon's, so more lock
+
+// ── STEERING FEEL: A WHEEL HAS A RATE LIMIT, NOT A RESPONSE CURVE (V-1) ───────────────────────
+// This used to be an exponential chase — `_currentSteer += (target - _currentSteer) * 10 * dt` —
+// with a time constant near 0.1 s, so the wheel hit full lock in about a third of a second. That
+// is the arcade tell: input and lock are effectively the same thing, and the car darts.
+//
+// A real steering wheel is rate-bound. The driver can only turn it so fast, and how far they WANT
+// it does not change that — which is exactly what gives a heavy vehicle its deliberate, planted
+// feel in ETS2 and Bus Simulator. Turning is slower than releasing, because a self-centring rack
+// helps on the way back and fights you on the way out.
+//
+// The existing speed-based lock reduction is left alone and does a different job: it limits HOW FAR
+// the wheel goes at pace, while this limits HOW FAST it gets there. Doubling them up would make the
+// car feel numb rather than heavy.
+//
+// `?arcadesteer=1` restores the old exponential chase — an ATTRIBUTION switch, not a preference:
+// steering feel is the kind of thing that is argued about, and one reload settles it by driving the
+// same street both ways.
+const STEER_RATE_RAD_S = 1.10;     // lock-to-lock in ~1.2 s — deliberate, not sluggish
+const STEER_RETURN_RAD_S = 1.85;   // the rack self-centres faster than the driver turns
+const _ARCADE_STEER = (() => {
+  try { return new URLSearchParams(location.search).get('arcadesteer') === '1'; } catch { return false; }
+})();
 const BASE_ENGINE_FORCE = 5200;
 const YAW_SPIN_DAMP = 5200;        // N·m per (rad/s)² — quadratic anti-spin: negligible in normal turns,
                                    // firm on a fishtail so the tail can't snap into a full 180. OFF on handbrake.
@@ -172,7 +195,15 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     // Steering — reduce lock with speed (twitch-free at pace), but keep more low-speed authority.
     const steerReduction = 1 - Math.min(0.6, absSpeed / 170);
     const targetSteer = steer * MAX_STEER * steerReduction;
-    _currentSteer += (targetSteer - _currentSteer) * Math.min(1, 10 * dt);
+    if (_ARCADE_STEER) {
+      _currentSteer += (targetSteer - _currentSteer) * Math.min(1, 10 * dt);
+    } else {
+      // Rate-bound. Releasing centres faster than turning — see the V-1 note above.
+      const returning = Math.abs(targetSteer) < Math.abs(_currentSteer);
+      const maxDelta = (returning ? STEER_RETURN_RAD_S : STEER_RATE_RAD_S) * (dt || 0.016);
+      const want = targetSteer - _currentSteer;
+      _currentSteer += Math.max(-maxDelta, Math.min(maxDelta, want));
+    }
     vc.setWheelSteering(0, _currentSteer);
     vc.setWheelSteering(1, _currentSteer);
 

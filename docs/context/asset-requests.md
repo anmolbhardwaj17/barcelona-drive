@@ -142,3 +142,38 @@ concluding anything is orphaned; when it is composed, trace what gets passed in.
 - **D-31: plates must be near-WHITE, not merely desaturated.** Roof and facade colour lives in
   VERTEX COLOUR against a white material, so a mid-grey plate multiplies the tint and darkens
   everything. The roof plates shipped at 0.43–0.55 mean and halved every roof to dark maroon.
+
+---
+
+## R5 · Traffic car models — the fleet is a low-poly kit beside a photoreal hero
+
+**User, 2026-08-31: "my traffic is not like that na its too lowpoly".** Measured, and the gap is
+NOT mainly polygons:
+
+| | tris | materials |
+|---|---|---|
+| `bmw_m3.glb` (hero) | 9,792 | **11** — CarPaint (clearcoat + env), Window, Mirror, Rims, Tires, RearLight, DayLights… |
+| traffic kit (9 models) | ~2,189 avg | **1** — `colormap` |
+
+4x the triangles, but **eleven materials against one**. The kit cars have no separate glass, no
+chrome, no lights and no paint response — one flat atlas. That single-material flatness is most of
+the "toy" read, which is why V-2 (metalness 0.15 / roughness 0.55 / clearcoat 0.25 + the hero's
+shared sky env map) was worth doing first and costs nothing.
+
+**What would actually close it** — models with SEPARATE materials, in priority order:
+`sedan`, `taxi`, `van`, `suv`, `hatchback`. Barcelona traffic is dominated by small hatchbacks and
+the black-and-yellow taxi.
+
+- **Wanted per model:** ~6-12k tris, and at minimum split materials for **body paint / glass /
+  tyres / lights**. Glass must be its own material or the car cannot read as a car at any distance.
+- **Format:** `.glb`, Y-up, +Z forward, real-world scale (a sedan is ~4.5 m long — the loader
+  rescales, but being close avoids surprises).
+- **Where:** `frontend/public/models/cars/` — drop-in, `CITY_CARS` in `carModels.js` names them.
+- **Budget:** these are GEOMETRY, not the 24 MB texture budget. The nine current models total
+  ~1.7 MB; 5 replacements at ~600 KB each is ~3 MB, which is fine.
+- **⚠ One constraint that is easy to miss:** `getKitMaterial()` builds ONE shared material for the
+  whole fleet and bakes wheels-vs-body into VERTEX COLOUR. Models with real per-part materials will
+  need that path relaxed, so this is a code change too, not only an asset drop.
+
+Free sources that fit: Sketchfab CC0/CC-BY (filter Downloadable + 3D-print off), Quaternius'
+Ultimate Vehicle pack (CC0, higher-poly than the current kit), Poly Pizza.

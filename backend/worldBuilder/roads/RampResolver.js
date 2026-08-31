@@ -475,7 +475,8 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
   const REACH_FRACTION = 0.9;      // never consume the whole way — the far end must stay put
   const st = { nodesSeen: 0, disagreeing: 0, waysMoved: 0, nodesFixed: 0,
                skipTunnel: 0, skipTooShort: 0, skipNoGeom: 0, worstBefore: 0, worstLeft: 0,
-               steepestFix: 0, splitFixes: 0 };
+               steepestFix: 0, splitFixes: 0,
+               tsThrough: 0, tsManyWays: 0, tsMixedKind: 0, tsGenuinelyShort: 0 };
 
   const heightAt = (wayId, idx) => {
     const r = result.get(wayId);
@@ -597,9 +598,24 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
       // joint is met by BOTH sides, and if each takes a share, each needs proportionally less road.
       // Only when the anchor is genuinely free to move: a way passing THROUGH cannot bend without a
       // kink mid-span, and at a portal the surface street holds its height by N-47's rule.
-      const anchorFree = through.length === 0 && at.length === 2 && !anchor.w.tunnel === !a.w.tunnel;
+      // ── WHY COULD THIS NOT SPLIT? (N-65) ──────────────────────────────────────────────────
+      // `too short to blend` is now the dominant skip (59 of 151) and it names a SYMPTOM. The split
+      // needs an anchor that is genuinely free, and there are three separate reasons it might not
+      // be — each wanting a different answer, or none. Counted before deciding anything, because
+      // every time this session I built before counting I built the wrong thing.
+      const hasThrough = through.length > 0;
+      const manyWays = at.length > 2;
+      const mixedKind = !anchor.w.tunnel !== !a.w.tunnel;
+      const anchorFree = !hasThrough && !manyWays && !mixedKind;
       const capAnchor = anchorFree ? capacityOf(anchor) : 0;
-      if (Math.abs(delta) > capA + capAnchor) { st.skipTooShort++; continue; }
+      if (Math.abs(delta) > capA + capAnchor) {
+        st.skipTooShort++;
+        if (hasThrough) st.tsThrough++;
+        else if (manyWays) st.tsManyWays++;
+        else if (mixedKind) st.tsMixedKind++;
+        else st.tsGenuinelyShort++;
+        continue;
+      }
       // Split proportionally to capacity, so each side ends at the same height and neither exceeds
       // its own grade limit.
       const share = capA / (capA + capAnchor);
@@ -626,6 +642,9 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
     + `too short to blend ${st.skipTooShort}, no geometry ${st.skipNoGeom} `
     + `| worst step before ${st.worstBefore.toFixed(1)} m, worst left unfixed ${st.worstLeft.toFixed(1)} m, `
     + `steepest correction ${(st.steepestFix * 100).toFixed(0)}%, split across both sides ${st.splitFixes}`);
+  console.log(`  [N-65] of the ${st.skipTooShort} too-short skips — a way passes through `
+    + `${st.tsThrough}, more than two ways meet ${st.tsManyWays}, tunnel meets surface `
+    + `${st.tsMixedKind}, genuinely too short even across both ${st.tsGenuinelyShort}`);
   return st;
 }
 

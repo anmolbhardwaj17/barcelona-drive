@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { makeGLTFLoader } from '../loaders.js';
 import { registerMaterial } from '../map/materialRegistry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { onCarEnvMap } from './carModel.js';   // V-2 — traffic reflects the same sky
 
 const _loader = makeGLTFLoader();
 
@@ -65,8 +66,23 @@ function getKitMaterial() {
     const material = src.clone();
     if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
     if (material.color) material.color.setRGB(1, 1, 1); // white base so per-car tint shows
-    if ('metalness' in material) material.metalness = 0.0;
-    if ('roughness' in material) material.roughness = 0.85;
+    // ── CITY CARS ARE PAINTED METAL, NOT MATTE PLASTIC (V-2) ────────────────────────────────
+    // These shipped at metalness 0 / roughness 0.85 with no env map — a perfectly diffuse surface,
+    // which is why they read as toys beside the hero car. Measured, the gap is NOT polygons: the
+    // kit averages 2,189 tris against the M3's 9,792, but it carries ONE material ("colormap")
+    // against eleven, so there is no glass, no chrome and no paint response at all.
+    //
+    // Values are deliberately below the hero car's (0.35 / 0.36 / clearcoat 0.4). The kit bakes
+    // WHEELS into the same material via vertex colour, so anything strongly metallic turns the
+    // tyres to chrome. This is the most paint response the shared material can carry without that.
+    if ('metalness' in material) material.metalness = 0.15;
+    if ('roughness' in material) material.roughness = 0.55;
+    if ('clearcoat' in material) material.clearcoat = 0.25;
+    onCarEnvMap((env) => {
+      material.envMap = env;
+      material.envMapIntensity = 0.35;   // below the hero's 0.5 — traffic should not out-shine it
+      material.needsUpdate = true;
+    });
     material.vertexColors = true; // wheels black / body white baked in prepGeo
     material.needsUpdate = true;
     material.userData.sharedMaterial = true;   // ⚠ H6: shared-material disposal defaults to DISPOSE

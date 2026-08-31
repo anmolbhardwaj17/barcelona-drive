@@ -17,6 +17,21 @@ const M3_TARGET_LENGTH = 4.79;  // m — real G80 M3 length; GLB scaled to this 
 // lifted to body height; the visual body is lifted the same amount so it aligns with the box.
 const CHASSIS_BOX_OFFSET_Y = 0.5;
 
+/** The sky PMREM the hero car's paint reflects. Shared so the traffic fleet reflects the same sky. */
+let _sharedCarEnvMap = null;
+const _envWaiters = [];
+/**
+ * Resolve with the shared car env map, now or when the hero car finishes loading.
+ *
+ * The traffic fleet builds its material from the kit GLB, which can resolve BEFORE or AFTER the
+ * hero car — so a plain getter would return null roughly half the time, at random, and the fleet
+ * would be matte on those loads. A waiter list makes the ordering irrelevant.
+ */
+export function onCarEnvMap(fn) {
+  if (_sharedCarEnvMap) { fn(_sharedCarEnvMap); return; }
+  _envWaiters.push(fn);
+}
+
 // Load a GLB with a per-attempt timeout + retries. A stalled fetch (the car-model request getting
 // starved behind the burst of tile/asset fetches at load — browsers cap ~6 connections/host) would
 // otherwise leave loadAsync pending FOREVER, hanging the whole init downstream of it → black screen
@@ -162,6 +177,13 @@ export async function createCarModel(scene) {
 
       carPaintMat.envMap = envMap;
       carPaintMat.envMapIntensity = 0.5;   // subtle sky reflection — don't wash the paint to white
+      // ── SHARED WITH THE TRAFFIC FLEET (V-2) ──────────────────────────────────────────────────
+      // Built once here and published, rather than each consumer running its own PMREM: this is a
+      // 1.5 MiB cubemap and a second one would buy nothing, since both are reflecting the SAME
+      // two-colour sky gradient. The city cars were `metalness 0, roughness 0.85` with no env at
+      // all — fully matte, which is most of why they read as plastic next to the hero car.
+      _sharedCarEnvMap = envMap;
+      for (const fn of _envWaiters.splice(0)) { try { fn(envMap); } catch { /* never break the car */ } }
     }
   }
 
