@@ -482,9 +482,20 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
     if (!wayIds || wayIds.length < 2) continue;
     st.nodesSeen++;
 
-    // Only ways that END here. A way passing THROUGH a node is not making a joint decision about
-    // it — it is mid-profile, and bending it here would put a kink in the middle of a road.
-    const at = [];
+    // ── ENDS HERE (movable) vs PASSES THROUGH (anchor only) ─────────────────────────────────
+    //
+    // The first version required the node to be an ENDPOINT OF BOTH ways, on the reasoning that
+    // bending a way mid-span puts a kink in the middle of a road. The reasoning is right and the
+    // conclusion was too strong: it also threw away every T-JUNCTION, where one road ends on
+    // another road's middle. Measured over a full bake — the in-bake continuity census counts
+    // **130** drivable shared-node steps while this loop saw only **36**. The missing ~94 are
+    // exactly those T-junctions.
+    //
+    // A way passing through still must not bend, so it does not move. It ANCHORS: it is the most
+    // constrained thing at the node, more so than a way that merely ends there, and the way that
+    // does end there comes to meet it. Same asymmetry as the tunnel rule, one level down.
+    const at = [];        // endpoint here — may be moved
+    const through = [];   // passes through — anchor only, never moved
     for (const wid of wayIds) {
       const w = wayMap.get(wid);
       if (!w) continue;
@@ -492,20 +503,30 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
       const n = ids.length;
       if (n < 2) continue;
       const idx = ids[0] === nodeId ? 0 : (ids[n - 1] === nodeId ? n - 1 : -1);
-      if (idx < 0) continue;
+      if (idx < 0) {
+        const mid = ids.indexOf(nodeId);
+        if (mid < 0) continue;
+        const mh = heightAt(wid, mid);
+        if (mh != null && Number.isFinite(mh)) through.push({ wid, w, idx: mid, n, h: mh });
+        continue;
+      }
       const h = heightAt(wid, idx);
       if (h == null || !Number.isFinite(h)) continue;
       at.push({ wid, w, idx, n, h });
     }
-    if (at.length < 2) continue;
+    // Something must be able to move, and there must be something to disagree with.
+    if (at.length === 0 || at.length + through.length < 2) continue;
 
-    const spread = Math.max(...at.map(a => a.h)) - Math.min(...at.map(a => a.h));
+    const all = at.concat(through);
+    const spread = Math.max(...all.map(a => a.h)) - Math.min(...all.map(a => a.h));
     if (spread <= TOL) continue;
     st.disagreeing++;
     if (spread > st.worstBefore) st.worstBefore = spread;
 
-    // Rule 3 — the anchor is whichever way has the least freedom to move.
-    const anchor = at.find(a => a.w.tunnel)
+    // Rule 3 — the anchor is whichever way has the least freedom to move. A way passing THROUGH
+    // the node has none at all, so it outranks even a tunnel that merely ends here.
+    const anchor = through.find(a => a.w.tunnel) || through[0]
+      || at.find(a => a.w.tunnel)
       || at.find(a => !result.get(a.wid)?.vertexHeights)
       || at[0];
 

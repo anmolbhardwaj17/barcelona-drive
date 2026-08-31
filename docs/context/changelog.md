@@ -2972,3 +2972,12 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   directly, because it decides which subsystem owns the defect: a shared node that disagrees is a
   ramp-profile problem, two coincident unjoined ends are a TOPOLOGY problem and belong to the
   dead-end family. Also new: `backend/tools/defects.mjs`, one command for the whole dashboard.
+  **N-58's answer came back and killed my hypothesis too**: coincident-but-unjoined is only **8
+  pairs, 6 of them disagreeing** — nothing like the ~90 the theory needed. The in-bake continuity
+  census says **130 genuine drivable shared-node steps**, so they ARE joins, and the reason N-57
+  saw only 36 was my own design: it required the node to be an ENDPOINT OF BOTH ways, which throws
+  away every T-junction where one road ends on another road's middle. That is ~94 of the 130.
+- **N-59 T-junction reconciliation.** A way passing THROUGH a node still must not bend — the
+  original reasoning was right — but it can ANCHOR, and the way that ends there comes to meet it.
+  Same asymmetry as N-47's tunnel rule, one level down. Anchor priority is now: passes-through
+  first (no freedom at all), then a tunnel, then a way pass one left flat, then a ramp.
