@@ -336,8 +336,22 @@ function getCanonicalGeometry(url) {
     if (size.x > size.z) { merged.rotateY(Math.PI / 2); merged.computeBoundingBox(); merged.boundingBox.getSize(size); }
     const nativeLen = Math.max(size.x, size.z);
     const scale = nativeLen > 0.001 ? CANON_LENGTH / nativeLen : 1;
-    // Non-uniform: slightly narrow + lower the chunky Kenney proportions so they read as cars, not blocks.
-    merged.scale(scale * 0.95, scale * 0.82, scale);
+    // ── THE KENNEY SQUASH IS FOR KENNEY MODELS ONLY (V-10) ──────────────────────────────────
+    // This non-uniform correction exists because the kit's proportions are deliberately chunky —
+    // narrowing to 0.95 and LOWERING TO 0.82 is what makes those blocks read as cars. Applied to a
+    // model that already has real proportions it does the opposite: it flattens it.
+    //
+    // Measured on the authored hatchback (true world bbox, via Blender, so node transforms are
+    // included): 1 : 0.493 : 0.337, which at 4.30 m long is 2.12 W x 1.45 H — within centimetres of
+    // the player's M3 at 2.18 x 1.47. The squash took that 1.45 down to 1.19, a 19% height deficit
+    // against the car parked beside it, and the user saw it immediately: "do you see car size
+    // difference".
+    //
+    // Same shape as the white-texel bug and the lamp quads: a correction built for the kit, applied
+    // blindly to a model that does not need it. An authored car is scaled UNIFORMLY and keeps the
+    // proportions it was modelled with.
+    if (isAuthored) merged.scale(scale, scale, scale);
+    else merged.scale(scale * 0.95, scale * 0.82, scale);
 
     // recentre: wheels at y=0, centred in X/Z
     merged.computeBoundingBox();
