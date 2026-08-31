@@ -4,8 +4,13 @@
  * Cars follow a road's centerline (tileManager.getLoadedRoadSegments) offset into the right lane,
  * kinematically (no per-car vehicle physics). Each carries a STATIC box collider (WORLD/VEHICLE) so
  * the PLAYER collides with it; they also STOP when the lane ahead is blocked (by the player or another
- * car). Pool of MAX_CARS near the player; spawn in a ring, despawn far / at road end. v1 doesn't chain
- * junctions (recorded follow-up).
+ * cars). Pool of MAX_CARS near the player; spawn in a ring, despawn far / at road end.
+ *
+ * ⚠ This used to read "v1 doesn't chain junctions", and that had been FALSE for a while:
+ * `extendPath()` chains onto a connected road at the end of a path. The stale comment was
+ * believed during an audit and cost time. What was actually missing was TURNING — extendPath
+ * chose the straightest continuation greedily, so a car went straight whenever straight
+ * existed. See docs/context/traffic-realism-plan.md.
  *
  * Visual: the Kenney low-poly city cars, drawn through the SHARED car pool (carFleet.js) — every
  * NPC car in the world is one instance in one BatchedMesh, alongside the parked cars. v3 P4-15a
@@ -211,7 +216,19 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     let hx = pts[n - 1].x - pts[n - 2].x, hz = pts[n - 1].z - pts[n - 2].z;
     const hl = Math.hypot(hx, hz) || 1; hx /= hl; hz /= hl;
 
-    let best = null, bestDot = 0.15; // require a roughly-forward continuation (rejects U-turn back)
+    // ── T-1 · CHOOSE A TURN, DO NOT ALWAYS TAKE THE STRAIGHTEST ────────────────────────────────
+    // This used to keep whichever continuation had the highest dot with the current heading, so at
+    // every crossroads a car went straight whenever straight existed. Turns were permitted — the
+    // 0.15 floor allows up to ~81° — but could never WIN. User: "all cars just move stright no
+    // turns and all", and that greedy max is the whole reason.
+    //
+    // Now every valid continuation is collected and one is chosen by WEIGHT. Straight stays the
+    // most likely because it is in reality, but a turn is genuinely possible, which is what makes a
+    // grid read as a city rather than a set of parallel conveyor belts.
+    //
+    // The per-frame `_extendBudget` is untouched: this changes which candidate is kept, not how
+    // many `buildPath` calls happen.
+    const cands = [];
     for (const seg of segs) {
       if (!DRIVABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) continue;
       const p0 = seg.points[0], pL = seg.points[seg.points.length - 1];
@@ -224,7 +241,22 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       let cdx = cont.pts[1].x - cont.pts[0].x, cdz = cont.pts[1].z - cont.pts[0].z;
       const cl2 = Math.hypot(cdx, cdz) || 1; cdx /= cl2; cdz /= cl2;
       const dot = cdx * hx + cdz * hz;
-      if (dot > bestDot) { bestDot = dot; best = cont; }
+      if (dot <= 0.15) continue;                      // still no U-turns
+      // Weight by how straight it is, but never to zero: straight ~3x a sharp turn rather than
+      // always winning. `cross` tells left from right, kept so the turn can be signalled later.
+      const cross = hx * cdz - hz * cdx;
+      cands.push({ cont, dot, cross, w: 0.35 + dot * dot * 2.4 });
+    }
+    if (!cands.length) return false;
+    let best = null;
+    if (cands.length === 1) {
+      best = cands[0].cont;
+    } else {
+      let total = 0;
+      for (const c of cands) total += c.w;
+      let r = Math.random() * total;
+      for (const c of cands) { r -= c.w; if (r <= 0) { best = c.cont; car._turnDot = c.dot; break; } }
+      if (!best) { best = cands[cands.length - 1].cont; car._turnDot = cands[cands.length - 1].dot; }
     }
     if (!best) return false;
     for (let i = 1; i < best.pts.length; i++) path.pts.push(best.pts[i]); // skip dup join point
@@ -357,7 +389,26 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
           if (Math.abs(-tx * fdz + tz * fdx) < LANE_HALF) { blocked = true; break; }
         }
       }
-      const target = blocked ? 0 : car.speed;
+      // ── T-1b · SLOW INTO THE CORNER ─────────────────────────────────────────────────────────
+      // Without this a car takes a 75° turn at trunk speed and the kinematic stepper simply
+      // teleports it round the corner — it reads as a skid, or worse, as the car clipping through
+      // the junction. `_turnDot` is set by extendPath when it picks a continuation: 1 is dead
+      // straight, ~0.2 is a hard turn.
+      //
+      // Decays over `_turnSlowT` rather than ending at the corner, so the car accelerates OUT of
+      // the turn instead of snapping back to cruise the instant the geometry straightens.
+      if (car._turnDot != null && car._turnDot < 0.86) {
+        car._turnSlow = 0.45 + car._turnDot * 0.55;   // hard turn ~0.56x, gentle bend ~0.92x
+        car._turnSlowT = 2.4;
+        car._turnDot = null;
+      }
+      let cornerCap = 1;
+      if (car._turnSlowT > 0) {
+        car._turnSlowT -= d;
+        cornerCap = car._turnSlow;
+        if (car._turnSlowT <= 0) car._turnSlow = 1;
+      }
+      const target = blocked ? 0 : car.speed * cornerCap;
       car.cur += (target - car.cur) * Math.min(1, 5 * d);
       // anti-deadlock: clear a car stuck at ~0 too long — but ONLY if it's far from the player, so a
       // car you're blocking (stopped right in front of you) never vanishes in view.
