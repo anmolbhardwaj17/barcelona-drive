@@ -1064,6 +1064,11 @@ spawnTileReady.finally(() => {
             },
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
             getOrigin: getOriginOffset,
+            // V-13: the traffic collider switches off at contact, so the impact is applied here
+            // as ONE bounded velocity change instead of being left to the solver — letting the
+            // solver do it over several frames is what produced the stutter and re-punched the
+            // camera every one of them.
+            onPlayerHit: (nx, nz, closingKmh) => carDriver?.applyTrafficImpact?.(nx, nz, closingKmh),
           });
         }
         // Pedestrians (sidewalks) and parked cars (curb) belong on the TERRAIN, not the road. Using the

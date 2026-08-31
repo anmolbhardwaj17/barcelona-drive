@@ -95,7 +95,8 @@ const YAXIS = new CANNON.Vec3(0, 1, 0);
 
 const YAXIS3 = new THREE.Vector3(0, 1, 0);
 
-export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments, getOrigin, contactShadows }) {
+export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments, getOrigin, contactShadows,
+                                     onPlayerHit }) {
   const cars = [];
   let _enabled = true;
 
@@ -421,6 +422,10 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         car.svx = (dx / dl) * push; car.svz = (dz / dl) * push;
         car.sspin = (Math.random() - 0.5) * Math.min(4, mps * 0.9);
         car.body.collisionResponse = false; // player plows through it rather than dead-stopping
+        // The collider is off from here, so the player would feel NOTHING without this. Reported
+        // once, at contact, rather than left to the solver — letting the solver do it is what
+        // produced the stutter and the repeated camera punches.
+        onPlayerHit?.(-dx / dl, -dz / dl, approachKmh);
         continue;
       }
 

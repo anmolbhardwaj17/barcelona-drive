@@ -285,6 +285,38 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     return (Math.atan2(fwdX, fwdZ) * 180) / Math.PI;
   }
 
+  /**
+   * A measured knock from a traffic collision — velocity change, not a solver impulse.
+   *
+   * The traffic body is mass 0 and its collider is switched OFF the moment the shove fires (V-12),
+   * so without this the player would sail through a head-on feeling nothing. Letting the SOLVER
+   * provide the impact is what produced the stutter in the first place: an infinite-mass box
+   * resolving a penetration over several frames, re-punching the camera each one.
+   *
+   * So the impact is applied once, here, as a bounded change: some forward speed is scrubbed and a
+   * push is added away from the other car. Bounded on purpose — a collision should cost momentum
+   * and unsettle the line, not launch the car.
+   *
+   * @param {number} nx,nz unit direction from the other car toward the player
+   * @param {number} closingKmh how fast the two were converging
+   */
+  function applyTrafficImpact(nx, nz, closingKmh) {
+    const b = physics.chassisBody;
+    if (!b) return;
+    const mps = Math.min(Math.abs(closingKmh) / 3.6, 22);
+    // Scrub: a glancing tap barely slows you, a solid hit takes a real bite out of the speed.
+    const scrub = Math.min(0.42, mps * 0.022);
+    b.velocity.x *= (1 - scrub);
+    b.velocity.z *= (1 - scrub);
+    // Push away from the other car, capped so a fast hit cannot fling the player.
+    const push = Math.min(4.6, mps * 0.30);
+    b.velocity.x += nx * push;
+    b.velocity.z += nz * push;
+    // A little yaw so a corner clip twists the car instead of only slowing it — this is what makes
+    // a glancing hit read as a glancing hit rather than as a soft brake.
+    if (b.angularVelocity) b.angularVelocity.y += (nx * 0.18 - nz * 0.18) * Math.min(1, mps / 12);
+  }
+
   function dispose() {
     window.removeEventListener('keydown', _onHornDown);
     window.removeEventListener('keyup', _onHornUp);
@@ -302,5 +334,5 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
-  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
+  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, applyTrafficImpact, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
 }

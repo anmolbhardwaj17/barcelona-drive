@@ -188,7 +188,17 @@ export function createCarCamera(camera, domElement) {
     const _drop = _prevSpeedKmh - _absSpd;
     // A recover/teleport zeroes velocity AND jumps position discontinuously — don't punch the camera for it.
     const _jump = (_prevPX == null) ? 0 : Math.hypot(p.x - _prevPX, p.z - _prevPZ);
-    if ((dt || 0.016) < 0.06 && _drop > 12 && _jump < 6) _shakeAmp = Math.min(0.45, _drop / 55); // collision punch
+    // ── V-13: TONED, BECAUSE WHAT IT WAS REACTING TO IS FIXED ─────────────────────────────────
+    // This punches on a one-frame speed drop. With traffic collisions resolved against a STATIC,
+    // infinite-mass box the drop spiked for several consecutive frames, so the punch re-triggered
+    // each one and stacked into the shake the user reported as "a lot of camera or car shake on
+    // collision seems weird" — the shake was a SYMPTOM of the collision bug, not a separate effect.
+    //
+    // Contact is now a single bounded velocity change (V-13), so one clean punch is enough. The old
+    // ceiling of 0.45 m was sized for that runaway case: at a ~6 m chase distance it swings the view
+    // hard enough to read as a glitch rather than an impact. Threshold raised too, so a kerb scrape
+    // or a gentle nudge no longer punches at all.
+    if ((dt || 0.016) < 0.06 && _drop > 16 && _jump < 6) _shakeAmp = Math.min(0.20, _drop / 90);
     _shakeAmp *= Math.pow(0.0008, dt || 0.016);                                     // fast decay
     _prevSpeedKmh = _absSpd;
     _prevPX = p.x; _prevPZ = p.z;
