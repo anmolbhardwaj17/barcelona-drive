@@ -22,6 +22,7 @@ import { applyGroundLayer, roadDeckY, groundLift } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { getWorldElevationOffset } from '../elevationOffset.js';
+import { getKTX2TextureSync } from '../loaders.js';   // authored sign-back plate
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -242,7 +243,21 @@ function findIntersections(roads) {
 /** Shared gray material for the back face of all sign boards. */
 function getSignBackMaterial() {
   if (!sharedSignBackMat) {
-    sharedSignBackMat = new THREE.MeshLambertMaterial({ color: 0x888888, side: THREE.DoubleSide });
+    // ── AUTHORED ALUMINIUM PLATE (2026-08-31) ────────────────────────────────────────────────
+    // The back of a sign is `PlaneGeometry`, whose UVs run 0..1 across the board, and a board is
+    // ~0.7 x 0.9 m. The plate declares a 0.8 m span, so ONE repeat across the board is very close
+    // to life size — hence repeat (1,1) rather than a computed tiling. Anything larger would show
+    // the brushed grain at the wrong scale, which is the failure the span convention exists to
+    // prevent.
+    //
+    // `color` goes white: the plate carries the tone (L* 58, snapped to P7_bordillo_granite), and
+    // keeping 0x888888 would multiply it and darken the back of every sign in the city.
+    const backTex = getKTX2TextureSync('/textures/road/sign_back_albedo.ktx2',
+      { srgb: true, tiling: true, aniso: 4 });
+    backTex.repeat.set(1, 1);
+    sharedSignBackMat = new THREE.MeshLambertMaterial({
+      color: 0xffffff, map: backTex, side: THREE.DoubleSide,
+    });
     sharedSignBackMat.userData.sharedMaterial = true;
   }
   return sharedSignBackMat;

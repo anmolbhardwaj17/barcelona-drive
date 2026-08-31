@@ -5,7 +5,7 @@
       "spanM": 3.0,
       "texelsPerM": 341.3,
       "use": "compound/boundary wall (barrierRenderer compound_wall)",
-      "wrapV": "clamp",
+      "wrapV": "repeat",
       "normalize": {
         "version": 1,
         "sourceType": "ai",
@@ -28,7 +28,8 @@
         "gate4Pass": true,
         "normalMeanXY": 0.25,
         "normalBandPass": true
-      }
+      },
+      "note": "source carried a damp band along one edge; make_tiling rolled it to ratio 0.00 so both axes tile \u2014 the band now reads as tonal variation"
     }
   ]
 }

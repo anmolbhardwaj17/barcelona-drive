@@ -93,6 +93,9 @@ const WALL_UV_V = 2.0;  // metres per vertical texture repeat
 // ─── Shared wall texture + material (one instance, loaded once) ───────────────
 let _wallMat = null;
 
+/** Declared span of the authored wall plate, metres — textures/wall/surface_plates.json. */
+const WALL_PLATE_SPAN_M = 3.0;
+
 function getWallTexMat() {
   if (_wallMat) return _wallMat;
 
@@ -110,7 +113,20 @@ function getWallTexMat() {
   // KTX2 (v3 P3-GATE-01). Assigned here rather than in a load callback: giving a material a `map`
   // it was not built with changes the defines and forces a mid-drive recompile (G-53). The handle
   // is valid immediately; only its pixels arrive later.
-  _wallMat.map = getKTX2TextureSync('/textures/wall/wall_01.ktx2', { srgb: true, tiling: true, aniso: 8 });
+  // ── AUTHORED PLATE, REPLACING THE LEGACY wall_01 (2026-08-31) ─────────────────────────────
+  // `wall_01` is 512px, mean luminance 0.87 and saturation 0.049 — a bright, near-greyscale card.
+  // `compound_render` is 1024px, warmer (0.121) and palette-snapped to P2_ochre_sand at dE 4.97,
+  // which is what a Barcelona painted-render wall actually is. +146 KB against 3 MB of headroom.
+  // wall_01 is left on disk (24 KB) so reverting is a one-line change.
+  //
+  // ⚠ REPEAT IS DERIVED, NOT GUESSED. `slabUV` emits UV.x = distance / 4.0 and UV.y = worldY / 2.0
+  // (see the header), so those are already in repeat units of 4 m and 2 m. The plate declares a
+  // 3.0 m span, so each axis is rescaled by (existing unit / declared span). Guessing here is what
+  // made the kerb granite and the asphalt read as gravel.
+  const wallTex = getKTX2TextureSync('/textures/wall/compound_render_albedo.ktx2',
+    { srgb: true, tiling: true, aniso: 8 });
+  wallTex.repeat.set(4.0 / WALL_PLATE_SPAN_M, 2.0 / WALL_PLATE_SPAN_M);
+  _wallMat.map = wallTex;
 
   return _wallMat;
 }
