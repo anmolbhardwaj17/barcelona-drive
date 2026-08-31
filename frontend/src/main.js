@@ -2108,6 +2108,9 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'F9') { e.preventDefault(); _reportWithBuild({ trigger: 'F9' }); return; }
   if (e.code === 'KeyP') { e.preventDefault(); setPhotoMode(!_photoOn); return; }
   if (e.code === 'KeyL') { e.preventDefault(); carDriver?.toggleHeadlights?.(); return; } // headlights: auto→on→off
+  // V-14: CHASE ↔ HOOD. Not a cockpit view — bmw_m3.glb has no interior geometry at all, so a
+  // camera inside the cabin would look at culled backfaces and see through the bodywork.
+  if (e.code === 'KeyC') { e.preventDefault(); carDriver?.cycleView?.(); return; }
   // While in Photo Mode, +/- grow/shrink the loaded area (push it up until your machine strains).
   if (_photoOn && (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+')) {
     e.preventDefault(); tileManager?.setPhotoRadius?.((tileManager.getPhotoRadius?.() ?? 4) + 1); _updatePhotoInfo();

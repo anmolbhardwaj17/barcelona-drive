@@ -334,5 +334,6 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
 
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
-  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, applyTrafficImpact, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
+  return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, applyTrafficImpact,
+           cycleView: () => carCam.cycleView?.(), getView: () => carCam.getView?.() ?? 0, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
 }

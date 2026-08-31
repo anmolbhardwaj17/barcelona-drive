@@ -36,6 +36,34 @@ const MAX_PITCH_DOWN      = -0.15;
 const RETURN_DELAY         = 1.5;   // seconds idle before auto-return
 const RETURN_SPEED         = 2.5;   // lerp speed for returning to default
 
+// ── VIEW MODES (V-14) ─────────────────────────────────────────────────────────────────────────
+// CHASE is the original follow camera. HOOD sits on the bonnet at roughly driver eye height and is
+// the closest thing to a cockpit view this car can honestly support.
+//
+// ⚠ WHY THERE IS NO COCKPIT MODE. `bmw_m3.glb` has ELEVEN materials and not one of them is an
+// interior — no dashboard, no seats, no steering wheel (verified: CarPaint, RearLight, Transparent,
+// Exhaust, Plastic, DayLights, RedPart, Window, Mirror, Rims, Tires). A camera placed inside it
+// would face the culled backfaces of the roof and doors and see straight out through the bodywork.
+// A cockpit view is a MODEL problem, not a camera one; the enum has room for it, and the day a car
+// with an interior is the player's car it is a few lines here. The traffic hatchback already has
+// one (2,039 tris, 30% of that model), which is what makes this worth leaving room for.
+export const VIEW_CHASE = 0;
+export const VIEW_HOOD = 1;
+const VIEW_COUNT = 2;
+
+/** Bonnet camera, relative to the chassis origin (which sits low — see CHASSIS_BOX_OFFSET_Y). */
+// ⚠ MUST SIT OUTSIDE THE CABIN. The M3 is 4.79 m long with a roofline at ~1.47 m, so a camera at
+// the driver's actual eye point (~0.6 m forward, ~1.2 m up) is INSIDE the shell — and with no
+// interior modelled, that means looking at the culled backfaces of the windscreen and roof, i.e.
+// straight through the car. Placed forward of the glass, over the bonnet, where there is geometry
+// in front of it and nothing above it.
+const HOOD_FORWARD = 1.34;   // m ahead of centre — clear of the windscreen, over the bonnet
+const HOOD_HEIGHT  = 1.06;   // m above the chassis origin — just above the bonnet line
+const HOOD_LOOK    = 14.0;   // look well down the road; a short target makes the view feel nose-down
+// Rigid, unlike the chase cam. A bonnet camera is BOLTED to the car — lerping it makes the road
+// swim under a nose that should be fixed, which reads as motion sickness rather than smoothness.
+const HOOD_LERP    = 0.85;
+
 // Pre-allocated
 const _euler    = new THREE.Euler();
 const _yawOnly  = new THREE.Quaternion();
@@ -47,6 +75,8 @@ const _shakeOffset = new THREE.Vector3();
 
 export function createCarCamera(camera, domElement) {
   let _init = false;
+  let _mode = VIEW_CHASE;
+  const _hoodLook = new THREE.Vector3();
 
   // Mouse orbit state — moving the mouse / trackpad swings the camera around the car (see it from the
   // front, rear or sides); after a short idle it auto-returns to the default chase position behind it.
@@ -151,6 +181,26 @@ export function createCarCamera(camera, domElement) {
       p.z + orbZ * hDist,
     );
 
+    // ── HOOD: ride the car instead of following it ──────────────────────────────────────────
+    // Built from the SAME yaw-only forward the chase cam uses, so the view does not tip with the
+    // car's pitch and roll. Coupling a head-height camera to chassis roll is what makes bonnet
+    // views nauseating; the car leaning under you reads fine, the horizon leaning does not.
+    if (_mode === VIEW_HOOD) {
+      // Orbit still applies, so the mouse can look around from the bonnet.
+      const lookX = _fwdDir.x * cosY - _fwdDir.z * sinY;
+      const lookZ = _fwdDir.x * sinY + _fwdDir.z * cosY;
+      _idealPos.set(
+        p.x + _fwdDir.x * HOOD_FORWARD,
+        p.y + HOOD_HEIGHT,
+        p.z + _fwdDir.z * HOOD_FORWARD,
+      );
+      _hoodLook.set(
+        p.x + lookX * HOOD_LOOK,
+        p.y + HOOD_HEIGHT + _orbitPitch * HOOD_LOOK,
+        p.z + lookZ * HOOD_LOOK,
+      );
+    }
+
     if (!_init) {
       _init = true;
       camera.position.copy(_idealPos);
@@ -165,7 +215,7 @@ export function createCarCamera(camera, domElement) {
     camera.position.sub(_shakeOffset);
 
     // Smooth camera position — use stronger lerp to prevent lag/stutter
-    const ap = 1 - Math.pow(1 - LERP_POSITION, dt * 60);
+    const ap = 1 - Math.pow(1 - (_mode === VIEW_HOOD ? HOOD_LERP : LERP_POSITION), dt * 60);
     camera.position.lerp(_idealPos, ap);
 
     // Soft clamp horizontal distance (lerp toward max instead of hard snap)
@@ -238,8 +288,24 @@ export function createCarCamera(camera, domElement) {
     camera.updateProjectionMatrix();
   }
 
+  /** Cycle CHASE -> HOOD. Lives here, not in controls, so the modes stay one concept. */
+  function cycleView() {
+    _mode = (_mode + 1) % VIEW_COUNT;
+    // Re-seat rather than lerp across the cut: interpolating from a chase position 6 m behind the
+    // car to a point on its bonnet sends the camera THROUGH the bodywork for half a second.
+    _init = false;
+    try { sessionStorage.setItem('dd_view', String(_mode)); } catch { /* private mode */ }
+    return _mode;
+  }
+  try {
+    const v = parseInt(sessionStorage.getItem('dd_view') || '0', 10);
+    if (v >= 0 && v < VIEW_COUNT) _mode = v;
+  } catch { /* private mode */ }
+
   return {
     update,
+    cycleView,
+    getView: () => _mode,
     dispose() { if (_target) _target.removeEventListener('pointermove', _onPointerMove); },
   };
 }
