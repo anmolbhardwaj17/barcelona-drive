@@ -1,6 +1,8 @@
 # Traffic realism — turns and signals
 
-**Status: T-1 in progress.** Audit done 2026-09-01 against the running code, not the comments.
+**Status: T-1, T-2, T-3 all SHIPPED 2026-09-01.** Audit done against the running code, not the
+comments. What each turned into is recorded under its heading below; the plan text is kept so the
+reasoning stays checkable against the result.
 
 ## What already exists (audited, not assumed)
 
@@ -30,7 +32,13 @@ Traffic logic does not register next to them.
 
 ## Plan
 
-### T-1 · Cars actually turn *(no assets, self-contained)*
+### T-1 · Cars actually turn — ✅ SHIPPED
+
+**Landed as:** weighted continuation choice in `extendPath()`
+(`w = 0.35 + dot * dot * 2.4`, so straight stays most likely without always winning) plus a corner
+slowdown (`_turnSlow = 0.45 + _turnDot * 0.55` held for `_turnSlowT = 2.4` s). No new `buildPath`
+calls — only which result is kept.
+
 
 `extendPath()` chains junctions correctly but chooses **greedily**:
 
@@ -49,13 +57,28 @@ Also needed, or the turn reads as a skid:
 - keep the existing per-frame extend budget; this adds no new `buildPath` calls, it only changes
   which result is kept
 
-### T-2 · Signal geometry *(needs a look from the user — this is why it was disabled)*
+### T-2 · Signal geometry — ✅ SHIPPED
+
+**Landed as:** `frontend/src/map/trafficSignalRenderer.js`. Slim 4.05 m pole, kerbside, with the
+Barcelona two-head arrangement (main head at 3.35 m + repeater at 1.32 m so the front of the queue
+can still read it). Heads face oncoming traffic via the nearest-road tangent — lenses edge-on to the
+driver was most of why the old ones read as anonymous dark boxes.
+
+⚠ The kerb offset alone put poles in the crossing carriageway at junctions; they now go through
+`roadClearance.js` as well (2026-09-01). See `window._ddSignalStats()`.
+
 
 The logic exists; it was switched off because the geometry read as a dark box on a stick in the
 driving path. Barcelona signals are slim poles with a compact head, usually kerbside rather than
 overhead. Re-author, then re-enable behind the existing flag.
 
-### T-3 · Signals drive the AI *(gated on T-2 — no point obeying invisible lights)*
+### T-3 · Signals drive the AI — ✅ SHIPPED
+
+**Landed as:** `isRedFor(axis, time, phase)` against a single shared clock (`signalNow()`), consumed
+by `trafficSystem.update` via the metadata the RENDERER returns — not recomputed. Deriving the axis
+and phase twice is how a car ends up obeying a different phase from the lamp in front of it. The
+player is not forced to obey.
+
 
 1. Group baked `trafficSignals` by nearest junction.
 2. One shared phase clock so every car agrees; opposing approaches get opposite phases.
