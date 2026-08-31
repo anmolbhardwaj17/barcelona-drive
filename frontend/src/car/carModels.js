@@ -85,7 +85,16 @@ const AUTHORED_CARS = new Set(['hatchback-euro']);
 export function fleetHasRealLights() {
   return CITY_CARS.every((n) => AUTHORED_CARS.has(n));
 }
-const WHITE_UV = [0.78516, 0.27734];
+// ⚠ V IS MEASURED FROM THE TOP. glTF textures load with `flipY = FALSE` in three, unlike textures
+// three loads itself — so v = y/height, NOT 1 - y/height. The first version used the bottom-left
+// convention and pinned every authored car to pixel (402,141), which is (206, 84, 80): a dusty
+// RED. The whole fleet was multiplied by it — white paint became maroon, dark paint near-black —
+// and the user reported exactly "only black or maroonish or red cars".
+//
+// The colour census is what found it. `setColorAt applied 2315 times, 9 distinct` including 464
+// cars told to be WHITE proved the palette and the tint path were both correct, which moved the
+// search downstream to the texel. Three rounds of reasoning had not got there.
+const WHITE_UV = [0.78516, 0.72266];   // = (402/512, 370/512), top-down v — verified (255,255,255)
 
 // ── Caches. Keyed by URL, never evicted: the whole kit is 1.7 MB and lives for the session. ──
 const _gltfCache = new Map();   // url -> Promise<gltf>
