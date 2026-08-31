@@ -13,6 +13,10 @@ import * as THREE from 'three';
 import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
 import { parkingBayOffset, parkingBayWidth, kerbOffset } from '../map/roadWidths.js';   // R-W1
 import { CANON_LENGTH } from './carModels.js';
+import { fleetHasRealLights } from './carModels.js';   // V-6 — skip fake lamp quads
+
+/** Evaluated once: CITY_CARS does not change at runtime. */
+const _realLights = fleetHasRealLights();
 import { bodyColorFor } from './carFleet.js';   // V-5 — per-car body colour
 
 // living_street dropped — those are the tight lanes where big parked cars look unrealistic.
@@ -117,8 +121,11 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     const L = lightLocals[variant];
     if (L) {
       _lightBase.compose(_p, _q, _one);
-      for (const lm of L.head) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_HEAD); }
-      for (const lm of L.tail) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_TAIL); }
+      // V-6: the authored body carries modelled lamps; the quads would sit on top of them.
+      if (!_realLights) {
+        for (const lm of L.head) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_HEAD); }
+        for (const lm of L.tail) { _lm.multiplyMatrices(_lightBase, lm); lights.put(_lm, LIGHT_TAIL); }
+      }
     }
   }
 

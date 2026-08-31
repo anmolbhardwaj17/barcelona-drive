@@ -72,6 +72,19 @@ const KIT_MATERIAL_SOURCE = 'sedan';
 // to mip level 4 — so bilinear filtering and mipmapping cannot bleed a neighbouring swatch in.
 // White multiplies to nothing, leaving vertex colour (the per-car tint) and aPart doing the work.
 const AUTHORED_CARS = new Set(['hatchback-euro']);
+
+/**
+ * Does every car in the fleet carry REAL lamp geometry?
+ *
+ * The kit models have none — their lights are painted into the colour atlas — so both car systems
+ * overlay head/tail QUADS from `createLightPool` to fake them. On an authored model those quads sit
+ * on top of real, modelled lamps and read as cubes stuck to the bodywork (user, first drive with
+ * the hatchback in). When the whole fleet is authored the overlay is not just redundant, it is the
+ * defect, so the systems skip it and the `aPart` LIGHT branch lights the real geometry instead.
+ */
+export function fleetHasRealLights() {
+  return CITY_CARS.every((n) => AUTHORED_CARS.has(n));
+}
 const WHITE_UV = [0.78516, 0.27734];
 
 // ── Caches. Keyed by URL, never evicted: the whole kit is 1.7 MB and lives for the session. ──
@@ -134,6 +147,10 @@ function getKitMaterial() {
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = aPart;');
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vPart;')
+        // Real lamps EMIT. Applied at emissivemap_fragment because that is where
+        // totalEmissiveRadiance exists; doing it in color_fragment would only tint the albedo.
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        if (vPart > 1.5 && vPart < 2.5) totalEmissiveRadiance += vec3(0.34, 0.31, 0.26);`)
         .replace('#include <color_fragment>', `#include <color_fragment>
         // 1 glass · 2 light · 3 tyre · 4 chrome. Compared with a tolerance because the value is
         // interpolated across the triangle even when every vertex agrees.
@@ -141,7 +158,10 @@ function getKitMaterial() {
           // Dark, slightly blue: a car window reads as a hole with a sky sheen, never as paint.
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.055, 0.065, 0.085), 0.88);
         } else if (vPart > 1.5 && vPart < 2.5) {
-          // Lamp lenses stay bright at any angle so traffic reads at distance.
+          // Lamp lenses stay bright at any angle so traffic reads at distance. Diffuse alone is not
+          // enough — a Lambert surface facing away from the sun goes dark, and headlights that
+          // vanish when a car turns are worse than painted-on ones. The emissive add below is what
+          // makes them read, and what bloom picks up at night.
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.93, 0.86), 0.6);
         } else if (vPart > 2.5 && vPart < 3.5) {
           // Rubber: near-black and, crucially, NOT tinted by the per-car body colour.
