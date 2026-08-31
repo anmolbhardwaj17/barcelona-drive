@@ -1,5 +1,6 @@
 /**
- * ESC menu — full-screen game settings, art-of-rally style (blue-dark surface, Inter, flat controls, coral accent).
+ * ESC menu — full-screen game settings, ETS2 style (squared plates, amber accent, the paused world
+ * blurred behind). Restyled 2026-09-01: the previous art-of-rally treatment read "too websity".
  *
  * Single scrolling page: Spawn location (search + landmark buttons), Car colour, Display (Stats-for-nerds
  * toggle), Controls. Day/night stays in its top-right pill. Opens/closes on ESC. Changing spawn reloads
@@ -22,91 +23,178 @@ import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
 
 const CSS = `
-/* Art-of-rally ESC menu — cool blue-dark surface, Inter, flat controls, one coral accent. */
-#dd-esc-overlay { position:fixed; inset:0; z-index:5000; display:none; color:#f3ede1;
+/* ── ETS2-STYLE PAUSE MENU ─────────────────────────────────────────────────────────────────────
+   Replaced the art-of-rally styling (11-14px radii, iOS pill toggles, coral, soft shadows), which
+   the user called "too websity". The four things that actually carry a sim-menu read, in order:
+
+   1. NOTHING IS ROUNDED. Radius is the single strongest "this is an app" signal. Everything here is
+      square or 2px. This one change does more than the palette.
+   2. THE PAUSED WORLD SHOWS THROUGH. ETS2 darkens and blurs the game behind the menu instead of
+      covering it. An opaque full-bleed gradient reads as a web page no matter how it is coloured.
+   3. PANELS ARE PLATES WITH EDGES. 1px cool borders, a lit top edge, a flat fill — not floating
+      cards with drop shadows.
+   4. AMBER LEFT-ACCENT BARS mark section heads and the hovered/selected row. That vertical amber
+      tick is the SCS signature more than the orange itself is.
+
+   Type is uppercase and letterspaced for every label and control; sentence-case body text is what
+   made this read as a settings webpage. */
+#dd-esc-overlay {
+  --e-bg:      rgba(11,15,20,0.94);
+  --e-plate:   #1a212a;
+  --e-plate-2: #222b35;
+  --e-line:    #35414e;
+  --e-line-hi: #4a5765;
+  --e-text:    #d6dce3;
+  --e-dim:     #8a97a4;
+  --e-accent:  #e6a33c;
+  --e-accent-d:#b87d24;
+  position:fixed; inset:0; z-index:5000; display:none; color:var(--e-text);
   font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-  background:radial-gradient(135% 105% at 50% -8%, #1e2637, #121a26 64%, #090d14); }
-#dd-esc-overlay::before { content:''; position:absolute; inset:0; pointer-events:none;
-  background:radial-gradient(60% 42% at 50% 4%, rgba(215,106,79,0.10), transparent 72%); }
-#dd-esc-overlay.open { display:block; animation:ddPop .22s cubic-bezier(.2,.9,.25,1.05); }
-@keyframes ddPop { from{opacity:0; transform:scale(.98)} to{opacity:1; transform:none} }
-.dd-esc-wrap { position:relative; height:100%; padding:24px 6vw 28px; box-sizing:border-box; display:flex; flex-direction:column; }
-.dd-esc-top { display:flex; align-items:center; justify-content:space-between; }
-.dd-esc-logoimg { height:88px; filter:drop-shadow(0 4px 7px rgba(0,0,0,0.45)); }
-/* car colour swatches (the re-parented picker) */
-#dd-car-color-panel { gap:14px !important; align-items:center !important; }
+  background:linear-gradient(180deg, rgba(11,15,20,0.90), rgba(8,11,15,0.97));
+  backdrop-filter:blur(13px) saturate(0.72); -webkit-backdrop-filter:blur(13px) saturate(0.72); }
+/* Faint horizontal banding — SCS panels are textured, not flat fills. Cheap and only reads
+   subliminally, which is the point. */
+#dd-esc-overlay::before { content:''; position:absolute; inset:0; pointer-events:none; opacity:0.5;
+  background:repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px); }
+#dd-esc-overlay.open { display:block; animation:ddPop .16s ease-out; }
+@keyframes ddPop { from{opacity:0} to{opacity:1} }
+.dd-esc-wrap { position:relative; height:100%; padding:0 5vw 22px; box-sizing:border-box; display:flex; flex-direction:column; }
+
+/* ── header: logo, a hard amber rule under it ── */
+.dd-esc-top { display:flex; align-items:center; justify-content:space-between; padding:18px 0 14px;
+  border-bottom:1px solid var(--e-line); box-shadow:0 1px 0 rgba(230,163,60,0.28); }
+.dd-esc-logoimg { height:74px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
+
+/* car paint swatches — squared off with the rest */
+#dd-car-color-panel { gap:10px !important; align-items:center !important; }
 #dd-car-color-panel span { display:none !important; }
-#dd-car-color-panel > div[style*="50%"] { width:42px !important; height:42px !important; border:2px solid rgba(243,237,225,0.22) !important;
-  box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:transform .12s, box-shadow .12s, border-color .12s; }
-#dd-car-color-panel > div[style*="50%"]:hover { transform:translateY(-2px); }
-#dd-car-color-panel > div[style*="50%"].sel { border-color:#d76a4f !important; box-shadow:0 0 0 3px rgba(215,106,79,0.4) !important; }
+#dd-car-color-panel > div[style*="50%"] { width:38px !important; height:38px !important; border-radius:2px !important;
+  border:1px solid var(--e-line-hi) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.10); transition:border-color .12s; }
+#dd-car-color-panel > div[style*="50%"]:hover { border-color:var(--e-dim) !important; }
+#dd-car-color-panel > div[style*="50%"].sel { border-color:var(--e-accent) !important; box-shadow:0 0 0 2px rgba(230,163,60,0.34) !important; }
 #dd-car-color-panel > div:not([style*="50%"]) { display:none !important; }
-.dd-esc-range { -webkit-appearance:none; appearance:none; width:240px; height:9px; border-radius:5px; background:rgba(243,237,225,0.18); border:none; outline:none; }
-.dd-esc-range::-webkit-slider-thumb { -webkit-appearance:none; width:20px; height:20px; border-radius:50%; background:#d76a4f; border:2px solid #121a26; box-shadow:0 1px 4px rgba(0,0,0,0.4); cursor:pointer; }
-.dd-esc-range::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:#d76a4f; border:2px solid #121a26; cursor:pointer; }
-.dd-esc-val { min-width:52px; color:#e08a6f; font-size:17px; font-weight:600; }
-.dd-esc-body { flex:1; display:flex; gap:34px; min-height:0; padding:12px 0; }
-.dd-esc-left { flex:1 1 54%; overflow-y:auto; overflow-x:hidden; padding-right:10px; min-width:0; }
+
+/* ── slider: thin track, square handle ── */
+.dd-esc-range { -webkit-appearance:none; appearance:none; width:230px; height:6px; border-radius:0;
+  background:#131920; border:1px solid var(--e-line); outline:none; }
+.dd-esc-range::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:22px; border-radius:1px;
+  background:linear-gradient(180deg,#f2b555,var(--e-accent-d));
+  border:1px solid #14191f; cursor:pointer; }
+.dd-esc-range::-moz-range-thumb { width:12px; height:22px; border-radius:1px;
+  background:linear-gradient(180deg,#f2b555,var(--e-accent-d)); border:1px solid #14191f; cursor:pointer; }
+.dd-esc-val { min-width:50px; color:var(--e-accent); font-size:14px; font-weight:700; letter-spacing:0.06em;
+  font-variant-numeric:tabular-nums; }
+
+.dd-esc-body { flex:1; display:flex; gap:30px; min-height:0; padding:16px 0; }
+.dd-esc-left { flex:1 1 54%; overflow-y:auto; overflow-x:hidden; padding-right:12px; min-width:0; }
+.dd-esc-left::-webkit-scrollbar { width:9px; }
+.dd-esc-left::-webkit-scrollbar-track { background:#111720; }
+.dd-esc-left::-webkit-scrollbar-thumb { background:var(--e-line); border:1px solid #111720; }
+.dd-esc-left::-webkit-scrollbar-thumb:hover { background:var(--e-line-hi); }
 .dd-esc-page { width:100%; max-width:660px; }
-/* Right column — "your car": the live turntable up top, then the paint + balance garage strip below. */
+
+/* right column — the car turntable, framed as a plate rather than floating */
 .dd-esc-showcase { flex:1 1 46%; min-width:0; align-self:stretch; display:flex; flex-direction:column; }
-.dd-esc-carstage { flex:1 1 auto; position:relative; min-height:0; overflow:hidden; }
+.dd-esc-carstage { flex:1 1 auto; position:relative; min-height:0; overflow:hidden;
+  background:linear-gradient(180deg,#161d25,#10151b); border:1px solid var(--e-line); }
 .dd-esc-carstage::after { content:'DRAG TO SPIN'; position:absolute; left:0; right:0; bottom:8px; text-align:center;
-  font-size:11px; font-weight:600; letter-spacing:1.5px; color:rgba(243,237,225,0.34); pointer-events:none; }
+  font-size:10px; font-weight:700; letter-spacing:0.22em; color:var(--e-dim); opacity:.7; pointer-events:none; }
 .dd-esc-carstage canvas { position:absolute; inset:0; }
-.dd-esc-garage { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:11px; padding:14px 0 4px; }
-.dd-esc-glabel { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:rgba(243,237,225,0.46); }
-.dd-esc-wallet { font:600 18px 'Inter',system-ui,sans-serif; color:#e08a6f; }
-@media (max-width:900px){ .dd-esc-body{ flex-direction:column; } .dd-esc-showcase{ min-height:260px; flex:0 0 260px; } }
-.dd-esc-sec { display:flex; align-items:center; gap:14px; margin:24px 0 13px; font-size:14px; font-weight:600; letter-spacing:0.02em;
-  text-transform:uppercase; color:#f3ede1; }
-.dd-esc-sec::after { content:''; flex:1; height:1px; border-radius:1px; background:rgba(243,237,225,0.14); }
-.dd-esc-line { display:flex; align-items:center; gap:16px; margin:14px 0; }
-.dd-esc-searchrow { display:flex; gap:12px; }
-.dd-esc-input { flex:1; background:rgba(243,237,225,0.06); border:1px solid rgba(243,237,225,0.18); color:#f3ede1;
-  border-radius:11px; padding:14px 18px; font-family:inherit; font-size:17px; letter-spacing:0.3px; outline:none; transition:border-color .16s, background .16s; }
-.dd-esc-input:focus { border-color:#d76a4f; background:rgba(243,237,225,0.09); }
-.dd-esc-input::placeholder { color:rgba(243,237,225,0.4); }
-/* flat buttons */
-.dd-esc-go, .dd-esc-chip, .dd-esc-x, .dd-esc-back, .dd-esc-fab { cursor:pointer; user-select:none; transition:transform .1s, background .16s, border-color .16s, color .16s; }
-.dd-esc-go { display:flex; align-items:center; padding:0 30px; border-radius:11px; font-family:inherit; font-size:16px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:#f3ede1;
-  background:#d76a4f; border:1px solid transparent; }
-.dd-esc-go:hover { background:#e0785c; }
-.dd-esc-go:active { transform:scale(0.97); }
-.dd-esc-go:disabled { opacity:.4; }
-.dd-esc-err { margin-top:12px; min-height:22px; font-size:15px; color:#e88f76; } .dd-esc-err.ok { color:#93c47d; }
-.dd-esc-chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(184px,1fr)); gap:12px; margin-top:16px; }
-.dd-esc-chip { text-align:center; padding:14px 12px; border-radius:11px; font-size:15px; font-weight:500; letter-spacing:0.3px; color:rgba(243,237,225,0.82);
-  background:rgba(243,237,225,0.05); border:1px solid rgba(243,237,225,0.12); }
-.dd-esc-chip:hover { border-color:rgba(215,106,79,0.6); color:#f3ede1; background:rgba(243,237,225,0.09); }
-.dd-esc-chip:active { transform:scale(0.98); }
-.dd-esc-chip.sel { border-color:#d76a4f; color:#f3ede1; background:rgba(215,106,79,0.18); }
-.dd-esc-toggle { width:46px; height:26px; border-radius:14px; background:rgba(243,237,225,0.2); border:none;
-  position:relative; cursor:pointer; transition:.16s; flex:0 0 auto; }
-.dd-esc-toggle .k { position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#f3ede1; box-shadow:0 1px 3px rgba(0,0,0,0.4); transition:.16s; }
-.dd-esc-toggle.on { background:#d76a4f; }
-.dd-esc-toggle.on .k { left:23px; }
-.dd-esc-tlabel { font-size:15px; color:rgba(243,237,225,0.82); }
-/* Compact toggle grid — several per row to save vertical space */
-.dd-esc-checkrow { display:flex; flex-wrap:wrap; gap:6px 26px; margin:8px 0 4px; }
-.dd-esc-checkrow .dd-esc-line { margin:5px 0; gap:10px; }
-.dd-esc-key { display:flex; align-items:center; justify-content:space-between; padding:10px 4px; }
-.dd-esc-key .d { font-size:16px; color:rgba(243,237,225,0.82); }
-.dd-esc-key .k { background:rgba(243,237,225,0.08); color:#f3ede1; border:1px solid rgba(243,237,225,0.2);
-  border-radius:8px; padding:7px 15px; font-size:14px; font-weight:600; letter-spacing:0.02em; }
-.dd-esc-bottom { padding-top:14px; }
-.dd-esc-back { display:inline-flex; align-items:center; gap:8px; padding:13px 24px; border-radius:11px; font-family:inherit; font-size:15px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:#f3ede1;
-  background:rgba(243,237,225,0.07); border:1px solid rgba(243,237,225,0.2); }
-.dd-esc-back:hover { background:rgba(243,237,225,0.12); }
-.dd-esc-back:active { transform:scale(0.97); }
-.dd-esc-x { width:46px; height:46px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:22px; color:#f3ede1;
-  background:rgba(243,237,225,0.07); border:1px solid rgba(243,237,225,0.2); }
-.dd-esc-x:hover { background:rgba(243,237,225,0.12); }
-.dd-esc-x:active { transform:scale(0.95); }
-.dd-esc-fab { position:fixed; top:14px; left:14px; z-index:1500; width:46px; height:46px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:20px; color:#f3ede1; cursor:pointer;
-  background:rgba(28,25,22,0.44); backdrop-filter:blur(15px) saturate(1.08); -webkit-backdrop-filter:blur(15px) saturate(1.08); border:1px solid rgba(243,237,225,0.16); box-shadow:0 3px 12px rgba(0,0,0,0.20); transition:background .18s ease, border-color .18s ease, transform .1s ease; }
-.dd-esc-fab:hover { background:rgba(243,237,225,0.14); }
-.dd-esc-fab:active { transform:translateY(1px) scale(0.97); }
+.dd-esc-garage { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:10px; padding:13px 10px 10px;
+  background:var(--e-plate); border:1px solid var(--e-line); border-top:none; }
+.dd-esc-glabel { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.2em; color:var(--e-dim); }
+.dd-esc-wallet { font:700 17px 'Inter',system-ui,sans-serif; color:var(--e-accent); letter-spacing:0.06em;
+  font-variant-numeric:tabular-nums; }
+@media (max-width:900px){ .dd-esc-body{ flex-direction:column; } .dd-esc-showcase{ min-height:250px; flex:0 0 250px; } }
+
+/* ── section head: a plate with an amber left tick. The SCS signature. ── */
+.dd-esc-sec { display:flex; align-items:center; gap:12px; margin:22px 0 12px; padding:9px 14px;
+  font-size:11px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--e-text);
+  background:linear-gradient(180deg,var(--e-plate-2),var(--e-plate));
+  border:1px solid var(--e-line); border-left:3px solid var(--e-accent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.05); }
+.dd-esc-sec::after { content:''; flex:1; height:1px; background:linear-gradient(90deg,var(--e-line),transparent); }
+
+.dd-esc-line { display:flex; align-items:center; gap:14px; margin:11px 0; }
+.dd-esc-searchrow { display:flex; gap:10px; }
+.dd-esc-input { flex:1; background:#12171e; border:1px solid var(--e-line); color:var(--e-text);
+  border-radius:0; padding:12px 14px; font-family:inherit; font-size:14px; letter-spacing:0.05em; outline:none;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,0.45); transition:border-color .14s, background .14s; }
+.dd-esc-input:focus { border-color:var(--e-accent); background:#151b23; }
+.dd-esc-input::placeholder { color:var(--e-dim); letter-spacing:0.04em; }
+
+.dd-esc-go, .dd-esc-chip, .dd-esc-x, .dd-esc-back, .dd-esc-fab { cursor:pointer; user-select:none;
+  transition:background .14s, border-color .14s, color .14s; }
+/* primary: amber plate, dark text — the one loud control on the page */
+.dd-esc-go { display:flex; align-items:center; padding:0 26px; border-radius:0; font-family:inherit;
+  font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.16em; color:#161a1f;
+  background:linear-gradient(180deg,#f2b555,var(--e-accent-d)); border:1px solid #7d5415;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.28); }
+.dd-esc-go:hover { background:linear-gradient(180deg,#f7c069,#c98b2a); }
+.dd-esc-go:active { background:linear-gradient(180deg,#c98b2a,#a06c1c); box-shadow:inset 0 2px 4px rgba(0,0,0,0.4); }
+.dd-esc-go:disabled { opacity:.35; }
+.dd-esc-err { margin-top:10px; min-height:20px; font-size:12px; letter-spacing:0.08em; text-transform:uppercase;
+  font-weight:600; color:#e07a5f; } .dd-esc-err.ok { color:#8fbf6a; }
+
+/* ── list rows: full-width plates, amber tick slides in on hover/selection ── */
+.dd-esc-chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-top:12px; }
+.dd-esc-chip { position:relative; text-align:left; padding:12px 14px 12px 16px; border-radius:0;
+  font-size:12px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--e-dim);
+  background:linear-gradient(180deg,#1d242d,#171d25); border:1px solid var(--e-line); }
+.dd-esc-chip::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--e-accent); transform:scaleY(0); transform-origin:center; transition:transform .14s; }
+.dd-esc-chip:hover { color:var(--e-text); background:linear-gradient(180deg,#242d38,#1b222b); border-color:var(--e-line-hi); }
+.dd-esc-chip:hover::before { transform:scaleY(1); }
+.dd-esc-chip.sel { color:#161a1f; background:linear-gradient(180deg,#f2b555,var(--e-accent-d));
+  border-color:#7d5415; box-shadow:inset 0 1px 0 rgba(255,255,255,0.26); }
+.dd-esc-chip.sel::before { transform:scaleY(1); background:#161a1f; }
+
+/* ── toggle: a CHECKBOX, not an iOS pill. Nothing dated this menu harder. ── */
+.dd-esc-toggle { width:22px; height:22px; border-radius:0; background:#12171e; border:1px solid var(--e-line);
+  position:relative; cursor:pointer; transition:border-color .14s, background .14s; flex:0 0 auto;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,0.5); }
+.dd-esc-toggle:hover { border-color:var(--e-line-hi); }
+.dd-esc-toggle .k { position:absolute; inset:3px; border-radius:0; background:var(--e-accent);
+  transform:scale(0); transition:transform .13s cubic-bezier(.2,.9,.3,1.2);
+  box-shadow:0 0 7px rgba(230,163,60,0.55); }
+.dd-esc-toggle.on { border-color:var(--e-accent-d); background:#1b1710; }
+.dd-esc-toggle.on .k { transform:scale(1); }
+.dd-esc-tlabel { font-size:12px; font-weight:600; letter-spacing:0.09em; text-transform:uppercase; color:var(--e-dim); }
+.dd-esc-line:hover .dd-esc-tlabel { color:var(--e-text); }
+
+.dd-esc-checkrow { display:flex; flex-wrap:wrap; gap:4px 24px; margin:6px 0 4px; }
+.dd-esc-checkrow .dd-esc-line { margin:4px 0; gap:9px; }
+
+/* ── keybind rows: label left, key cap right, hairline between ── */
+.dd-esc-key { display:flex; align-items:center; justify-content:space-between; padding:9px 12px;
+  border-bottom:1px solid rgba(53,65,78,0.55); }
+.dd-esc-key:hover { background:rgba(255,255,255,0.022); }
+.dd-esc-key .d { font-size:12px; font-weight:600; letter-spacing:0.09em; text-transform:uppercase; color:var(--e-dim); }
+.dd-esc-key .k { background:linear-gradient(180deg,#2a333d,#1c232b); color:var(--e-text);
+  border:1px solid var(--e-line-hi); border-bottom-width:2px; border-radius:2px; padding:5px 12px;
+  font-size:11px; font-weight:700; letter-spacing:0.1em; min-width:26px; text-align:center;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.07); }
+
+.dd-esc-bottom { padding-top:12px; border-top:1px solid var(--e-line); }
+.dd-esc-back { display:inline-flex; align-items:center; gap:8px; padding:12px 22px; border-radius:0;
+  font-family:inherit; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.16em;
+  color:var(--e-text); background:linear-gradient(180deg,#252e38,#1a212a); border:1px solid var(--e-line-hi);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.06); }
+.dd-esc-back:hover { background:linear-gradient(180deg,#2e3945,#212a34); border-color:var(--e-accent-d); }
+.dd-esc-back:active { background:#171d25; box-shadow:inset 0 2px 4px rgba(0,0,0,0.4); }
+
+.dd-esc-x { width:40px; height:40px; border-radius:0; display:flex; align-items:center; justify-content:center;
+  font-size:17px; color:var(--e-dim); background:linear-gradient(180deg,#252e38,#1a212a); border:1px solid var(--e-line-hi); }
+.dd-esc-x:hover { color:var(--e-text); border-color:var(--e-accent-d); background:linear-gradient(180deg,#2e3945,#212a34); }
+.dd-esc-x:active { background:#171d25; }
+
+.dd-esc-fab { position:fixed; top:12px; left:12px; z-index:1500; width:40px; height:40px; border-radius:0;
+  display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--e-text); cursor:pointer;
+  background:rgba(22,28,35,0.72); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(74,87,101,0.85); border-left:2px solid rgba(230,163,60,0.75);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.35); }
+.dd-esc-fab:hover { background:rgba(38,47,57,0.88); }
+.dd-esc-fab:active { background:rgba(18,23,29,0.9); }
 `;
 
 function el(t, c, h) { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
