@@ -475,7 +475,7 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
   const REACH_FRACTION = 0.9;      // never consume the whole way — the far end must stay put
   const st = { nodesSeen: 0, disagreeing: 0, waysMoved: 0, nodesFixed: 0,
                skipTunnel: 0, skipTooShort: 0, skipNoGeom: 0, worstBefore: 0, worstLeft: 0,
-               steepestFix: 0 };
+               steepestFix: 0, splitFixes: 0 };
 
   const heightAt = (wayId, idx) => {
     const r = result.get(wayId);
@@ -539,6 +539,34 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
       || at.find(a => !result.get(a.wid)?.vertexHeights)
       || at[0];
 
+    /** How much height this way can absorb over its own length at MAX_FIX_GRADE. */
+    const capacityOf = (e) => {
+      const pts = e.w.points || [];
+      if (pts.length !== e.n || e.n < 2) return 0;
+      const L = cumulativeGroundDist(pts)[e.n - 1];
+      return L > 0 ? L * REACH_FRACTION * MAX_FIX_GRADE : 0;
+    };
+    /** Bend `e` by `d` metres, decaying to zero away from its end at this node. */
+    const bend = (e, d) => {
+      const pts = e.w.points;
+      const dist = cumulativeGroundDist(pts);
+      const L = dist[e.n - 1];
+      const reach = Math.min(Math.abs(d) / CONSTRUCT_RAMP_GRADE, L * REACH_FRACTION);
+      if (!(reach > 0)) return false;
+      const r = result.get(e.wid);
+      const vh = r.vertexHeights ? r.vertexHeights.slice() : new Array(e.n).fill(r.baseHeight);
+      for (let i = 0; i < e.n; i++) {
+        const dFromNode = e.idx === 0 ? dist[i] : (L - dist[i]);
+        const t = Math.max(0, Math.min(1, 1 - dFromNode / reach));
+        const sm = t * t * (3 - 2 * t);
+        vh[i] += d * sm;
+      }
+      result.set(e.wid, { ...r, isRamp: true, vertexHeights: vh, baseHeight: undefined });
+      const g = Math.abs(d) / reach;
+      if (g > st.steepestFix) st.steepestFix = g;
+      return true;
+    };
+
     let movedHere = 0;
     for (const a of at) {
       if (a === anchor) continue;
@@ -555,26 +583,35 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
       const L = dist[a.n - 1];
       // How much road this correction needs at the construction grade — the same question N-41
       // asks of a climb, asked here of a much smaller one.
-      // Prefer the construction grade; shorten the blend only as far as the way allows, and give
-      // up only when even that would be a cliff.
-      const ideal = Math.abs(delta) / CONSTRUCT_RAMP_GRADE;
-      const reach = Math.min(ideal, L * REACH_FRACTION);
-      if (!(L > 0) || !(reach > 0)) { st.skipNoGeom++; continue; }
-      const grade = Math.abs(delta) / reach;
-      if (grade > MAX_FIX_GRADE) { st.skipTooShort++; continue; }    // rule 2
-      if (grade > st.steepestFix) st.steepestFix = grade;
-
-      const r = result.get(a.wid);
-      const vh = r.vertexHeights
-        ? r.vertexHeights.slice()
-        : new Array(a.n).fill(r.baseHeight);
-      for (let i = 0; i < a.n; i++) {
-        const dFromNode = a.idx === 0 ? dist[i] : (L - dist[i]);
-        const t = Math.max(0, Math.min(1, 1 - dFromNode / reach));
-        const s = t * t * (3 - 2 * t);      // smoothstep — no kink where the correction starts
-        vh[i] += delta * s;
+      if (!(L > 0)) { st.skipNoGeom++; continue; }
+      const capA = capacityOf(a);
+      if (Math.abs(delta) <= capA) {
+        // One side can absorb the whole correction on its own.
+        if (!bend(a, delta)) { st.skipNoGeom++; continue; }
+        st.waysMoved++; movedHere++;
+        continue;
       }
-      result.set(a.wid, { ...r, isRamp: true, vertexHeights: vh, baseHeight: undefined });
+
+      // ── NEITHER SIDE HAS TO ABSORB IT ALONE (N-61) ────────────────────────────────────────
+      // `too short to blend` was the dominant skip once tunnels could move: 64 of 151 nodes. But a
+      // joint is met by BOTH sides, and if each takes a share, each needs proportionally less road.
+      // Only when the anchor is genuinely free to move: a way passing THROUGH cannot bend without a
+      // kink mid-span, and at a portal the surface street holds its height by N-47's rule.
+      const anchorFree = through.length === 0 && at.length === 2 && !anchor.w.tunnel === !a.w.tunnel;
+      const capAnchor = anchorFree ? capacityOf(anchor) : 0;
+      if (Math.abs(delta) > capA + capAnchor) { st.skipTooShort++; continue; }
+      // Split proportionally to capacity, so each side ends at the same height and neither exceeds
+      // its own grade limit.
+      const share = capA / (capA + capAnchor);
+      const dA = delta * share;
+      const dAnchor = -delta * (1 - share);
+      // ⚠ The anchor moves the OPPOSITE way to the mover, so a split can push a tunnel DEEPER —
+      // the one thing N-60 forbids, and the sign check above only covers `a`. Without this the
+      // relaxation that let tunnels rise would quietly also let them sink.
+      if (anchor.w.tunnel && dAnchor < 0) { st.skipTunnel++; continue; }
+      if (!bend(a, dA)) { st.skipNoGeom++; continue; }
+      if (bend(anchor, dAnchor)) { st.waysMoved++; st.splitFixes++; }
+      anchor.h += dAnchor;      // later movers at this node must aim at where it ACTUALLY ended up
       st.waysMoved++;
       movedHere++;
     }
@@ -588,7 +625,7 @@ function reconcileSharedNodes(wayMap, nodeToWays, result) {
     + `— fixed ${st.nodesFixed}, ways moved ${st.waysMoved} | skipped: tunnel ${st.skipTunnel}, `
     + `too short to blend ${st.skipTooShort}, no geometry ${st.skipNoGeom} `
     + `| worst step before ${st.worstBefore.toFixed(1)} m, worst left unfixed ${st.worstLeft.toFixed(1)} m, `
-    + `steepest correction ${(st.steepestFix * 100).toFixed(0)}%`);
+    + `steepest correction ${(st.steepestFix * 100).toFixed(0)}%, split across both sides ${st.splitFixes}`);
   return st;
 }
 
