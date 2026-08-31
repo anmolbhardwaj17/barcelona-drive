@@ -185,27 +185,49 @@ export function createCarPool(scene, templates) {
  *
  * Usage is strictly begin() → put()×n → commit(); the buffer is rewritten wholesale, never patched.
  */
-// ── BARCELONA BODY COLOURS (V-5) ──────────────────────────────────────────────────────────────
+// ── BARCELONA BODY COLOURS (V-5, rebalanced V-11) ─────────────────────────────────────────────
 // Authored cars have their UVs pinned to a white texel, so without a per-instance tint the fleet is
-// a row of identical white hatchbacks. Weighted to what actually parks on a Barcelona street:
-// white and silver dominate, then greys and black, with a little red and blue. Saturated colours
-// are deliberately rare — a street of primary-coloured cars reads as a toy set, which is the exact
-// impression this whole change is trying to remove.
+// a row of identical white hatchbacks.
+//
+// ⚠ THE FIRST PALETTE LOOKED FINE AND DISTRIBUTED TERRIBLY. The colour census reported
+// `#e8e8e6 x464 … #2f4f7a x4` — 464 white cars against FOUR navy, out of 2,315. That is not a
+// weighting decision, it is a broken hash: `(xorshift >>> 8) & 0xffff` correlates badly with the
+// position-derived seeds parked cars use (`px * 7.31 + pz * 13.17` on a kerb grid), so whole
+// indices were starved. User: "i see alot of white cars can we have more variety".
+//
+// Now a full 32-bit avalanche (the MurmurHash3 finalizer), which decorrelates neighbouring seeds
+// properly, plus white cut from three entries to two. Weighted to what actually parks in Barcelona
+// — pale and neutral dominant, saturated colours present but a minority — because a street of
+// primary-coloured cars reads as a toy set, which is the impression this whole thread exists to
+// remove.
 export const BODY_COLORS = [
-  0xe8e8e6, 0xe8e8e6, 0xe8e8e6,   // white — by far the most common
-  0xc6c9cc, 0xc6c9cc,             // silver
-  0x9aa0a6, 0x6e747a,             // greys
-  0x2b2f33, 0x2b2f33,             // black
-  0xb23a30,                       // red
-  0x2f4f7a,                       // navy
-  0x7a6a52,                       // beige/champagne
+  0xe8e8e6, 0xdedcd8,             // whites (two shades, not one flat white)
+  0xc6c9cc, 0xb4b8bc,             // silvers
+  0x9aa0a6, 0x6e747a, 0x4a4f55,   // greys, light to dark
+  0x2b2f33, 0x1f2226,             // blacks
+  0x2f4f7a, 0x4a6fa5,             // navy, mid blue
+  0xb23a30, 0x7c2b28,             // red, burgundy
   0x30594a,                       // dark green
+  0x7a6a52, 0x8a6a3a,             // beige, bronze
 ];
-/** Deterministic pick — a car must keep its colour across despawn/respawn, not flicker per frame. */
+
+/**
+ * Deterministic pick — a car must keep its colour across despawn/respawn, not flicker per frame.
+ *
+ * MurmurHash3's finalizer rather than a plain xorshift: it avalanches every input bit across the
+ * whole word, so seeds that differ by a small amount (adjacent kerb slots, consecutive spawns) land
+ * far apart in the output. The previous shift-and-mask left that correlation intact.
+ */
 export function bodyColorFor(seed) {
-  let h = (seed | 0) || 1;
-  h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
-  return BODY_COLORS[((h >>> 8) & 0xffff) % BODY_COLORS.length];
+  let h = (seed | 0) >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  // ⚠ `>>> 0` after the final XOR, not before. In JS `^=` yields a SIGNED int32, so without this
+  // the last step can go negative and `% length` returns a NEGATIVE index — BODY_COLORS[-3] is
+  // undefined, and the car renders with no colour at all. Caught by running the distribution
+  // offline before shipping it.
+  h = (h ^ (h >>> 16)) >>> 0;
+  return BODY_COLORS[h % BODY_COLORS.length];
 }
 
 export const LIGHT_HEAD = 0xfff4d8;
