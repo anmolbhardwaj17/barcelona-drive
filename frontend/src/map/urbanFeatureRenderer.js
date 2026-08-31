@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mergeGeometriesChunked } from './chunkedMerge.js';
+import { getKTX2TextureSync } from '../loaders.js';   // P4-17 furniture atlas
 
 // Frame-budgeted merge for the big per-material buckets (the 'p4 urban' residual was this
 // sync merge, not the per-feature loop). Chunked path for large sets, sync fallback otherwise.
@@ -26,13 +27,39 @@ let _matForecourtBand, _matForecourtTrim, _matForecourtRoof,
     _matYellow, _matDarkGray,
     _matBrown, _matBeige, _matIronGreen;
 
-function matSteel()    { return _matSteel    || (_matSteel    = shared(new THREE.MeshLambertMaterial({ color: 0x888899 }))); }
-function matRed()      { return _matRed      || (_matRed      = shared(new THREE.MeshLambertMaterial({ color: 0xcc3333 }))); }
+// ── AUTHORED FURNITURE ATLAS (2026-08-31) ─────────────────────────────────────────────────────
+// 22 materials in this file against 3 map references: benches, bollards, bins and planters were
+// all flat colour, which is what makes props read as toys. One 2x2 atlas covers the four materials
+// that actually matter, and each material takes its own CLONE of the texture — clones share the
+// GPU image and carry their own offset/repeat, so four cells cost one upload.
+//
+// ⚠ ROW 0 IS THE TOP OF THE IMAGE and three's UV origin is bottom-left, so the top row sits at
+// v = 0.5..1.0. Getting that backwards swaps steel for concrete and red for dark metal — visible
+// but easy to mis-read as "the atlas is wrong" rather than "the offset is flipped".
+const FURNITURE_ATLAS = '/textures/urban/furniture_atlas_albedo.ktx2';
+let _atlasBase = null;
+/** @param {number} col 0|1 @param {number} row 0=top row of the image */
+function atlasCell(col, row) {
+  if (!_atlasBase) _atlasBase = getKTX2TextureSync(FURNITURE_ATLAS, { srgb: true, tiling: false });
+  const t = _atlasBase.clone();
+  t.needsUpdate = true;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;   // a cell must never bleed into its neighbour
+  t.repeat.set(0.5, 0.5);
+  t.offset.set(col * 0.5, (1 - row) * 0.5);
+  return t;
+}
+
+// `color` goes WHITE on every material that gains a map: the cell carries the tone (steel L* 58,
+// dark metal L* 34.7 preserved, concrete L* 62, red C* 43 preserved) and leaving the old hex in
+// would multiply it. matWhite keeps its flat colour — no cell is white, and inventing one would be
+// worse than leaving it.
+function matSteel()    { return _matSteel    || (_matSteel    = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(0, 0) }))); }
+function matRed()      { return _matRed      || (_matRed      = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(1, 1) }))); }
 function matWhite()    { return _matWhite    || (_matWhite    = shared(new THREE.MeshLambertMaterial({ color: 0xeeeeee }))); }
-function matConcrete() { return _matConcrete || (_matConcrete = shared(new THREE.MeshLambertMaterial({ color: 0xbbbbbb }))); }
+function matConcrete() { return _matConcrete || (_matConcrete = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(0, 1) }))); }
 function matWater()    { return _matWater    || (_matWater    = shared(new THREE.MeshPhongMaterial({ color: 0x2277aa, emissive: 0x0a2233, specular: 0x88ccee, shininess: 90, transparent: true, opacity: 0.75 }))); }
 function matYellow()   { return _matYellow   || (_matYellow   = shared(new THREE.MeshLambertMaterial({ color: 0xeecc22 }))); }
-function matDarkGray() { return _matDarkGray || (_matDarkGray = shared(new THREE.MeshLambertMaterial({ color: 0x444444 }))); }
+function matDarkGray() { return _matDarkGray || (_matDarkGray = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(1, 0) }))); }
 function matBrown()    { return _matBrown    || (_matBrown    = shared(new THREE.MeshPhongMaterial({ color: 0x8b6b42, specular: 0x221100, shininess: 8 }))); }
 function matBeige()    { return _matBeige    || (_matBeige    = shared(new THREE.MeshLambertMaterial({ color: 0xc8b89a }))); }
 // P4-17a: ornamental fountains were BROWN, which is a north-Indian sandstone. Barcelona's plaza

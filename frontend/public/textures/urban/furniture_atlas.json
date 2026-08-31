@@ -1,0 +1,72 @@
+{
+  "atlas": "furniture_atlas_albedo.ktx2",
+  "size": 1024,
+  "cell": 512,
+  "uv": "offset(col*0.5, (1-row)*0.5), repeat(0.5,0.5) \u2014 row 0 is the TOP of the image, three UV origin is bottom-left",
+  "cells": [
+    {
+      "name": "steel",
+      "cell": [
+        0,
+        0,
+        512,
+        512
+      ],
+      "surfaceClass": "metal",
+      "rescaleL": true,
+      "rescaleC": true,
+      "snapAlpha": 0.35,
+      "LStar": 58.0,
+      "CStar": 1.7,
+      "tileRatio": 0.005
+    },
+    {
+      "name": "darkmetal",
+      "cell": [
+        512,
+        0,
+        1024,
+        512
+      ],
+      "surfaceClass": "metal",
+      "rescaleL": false,
+      "rescaleC": true,
+      "snapAlpha": 0.35,
+      "LStar": 34.7,
+      "CStar": 2.2,
+      "tileRatio": 0.009
+    },
+    {
+      "name": "concrete",
+      "cell": [
+        0,
+        512,
+        512,
+        1024
+      ],
+      "surfaceClass": "sidewalk",
+      "rescaleL": true,
+      "rescaleC": true,
+      "snapAlpha": 0.35,
+      "LStar": 62.0,
+      "CStar": 5.1,
+      "tileRatio": 0.005
+    },
+    {
+      "name": "red",
+      "cell": [
+        512,
+        512,
+        1024,
+        1024
+      ],
+      "surfaceClass": "brick",
+      "rescaleL": false,
+      "rescaleC": false,
+      "snapAlpha": 0.0,
+      "LStar": 33.3,
+      "CStar": 43.0,
+      "tileRatio": 0.003
+    }
+  ]
+}
