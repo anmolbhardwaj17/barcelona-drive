@@ -1049,7 +1049,7 @@ A hue roughly opposite its anchor has two ~180° arcs, and the shorter one can p
 far worse than the start: the jacaranda's genuine violet blossom snapped toward P9 Platanus Green
 went **through red and landed on hot pink**. The plate was correct; the code was not.
 
-### G-XX · `import()` IS NOT A SYNTAX CHECK — `buildRegion.js` RUNS ON IMPORT
+## G-56 — `import()` IS NOT A SYNTAX CHECK: `buildRegion.js` RUNS ON IMPORT
 
 `backend/worldBuilder/buildRegion.js` calls `main()` at module scope:
 
