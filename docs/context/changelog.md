@@ -2992,3 +2992,22 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   onto one. If it is ever revisited, the population is already counted and `junctionStepAudit.mjs`
   plus the in-bake `[Continuity]` census are the instruments — and note the offline audit
   OVER-COUNTS, because tiles carry no node ids (see N-58).
+
+## 2026-09-01 — cameras, fountain water, street furniture off the carriageway
+
+- **Chase camera angle, not distance.** At 1.9 m the eye sat 0.7 m over a 1.2 m roofline, so the car
+  was seen edge-on and covered 79% of the lower half-frame. Height 1.9 → 2.5, distance 6.2 → 6.6,
+  look target 0.5 → 0.9 at 4.0 m. Tunnel cam had the same defect (1.2 → 1.95).
+- **Hood cam → nose cam, placed against measured geometry.** It landed inside the bodywork twice
+  because the offsets were reasoned from `CHASSIS_BOX_OFFSET_Y` and half of `M3_TARGET_LENGTH`;
+  the load path recentres the body on Y only, so the nose is not at half the car length. `carModel`
+  now exports `getBodyBounds()` and the eye sits 0.38 m ahead of the measured `max.z`.
+- **Fountain water.** The 8 falling strands were 4-sided cylinders — no silhouette, so they aliased
+  to hard lines. Replaced by one open-ended cone veil (cheaper than what it replaces). Falling water
+  got its own near-white low-opacity material; the pool material went 0.75 → 0.88 opacity so the
+  basin reads as a sheet.
+- **`roadClearance.js` (new).** Both streetlights and traffic signals offset from ONE road, so at
+  junctions/merges/roundabouts they stood in the crossing carriageway. New shared test against every
+  drivable segment on the same layer, with a push-to-clear search. Lamps that cannot escape are
+  dropped; signals are only nudged (a missing signal is worse than an imperfect one).
+  `window._ddLampStats()` / `window._ddSignalStats()`, cumulative across tiles.

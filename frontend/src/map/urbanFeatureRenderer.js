@@ -23,7 +23,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 
 let _matForecourtBand, _matForecourtTrim, _matForecourtRoof,
     _matCabinShell, _matCabinRoof, _matCabinDoor,
-    _matSteel, _matRed, _matWhite, _matConcrete, _matWater, _matStone,
+    _matSteel, _matRed, _matWhite, _matConcrete, _matWater, _matSpray, _matStone,
     _matYellow, _matDarkGray,
     _matBrown, _matBeige, _matIronGreen;
 
@@ -66,7 +66,14 @@ function matSteel()    { return _matSteel    || (_matSteel    = shared(new THREE
 function matRed()      { return _matRed      || (_matRed      = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(1, 1) }))); }
 function matWhite()    { return _matWhite    || (_matWhite    = shared(new THREE.MeshLambertMaterial({ color: 0xeeeeee }))); }
 function matConcrete() { return _matConcrete || (_matConcrete = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(0, 1) }))); }
-function matWater()    { return _matWater    || (_matWater    = shared(new THREE.MeshPhongMaterial({ color: 0x2277aa, emissive: 0x0a2233, specular: 0x88ccee, shininess: 90, transparent: true, opacity: 0.75 }))); }
+// STILL water — the basin and bowl sheets. Read as a SHEET, so mostly opaque: at 0.75 the stone
+// floor showed through and the pool disappeared into the basin. The user's ask was literally "some
+// blue color sheet", and a sheet you can see the bottom of is not one.
+function matWater()    { return _matWater    || (_matWater    = shared(new THREE.MeshPhongMaterial({ color: 0x3d86a8, emissive: 0x0e2a38, specular: 0xbfe6ff, shininess: 110, transparent: true, opacity: 0.88 }))); }
+// FALLING water is a different material, not a tint of the still kind. Aerated water is near-WHITE
+// and barely opaque; drawing it in pool-blue at 0.75 is what made the old strands read as blue wire.
+// depthWrite off so overlapping sheets don't z-fight, DoubleSide because the veil is open-ended.
+function matSpray()    { return _matSpray    || (_matSpray    = shared(new THREE.MeshPhongMaterial({ color: 0xe8f3f7, emissive: 0x1b2b31, specular: 0xffffff, shininess: 120, transparent: true, opacity: 0.30, depthWrite: false, side: THREE.DoubleSide }))); }
 function matYellow()   { return _matYellow   || (_matYellow   = shared(new THREE.MeshLambertMaterial({ color: 0xeecc22 }))); }
 function matDarkGray() { return _matDarkGray || (_matDarkGray = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(1, 0) }))); }
 function matBrown()    { return _matBrown    || (_matBrown    = shared(new THREE.MeshPhongMaterial({ color: 0x8b6b42, specular: 0x221100, shininess: 8 }))); }
@@ -641,21 +648,23 @@ function buildFountain() {
   // A central jet, and a ring of thin arcs falling from the bowl lip to the basin. The old version
   // had solid cascade cylinders between tiers, which read as pillars of milk; separate falling
   // strands are what actually says "running water" at this polygon budget.
-  const jet = new THREE.CylinderGeometry(0.022, 0.055, 0.9, 6);
+  const jet = new THREE.CylinderGeometry(0.020, 0.058, 0.9, 12);
   jet.translate(0, bowlY + 0.22 + 0.45, 0);
-  geos.push({ geo: jet, mat: 'water' });
+  geos.push({ geo: jet, mat: 'spray' });
 
-  const fallH = bowlY - RIM_H * 0.62;
-  for (let i = 0; i < 8; i++) {
-    const th = (i / 8) * Math.PI * 2;
-    const strand = new THREE.CylinderGeometry(0.018, 0.030, fallH, 4);
-    // Lean each strand slightly outward, so it leaves the lip and lands in the basin rather than
-    // dropping dead straight down the column.
-    strand.rotateZ(Math.sin(th) * 0.10);
-    strand.rotateX(-Math.cos(th) * 0.10);
-    strand.translate(Math.cos(th) * 1.0, RIM_H * 0.62 + fallH / 2, Math.sin(th) * 1.0);
-    geos.push({ geo: strand, mat: 'water' });
-  }
+  // ── THE CASCADE IS A SHEET, NOT STRANDS ──────────────────────────────────────────────────────
+  // This was 8 four-sided cylinders hanging from the lip, and at 4 sides a 2 cm cylinder has no
+  // silhouette to speak of — it aliases to a hard line, which is exactly what the user saw:
+  // "those water lines not smooth". No amount of colour fixes that; the shape was wrong.
+  //
+  // Water leaving a circular lip falls as a continuous curtain, so it is modelled as one: an
+  // open-ended cone splaying from the lip radius out to where it lands. Continuous surface, no
+  // edges to alias, and it is CHEAPER than the strands it replaces (one 20-segment shell against
+  // eight 4-segment cylinders). Low opacity keeps the column readable straight through it.
+  const fallH = bowlY + 0.20 - RIM_H * 0.62;
+  const veil = new THREE.CylinderGeometry(1.04, 1.26, fallH, 20, 1, true);
+  veil.translate(0, RIM_H * 0.62 + fallH / 2, 0);
+  geos.push({ geo: veil, mat: 'spray' });
 
   return geos;
 }
@@ -969,7 +978,7 @@ function buildDrinkingFountain() {
 
 const MAT_MAP = {
   steel: matSteel, red: matRed, white: matWhite, stone: matStone,
-  concrete: matConcrete, water: matWater,
+  concrete: matConcrete, water: matWater, spray: matSpray,
   yellow: matYellow, darkGray: matDarkGray,
   forecourtBand: matForecourtBand, forecourtTrim: matForecourtTrim, forecourtRoof: matForecourtRoof,
   cabinShell: matCabinShell, cabinRoof: matCabinRoof, cabinDoor: matCabinDoor,

@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { pavedWidth, kerbOffset } from './roadWidths.js';   // R-W1
+import { buildCarriagewaySegments, pushOffCarriageway } from './roadClearance.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { toNormalizedRoadY } from '../roadElevation.js';
@@ -321,6 +322,15 @@ function buildBridgeSegments(roads) {
  * @param {{ x: number, z: number }[]} junctionPoints
  * @returns {{ poleMesh, lampMesh, positions: {x,y,z}[] } | null}
  */
+const _lampStats = {
+  allTiles: { placed: 0, nudged: 0, dropped: 0, worstNudgeM: 0 },
+  lastTile: null,
+};
+if (typeof window !== 'undefined') {
+  /** How many poles the carriageway test moved or deleted. See roadClearance.js. */
+  window._ddLampStats = () => JSON.parse(JSON.stringify(_lampStats));
+}
+
 export function buildStreetlights(roads, junctionPoints, options) {
   const { poleGeom, poleMat, armGeom, armMat, lampGeom, lampMat,
           poleShadowGeom, poleShadowMat,
@@ -329,6 +339,10 @@ export function buildStreetlights(roads, junctionPoints, options) {
 
   // Pre-compute bridge segments for under-bridge check
   const bridgeSegs = buildBridgeSegments(roads);
+  // Every drivable carriageway, for the "did this pole land in the road?" test below.
+  const carriageSegs = buildCarriagewaySegments(roads);
+  // D-23 proof of work: a guard that rejects nothing looks identical to one with nothing to reject.
+  let _nudged = 0, _nudgeMax = 0, _dropped = 0;
 
   // --- Collect placement data -----------------------------------------------
   const instances = []; // { px, py, pz, armAngle, lampX, lampZ }
@@ -369,8 +383,18 @@ export function buildStreetlights(roads, junctionPoints, options) {
       const nz =  s.tx * side;
 
       const edgeDist = roadWidth * 0.5 + EDGE_OFFSET;
-      const px = s.x + nx * edgeDist;
-      const pz = s.z + nz * edgeDist;
+      let px = s.x + nx * edgeDist;
+      let pz = s.z + nz * edgeDist;
+
+      // ── CLEAR OF ITS OWN ROAD IS NOT CLEAR OF THE ROAD ──────────────────────────────────────
+      // `edgeDist` only knows the polyline being walked. At an intersection, merge or roundabout
+      // the pole is correctly outside THIS carriageway and standing in the crossing one, which is
+      // the pole in the middle of the junction in the user's shot. Test the actual position
+      // against every drivable surface and move it to the nearest spot that is off all of them.
+      const clear = pushOffCarriageway(px, pz, nx, nz, carriageSegs, layer);
+      if (!clear) { _dropped++; prevPoleTopLeft = null; prevPoleTopRight = null; continue; }
+      if (clear.moved > 0) { _nudged++; if (clear.moved > _nudgeMax) _nudgeMax = clear.moved; }
+      px = clear.x; pz = clear.z;
 
       // rotateY(θ) maps +X → (cos θ, 0, −sin θ).
       // Arm must point in direction (-nx, 0, -nz) → θ = atan2(nz, -nx).
@@ -436,6 +460,16 @@ export function buildStreetlights(roads, junctionPoints, options) {
   }
 
   if (instances.length === 0) return null;
+
+  // ⚠ CUMULATIVE, not per-tile. These were per-tile last-write-wins for the pillar counters and
+  // reading `0` off whichever tile happened to finish last led to telling the user a feature was
+  // not firing when it was. On a 14-20 tile spawn the last tile to finish is usually a quiet one.
+  _lampStats.allTiles.placed  += instances.length;
+  _lampStats.allTiles.nudged  += _nudged;
+  _lampStats.allTiles.dropped += _dropped;
+  if (_nudgeMax > _lampStats.allTiles.worstNudgeM) _lampStats.allTiles.worstNudgeM = _nudgeMax;
+  _lampStats.lastTile = { placed: instances.length, nudged: _nudged, dropped: _dropped,
+                          worstNudgeM: Number(_nudgeMax.toFixed(2)) };
 
   // --- Build InstancedMeshes ------------------------------------------------
   const poleMesh = new THREE.InstancedMesh(poleGeom, poleMat, instances.length);

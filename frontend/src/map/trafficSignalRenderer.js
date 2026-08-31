@@ -28,6 +28,7 @@
  * changes — no geometry churn, no per-frame JS beyond writing one number.
  */
 import * as THREE from 'three';
+import { buildCarriagewaySegments, pushOffCarriageway } from './roadClearance.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** Full cycle, seconds. Both axes share it, offset by half. */
@@ -211,8 +212,18 @@ export function axisForHeading(dx, dz) {
  * @param {{id:number, point:number[]}[]} signals baked OSM signal nodes
  * @param {Function} getGroundY (x, z) → surface height
  * @param {Function} nearestRoad (x, z) → { tx, tz } road tangent, or null
+ * @param {object[]} [roads] every road in the tile — used to keep poles out of crossing carriageways
  */
-export function buildTrafficSignals(signals, getGroundY, nearestRoad) {
+const _signalStats = {
+  allTiles: { placed: 0, nudged: 0, worstNudgeM: 0 },
+  lastTile: null,
+};
+if (typeof window !== 'undefined') {
+  /** How many signal poles the carriageway test moved out of a crossing road. */
+  window._ddSignalStats = () => JSON.parse(JSON.stringify(_signalStats));
+}
+
+export function buildTrafficSignals(signals, getGroundY, nearestRoad, roads) {
   if (!signals || !signals.length) return null;
 
   // Cluster FIRST, so the phase is a property of the junction rather than of each pole. Computed
@@ -220,6 +231,12 @@ export function buildTrafficSignals(signals, getGroundY, nearestRoad) {
   // of recomputing it, which is how the axis and the lamp are kept from disagreeing.
   const pts = signals.map((sg) => ({ x: sg.point[0], z: sg.point[1] }));
   const groups = clusterJunctions(pts);
+
+  // Stepping to the right of the signal's OWN road is right along a street and wrong at a junction,
+  // which is where every signal is. Same defect as the streetlights: the offset never looks at the
+  // crossing carriageway it lands in. See roadClearance.js.
+  const carriageSegs = buildCarriagewaySegments(roads);
+  let _nudged = 0, _nudgeMax = 0;
 
   const geos = [];
   const meta = [];
@@ -235,7 +252,15 @@ export function buildTrafficSignals(signals, getGroundY, nearestRoad) {
     // left-hand offset (written for Delhi) is exactly why signals ended up in the driving path.
     const nx = -tz, nz = tx;
     const halfW = ((road?.width > 0 ? road.width : KERB_FALLBACK_W) / 2) + KERB_MARGIN;
-    const px = wx + nx * halfW, pz = wz + nz * halfW;
+    let px = wx + nx * halfW, pz = wz + nz * halfW;
+    // A signal has to stay AT its junction to mean anything, so unlike a streetlight it is never
+    // dropped — a signal missing from an approach is worse than one standing a metre off ideal.
+    // maxPush is short for the same reason: pushed too far it stops reading as this road's signal.
+    const clear = pushOffCarriageway(px, pz, nx, nz, carriageSegs, 0, 0.3, 4);
+    if (clear && clear.moved > 0) {
+      _nudged++; if (clear.moved > _nudgeMax) _nudgeMax = clear.moved;
+      px = clear.x; pz = clear.z;
+    }
     const baseY = getGroundY?.(px, pz) ?? 0;
     const facing = Math.atan2(-tx, -tz);          // back down the road, at oncoming traffic
     const fx = -tx, fz = -tz;
@@ -285,5 +310,12 @@ export function buildTrafficSignals(signals, getGroundY, nearestRoad) {
   mesh.receiveShadow = false;
   mesh.userData.type = 'trafficSignal';
   mesh.userData.sharedMaterial = true;
+  // Cumulative across tiles, for the same reason the lamp counters are — see streetlightRenderer.
+  _signalStats.allTiles.placed += signals.length;
+  _signalStats.allTiles.nudged += _nudged;
+  if (_nudgeMax > _signalStats.allTiles.worstNudgeM) _signalStats.allTiles.worstNudgeM = _nudgeMax;
+  _signalStats.lastTile = { placed: signals.length, nudged: _nudged,
+                            worstNudgeM: Number(_nudgeMax.toFixed(2)) };
+
   return { mesh, meta };
 }

@@ -2664,7 +2664,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       // T-3/T-4: the builder returns the metadata it ACTUALLY drew — axis and per-junction phase —
       // and the traffic AI consumes that rather than recomputing it. Deriving the same thing twice
       // is how a car ends up obeying a different phase from the lamp in front of it.
-      const sig = buildTrafficSignals(data.trafficSignals, getGroundY, nearestRoad);
+      const sig = buildTrafficSignals(data.trafficSignals, getGroundY, nearestRoad, roads);
       if (sig?.mesh) {
         entry.trafficSignalMesh = sig.mesh;
         entry.trafficSignalAxes = sig.meta;
