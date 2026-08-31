@@ -8,17 +8,42 @@
 
 ## ⏯ RESUME HERE
 
-> **SESSION HANDOFF — 2026-08-27, third session. Read this block, then the ticket table. Nothing
-> below is in flight; the tree is clean and 336 tests are green.**
+> **SESSION HANDOFF — 2026-08-31. Read this block, then the ticket table. The tree is clean and
+> 395 tests are green.**
 
 | | |
 |---|---|
-| **Branch** | **`v3`** — work directly on it. |
-| **Tile format** | **v10, unchanged.** R-J1/R-J3 changed baked VALUES, not the format — so `peekBinaryVersion` will NOT invalidate the browser cache. ⚠ **The next drive needs `window._clearTileCache()` + a hard reload**, or it renders the old tiles. |
-| **Tests** | **348 green** (332 + 4 `test/widthTaper.test.js` + 12 `test/sidewalkClip.test.js`). `npm test` in `frontend/`. ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently — re-run before believing it. |
-| **How the user tests** | **`?mode=fly`, from the air** — deliberately, to see many changes at once. Read **H14** before trusting any fly-mode screenshot: fly mode does NOT lift LOD (only **P** does), and several LOD tests use tile-centre distance including altitude. Call `window._ddGround()` to tell "culled" from "broken". |
-| **Verified on screen** | R-W1 widths, R-J2 junctions, the barrier fixes, P4-15a cars, the authored facades — and **2026-08-27: the user confirms z-fighting on roads is GONE** (R-J5). Still measured-only: R-J3's restored pavement, R-J4's pavement-off-carriageway, the fly-mode fog fix. ⚠ R-J1's chamfer work is **unobservable** — all three `ENABLE_CHAMFER_*` flags are `false` (**H13**). |
-| **NEXT TASK** | **P4-17** (urban features + bus stops → signage atlas, 2 d) — user-directed 2026-08-27. ⚠ **13 files + 3 new tests are UNCOMMITTED** (see the banner above the ticket table). Also owed: one fly-mode drive for R-J3/R-J4/fog, and tickets **N-1..N-3**. |
+| **Branch** | **`v3`** — work directly on it. Through `9dfd53a`. |
+| **Tile format** | **v10, unchanged.** Recent work changed baked VALUES, not the format, so `peekBinaryVersion` will NOT invalidate the browser cache. ⚠ **Any drive needs `window._clearTileCache()` + a hard reload**, or it renders old tiles. |
+| **Tests** | **395 green.** `npm test` in `frontend/`. ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently — re-run before believing it. |
+| **How the user tests** | **`?mode=fly`, from the air.** Read **H14** before trusting any fly-mode screenshot: fly mode does NOT lift LOD (only **P** does). `window._ddGround()` tells "culled" from "broken"; `window._ddPick(x,y)` names the surface under a pixel. |
+| **Servers** | frontend `npm run dev` on **4040**, backend `npm start` on **4041**. Both must be up or every tile fetch fails with `Failed to fetch`. **The world does not stream until PLAY is clicked** — that cost most of a session's browser debugging once. |
+| **NEXT TASK** | **P4-17** (urban features + bus stops → signage atlas) — ⚠ **BLOCKED ON ART**, request R3 is written up in [asset-requests.md](asset-requests.md). Unblocked alternative: the 133 junction height-steps, below. |
+
+### ▶ SHIPPED SINCE THE LAST HANDOFF (2026-08-28 → 31)
+
+| | |
+|---|---|
+| **N-54 embankments** | ✅ **verified on screen.** 18 of the ~80 "floating roads" are bridge APPROACHES at the CORRECT height with no fill beneath them; the layer model causes **zero** (`floatClassify.mjs`: APPROACH 20, ORPHAN 1, **TAG 0**), so the LOCKED vertical spec needed no amendment. Split rule: something beneath → viaduct (pillars) · clear ground → embankment (skirt), capped at 9 m. Measured 622 sections / 58 runs / 2,456 tris, **obstructed 77** (the viaduct case firing). Fixed a z-fight against the 1.2 m bridge slab band. |
+| **N-55 dead ends** | ✅ **CLOSED — do not reopen.** The triage score counts CORRECT endings as defects: of 1,180 unjoined drivable ends, **30 are tunnel portals** and **249 become pedestrian**. Name-backed actionable set is **8**, refused mostly by rule 9's 53° cone, and loosening it risks the z-fighting N-52 fixed. Use `deadEndCause.mjs`, not the raw triage score. |
+| **N-56** | ❌ **tried and REVERTED.** Stopping an at-grade road from climbing to a bridge's base height took junction steps **133 → 177**. Do not retry that shape — the predicate can only see the shared node. |
+| **N-57** | 🔄 **in flight**, see below. |
+| **Texture budget** | Was measured at **exactly 24 MB of a 24 MB cap**. Roof plates → one KTX2 array (2.83 → 0.44 MB, 6.5:1, VRAM 12 → ~3 MB) and `rock_atlas` archived (**1.23 MB referenced in zero files**, orphaned when the scatter was deleted 08-28). **Now 20 MB.** |
+
+### ▶ THE OPEN NUMBER — 133 JUNCTION HEIGHT-STEPS
+
+`backend/tools/junctionStepAudit.mjs`. Drivable ways sharing an endpoint but disagreeing about its
+height: **133 — and every single one is an exact integer multiple of LAYER_STEP** (124 at 6 m, 8 at
+12 m, 1 at 24 m; nothing at 3 or 7). All 133 involve a bridge, tunnel or trench. That fingerprint
+can only come from a way reading a neighbour's BASE height instead of its PROFILE — which is all
+that exists while `RampResolver` is still computing profiles.
+
+**N-57** is the two-pass answer: pass one keeps every decision it made, and a reconciliation pass
+runs last (after `smoothBridgeTransitions`) bending only the last metres of a profile so both sides
+of a node agree. Guards that matter: tunnels are never moved (floor slabs + commit-blocking
+validator), the far end never moves (`reach < L`), and the anchor is the least-free way present.
+First bake: **133 → 126**, throttled because a 6 m step at `CONSTRUCT_RAMP_GRADE` needs 50 m of road
+and most junction links are shorter. Second bake widens the blend to `MAX_FIX_GRADE = 0.25`.
 
 ### ▶ WHAT TO KNOW BEFORE PICKING ANYTHING UP
 
