@@ -1757,6 +1757,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // subdivides a span `yieldToMain` reports as one chunk and recording both would double-count.
     // So instead the PHASE LABEL moves with the sections: same accounting, same single source, and
     // the unflagged `[perf] initial load ... by build phase` report breaks itself down.
+    //
+    // ⚠ READ A ZERO CAREFULLY. A label only collects time when a YIELD ends a chunk while it is
+    // current, so a section with no yield inside it hands its cost to whichever label is current at
+    // the next yield — `p1 phys:terrain-mesh` is exactly that case and will read ~0 while its work
+    // shows up under `tunnels`. That is a limit of chunk accounting, not a free section. The big
+    // ones (terrain, tunnels, roads+merge, road-physics, greens) each yield and do attribute.
     buildPhase('p1 phys:terrain');   // terrain trimesh/heightfield + colliders come first in p1
 
     // Performance instrumentation — tracks max single-chunk time (the stutter metric)
