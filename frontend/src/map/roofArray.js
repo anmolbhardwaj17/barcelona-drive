@@ -19,6 +19,8 @@
  * tinted layer multiplies a tint that is already there and drives dark roofs to black.
  */
 
+import { getKTX2Texture } from '../loaders.js';   // the SHARED KTX2 loader — never build another
+
 /** Roof surface kinds. Index = layer index. */
 export const ROOF_LAYERS = ['pantile', 'terrat_gravel', 'concrete'];
 
@@ -122,55 +124,73 @@ export function createRoofArray(THREE) {
   // The procedural fill above is now a FIRST FRAME, not the final surface: the authored plates
   // replace it in place as soon as they decode. Painting first means a roof is never black while
   // three PNGs are in flight, which is what a plain async load would give on a cold cache.
-  loadAuthoredRoofPlates(THREE, tex);
+  loadAuthoredRoofArray(THREE);
   return tex;
 }
 
-/** Where the plates live. `tools/build-roof-plates.py` writes them; names match ROOF_LAYERS. */
-const ROOF_PLATE_URL = (name) => `/textures/roof/${name}_albedo.png`;
+/**
+ * ONE layered KTX2, not three PNGs — and the reason is VRAM, not download size.
+ *
+ * As three separate PNGs decoded into a `DataArrayTexture`, the plates sit in VRAM as RGBA8:
+ * 3 x 1024^2 x 4 = **12 MB**. The same three layers as a supercompressed array stay compressed on
+ * the GPU at roughly **3 MB**, and the file itself measured 2.83 MB -> 0.44 MB (6.5:1). VRAM is the
+ * one budget in this project with no headroom to borrow from, and the texture pack was sitting at
+ * exactly 24 MB of a 24 MB cap — these were the only 3 PNGs among 40 KTX2 files.
+ *
+ * ⚠ The array MUST be encoded bottom-up. WebGL ignores UNPACK_FLIP_Y_WEBGL for compressed data, so
+ * `flipY` cannot fix it at load; `tools/build-roof-plates.py` flips before encoding, exactly as
+ * `build-facade-layers.py` does. If roofs ever appear vertically mirrored, that flip is missing.
+ */
+const ROOF_ARRAY_URL = '/textures/roof/roof_plates.ktx2';
 
+/** Every compiled roof program's `uRoofArray` uniform — see patchRoofArrayMaterial. */
+const _roofUniforms = [];
 let _authoredLoaded = false;
 
 /**
- * Swap the authored plates into an existing array texture, in place.
+ * Swap the authored KTX2 array in for the procedural placeholder.
  *
- * ⚠ IN PLACE, and that is the whole trick. `tex.image.data` is the Uint8Array the GPU was uploaded
- * from; writing into it and setting `needsUpdate` re-uploads the same texture object, so every
- * material already holding this array picks the plates up with no rebinding and no second upload
- * path. Creating a new texture instead would leave the roof material pointing at the placeholder.
- *
- * Failure is silent by design: if a plate 404s the roof keeps the procedural fill it already has,
- * which is a working roof rather than a black one. The count is logged once so a missing plate is
- * still visible to anyone looking.
+ * The placeholder is painted first and stays until this lands, so a roof is never black while the
+ * file is in flight — and if the file is missing, the procedural fill IS the fallback rather than a
+ * failure. That failure is REPORTED, not swallowed: a silently-caught load looks exactly like a
+ * working placeholder, which is the state the facade arrays shipped in for a while.
  */
-export async function loadAuthoredRoofPlates(THREE, tex) {
+export async function loadAuthoredRoofArray(THREE) {
   if (_authoredLoaded || typeof document === 'undefined') return;
   _authoredLoaded = true;
-  const px = ROOF_PX;
-  const canvas = typeof OffscreenCanvas !== 'undefined'
-    ? new OffscreenCanvas(px, px)
-    : Object.assign(document.createElement('canvas'), { width: px, height: px });
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  let loaded = 0;
-  for (let i = 0; i < ROOF_LAYERS.length; i++) {
+  // `getKTX2Texture` rejects until `initAssetRegistry(renderer)` has run, and this module is built
+  // lazily on the first tile — which can land before boot hands the renderer over. Retry rather
+  // than give up permanently, which is the bug facadeArray's waitForRenderer exists to prevent.
+  let tex = null;
+  for (let attempt = 0; attempt < 40 && !tex; attempt++) {
     try {
-      const res = await fetch(ROOF_PLATE_URL(ROOF_LAYERS[i]));
-      if (!res.ok) continue;
-      const bmp = await createImageBitmap(await res.blob());
-      ctx.clearRect(0, 0, px, px);
-      ctx.drawImage(bmp, 0, 0, px, px);
-      bmp.close?.();
-      tex.image.data.set(ctx.getImageData(0, 0, px, px).data, i * px * px * 4);
-      loaded++;
-    } catch { /* keep the procedural fill for this layer */ }
+      // No `noVariant`: the LOW tier swaps in `roof_plates.half.ktx2` (512 per layer), which is
+      // the whole point of the variant system. `ktx2Library.test.js` asserts the half exists, and
+      // it caught this — the first version passed `noVariant: true` and would have denied low-end
+      // machines the smaller array for no reason.
+      tex = await getKTX2Texture(ROOF_ARRAY_URL, { srgb: true });
+    } catch (e) {
+      if (!/initAssetRegistry/.test(e?.message || '')) {
+        console.warn('[roofArray] authored array FAILED to load (%s) — procedural fill stands',
+          e?.message || e);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
-  if (loaded > 0) {
-    // needsUpdate re-uploads AND re-generates the mip chain; without it the authored pixels would
-    // sit under the placeholder's mips at distance, which looks like the plates never loaded.
-    tex.needsUpdate = true;
-    console.warn(`[roofArray] authored plates loaded: ${loaded}/${ROOF_LAYERS.length} `
-      + `(${ROOF_PX}px, ${ROOF_REPEAT_M} m span) — replacing the procedural fill`);
+  if (!tex) {
+    console.warn('[roofArray] no asset registry after 20s — procedural fill stands');
+    return;
   }
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;      // each layer wraps independently — the point of an array
+  tex.minFilter = THREE.LinearMipmapLinearFilter;   // the KTX2 carries its own complete mip chain
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  for (const u of _roofUniforms) u.value = tex;
+  const im = tex.image || {};
+  console.warn('[roofArray] authored array loaded: %sx%sx%s layers (%s m span) — replacing the '
+    + 'procedural fill', im.width, im.height, im.depth, ROOF_REPEAT_M);
 }
 
 /**
@@ -182,7 +202,13 @@ export async function loadAuthoredRoofPlates(THREE, tex) {
  */
 export function patchRoofArrayMaterial(material, arrayTex) {
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uRoofArray = { value: arrayTex };
+    // ⚠ RETAINED, because the uniform is created HERE and the authored array arrives LATER.
+    // `shader.uniforms.uRoofArray` holds the texture by value, so reassigning any outer variable
+    // would never reach the GPU — the swap has to write `.value` on this exact object. Every
+    // compiled roof program pushes its own, and the KTX2 load sets them all.
+    const u = { value: arrayTex };
+    shader.uniforms.uRoofArray = u;
+    _roofUniforms.push(u);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
         '#include <common>\nattribute float aLayer;\nvarying float vRoofLayer;\nvarying vec2 vRoofUv;')

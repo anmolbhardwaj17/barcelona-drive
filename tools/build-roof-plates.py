@@ -21,10 +21,19 @@ Usage:  python3 tools/build-roof-plates.py <pantile.png> <terrat_gravel.png> <co
 import json, os, sys
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from encodeKtx2 import encode_array
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import artNormalize as AN
 
 OUT = 'frontend/public/textures/roof'
+# ── SHIPPED vs KEPT ───────────────────────────────────────────────────────────────────────────
+# Only the KTX2 arrays ship. The normalized PNGs are the expensive artefact (they carry the
+# de-light, the Lab rescale and the D-31 near-white correction) so they are KEPT, but out of
+# `public/` — three 1024 PNGs cost 2.83 MB of a 24 MB budget that was measured at exactly 24, and
+# as a DataArrayTexture they also sat in VRAM as RGBA8 at 12 MB against ~3 MB compressed.
+NORM = 'art-src/roof-v1/normalized'
 SIZE = 1024
 SPAN_M = 4.0                 # MUST match ROOF_REPEAT_M in roofArray.js and buildingWorker
 NORMALIZE_VERSION = 1
@@ -67,6 +76,7 @@ def band(name, default):
 
 def main(paths):
     os.makedirs(OUT, exist_ok=True)
+    os.makedirs(NORM, exist_ok=True)
     manifest = {'surfaces': [], 'spanM': SPAN_M, 'note':
                 'Near-neutral by design (D-31): roof colour is vertex colour, these carry detail only.'}
     ok_all = True
@@ -122,14 +132,15 @@ def main(paths):
         nrm, nb, na, n_ok = AN.step4_calibrate_normal(nrm, nband)
         print(f'   |N.xy| {nb:.3f}->{na:.3f} band {nband} {"OK" if n_ok else "OUT-OF-BAND"}')
 
-        Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_albedo.png')
+        # Kept, not shipped — see the NORM note at the top.
+        Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{NORM}/{name}_albedo.png')
         # ⚠ NORMALS ARE COMPUTED AND CHECKED BUT NOT WRITTEN. `roofArray` binds an albedo array only —
         # nothing in the roof material samples a normal map — and the three normal PNGs were 7.6 MB
         # of the project's <=24 MB art budget doing nothing. They are calibrated above so the number
         # is still reported, and a single `--with-normals` re-run produces them the moment the
         # material grows a slot for them.
         if WRITE_NORMALS:
-            Image.fromarray((np.clip(nrm, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{OUT}/{name}_normal.png')
+            Image.fromarray((np.clip(nrm, 0, 1) * 255).astype(np.uint8), 'RGB').save(f'{NORM}/{name}_normal.png')
         manifest['surfaces'].append({'name': name, 'spanM': SPAN_M,
             'texelsPerM': round(SIZE / SPAN_M, 1), 'surfaceClass': sclass,
             'featureMm': round(float(mm), 1), 'featurePlausible': bool(plaus),
@@ -139,6 +150,32 @@ def main(paths):
             'normalBandPass': bool(n_ok)})
         ok_all = ok_all and tile_ok and plaus and n_ok
         grain_report.append((name, mm, plausible, feature))
+
+    # ── ENCODE THE SHIPPED ARRAYS ─────────────────────────────────────────────────────────────
+    # ⚠ FLIP FIRST. KTX2 is bottom-up and WebGL ignores UNPACK_FLIP_Y_WEBGL for compressed data, so
+    # `flipY` cannot correct this at load time — it has to happen here. Symptom if it is skipped:
+    # vertically mirrored roofs, which on a tiling plate is subtle enough to ship unnoticed.
+    # Layer order IS ROOF_LAYERS order in roofArray.js; the list below is the layer mapping.
+    flip_dir = os.path.join(OUT, '.flipped')
+    os.makedirs(flip_dir, exist_ok=True)
+    order = ['pantile', 'terrat_gravel', 'concrete']
+    full, halves = [], []
+    for n in order:
+        im = Image.open(f'{NORM}/{n}_albedo.png').convert('RGB').transpose(Image.FLIP_TOP_BOTTOM)
+        im.save(f'{flip_dir}/{n}.png')
+        full.append(f'{flip_dir}/{n}.png')
+        # The LOW tier requests `<name>.half.ktx2`; ktx2Library.test.js asserts it exists, and
+        # shipping without it 404s on low-end devices.
+        im.resize((im.size[0] // 2, im.size[1] // 2), Image.LANCZOS).save(f'{flip_dir}/{n}.half.png')
+        halves.append(f'{flip_dir}/{n}.half.png')
+    # ETC1S, not UASTC: these are opaque photographic colour, where ETC1S's ~6:1 beats UASTC's ~4:1
+    # and its artefacts hide in the detail. UASTC is for alpha that carries data, and for normals.
+    _, sz_full = encode_array(full, f'{OUT}/roof_plates.ktx2', codec='etc1s')
+    _, sz_half = encode_array(halves, f'{OUT}/roof_plates.half.ktx2', codec='etc1s')
+    print(f'  KTX2 array: roof_plates.ktx2 {sz_full/1048576:.2f} MB, '
+          f'.half {sz_half/1048576:.2f} MB (3 layers each)')
+    manifest['arrays'] = {'albedo': 'roof_plates.ktx2', 'half': 'roof_plates.half.ktx2',
+                          'layers': order, 'codec': 'etc1s', 'flippedForKtx2': True}
 
     with open(f'{OUT}/roof_textures.json', 'w') as f:
         json.dump(manifest, f, indent=2)
@@ -150,7 +187,7 @@ def main(paths):
         want = (pl[0] + pl[1]) / 2
         print(f'   {nm:<14} {feat:<34} {mm:7.1f} mm   ideal span for this plate: '
               f'{SPAN_M * want / mm:5.1f} m')
-    print(f'\nwrote {OUT}/  (3 albedo + 3 normal + manifest)')
+    print(f'\nwrote {OUT}/  (KTX2 arrays + manifest); normalized PNGs kept in {NORM}/')
     if not ok_all:
         print('⚠ a gate FAILED — fix or reject, do not ship (art bible N-5)')
         return 1

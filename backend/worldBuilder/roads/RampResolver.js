@@ -394,6 +394,12 @@ export function resolveRamps(graph) {
   // This creates a smooth transition where the bridges meet.
   smoothBridgeTransitions(wayMap, nodeToWays, result);
 
+  // ── N-57 · PASS TWO ─────────────────────────────────────────────────────────────────────────
+  // Everything above decided from BASE heights because profiles did not exist yet. They exist now,
+  // so reconcile the nodes where two ways ended up disagreeing. Runs last, on purpose: it must see
+  // the final profile, including whatever smoothBridgeTransitions just changed.
+  reconcileSharedNodes(wayMap, nodeToWays, result);
+
   // Expose the Case-C flattened list for the P-R1 defect census. `brokenRamp` — and therefore the
   // deletion of 332 road segments — is derived from exactly these entries, so the census has to be
   // able to state their GRADE. Attached to the Map rather than changing the return shape, which
@@ -411,6 +417,148 @@ export function resolveRamps(graph) {
  *   - Upper bridge: first TRANSITION_POINTS ramp from N*STEP toward M*STEP
  * The transition blends so they meet at the shared node.
  */
+/**
+ * N-57 · PASS TWO: MAKE THE ENDS MEET.
+ *
+ * ── WHAT THIS FIXES, AND WHY PASS ONE CANNOT ──────────────────────────────────────────────────
+ * Every ramp decision above is taken from NEIGHBOURS' BASE HEIGHTS, because that is all that exists
+ * while profiles are still being computed. A base height is `layer × LAYER_STEP`; a profile is what
+ * the way actually does. Where those differ — a bridge that is landing, a ramp that is climbing —
+ * two ways sharing a node each aim at the other's base, and the node ends up with two heights.
+ *
+ * The fingerprint is unambiguous and it is what makes this worth a second pass rather than another
+ * guard: of the drivable junction steps left after N-45/47, **every single one is an exact integer
+ * multiple of LAYER_STEP** — 124 at 6 m, 8 at 12 m, 1 at 24 m, and nothing at 3 or 7
+ * (`backend/tools/junctionStepAudit.mjs`). A profile error does not land on multiples of a
+ * constant. Reading a base height instead of a profile does exactly that.
+ *
+ * ── WHY THIS IS RECONCILIATION AND NOT A RE-DECISION (N-56 FAILED THAT WAY) ────────────────────
+ * The previous attempt changed WHICH neighbour a way aims at — an at-grade road was stopped from
+ * climbing to a bridge's base height. Measured over a full bake, steps went **133 → 177** and ramps
+ * 52 → 42: the test could only see the shared node, so it could not tell a bridge that is LANDING
+ * there from a long bridge genuinely elevated there, and refusing the climb onto the second kind
+ * created more steps than it removed.
+ *
+ * So this pass changes no decision at all. Pass one keeps every ramp classification it made; this
+ * only moves the last few metres of a profile so the two sides arrive at the same number. It runs
+ * after everything, exactly like `smoothBridgeTransitions`, which is the same idea for the special
+ * case of bridge-meets-bridge.
+ *
+ * ── THE THREE RULES THAT KEEP IT FROM CAUSING WHAT IT CURES ────────────────────────────────────
+ * 1. A TUNNEL IS NEVER MOVED. Tunnel roads have floor slabs baked under them and the
+ *    drivable-surface-implies-floor validator is commit-blocking; lifting a tunnel off its floor
+ *    would trade a visible step for an aborted bake.
+ * 2. THE FAR END NEVER MOVES. The blend decays to zero over `reach` metres, and a way is skipped
+ *    unless `reach < L`. Without that, fixing one node drags the other end and simply relocates the
+ *    step — which is precisely how N-56 turned 133 into 177.
+ * 3. THE ANCHOR IS THE MOST CONSTRAINED WAY PRESENT: a tunnel first, then a way pass one left FLAT
+ *    (it has no profile to bend), and only then a ramp. Everything else moves to meet it.
+ */
+function reconcileSharedNodes(wayMap, nodeToWays, result) {
+  const TOL = 0.5;                 // heights within this already agree
+  // ── WHY THE CORRECTION MAY BE STEEPER THAN CONSTRUCT_RAMP_GRADE ──────────────────────────────
+  // The first version blended at CONSTRUCT_RAMP_GRADE (0.12), which needs 50 m of road to absorb a
+  // 6 m step. Most ways meeting at a junction are link roads far shorter than that, so the
+  // "too short to blend" guard swallowed nearly everything and only 7 of 133 steps were fixed.
+  //
+  // That grade is the right answer for BUILDING a ramp and the wrong question here. This is not
+  // constructing an approach, it is closing a joint that is already wrong, and the honest
+  // comparison is against the alternative — which is a VERTICAL 6 m step at the node. A 6 m
+  // correction over 30 m is a 20% grade: steep, drivable, and unambiguously better than a cliff.
+  // Past MAX_FIX_GRADE it stops being a slope and the step is left alone and counted.
+  const MAX_FIX_GRADE = 0.25;
+  const REACH_FRACTION = 0.9;      // never consume the whole way — the far end must stay put
+  const st = { nodesSeen: 0, disagreeing: 0, waysMoved: 0, nodesFixed: 0,
+               skipTunnel: 0, skipTooShort: 0, skipNoGeom: 0, worstBefore: 0, worstLeft: 0,
+               steepestFix: 0 };
+
+  const heightAt = (wayId, idx) => {
+    const r = result.get(wayId);
+    if (!r) return null;
+    return r.vertexHeights ? r.vertexHeights[idx] : r.baseHeight;
+  };
+
+  for (const [nodeId, wayIds] of nodeToWays) {
+    if (!wayIds || wayIds.length < 2) continue;
+    st.nodesSeen++;
+
+    // Only ways that END here. A way passing THROUGH a node is not making a joint decision about
+    // it — it is mid-profile, and bending it here would put a kink in the middle of a road.
+    const at = [];
+    for (const wid of wayIds) {
+      const w = wayMap.get(wid);
+      if (!w) continue;
+      const ids = w.nodeIds || [];
+      const n = ids.length;
+      if (n < 2) continue;
+      const idx = ids[0] === nodeId ? 0 : (ids[n - 1] === nodeId ? n - 1 : -1);
+      if (idx < 0) continue;
+      const h = heightAt(wid, idx);
+      if (h == null || !Number.isFinite(h)) continue;
+      at.push({ wid, w, idx, n, h });
+    }
+    if (at.length < 2) continue;
+
+    const spread = Math.max(...at.map(a => a.h)) - Math.min(...at.map(a => a.h));
+    if (spread <= TOL) continue;
+    st.disagreeing++;
+    if (spread > st.worstBefore) st.worstBefore = spread;
+
+    // Rule 3 — the anchor is whichever way has the least freedom to move.
+    const anchor = at.find(a => a.w.tunnel)
+      || at.find(a => !result.get(a.wid)?.vertexHeights)
+      || at[0];
+
+    let movedHere = 0;
+    for (const a of at) {
+      if (a === anchor) continue;
+      const delta = anchor.h - a.h;
+      if (Math.abs(delta) <= TOL) continue;
+      if (a.w.tunnel) { st.skipTunnel++; continue; }          // rule 1
+
+      const pts = a.w.points || [];
+      if (pts.length !== a.n || a.n < 2) { st.skipNoGeom++; continue; }
+      const dist = cumulativeGroundDist(pts);
+      const L = dist[a.n - 1];
+      // How much road this correction needs at the construction grade — the same question N-41
+      // asks of a climb, asked here of a much smaller one.
+      // Prefer the construction grade; shorten the blend only as far as the way allows, and give
+      // up only when even that would be a cliff.
+      const ideal = Math.abs(delta) / CONSTRUCT_RAMP_GRADE;
+      const reach = Math.min(ideal, L * REACH_FRACTION);
+      if (!(L > 0) || !(reach > 0)) { st.skipNoGeom++; continue; }
+      const grade = Math.abs(delta) / reach;
+      if (grade > MAX_FIX_GRADE) { st.skipTooShort++; continue; }    // rule 2
+      if (grade > st.steepestFix) st.steepestFix = grade;
+
+      const r = result.get(a.wid);
+      const vh = r.vertexHeights
+        ? r.vertexHeights.slice()
+        : new Array(a.n).fill(r.baseHeight);
+      for (let i = 0; i < a.n; i++) {
+        const dFromNode = a.idx === 0 ? dist[i] : (L - dist[i]);
+        const t = Math.max(0, Math.min(1, 1 - dFromNode / reach));
+        const s = t * t * (3 - 2 * t);      // smoothstep — no kink where the correction starts
+        vh[i] += delta * s;
+      }
+      result.set(a.wid, { ...r, isRamp: true, vertexHeights: vh, baseHeight: undefined });
+      st.waysMoved++;
+      movedHere++;
+    }
+    if (movedHere > 0) st.nodesFixed++;
+    else if (spread > st.worstLeft) st.worstLeft = spread;
+  }
+
+  // D-23 proof of work. A reconciler that fixes nothing and one that is never reached print the
+  // same silence, and this file has already cost one full bake to that ambiguity.
+  console.log(`  [N-57] shared-node reconcile: ${st.disagreeing} nodes disagreed of ${st.nodesSeen} `
+    + `— fixed ${st.nodesFixed}, ways moved ${st.waysMoved} | skipped: tunnel ${st.skipTunnel}, `
+    + `too short to blend ${st.skipTooShort}, no geometry ${st.skipNoGeom} `
+    + `| worst step before ${st.worstBefore.toFixed(1)} m, worst left unfixed ${st.worstLeft.toFixed(1)} m, `
+    + `steepest correction ${(st.steepestFix * 100).toFixed(0)}%`);
+  return st;
+}
+
 function smoothBridgeTransitions(wayMap, nodeToWays, result) {
   // How many points at each end of a bridge to use for the transition ramp
   const TRANSITION_POINTS = 4;

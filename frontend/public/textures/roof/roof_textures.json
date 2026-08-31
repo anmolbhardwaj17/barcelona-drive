@@ -50,5 +50,16 @@
     }
   ],
   "spanM": 4.0,
-  "note": "Near-neutral by design (D-31): roof colour is vertex colour, these carry detail only."
+  "note": "Near-neutral by design (D-31): roof colour is vertex colour, these carry detail only. | Shipped as ONE 3-layer KTX2 array (ETC1S, flipped for KTX2 bottom-up origin). The normalized PNGs are kept in art-src/roof-v1/normalized/, not shipped: they cost 2.83 MB of a 24 MB budget and 12 MB of VRAM as RGBA8 against ~3 MB compressed.",
+  "arrays": {
+    "albedo": "roof_plates.ktx2",
+    "half": "roof_plates.half.ktx2",
+    "layers": [
+      "pantile",
+      "terrat_gravel",
+      "concrete"
+    ],
+    "codec": "etc1s",
+    "flippedForKtx2": true
+  }
 }
