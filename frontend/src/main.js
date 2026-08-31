@@ -1608,7 +1608,18 @@ function animate(time = 0) {
     // Skip the chase camera while the taxi mode is playing a pickup/drop-off cinematic (it drives the
     // camera itself, in taxiMode.update below) or while the title cinematic owns the camera. The freeze
     // flag additionally skips the physics step (car pinned; carCam still glides post-PLAY).
-    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp, _carHold);
+    // ── REAL PAUSE (U-1) ────────────────────────────────────────────────────────────────────
+    // The ESC menu blocked INPUT and nothing else, so opening it mid-drive left the car rolling,
+    // traffic driving and the clock running — you could come back to a crashed car after reading
+    // the settings. `carDriver.update`'s second argument already skips the physics step (the title
+    // cinematic uses it to pin the car), so a genuine pause is that flag plus the systems that
+    // update on their own.
+    //
+    // Rendering deliberately CONTINUES: the menu draws a live car showcase, and the frame loop also
+    // owns the adaptive-resolution probe and the shader-variant watch. Freezing the loop to freeze
+    // the simulation would stop those too.
+    const _paused = !!escMenu?.isOpen?.();
+    carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp || _paused, _carHold);
 
     // Live title: descend FROM the cloud deck into the city (clouds part in sync), then settle into a
     // slow orbit under the logo/PLAY. Picking a mode releases the camera — carCam's lerp glides it down
@@ -1681,11 +1692,13 @@ function animate(time = 0) {
 
     // AI traffic + parked cars + pedestrians — player position is in the physics frame (lp.lx, lp.lz).
     if (contactShadows) contactShadows.begin();
-    if (trafficSystem) trafficSystem.update(lp.lx, lp.lz, frameDt, speedKmh);
+    // Paused: traffic and pedestrians hold position. They step on their own clock, so freezing the
+    // car alone would leave the city moving around a stopped player.
+    if (trafficSystem && !_paused) trafficSystem.update(lp.lx, lp.lz, frameDt, speedKmh);
     cpuTimer.lap('traffic');
     if (parkedCars) { parkedCars.update(lp.lx, lp.lz); parkedCars.drawShadows(contactShadows); }
     cpuTimer.lap('parked');
-    if (pedestrians) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
+    if (pedestrians && !_paused) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
     cpuTimer.lap('peds');
     if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
