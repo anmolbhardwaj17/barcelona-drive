@@ -1,0 +1,34 @@
+{
+  "surfaces": [
+    {
+      "name": "compound_render",
+      "spanM": 3.0,
+      "texelsPerM": 341.3,
+      "use": "compound/boundary wall (barrierRenderer compound_wall)",
+      "wrapV": "clamp",
+      "normalize": {
+        "version": 1,
+        "sourceType": "ai",
+        "surfaceClass": "facade",
+        "snapAlpha": 0.6,
+        "normalSource": "height-derived",
+        "tileRatioBefore": 35.09,
+        "tileRatio": 0.002,
+        "tileVerifyPass": true,
+        "tileRepair": "aligned (roll 977,392)",
+        "grainMm": 35.16,
+        "grainBandApplies": false,
+        "mottleMm": 35.2,
+        "mottlePlausible": true,
+        "normalShipped": false,
+        "LStar": 74.0,
+        "CStar": 12.2,
+        "nearestAnchor": "P2_ochre_sand",
+        "deltaE2000": 4.97,
+        "gate4Pass": true,
+        "normalMeanXY": 0.25,
+        "normalBandPass": true
+      }
+    }
+  ]
+}

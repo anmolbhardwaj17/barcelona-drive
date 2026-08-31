@@ -23,6 +23,7 @@ const AUDITS = [
   { tool: 'floatClassify.mjs', label: 'floating surface roads, unjustified',
     re: /unjustified floaters: (\d+)/,
     extra: [['APPROACH — missing embankment, height correct', /APPROACH\s+(\d+)/],
+            ['JOINED — meets a way at its own height (fine)', /JOINED\s+(\d+)/],
             ['ORPHAN — climbs to nothing', /ORPHAN\s+(\d+)/],
             ['TAG — hoisted by the layer model', /TAG\s+(\d+)/]] },
   { tool: 'deadEndCause.mjs', label: 'unjoined drivable ends',

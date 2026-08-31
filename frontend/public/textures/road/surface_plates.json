@@ -1,0 +1,64 @@
+{
+  "surfaces": [
+    {
+      "name": "slab_soffit",
+      "spanM": 4.0,
+      "texelsPerM": 256.0,
+      "use": "bridge/viaduct deck underside (getSlabMaterial)",
+      "wrapV": "repeat",
+      "normalize": {
+        "version": 1,
+        "sourceType": "ai",
+        "surfaceClass": "sidewalk",
+        "snapAlpha": 0.6,
+        "normalSource": "height-derived",
+        "tileRatioBefore": 23.399,
+        "tileRatio": 0.003,
+        "tileVerifyPass": true,
+        "tileRepair": "aligned (roll 447,520)",
+        "grainMm": 54.69,
+        "grainBandApplies": false,
+        "mottleMm": 54.7,
+        "mottlePlausible": true,
+        "normalShipped": false,
+        "LStar": 62.0,
+        "CStar": 5.2,
+        "nearestAnchor": "P6_panot_grey",
+        "deltaE2000": 8.03,
+        "gate4Pass": true,
+        "normalMeanXY": 0.25,
+        "normalBandPass": true
+      }
+    },
+    {
+      "name": "sign_back",
+      "spanM": 0.8,
+      "texelsPerM": 1280.0,
+      "use": "traffic-sign reverse face (roadInfraRenderer sharedSignBackMat)",
+      "wrapV": "repeat",
+      "normalize": {
+        "version": 1,
+        "sourceType": "ai",
+        "surfaceClass": "metal",
+        "snapAlpha": 0.35,
+        "normalSource": "height-derived",
+        "tileRatioBefore": 2.893,
+        "tileRatio": 0.005,
+        "tileVerifyPass": true,
+        "tileRepair": "aligned (roll 435,584)",
+        "grainMm": 14.06,
+        "grainBandApplies": false,
+        "mottleMm": 14.1,
+        "mottlePlausible": true,
+        "normalShipped": false,
+        "LStar": 58.0,
+        "CStar": 2.0,
+        "nearestAnchor": "P7_bordillo_granite",
+        "deltaE2000": 6.41,
+        "gate4Pass": true,
+        "normalMeanXY": 0.225,
+        "normalBandPass": true
+      }
+    }
+  ]
+}

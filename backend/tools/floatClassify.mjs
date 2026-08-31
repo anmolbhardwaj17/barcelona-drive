@@ -45,7 +45,7 @@ for(const w of ways.values())for(let i=0;i<w.pts.length-1;i++){const k=`${Math.f
  if(!g.has(k))g.set(k,[]);g.get(k).push({w,i});}
 const near=(x,z)=>{const o=[];for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){const l=g.get(`${Math.floor(x/C)+a}|${Math.floor(z/C)+b}`);if(l)o.push(...l);}return o;};
 
-const cls={APPROACH:[],ORPHAN:[],TAG:[]};
+const cls={APPROACH:[],JOINED:[],ORPHAN:[],TAG:[]};
 for(const w of ways.values()){
  if(w.br||w.tun||w.cross||(w.layer??0)<0) continue;
  if(!DRIVABLE.has(w.type)) continue;
@@ -78,13 +78,24 @@ for(const w of ways.values()){
  const row={id:w.id,h:+hi.toFixed(1),type:w.type,ramp:w.ramp,layer:w.layer,
   name:w.name||'(unnamed)',at:`${at.lat.toFixed(5)},${at.lon.toFixed(5)}`,
   meets:struct?`${struct.br?'bridge':struct.tun?'tunnel':'trench'} ${struct.name||struct.type}`:(sameH?`road ${sameH.name||sameH.type}`:'NOTHING')};
+ // ── MEETING A ROAD AT YOUR OWN HEIGHT IS BEING JOINED (N-63) ─────────────────────────────────
+ // This used to demand the neighbour carry a bridge/tunnel/trench TAG, and call everything else an
+ // ORPHAN. That is a question about OSM tagging, not about whether the road is supported — and it
+ // produced three false orphans that cost three wrong hypotheses and two wasted bakes to chase:
+ //   `Carrer de Pujades` ramps 0.00 -> 6.00 and its end meets `Carrer de Pujades [BRIDGE]` at
+ //   EXACTLY y=20.89, 0.0 m away — a textbook approach, reported as an orphan.
+ //   `Baixada de Gomis` meets `Viaducte de Vallcarca` at exactly y=143.51, 0.0 m away. A viaduct,
+ //   untagged in OSM, so the tag test could never see it.
+ // A road whose floating end coincides with another way AT ITS OWN HEIGHT is held up by that way,
+ // tag or no tag. Only an end that meets NOTHING is climbing to nowhere.
  if(struct) cls.APPROACH.push(row);
+ else if(sameH) cls.JOINED.push(row);
  else if(!w.ramp&&w.layer>0) cls.TAG.push(row);
  else cls.ORPHAN.push(row);
 }
-const tot=cls.APPROACH.length+cls.ORPHAN.length+cls.TAG.length;
+const tot=cls.APPROACH.length+cls.JOINED.length+cls.ORPHAN.length+cls.TAG.length;
 console.log(`unjustified floaters: ${tot}\n`);
-for(const k of ['APPROACH','ORPHAN','TAG']){
+for(const k of ['APPROACH','JOINED','ORPHAN','TAG']){
  const L=cls[k]; console.log(`${k}  ${L.length}`);
  for(const r of L.sort((a,b)=>b.h-a.h).slice(0,10))
   console.log(`   ${String(r.h).padStart(5)} m  L${r.layer} ${r.ramp?'ramp':'    '} ${r.type.padEnd(12)} ${r.name.slice(0,20).padEnd(21)} meets ${String(r.meets).padEnd(26)} ?mode=fly&spawn=${r.at}`);
