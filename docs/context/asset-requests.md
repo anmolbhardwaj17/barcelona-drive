@@ -227,42 +227,48 @@ fixable in the loader; those two are not.
 
 ---
 
-## R6 · Game-mode card art — five images, replacing files that already exist
+## R6 · Game-mode card art — five wide banners, full-bleed behind the text
 
-**User, 2026-09-01:** wants new mode art matching the ETS2-style menu. The hub (`ui/mainMenu.js`)
-and the title screen both read the SAME five files, so one set covers both.
+**User, 2026-09-01.** The hub (`ui/mainMenu.js`) draws each mode as a FULL-BLEED card: the art fills
+the card and the name + blurb sit on top of it, bottom-left, under a scrim. That changes the
+composition brief — the old set was made for a small thumbnail beside text.
 
 - **Goes to:** `frontend/public/modes/mode-{free,dash,taxi,delivery,police}.webp` — **keep these exact
-  names**; both screens reference them and there is no code change needed to swap them.
-- **Size:** 1024 × 576 (16:9). Both consumers use `background-size: cover`, so the centre survives
-  every crop — the hub thumbnail is a narrow 78 px column and the title card is much wider.
-- **Budget:** these are UI art, not world texture — they do NOT count against the 24 MB texture cap.
-  ~60-80 KB each as WebP, which is what the current set weighs.
-- **Fallback if one is missing:** the row keeps its CSS gradient + emoji glyph. Deliberate — a
-  missing card is legible, not broken.
+  names.** The hub reads them and the title screen preloads them; swapping the files needs no code.
+- **Size:** **1200 × 420** (≈2.9:1). The card renders about 300 × 104 and uses `background-size:
+  cover`, so the centre band always survives; the far left and right edges may not.
+- **⚠ COMPOSITION IS LOAD-BEARING.** The name and blurb sit **bottom-left**, in white, over a
+  bottom-weighted dark gradient. So: **subject in the upper-right two thirds; keep the lower-left
+  third quiet** — sky, road, haze, anything without detail. A busy lower-left survives the scrim but
+  fights the type.
+- **Budget:** UI art, NOT the 24 MB texture cap. ~60-90 KB each as WebP.
+- **Missing file:** the card falls back to its per-mode CSS gradient and still reads. Do them one at
+  a time if you like.
 
 > **Shared style block — append to every one of the five:**
-> Cinematic key art for a stylised Barcelona driving game. 16:9. Dusk golden hour, warm amber street
-> light against deep blue-teal shadows. Slightly stylised realism: clean geometric architecture,
-> smooth surfaces, no photographic grain. Low camera near road level, strong depth. Muted
-> teal-and-amber grade. No text, no logos, no UI, no watermark, no faces near camera.
+> Cinematic wide banner key art for a stylised Barcelona driving game, 1200x420, extreme wide
+> letterbox composition. Dusk, just after sunset: warm amber street light and headlights against
+> deep blue-teal shadow. Stylised realism — clean geometric architecture, smooth surfaces, soft
+> volumetric haze, no photographic grain. Low camera near road level. Main subject placed in the
+> UPPER RIGHT of the frame; keep the LOWER LEFT third calm and uncluttered for a text overlay.
+> No text, no logos, no UI, no watermark, no faces, no borders.
 
 **mode-free** — Free Roam
-> An empty Barcelona avenue at dusk seen from low behind a silver coupe cruising away from camera,
-> the Eixample's chamfered corners receding into haze, palm trees and lit shopfronts on both sides.
+> A silver coupe cruising away from camera down an empty Barcelona avenue, the Eixample's chamfered
+> corners and lit shopfronts receding into evening haze, palm trees along both kerbs.
 
 **mode-dash** — Checkpoint Dash
-> A silver coupe hard on the throttle through a wide Barcelona junction at dusk, motion blur on the
-> road surface, a glowing amber checkpoint arch of light ahead of it.
+> A silver coupe hard on the throttle through a wide Barcelona junction, the road surface streaked
+> with motion blur, a tall glowing amber checkpoint arch of light standing ahead and to the right.
 
 **mode-taxi** — City Cab
-> A black-and-yellow Barcelona taxi waiting at a lit kerb on a narrow Gothic Quarter street at dusk,
-> warm light spilling from a doorway, roof sign glowing.
+> A black-and-yellow Barcelona taxi waiting at a lit kerb on a narrow Gothic Quarter street, its
+> roof sign glowing, warm light spilling from a doorway onto wet stone paving.
 
 **mode-delivery** — Rush Hour
-> A small white panel van cornering through dense dusk traffic on a Barcelona avenue, brake lights
-> streaking, cardboard parcels visible through the rear glass.
+> A small white panel van cornering hard through dense evening traffic on a Barcelona avenue, red
+> brake lights streaking across the frame, cardboard parcels visible through its rear glass.
 
 **mode-police** — Heat
-> A silver coupe seen in a rear-view perspective fleeing down a Barcelona seafront road at dusk,
-> blue and red police lights flaring in the haze behind it, palm trees whipping past.
+> A silver coupe fleeing along the Barcelona seafront, seen from behind and slightly above, with
+> blue and red police lights flaring through the haze close behind it and palm trees whipping past.
