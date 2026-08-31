@@ -75,6 +75,7 @@ import { createPerfLogger } from './ui/perfLogger.js';
 import { createEscMenu } from './ui/escMenu.js';
 import { initTouchControls } from './ui/touchControls.js';
 import { worldToLatLon, latLonToWorld, latLonToTile, tileToBBox, TILE_ZOOM } from './projection.js';
+import { createMainMenu } from './ui/mainMenu.js';
 import { getActiveSpawn, START_LAT, START_LON } from './spawnConfig.js';
 import { loadTile, clearTileCache } from './map/mapLoader.js';
 import { getElevationFromGrid } from './map/terrainRenderer.js';
@@ -854,6 +855,7 @@ let customMap;
 let compassBar;
 let performancePanel;
 let escMenu = null;
+let mainMenu = null;   // the hub (modes / car / city) — see ui/mainMenu.js
 
 function tileKey(tx, ty) {
   return `${tx}_${ty}`;
@@ -1191,8 +1193,20 @@ spawnTileReady.finally(() => {
       colorPanelElement: document.getElementById('dd-car-color-panel'),
       metricsElements: [metricsPanel?.element, performancePanel?.element],
       carMode: ENABLE_CAR,   // resolved mode (URL ?mode outranks dd_flyMode) — for an honest Fly-mode toggle
-      gameModes: carDriver ? [dashMode, taxiMode, deliveryMode, policeMode] : [],   // in-game mode switcher (empty in fly mode)
+      // ⚠ NO `gameModes` any more. Modes moved to the hub (mainMenu.js): they were offered in two
+      // places, and a settings menu is not where you choose what to play. ESC is settings only.
+      onMainMenu: () => mainMenu?.open?.(),
     });
+    // The hub — modes left, car centre, city right. Opened once the world is drivable, and from
+    // the settings menu's MAIN MENU button.
+    if (carDriver) {
+      mainMenu = createMainMenu({
+        gameModes: [dashMode, taxiMode, deliveryMode, policeMode],
+        customMap,
+        colorPanelElement: document.getElementById('dd-car-color-panel'),
+        onOpenSettings: () => escMenu?.open?.(),
+      });
+    }
     // Debug overlays are DEV-ONLY: never wire the ?debug= query params or the K-key toggle in a production
     // build (no debug entry points / info exposure in the shipped game).
     if (import.meta.env.DEV) {
@@ -1606,13 +1620,24 @@ function animate(time = 0) {
     if (window._ddModeLoadDone && !_titleUp && !_carHold && tileManager?.isInitialLoadComplete?.()) {
       try { window._ddModeLoadDone(); } catch {}
       window._ddModeLoadDone = null;
-      try {
-        const _chosen = sessionStorage.getItem('dd_mode');
-        if (_chosen === 'dash') dashMode?.start?.();
-        else if (_chosen === 'taxi') taxiMode?.start?.();
-        else if (_chosen === 'delivery') deliveryMode?.start?.();
-        else if (_chosen === 'police') policeMode?.start?.();
-      } catch {}
+      // ── LAND IN THE HUB, DO NOT AUTO-START ──────────────────────────────────────────────
+      // The title screen used to make you commit to a mode BEFORE this load, so you picked blind
+      // and then watched a bar — and what this bar loads (the spawn area) does not depend on the
+      // mode at all. Now the world builds first and the hub opens over it, with the city already
+      // behind the overlay. A ?spawn reload skips it: that is a place change from a menu the
+      // player was already in, not a fresh entry, so re-asking would be a loop.
+      const _reentry = new URLSearchParams(location.search).has('spawn');
+      if (mainMenu && !_reentry) {
+        mainMenu.open();
+      } else {
+        try {
+          const _chosen = sessionStorage.getItem('dd_mode');
+          if (_chosen === 'dash') dashMode?.start?.();
+          else if (_chosen === 'taxi') taxiMode?.start?.();
+          else if (_chosen === 'delivery') deliveryMode?.start?.();
+          else if (_chosen === 'police') policeMode?.start?.();
+        } catch {}
+      }
     }
     // Skip the chase camera while the taxi mode is playing a pickup/drop-off cinematic (it drives the
     // camera itself, in taxiMode.update below) or while the title cinematic owns the camera. The freeze

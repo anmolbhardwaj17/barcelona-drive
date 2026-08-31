@@ -64,6 +64,7 @@ const CSS = `
 .dd-esc-top { display:flex; align-items:center; justify-content:space-between; padding:18px 0 14px;
   border-bottom:1px solid var(--e-line); box-shadow:0 1px 0 rgba(230,163,60,0.28); }
 .dd-esc-logoimg { height:74px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
+.dd-esc-topactions { display:flex; align-items:center; gap:10px; }
 
 /* car paint swatches — squared off with the rest */
 #dd-car-color-panel { gap:10px !important; align-items:center !important; }
@@ -237,7 +238,17 @@ export function createEscMenu(refs = {}) {
   const top = el('div', 'dd-esc-top');
   const logo = el('img', 'dd-esc-logoimg'); logo.src = LOGO_URL; logo.alt = 'Barcelona Drive';
   top.appendChild(logo);
-  const xBtn = el('div', 'dd-esc-x', '✕'); xBtn.addEventListener('click', () => setOpen(false)); top.appendChild(xBtn);
+  // Right-hand cluster: back to the hub, then close. The hub is where modes and the city live now,
+  // so settings needs a door to it or the only way back is a reload.
+  const topActions = el('div', 'dd-esc-topactions');
+  if (refs.onMainMenu) {
+    const hubBtn = el('div', 'dd-esc-back', 'Main Menu');
+    hubBtn.addEventListener('click', () => { uiSound.click(); setOpen(false); refs.onMainMenu(); });
+    topActions.appendChild(hubBtn);
+  }
+  const xBtn = el('div', 'dd-esc-x', '✕'); xBtn.addEventListener('click', () => setOpen(false));
+  topActions.appendChild(xBtn);
+  top.appendChild(topActions);
   wrap.appendChild(top);
 
   const bodyEl = el('div', 'dd-esc-body'); wrap.appendChild(bodyEl);
