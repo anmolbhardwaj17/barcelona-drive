@@ -21,7 +21,7 @@ import { uiSound } from './uiSound.js';
 import { setInputBlocked } from '../inputGate.js';
 import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
-import { latLonToWorld } from '../projection.js';
+import { latLonToWorld, worldToLatLon } from '../projection.js';
 
 /** The city, for framing the map panel. Matches the ESC menu's spawn bounds. */
 const CITY = { minLat: 41.3580, minLon: 2.1198, maxLat: 41.4130, maxLon: 2.2230 };
@@ -117,21 +117,35 @@ const CSS = `
 
 /* ── LEFT: game modes ── */
 .dd-mm-modelist { flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px; }
-.dd-mm-mode { position:relative; display:flex; align-items:stretch; gap:0; cursor:pointer; user-select:none;
-  border:1px solid var(--e-line); background:linear-gradient(180deg,#1d242d,#171d25);
-  transition:background .14s, border-color .14s; flex:0 0 auto; }
-.dd-mm-mode::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--e-accent);
-  transform:scaleY(0); transition:transform .14s; }
-.dd-mm-mode:hover { background:linear-gradient(180deg,#242d38,#1b222b); border-color:var(--e-line-hi); }
-.dd-mm-mode:hover::before { transform:scaleY(1); }
-.dd-mm-mode.sel { border-color:var(--e-accent-d); background:linear-gradient(180deg,#2b2418,#1d1810); }
-.dd-mm-mode.sel::before { transform:scaleY(1); }
-.dd-mm-art { flex:0 0 78px; align-self:stretch; min-height:62px; background-size:cover; background-position:center;
-  border-right:1px solid var(--e-line); display:flex; align-items:center; justify-content:center; font-size:22px; }
-.dd-mm-mtext { flex:1; min-width:0; padding:11px 13px; display:flex; flex-direction:column; justify-content:center; gap:4px; }
-.dd-mm-mname { font-size:12px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--e-text); }
+/* ── FULL-BLEED CARDS ─────────────────────────────────────────────────────────────────────────
+   Was a 78 px thumbnail with text beside it, which is a list row wearing a picture. These are the
+   five things you can DO in the game, so each is a card: the art fills it and the text sits on top.
+   The scrim is not decoration — white type over an arbitrary photograph is unreadable, so a
+   bottom-weighted gradient guarantees contrast whatever art lands in the slot. */
+.dd-mm-mode { position:relative; cursor:pointer; user-select:none; flex:0 0 auto;
+  min-height:104px; display:flex; align-items:flex-end; overflow:hidden;
+  border:1px solid var(--e-line); background-size:cover; background-position:center;
+  transition:border-color .14s, transform .14s; }
+.dd-mm-mode::after { content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(180deg, rgba(8,11,15,0.10) 0%, rgba(8,11,15,0.55) 52%, rgba(8,11,15,0.90) 100%);
+  transition:background .16s; }
+.dd-mm-mode::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; z-index:2;
+  background:var(--e-accent); transform:scaleX(0); transform-origin:left; transition:transform .14s; }
+.dd-mm-mode:hover { border-color:var(--e-line-hi); }
+.dd-mm-mode:hover::after { background:linear-gradient(180deg, rgba(8,11,15,0.02) 0%, rgba(8,11,15,0.44) 52%, rgba(8,11,15,0.86) 100%); }
+.dd-mm-mode:hover::before { transform:scaleX(1); }
+.dd-mm-mode.sel { border-color:var(--e-accent); }
+.dd-mm-mode.sel::before { transform:scaleX(1); }
+.dd-mm-mode.sel::after { background:linear-gradient(180deg, rgba(40,26,6,0.10) 0%, rgba(20,14,4,0.52) 52%, rgba(12,9,4,0.90) 100%); }
+.dd-mm-mtext { position:relative; z-index:1; width:100%; min-width:0; padding:11px 14px 12px;
+  display:flex; flex-direction:column; gap:3px; }
+.dd-mm-mname { font-size:13px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#fff;
+  text-shadow:0 1px 4px rgba(0,0,0,0.85); }
 .dd-mm-mode.sel .dd-mm-mname { color:var(--e-accent); }
-.dd-mm-mblurb { font-size:11px; letter-spacing:0.04em; color:var(--e-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dd-mm-mblurb { font-size:11px; letter-spacing:0.04em; color:rgba(255,255,255,0.78);
+  text-shadow:0 1px 3px rgba(0,0,0,0.85); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The emoji is the fallback badge — it only reads while there is no art under it. */
+.dd-mm-glyph { position:absolute; top:9px; right:11px; z-index:1; font-size:17px; opacity:.55; }
 
 /* ── CENTRE: the car ── */
 .dd-mm-stage { flex:1 1 auto; position:relative; min-height:0; overflow:hidden;
@@ -156,7 +170,16 @@ const CSS = `
 /* ── RIGHT: the city map ── */
 .dd-mm-mapwrap { flex:0 0 auto; position:relative; background:#10151b; border:1px solid var(--e-line); }
 .dd-mm-mapwrap canvas { display:block; width:100%; height:auto; }
-.dd-mm-places { flex:1 1 auto; overflow-y:auto; margin-top:10px; display:flex; flex-direction:column; gap:5px; padding-right:4px; }
+.dd-mm-search { flex:0 0 auto; margin-top:10px; width:100%; box-sizing:border-box; background:#12171e;
+  border:1px solid var(--e-line); color:var(--e-text); padding:11px 13px; font-family:inherit;
+  font-size:12px; letter-spacing:0.06em; outline:none; box-shadow:inset 0 1px 3px rgba(0,0,0,0.45);
+  transition:border-color .14s; }
+.dd-mm-search:focus { border-color:var(--e-accent); }
+.dd-mm-search::placeholder { color:var(--e-dim); letter-spacing:0.05em; }
+.dd-mm-listhead { flex:0 0 auto; margin:9px 0 6px; font-size:9px; font-weight:700; letter-spacing:0.2em;
+  text-transform:uppercase; color:var(--e-dim); }
+.dd-mm-places { flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; gap:5px; padding-right:4px; }
+.dd-mm-place .tier { float:right; font-size:9px; letter-spacing:0.14em; color:var(--e-dim); opacity:.8; }
 .dd-mm-place { position:relative; cursor:pointer; user-select:none; padding:10px 13px; font-size:11px;
   font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--e-dim);
   background:linear-gradient(180deg,#1d242d,#171d25); border:1px solid var(--e-line); transition:background .14s, color .14s; }
@@ -251,15 +274,14 @@ export function createMainMenu(refs = {}) {
   const rowEls = new Map();
   for (const e of entries) {
     const row = el('div', 'dd-mm-mode');
-    const art = el('div', 'dd-mm-art', e.icon);
-    art.style.background = MODE_TINT[e.key] || MODE_TINT.free;
-    // No onerror path: a 404 leaves the gradient + glyph, which is a legible card, not a broken one.
-    art.style.backgroundImage = `url(/modes/mode-${e.key}.webp), ${MODE_TINT[e.key] || MODE_TINT.free}`;
-    art.style.backgroundSize = 'cover';
+    // No onerror path: a 404 falls through to the CSS gradient, so the card stays legible under its
+    // scrim rather than breaking. Art can land later with no code change.
+    row.style.backgroundImage = `url(/modes/mode-${e.key}.webp), ${MODE_TINT[e.key] || MODE_TINT.free}`;
+    row.appendChild(el('div', 'dd-mm-glyph', e.icon));
     const txt = el('div', 'dd-mm-mtext');
     txt.appendChild(el('div', 'dd-mm-mname', e.name));
     txt.appendChild(el('div', 'dd-mm-mblurb', MODE_BLURB[e.key] || ''));
-    row.appendChild(art); row.appendChild(txt);
+    row.appendChild(txt);
     row.addEventListener('click', () => { uiSound.click(); selected = e; repaint(); });
     row.addEventListener('dblclick', () => drive());
     rowEls.set(e.key, row);
@@ -295,19 +317,66 @@ export function createMainMenu(refs = {}) {
   const mapWrap = el('div', 'dd-mm-mapwrap');
   const mapCanvas = el('canvas'); mapWrap.appendChild(mapCanvas);
   rightCol.appendChild(mapWrap);
+  // ── SEARCH ────────────────────────────────────────────────────────────────────────────────
+  // Local and instant, against the road names already resident in `customMap` (citymap.bin interns
+  // a name table for the whole city). The old settings-menu search called Nominatim, which is a
+  // network round-trip that can return a place this world does not contain. This one can only ever
+  // return somewhere you can actually drive to.
+  const search = el('input', 'dd-mm-search');
+  search.type = 'search';
+  search.placeholder = 'Search a street…';
+  rightCol.appendChild(search);
+  const listHead = el('div', 'dd-mm-listhead', 'Landmarks');
+  rightCol.appendChild(listHead);
   const places = el('div', 'dd-mm-places');
-  for (const p of PLACES) {
-    const row = el('div', 'dd-mm-place', p.name);
-    // Re-basing the world live is not possible (spawnConfig applies at init), so a place is a reload
-    // with ?spawn — the same contract the ESC menu's search uses.
-    row.addEventListener('click', () => {
-      uiSound.click();
-      try { sessionStorage.setItem('dd_mode', selected.key); } catch { /* private mode */ }
-      location.href = `/game?spawn=${p.lat.toFixed(4)},${p.lon.toFixed(4)}`;
-    });
-    places.appendChild(row);
-  }
   rightCol.appendChild(places);
+
+  /** Re-basing the world live is impossible (spawnConfig applies at init), so travel is a reload. */
+  function goTo(lat, lon) {
+    uiSound.click();
+    try { sessionStorage.setItem('dd_mode', selected.key); } catch { /* private mode */ }
+    location.href = `/game?spawn=${lat.toFixed(5)},${lon.toFixed(5)}`;
+  }
+
+  function renderList() {
+    const q = search.value.trim();
+    places.textContent = '';
+    if (q.length < 2) {
+      listHead.textContent = 'Landmarks';
+      for (const p of PLACES) {
+        const row = el('div', 'dd-mm-place', p.name);
+        row.addEventListener('click', () => goTo(p.lat, p.lon));
+        places.appendChild(row);
+      }
+      return;
+    }
+    const hits = refs.customMap?.searchRoads?.(q, 14) || [];
+    listHead.textContent = hits.length ? `${hits.length} street${hits.length === 1 ? '' : 's'}` : 'No match';
+    if (!hits.length) {
+      // Honest empty state. The city map has STREETS, not shops or building names — saying so beats
+      // an empty box that reads as "search is broken".
+      const none = el('div', 'dd-mm-place', 'No street by that name');
+      none.style.cursor = 'default';
+      places.appendChild(none);
+      return;
+    }
+    for (const h of hits) {
+      const row = el('div', 'dd-mm-place', `${h.name}<span class="tier">${h.tier}</span>`);
+      row.addEventListener('click', () => {
+        const ll = worldToLatLon(h.x, h.z);
+        goTo(ll.lat, ll.lon);
+      });
+      places.appendChild(row);
+    }
+  }
+  let _searchT = null;
+  search.addEventListener('input', () => {
+    // The store is tens of thousands of ways; debounce so a fast typist does not walk it per keypress.
+    if (_searchT) clearTimeout(_searchT);
+    _searchT = setTimeout(() => { _searchT = null; renderList(); }, 120);
+  });
+  search.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });  // Esc clears the field, not the menu
+  renderList();
   body.appendChild(rightCol);
 
   // Settings lives in the same grid, spanning it, with the three garage columns hidden behind

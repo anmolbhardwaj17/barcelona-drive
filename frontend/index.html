@@ -129,8 +129,6 @@
       #dd-title.live::after { opacity: 0.9; }
       /* Choose screen: always a flat dark-grey backdrop (not the navy title radial, not the live 3D
          city). These come after the .live rules so they win at equal specificity. */
-      #dd-title.choose, #dd-title.live.choose { background: linear-gradient(#1a1d23, #111318); }
-      #dd-title.choose::before, #dd-title.choose::after { opacity: 0; }
       /* Boot loader — a clean black screen with a counting percentage. Covers everything (incl. the logo)
          until the 3D world is ready; main.js then snaps it to 100, fades it, and reveals the live title. */
       #dd-title .boot { position: absolute; inset: 0; z-index: 5;
@@ -216,75 +214,6 @@
       }
       #dd-title .play:active { transform: scale(0.97); }
 
-      /* ── Mode picker (revealed after PLAY) — full-height character-select panels ──
-         Each card is a tall portrait art panel (/modes/mode-<key>.jpg when present; themed
-         gradient placeholder underneath) with the label BELOW the art. No icons/emoji. */
-      #dd-title .modes { display: none; flex-direction: column; align-items: stretch; position: relative; z-index: 2; width: 100vw; flex: 1 1 auto; min-height: 0; }
-      #dd-title .modes.show { display: flex; animation: ddModesIn .32s ease-out; }
-      @keyframes ddModesIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-      /* Choose state: header bar — big bold "Choose Your Mode" on the LEFT, small logo on the RIGHT,
-         panels fill everything below, full-bleed */
-      #dd-title.choose { justify-content: flex-start; gap: 0; padding-top: 86px; }
-      #dd-title.choose .logo {
-        position: absolute; top: 10px; right: 24px; z-index: 2;
-        width: min(88px, 13vw); animation: none;
-      }
-      /* the tagline element becomes the header title — same voice as the game-mode names */
-      #dd-title.choose .tagline {
-        position: absolute; top: 26px; left: 28px; z-index: 2;
-        background: none; border: none; padding: 0;
-        backdrop-filter: none; -webkit-backdrop-filter: none;
-        text-transform: none;
-        font-size: clamp(22px, 2.2vw, 30px); font-weight: 800; letter-spacing: 0;
-        color: #f6f1e6;
-      }
-      #dd-title .modes-row {
-        display: flex; gap: 0; justify-content: stretch; align-items: stretch;
-        flex: 1 1 auto; min-height: 0; width: 100%; padding: 0;
-      }
-      #dd-title .mode {
-        cursor: pointer; user-select: none; position: relative;
-        display: block; padding: 0; overflow: hidden;
-        font-family: inherit; color: #f3ede1; text-align: right;
-        flex: 1 1 0; border: none; border-radius: 0;
-        background: #141a26;
-        transition: filter .18s ease;
-      }
-      /* thin separator line between adjacent panels */
-      #dd-title .mode + .mode { border-left: 1px solid rgba(243,237,225,0.18); }
-      #dd-title .mode .art {
-        position: absolute; inset: 0;
-        background-color: #1a2230;
-        background-size: cover; background-position: center top;
-        transition: transform .25s ease;
-        /* darken the lower edge so the name overlay stays readable on any art */
-        box-shadow: inset 0 -130px 90px -60px rgba(8,11,17,0.88);
-      }
-      /* Themed placeholder gradients — replaced automatically once the /modes images exist
-         (image layer is painted ON TOP of the gradient). */
-      #dd-title .mode[data-mode="free"]     .art { background-image: url('/modes/mode-free.webp'),     linear-gradient(168deg, #8fc4ec 0%, #4a7fae 52%, #2c4a6a 100%); }
-      #dd-title .mode[data-mode="dash"]     .art { background-image: url('/modes/mode-dash.webp'),     linear-gradient(168deg, #e0785c 0%, #b4523a 52%, #6e2f22 100%); }
-      #dd-title .mode[data-mode="taxi"]     .art { background-image: url('/modes/mode-taxi.webp'),     linear-gradient(168deg, #e6c25c 0%, #b48d3a 52%, #6e5322 100%); }
-      #dd-title .mode[data-mode="delivery"] .art { background-image: url('/modes/mode-delivery.webp'), linear-gradient(168deg, #6cbf96 0%, #3f8a66 52%, #24513c 100%); }
-      #dd-title .mode[data-mode="police"]   .art { background-image: url('/modes/mode-police.webp'),   linear-gradient(168deg, #7a8fc0 0%, #46578a 52%, #262f4e 100%); }
-      #dd-title .mode .label {
-        position: absolute; right: 0; bottom: 0; z-index: 2;
-        display: block; padding: 0 22px 20px 12px;
-        font-size: clamp(16px, 1.5vw, 21px); font-weight: 700; letter-spacing: 0;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.35);
-      }
-      #dd-title .mode .sub {
-        display: block; margin-top: 5px;
-        font-size: clamp(10px, 0.85vw, 12px); font-weight: 500; letter-spacing: 0.01em;
-        color: rgba(243,237,225,0.62);
-      }
-      #dd-title .mode:hover { filter: brightness(1.12); }
-      #dd-title .mode:hover .art { transform: scale(1.04); }
-      #dd-title .mode:hover::after {
-        content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
-        box-shadow: inset 0 0 0 2px rgba(215,106,79,0.85), inset 0 -3px 0 0 #d76a4f;
-      }
-      #dd-title .mode:active .art { transform: scale(1.02); }
     </style>
   </head>
   <body>
@@ -297,31 +226,6 @@
       <img class="logo" src="/logo-barcelona-drive.webp" alt="Barcelona Drive" />
       <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
-      <div id="dd-modes" class="modes">
-        <div class="modes-row">
-          <button class="mode" data-mode="free">
-            <span class="art"></span>
-            <span class="label">Free Roam<span class="sub">Cruise the open city</span></span>
-          </button>
-          <button class="mode" data-mode="dash">
-            <span class="art"></span>
-            <span class="label">Checkpoint Dash<span class="sub">Beat the clock gate to gate</span></span>
-          </button>
-          <button class="mode" data-mode="taxi">
-            <span class="art"></span>
-            <span class="label">City Cab<span class="sub">Pick up. Drop off. Get paid</span></span>
-          </button>
-          <button class="mode" data-mode="delivery">
-            <span class="art"></span>
-            <span class="label">Rush Hour<span class="sub">Deliveries against the clock</span></span>
-          </button>
-          <button class="mode" data-mode="police">
-            <span class="art"></span>
-            <span class="label">Heat<span class="sub">Outrun the patrol</span></span>
-          </button>
-        </div>
-      </div>
-    </div>
 
     <div id="dd-loading">
       <img class="logo" src="/logo-barcelona-drive.webp" alt="Barcelona Drive" />
@@ -436,12 +340,12 @@
         if (inGame) { title.remove(); return; } // already in-game → straight to the loading/game view
 
         var play = document.getElementById('dd-play');
-        var modesBox = document.getElementById('dd-modes');
-        var tagline = title.querySelector('.tagline');
 
         // Enter the game with the chosen mode (stored for main.js to auto-start).
         function enter(mode) {
-          try { sessionStorage.setItem('dd_mode', mode); } catch (e) {}
+          // null → no mode chosen yet; the hub asks once the world is up. Clearing rather than
+          // leaving a stale value matters: a previous session's pick would otherwise preselect.
+          try { if (mode) sessionStorage.setItem('dd_mode', mode); else sessionStorage.removeItem('dd_mode'); } catch (e) {}
           try { history.replaceState({}, '', '/game' + location.search); } catch (e) {}
 
           // Full-screen loader while the world builds around the car — the intro streamed the CITY
@@ -495,9 +399,16 @@
         };
         setTimeout(function () { if (window._ddBootDone) window._ddBootDone(); }, 30000);
 
-        // PLAY just reveals the mode picker; picking a mode drops into the game.
-        // v3 P0-10: warm the five mode panels on PLAY hover/touch so the picker does not stall on
-        // first paint — especially on mobile, where the request would otherwise start at click time.
+        // ── PLAY GOES STRAIGHT TO THE LOAD ────────────────────────────────────────────────────
+        // The mode picker used to live here, which asked the player to commit BEFORE the spawn area
+        // loaded — a blind choice followed by a progress bar, for a load that does not depend on the
+        // mode at all. Modes now live in the hub (ui/mainMenu.js), which opens over the finished
+        // world. `#dd-modes` stays in the markup but is never shown; the flow is one question in one
+        // place. `enter(null)` starts the load with no mode chosen.
+        //
+        // The five mode images are still worth warming on PLAY: the hub shows them the moment the
+        // load ends, so the request should already be in flight by then. Same reason as v3 P0-10,
+        // one screen later.
         var _preloaded = false;
         function preloadModeArt() {
           if (_preloaded) return; _preloaded = true;
@@ -511,13 +422,8 @@
         }
 
         if (play) play.addEventListener('click', function () {
-          play.style.display = 'none';
-          if (tagline) tagline.textContent = 'Choose Your Mode';
-          if (modesBox) modesBox.classList.add('show');
-          title.classList.add('choose');   // shrink the hero — the panels take the vertical space
-        });
-        if (modesBox) modesBox.querySelectorAll('.mode').forEach(function (b) {
-          b.addEventListener('click', function () { enter(b.getAttribute('data-mode')); });
+          preloadModeArt();
+          enter(null);
         });
       })();
     </script>

@@ -374,5 +374,49 @@ export function createCustomMap() {
   function hasTile(key) { return store.has(key); }
 
   function refresh() { _onChange?.(); }   // fire one redraw after a bulk (quiet) ingest
-  return { ingestTile, refresh, removeTile, hasTile, clear, setNight, setOnChange, drawTile, get tileCount() { return store.size; } };
+  // ── ROAD-NAME SEARCH ──────────────────────────────────────────────────────────────────────────
+  // The whole city's street names are ALREADY here: citymap.bin interns a name table and every road
+  // in the store carries its `name`. That makes an instant offline search possible, which is
+  // strictly better than the Nominatim round-trip the settings menu used — no network, no rate
+  // limit, no one-result-and-hope, and it can only ever return places that exist in THIS world.
+  //
+  // Accents are folded, because a Catalan city is unsearchable otherwise: nobody types "Gràcia".
+  const _fold = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const TIER_RANK = { major: 0, mid: 1, minor: 2 };
+
+  /**
+   * @param {string} q
+   * @param {number} [limit]
+   * @returns {{name:string, x:number, z:number, tier:string}[]} best match per distinct name
+   */
+  function searchRoads(q, limit = 12) {
+    const needle = _fold((q || '').trim());
+    if (needle.length < 2) return [];
+    // One entry per NAME, not per way: a Barcelona street is dozens of ways and a raw list would be
+    // the same street forty times. Keep the longest span seen, which is the most central stretch.
+    const best = new Map();
+    for (const entry of store.values()) {
+      for (const r of entry.roads || []) {
+        if (!r.name) continue;
+        const folded = _fold(r.name);
+        const at = folded.indexOf(needle);
+        if (at < 0) continue;
+        const bb = r.bbox;
+        const span = (bb[2] - bb[0]) + (bb[3] - bb[1]);
+        const prev = best.get(folded);
+        if (prev && prev.span >= span) continue;
+        const mid = r.pts[(r.pts.length / 2) | 0];
+        best.set(folded, { name: r.name, x: mid.x, z: mid.y, tier: r.tier || 'minor', span, at });
+      }
+    }
+    return [...best.values()]
+      // Prefix beats substring; then a bigger road beats a smaller one; then the longer span.
+      .sort((a, b) => (a.at === 0 ? 0 : 1) - (b.at === 0 ? 0 : 1)
+                   || (TIER_RANK[a.tier] ?? 3) - (TIER_RANK[b.tier] ?? 3)
+                   || b.span - a.span)
+      .slice(0, limit)
+      .map(({ name, x, z, tier }) => ({ name, x, z, tier }));
+  }
+
+  return { ingestTile, refresh, removeTile, hasTile, clear, setNight, setOnChange, drawTile, searchRoads, get tileCount() { return store.size; } };
 }
