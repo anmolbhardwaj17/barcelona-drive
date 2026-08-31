@@ -18,7 +18,7 @@
 | **Tests** | **395 green.** `npm test` in `frontend/`. ⚠ `test/lightGrid` "grid rebuild stays cheap" is WALL-CLOCK based and flakes when a build runs concurrently — re-run before believing it. |
 | **How the user tests** | **`?mode=fly`, from the air.** Read **H14** before trusting any fly-mode screenshot: fly mode does NOT lift LOD (only **P** does). `window._ddGround()` tells "culled" from "broken"; `window._ddPick(x,y)` names the surface under a pixel. |
 | **Servers** | frontend `npm run dev` on **4040**, backend `npm start` on **4041**. Both must be up or every tile fetch fails with `Failed to fetch`. **The world does not stream until PLAY is clicked** — that cost most of a session's browser debugging once. |
-| **NEXT TASK** | **P4-17** (urban features + bus stops → signage atlas) — ⚠ **BLOCKED ON ART**, request R3 is written up in [asset-requests.md](asset-requests.md). Unblocked alternative: the 133 junction height-steps, below. |
+| **NEXT TASK** | **P4-17** (urban features + bus stops → signage atlas) — ⛔ blocked on **P4-11** (`signAtlas.js` does not exist; 7 d, code, not art). ⚠ This line used to say "BLOCKED ON ART, request R3" and that was **wrong**: R3 shipped, and R1/R2/R4 with it — every texture request in [asset-requests.md](asset-requests.md) is fulfilled. The only outstanding asset ask is **R5 (traffic car MODELS)**. Unblocked alternatives: P4-11 itself, or the junction height-steps below. |
 
 ### ▶ SHIPPED SINCE THE LAST HANDOFF (2026-08-28 → 31)
 

@@ -37,6 +37,8 @@ Every request below states its cost so the trade is explicit.
 
 ## R1 · Bridge / viaduct deck underside — concrete soffit
 
+> ✅ **SHIPPED — do not regenerate.** On disk at `frontend/public/textures/road/slab_soffit_albedo.ktx2`. The prompt below is kept for re-bakes.
+
 **Priority: highest.** Evidence, not taste: this surface is drawn under every elevated road in the
 city, it now runs alongside every N-54 embankment, and it ships as an **unlit
 `MeshBasicMaterial 0xa9a49d`** (`roadRenderer.js` `getSlabMaterial`). Being unlit is why it read as
@@ -60,6 +62,8 @@ so it never matches the concrete beside it. A plate plus a move to Lambert fixes
 
 ## R2 · Compound / boundary wall — painted render
 
+> ✅ **SHIPPED — do not regenerate.** On disk at `frontend/public/textures/wall/compound_render_albedo.ktx2`. The prompt below is kept for re-bakes.
+
 **Priority: high.** `barrierRenderer.js` draws these as flat `0xC8B89A` with one map reference
 across seven materials. They are tall vertical surfaces running along streets, so they occupy real
 screen area at driving eye height — the same argument that justified the panot pavement.
@@ -79,6 +83,8 @@ screen area at driving eye height — the same argument that justified the panot
 ---
 
 ## R3 · Street-furniture atlas — steel, painted metal, concrete
+
+> ✅ **SHIPPED — do not regenerate.** On disk at `frontend/public/textures/urban/furniture_atlas_albedo.ktx2`. The prompt below is kept for re-bakes.
 
 **Priority: medium.** `urbanFeatureRenderer.js` carries **22 materials against 3 map references** —
 benches, bollards, bins, planters, all flat colour (`0x888899` steel, `0xbbbbbb` concrete,
@@ -103,6 +109,8 @@ what makes props read as toys.
 ---
 
 ## R4 · Traffic-sign backing plate — aluminium reverse
+
+> ✅ **SHIPPED — do not regenerate.** On disk at `frontend/public/textures/road/sign_back_albedo.ktx2`. The prompt below is kept for re-bakes.
 
 **Priority: low.** `roadInfraRenderer.js` draws sign backs as flat `0x888888`. Only seen from behind
 and mostly at distance, so it is genuinely low value — listed for completeness, not to be generated
@@ -177,3 +185,42 @@ the black-and-yellow taxi.
 
 Free sources that fit: Sketchfab CC0/CC-BY (filter Downloadable + 3D-print off), Quaternius'
 Ultimate Vehicle pack (CC0, higher-poly than the current kit), Poly Pizza.
+
+### R5 prompts — for a text/image-to-3D generator (Meshy, Tripo, Rodin)
+
+These output `.glb` directly. **Paste the shared constraints with every one of them** — the defaults
+of these tools are 100k-triangle single-material blobs, which is worse than the kit we already have.
+
+> **Shared constraints (append to every prompt):**
+> Low-poly game asset, 8,000 to 12,000 triangles. Separate materials for body paint, window glass,
+> tyres, and light lenses — glass must be its own material. Clean quad topology, no interior, no
+> engine bay, no undercarriage detail. Y-up, facing +Z, real-world scale. Neutral studio lighting
+> baked into nothing — flat albedo only, no baked shadows. Wheels as separate meshes at the four
+> hub positions.
+
+**1 · Compact hatchback (second variant — the fleet is one model today)**
+> A modern European 5-door compact hatchback city car, 4.1 metres long, rounded contemporary
+> styling, body-coloured bumpers, black window trim, five-spoke alloy wheels, plain silver paint.
+
+**2 · Compact sedan**
+> A modern European 4-door compact sedan, 4.6 metres long, three-box profile with a short boot,
+> restrained contemporary styling, chrome window surround, plain dark grey paint.
+
+**3 · Barcelona taxi**
+> A modern European 4-door sedan taxi in the Barcelona livery: black body with the lower doors and
+> front wings painted bright yellow, a small white roof sign, plain unlettered doors. 4.6 metres
+> long, restrained contemporary styling.
+
+**4 · Small panel van**
+> A modern European small panel van, 4.4 metres long, high roof, blank unglazed side panels behind
+> the front doors, sliding side door, plain white paint, black plastic bumpers, steel wheels.
+
+**5 · Compact SUV**
+> A modern European compact crossover SUV, 4.3 metres long, raised ride height, black wheel-arch
+> cladding and lower body trim, roof rails, plain dark blue paint, five-spoke alloy wheels.
+
+⚠ **Expect to reject most outputs.** These generators produce lumpy silhouettes and merged materials
+far more often than they produce usable cars. Judge on two things before anything else: is the glass
+a separate material, and does the silhouette read as a car in profile at 30 m. Everything else is
+fixable in the loader; those two are not.
+
