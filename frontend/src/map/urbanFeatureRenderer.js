@@ -557,85 +557,105 @@ function buildWaterTower() {
 }
 
 /**
- * Fountain: India Gate style red sandstone tiered fountain (lowpoly).
- * Wide octagonal base pool → lower basin wall → middle tier → upper bowl → top finial.
+ * Fountain: a Barcelona plaza fountain (F-2).
+ *
+ * ── WHAT WAS WRONG ────────────────────────────────────────────────────────────────────────────
+ * The header of the previous builder said it plainly: "India Gate style red sandstone tiered
+ * fountain". Delhi geometry with the stone colour swapped — a four-metre stack of stone tiers,
+ * pedestal on basin on bowl on finial, which is a monument, not a city fountain. The user: "make
+ * fountains looks like how they are in barcelona current ones are so lame".
+ *
+ * ── WHAT BARCELONA ACTUALLY HAS ───────────────────────────────────────────────────────────────
+ * Low and wide, not tall and tiered. Three things carry the read:
+ *   1. A WIDE FLAT GRANITE RIM you can sit on. This is the single most characteristic feature —
+ *      these basins are public seating as much as they are water, and the old one had a thin wall.
+ *   2. CAST IRON above the waterline, not stone. Dark municipal green, the same colour as the
+ *      drinking fountains and the lamp columns — matIronGreen already exists for exactly this.
+ *   3. A shallow bowl on a slim fluted column, roughly half the height of the old stack, so it sits
+ *      IN a plaza rather than dominating it.
  */
 function buildFountain() {
   const geos = [];
-  const segs = 12; // lowpoly circle segments
+  const segs = 16;              // round basin; the octagonal ones are the exception, not the rule
+  const BASIN_R = 3.6;
+  const RIM_H = 0.46;           // sitting height — this is furniture as much as waterworks
+  const RIM_W = 0.38;           // the wide flat top; a thin wall is what made the old one read cheap
 
-  // ── Ground-level pool (wide, shallow) ──
-  const poolR = 3.5, poolWallH = 0.45;
-  const poolOuter = new THREE.CylinderGeometry(poolR, poolR + 0.15, poolWallH, segs);
-  poolOuter.translate(0, poolWallH / 2, 0);
-  geos.push({ geo: poolOuter, mat: 'stone' });
+  // ── Granite basin: outer wall, wide flat rim, inner wall ─────────────────────────────────────
+  const outer = new THREE.CylinderGeometry(BASIN_R, BASIN_R + 0.06, RIM_H, segs);
+  outer.translate(0, RIM_H / 2, 0);
+  geos.push({ geo: outer, mat: 'stone' });
 
-  const poolWater = new THREE.CylinderGeometry(poolR - 0.2, poolR - 0.2, 0.05, segs);
-  poolWater.translate(0, poolWallH * 0.6, 0);
-  geos.push({ geo: poolWater, mat: 'water' });
+  // The rim itself, as a flat ring rather than a torus: a torus reads as a pipe laid on the wall,
+  // a ring reads as a cut stone coping, which is what it is.
+  const rim = new THREE.RingGeometry(BASIN_R - RIM_W, BASIN_R + 0.02, segs);
+  rim.rotateX(-Math.PI / 2);
+  rim.translate(0, RIM_H + 0.005, 0);
+  geos.push({ geo: rim, mat: 'stone' });
 
-  // ── Lower pedestal (tapered column rising from pool center) ──
-  const ped1 = new THREE.CylinderGeometry(0.8, 1.1, 1.0, segs);
-  ped1.translate(0, poolWallH + 0.5, 0);
-  geos.push({ geo: ped1, mat: 'stone' });
+  const inner = new THREE.CylinderGeometry(BASIN_R - RIM_W, BASIN_R - RIM_W, RIM_H * 0.9, segs, 1, true);
+  inner.translate(0, RIM_H * 0.45, 0);
+  geos.push({ geo: inner, mat: 'stone' });
 
-  // ── Middle basin (smaller bowl catching water) ──
-  const midR = 1.8, midWallH = 0.35;
-  const midBasin = new THREE.CylinderGeometry(midR, midR - 0.1, midWallH, segs);
-  midBasin.translate(0, poolWallH + 1.0 + midWallH / 2, 0);
-  geos.push({ geo: midBasin, mat: 'stone' });
+  // Water sits BELOW the rim, not level with it — a basin filled to the brim looks like a puddle.
+  const water = new THREE.CylinderGeometry(BASIN_R - RIM_W - 0.02, BASIN_R - RIM_W - 0.02, 0.04, segs);
+  water.translate(0, RIM_H * 0.62, 0);
+  geos.push({ geo: water, mat: 'water' });
 
-  const midWater = new THREE.CylinderGeometry(midR - 0.15, midR - 0.15, 0.04, segs);
-  midWater.translate(0, poolWallH + 1.0 + midWallH * 0.7, 0);
-  geos.push({ geo: midWater, mat: 'water' });
+  // ── Cast-iron centrepiece ────────────────────────────────────────────────────────────────────
+  const plinth = new THREE.CylinderGeometry(0.46, 0.58, 0.34, 8);
+  plinth.translate(0, RIM_H + 0.17, 0);
+  geos.push({ geo: plinth, mat: 'ironGreen' });
 
-  // ── Decorative lip ring on middle basin ──
-  const lipRing = new THREE.TorusGeometry(midR, 0.08, 6, segs);
-  lipRing.rotateX(Math.PI / 2);
-  lipRing.translate(0, poolWallH + 1.0 + midWallH, 0);
-  geos.push({ geo: lipRing, mat: 'stone' });
+  // Slim fluted column — 8 sides reads as fluting at this scale without the cost of real flutes.
+  const colH = 1.42;
+  const column = new THREE.CylinderGeometry(0.17, 0.24, colH, 8);
+  column.translate(0, RIM_H + 0.34 + colH / 2, 0);
+  geos.push({ geo: column, mat: 'ironGreen' });
 
-  // ── Upper pedestal ──
-  const ped2 = new THREE.CylinderGeometry(0.4, 0.65, 0.8, segs);
-  ped2.translate(0, poolWallH + 1.0 + midWallH + 0.4, 0);
-  geos.push({ geo: ped2, mat: 'stone' });
+  const collar = new THREE.TorusGeometry(0.235, 0.045, 6, 10);
+  collar.rotateX(Math.PI / 2);
+  collar.translate(0, RIM_H + 0.34 + colH * 0.62, 0);
+  geos.push({ geo: collar, mat: 'ironGreen' });
 
-  // ── Upper bowl (small top basin) ──
-  const topR = 1.0, topH = 0.25;
-  const topBowl = new THREE.CylinderGeometry(topR, topR - 0.08, topH, segs);
-  topBowl.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH / 2, 0);
-  geos.push({ geo: topBowl, mat: 'stone' });
+  // Shallow upper bowl. Wide and flat, not a second basin stacked on the first.
+  const bowlY = RIM_H + 0.34 + colH;
+  const bowl = new THREE.CylinderGeometry(1.02, 0.42, 0.22, segs);
+  bowl.translate(0, bowlY + 0.11, 0);
+  geos.push({ geo: bowl, mat: 'ironGreen' });
 
-  const topWater = new THREE.CylinderGeometry(topR - 0.12, topR - 0.12, 0.03, segs);
-  topWater.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH * 0.7, 0);
-  geos.push({ geo: topWater, mat: 'water' });
+  const bowlLip = new THREE.TorusGeometry(1.02, 0.05, 6, segs);
+  bowlLip.rotateX(Math.PI / 2);
+  bowlLip.translate(0, bowlY + 0.22, 0);
+  geos.push({ geo: bowlLip, mat: 'ironGreen' });
 
-  // ── Finial (small pointed top) ──
-  const finial = new THREE.ConeGeometry(0.18, 0.6, 6);
-  finial.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH + 0.3, 0);
-  geos.push({ geo: finial, mat: 'stone' });
+  const bowlWater = new THREE.CylinderGeometry(0.95, 0.95, 0.03, segs);
+  bowlWater.translate(0, bowlY + 0.19, 0);
+  geos.push({ geo: bowlWater, mat: 'water' });
 
-  // ── Water jet from finial tip (taller, tapered) ──
-  const jet = new THREE.CylinderGeometry(0.02, 0.07, 1.2, 6);
-  jet.translate(0, poolWallH + 1.0 + midWallH + 0.8 + topH + 0.6 + 0.6, 0);
+  const finial = new THREE.ConeGeometry(0.13, 0.42, 8);
+  finial.translate(0, bowlY + 0.22 + 0.21, 0);
+  geos.push({ geo: finial, mat: 'ironGreen' });
+
+  // ── Water ────────────────────────────────────────────────────────────────────────────────────
+  // A central jet, and a ring of thin arcs falling from the bowl lip to the basin. The old version
+  // had solid cascade cylinders between tiers, which read as pillars of milk; separate falling
+  // strands are what actually says "running water" at this polygon budget.
+  const jet = new THREE.CylinderGeometry(0.022, 0.055, 0.9, 6);
+  jet.translate(0, bowlY + 0.22 + 0.45, 0);
   geos.push({ geo: jet, mat: 'water' });
 
-  // ── Cascading water: thin transparent cylinders between tiers ──
-  // Upper bowl → middle basin cascade
-  const cascade1 = new THREE.CylinderGeometry(topR - 0.05, midR - 0.3, 0.8, segs, 1, true);
-  cascade1.translate(0, poolWallH + 1.0 + midWallH * 0.5 + 0.4, 0);
-  geos.push({ geo: cascade1, mat: 'water' });
-
-  // Middle basin → ground pool cascade
-  const cascade2 = new THREE.CylinderGeometry(midR - 0.1, poolR - 0.5, 1.0, segs, 1, true);
-  cascade2.translate(0, poolWallH + 0.5, 0);
-  geos.push({ geo: cascade2, mat: 'water' });
-
-  // ── Splash ring at pool surface (subtle ring of disturbed water) ──
-  const splash = new THREE.TorusGeometry(poolR - 0.6, 0.12, 6, segs);
-  splash.rotateX(Math.PI / 2);
-  splash.translate(0, poolWallH * 0.65, 0);
-  geos.push({ geo: splash, mat: 'water' });
+  const fallH = bowlY - RIM_H * 0.62;
+  for (let i = 0; i < 8; i++) {
+    const th = (i / 8) * Math.PI * 2;
+    const strand = new THREE.CylinderGeometry(0.018, 0.030, fallH, 4);
+    // Lean each strand slightly outward, so it leaves the lip and lands in the basin rather than
+    // dropping dead straight down the column.
+    strand.rotateZ(Math.sin(th) * 0.10);
+    strand.rotateX(-Math.cos(th) * 0.10);
+    strand.translate(Math.cos(th) * 1.0, RIM_H * 0.62 + fallH / 2, Math.sin(th) * 1.0);
+    geos.push({ geo: strand, mat: 'water' });
+  }
 
   return geos;
 }
