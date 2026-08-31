@@ -1746,7 +1746,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // -----------------------------------------------------------------------
     // PHASE 1: Terrain + Roads + Physics (appear immediately)
     // -----------------------------------------------------------------------
-    buildPhase('p1 physics');        // terrain trimesh/heightfield + colliders come first in p1
+    // ── WHY THIS LABEL IS SUBDIVIDED (2026-08-31) ─────────────────────────────────────────────
+    // A drive reported `p1 physics 3933ms/66` out of 5739 ms — **68% of the entire initial load**,
+    // ~60 ms a tile, against `p2 buildings 305ms`. The docs still describe buildings as the biggest
+    // cost, which was true when they were written and is not now. One label over the whole span
+    // cannot say WHICH of terrain heightfield, tunnels, road merge, road colliders or greens is
+    // spending it, and `window._ddTilePerf` only answers per tile, in the console, behind a flag.
+    //
+    // `_perfMark` already delimits these sections but deliberately does NOT report them, because it
+    // subdivides a span `yieldToMain` reports as one chunk and recording both would double-count.
+    // So instead the PHASE LABEL moves with the sections: same accounting, same single source, and
+    // the unflagged `[perf] initial load ... by build phase` report breaks itself down.
+    buildPhase('p1 phys:terrain');   // terrain trimesh/heightfield + colliders come first in p1
 
     // Performance instrumentation — tracks max single-chunk time (the stutter metric)
     const _perfT0 = performance.now();
@@ -1885,6 +1896,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         }
       }
       _perfMark('terrain-physics');
+      buildPhase('p1 phys:terrain-mesh');
 
       const terrain = await buildTerrainMesh(elevation, key, [...tunnelRoads, ...carveApproachRoads], roads, waterPolys, _perfYield, data.bakedTerrain, data.aoGrid, data.beaches);
       terrainMesh = terrain.mesh;
@@ -1901,6 +1913,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       }
 
       _perfMark('terrain-mesh');
+      buildPhase('p1 phys:tunnels');
       await _perfYield();
     }
 
@@ -2059,6 +2072,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     if (data.bakedVegetation) tileData.bakedVegetation = data.bakedVegetation;
 
     _perfMark('tunnels+setup');
+    buildPhase('p1 phys:roads+merge');
     await _perfYield();
 
     // Roads — async with frame yields to prevent jank
@@ -2112,6 +2126,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     if (chamferCurbMesh) { chamferCurbMesh.visible = true; safeSceneAdd(scene, chamferCurbMesh); entry.chamferCurbMesh = chamferCurbMesh; }
 
     _perfMark('roads+merge');
+    buildPhase('p1 phys:road-minmax');
     await _perfYield();
 
     // Road min/max Y
@@ -2140,6 +2155,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
         : null;
 
       _perfMark('road-minmax');
+      buildPhase('p1 phys:road-physics');
       await _perfYield();
 
       const result = createRoadTrimeshColliders(roads, { offset, vertExag, world, roadMaterial, tileKey: key, getGroundYAt });
@@ -2148,6 +2164,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       trimeshBody = result.trimeshBody;
 
       _perfMark('road-physics');
+      buildPhase('p1 phys:greens');
       await _perfYield();
     }
 
@@ -2182,6 +2199,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     }
     greenMeshesP1.forEach((m) => safeSceneAdd(scene, m));
     _perfMark('greens');
+    buildPhase('p1 phys:tail');
 
     // Populate entry with Phase 1 results and store in cache immediately
     entry.greenMeshes = greenMeshesP1;
