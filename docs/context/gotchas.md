@@ -1048,3 +1048,22 @@ Inside step 5, snap each pixel toward the nearest ALLOWED anchor, never toward a
 A hue roughly opposite its anchor has two ~180° arcs, and the shorter one can pass through a hue
 far worse than the start: the jacaranda's genuine violet blossom snapped toward P9 Platanus Green
 went **through red and landed on hot pink**. The plate was correct; the code was not.
+
+### G-XX · `import()` IS NOT A SYNTAX CHECK — `buildRegion.js` RUNS ON IMPORT
+
+`backend/worldBuilder/buildRegion.js` calls `main()` at module scope:
+
+```js
+main().catch((err) => { … process.exit(1); });
+```
+
+So `node -e "import('./backend/worldBuilder/buildRegion.js')"` — used as a quick "does it parse?"
+check — **starts a full region bake**. Done immediately before `npm run build:region`, that puts two
+bakes on the same 432 tiles at once, from different working directories. It happened on 2026-08-31;
+the second bake overwrote everything so the tiles ended up consistent, but that was luck.
+
+**Use `node --check <file>` for syntax**, or import a module that has no top-level side effect
+(`RampResolver.js`, `OsmDataFixer.js` and the other `roads/*.js` are safe — they only export).
+
+Same shape as the pattern this file already records elsewhere: a tool borrowed to answer a question
+it was not built for.
