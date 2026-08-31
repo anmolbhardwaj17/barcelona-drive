@@ -10,21 +10,26 @@ Measured 2026-08-31, `frontend/public/textures/`:
 
 | pack | size |
 |---|---|
-| vegetation | 12.0 MB |
+| vegetation | ~~12.0~~ → 10.0 MB |
 | road | 5.5 MB |
-| roof | 2.8 MB |
+| roof | ~~2.8~~ → 0.55 MB |
 | sky | 1.9 MB |
 | terrain | 1.8 MB |
 | railway, wall, water | 0.3 MB |
-| **total** | **~~24 MB~~ → 22 MB against a 24 MB cap (§0, ets2-target-audit)** |
+| **total** | **~~24 MB~~ → 20 MB against a 24 MB cap (§0, ets2-target-audit)** |
 
-**Nothing new can ship until something is freed.** Two identified sources of headroom, in order:
+~~**Nothing new can ship until something is freed.**~~ **~4 MB freed on 2026-08-31** — the pack is
+now 20 MB, enough for all four requests below. Both sources are closed out:
 
 1. ~~Roof plates → KTX2 array~~ **DONE 2026-08-31.** 2.83 MB → 0.44 MB (**6.5:1**), plus a
    0.11 MB `.half` for the LOW tier, and VRAM 12 MB → ~3 MB. The pack is now 22 MB, so **there is
    ~2 MB of headroom** — enough for R1 and R2 below, not for all four.
-2. **vegetation/ is half the entire budget (12 MB)** and has never been audited against what is
-   actually sampled. Worth a census before requesting anything new.
+2. ~~vegetation/ has never been audited~~ **AUDITED 2026-08-31.** `rock_atlas` (albedo + normal +
+   both `.half` variants, **1.23 MB**) is referenced in **zero** source files. It was wired by
+   `43f05c5 Wire bush cards and stone rocks` and orphaned when the decorative rock/bush/small-tree
+   scatter was deleted on 2026-08-28 — the texture outlived its only consumer. Archived to
+   `art-src/rocks-v1/unshipped/`. Trees and bushes are both genuinely sampled, normals included
+   (`treeCards.js:124`, `bushCards.js:55`), so the remaining 10 MB is earning its place.
 
 Every request below states its cost so the trade is explicit.
 
