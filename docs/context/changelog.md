@@ -2981,3 +2981,14 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   original reasoning was right — but it can ANCHOR, and the way that ends there comes to meet it.
   Same asymmetry as N-47's tunnel rule, one level down. Anchor priority is now: passes-through
   first (no freedom at all), then a tunnel, then a way pass one left flat, then a ramp.
+- **N-65 — the junction-step chain STOPS here, and the counter says why.** 130 → 102 across
+  N-57/59/60/61. Of the 59 remaining "too short to blend" skips: **a way passes through 58**, more
+  than two ways meet 0, tunnel meets surface 0, genuinely too short even across both sides 1. So
+  the residue is one shape — a short road ending on a long road's middle, unable to absorb a 6 m
+  step alone at ≤25% grade. The only fix left is letting the THROUGH-way bend symmetrically around
+  the node, which is the same "move the thing that should not move" shape that misfired three times
+  in one day (N-56 133→177, N-61's split lifting streets, N-62 costing 6 steps for nothing).
+  **Not attempted.** The remaining 102 are a 6 m step at a T-junction, visible only if you drive
+  onto one. If it is ever revisited, the population is already counted and `junctionStepAudit.mjs`
+  plus the in-bake `[Continuity]` census are the instruments — and note the offline audit
+  OVER-COUNTS, because tiles carry no node ids (see N-58).
