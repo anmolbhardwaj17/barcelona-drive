@@ -24,6 +24,7 @@ import { COLLISION_GROUP_WORLD, COLLISION_GROUP_VEHICLE } from '../collisionGrou
 import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
 import { CANON_LENGTH } from './carModels.js';
 import { audio } from '../audio/audioManager.js';
+import { isRedFor, signalNow } from '../map/trafficSignalRenderer.js';   // T-3 — obey the phase
 import { fleetHasRealLights } from './carModels.js';   // V-6 — skip fake lamp quads
 
 /** Evaluated once: CITY_CARS does not change at runtime. */
@@ -31,6 +32,15 @@ const _realLights = fleetHasRealLights();
 import { bodyColorFor } from './carFleet.js';   // V-5 — per-car body colour
 
 const PASS_DIST = 5.5; // m — a traffic car entering this radius fires a pass-by whoosh
+
+// ── T-3 · STOPPING AT A RED ───────────────────────────────────────────────────────────────────
+// A car looks a short way down its own heading for a signal governing ITS axis. The window has a
+// near edge on purpose: once a car is level with or past the signal it is IN the junction, and
+// stopping there is worse than continuing — it would block the crossing traffic that just went
+// green. Real drivers do the same thing.
+const SIGNAL_LOOK_M = 22;   // start braking this far out — comfortable at trunk speed (16 m/s)
+const SIGNAL_NEAR_M = 3.0;  // past this, committed: do not stop in the junction
+const SIGNAL_LAT_M  = 5.0;  // lateral tolerance — the signal is kerbside, not on the centreline
 
 const DRIVABLE = new Set([
   'residential', 'living_street', 'unclassified',
@@ -101,9 +111,11 @@ const YAXIS = new CANNON.Vec3(0, 1, 0);
 const YAXIS3 = new THREE.Vector3(0, 1, 0);
 
 export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments, getOrigin, contactShadows,
-                                     onPlayerHit }) {
+                                     onPlayerHit, getTrafficSignals }) {
   const cars = [];
   let _enabled = true;
+  let _signals = null;
+  let _signalTime = 0;
 
   // ── Shared fleet resources (resolved once the car kit has loaded) ──
   // `_pool` is the world-wide car BatchedMesh; traffic reserves MAX_CARS slots in it up front and
@@ -324,6 +336,10 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     const origin = getOrigin();
     const d = Math.min(dt || 0.016, 0.05);
     // Per-frame budgets: cap path-extensions AND total path builds so a burst of spawns/extends can't spike.
+    // Cached per frame, not per car: the getter is epoch-cached in tileManager but the physics-frame
+    // conversion is not, and doing it 28 times over would be pointless.
+    _signals = getTrafficSignals?.() || null;
+    _signalTime = signalNow();   // the clock the LAMPS show — never a second one, see signalNow()
     let _extendBudget = 2;
     _buildBudget = 4;   // total buildPath() calls allowed this frame (shared by spawn + extend)
     // The light buffer is rewritten wholesale every frame from the cars that survive this update.
@@ -408,7 +424,24 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         cornerCap = car._turnSlow;
         if (car._turnSlowT <= 0) car._turnSlow = 1;
       }
-      const target = blocked ? 0 : car.speed * cornerCap;
+      // ── T-3 · red light ────────────────────────────────────────────────────────────────────
+      // Same cheap shape as the blocked-ahead test: project the signal into the car's heading and
+      // take the nearest one in the window. ~134 signals x 28 cars is a few thousand adds a frame,
+      // which does not register beside terrain and buildings (see traffic-realism-plan.md).
+      let atRed = false;
+      if (_signals && _signals.length) {
+        for (let si = 0; si < _signals.length; si++) {
+          const sg = _signals[si];
+          // Signals are published in WORLD coords; cars run in the physics frame.
+          const sx = -(sg.x - origin.x), sz = sg.z - origin.z;
+          const ax = sx - cx, az = sz - cz;
+          const ahead = ax * fdx + az * fdz;
+          if (ahead < SIGNAL_NEAR_M || ahead > SIGNAL_LOOK_M) continue;
+          if (Math.abs(-ax * fdz + az * fdx) > SIGNAL_LAT_M) continue;
+          if (isRedFor(sg.axis, _signalTime)) { atRed = true; break; }
+        }
+      }
+      const target = (blocked || atRed) ? 0 : car.speed * cornerCap;
       car.cur += (target - car.cur) * Math.min(1, 5 * d);
       // anti-deadlock: clear a car stuck at ~0 too long — but ONLY if it's far from the player, so a
       // car you're blocking (stopped right in front of you) never vanishes in view.

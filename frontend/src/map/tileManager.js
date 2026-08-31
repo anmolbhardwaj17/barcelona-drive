@@ -46,7 +46,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createFastElevation } from './fastElevation.js';
 import { initWorkerPool, processBuildings as workerProcessBuildings, processVegetation as workerProcessVegetation, cancelTile } from '../workers/workerPool.js';
 import { materializeBuildingMeshes, materializeVegetationMeshes, getVegPools } from '../workers/meshMaterializer.js';
-import { buildTrafficSignals } from './trafficSignalRenderer.js';   // T-2
+import { buildTrafficSignals, axisForHeading, isRedFor } from './trafficSignalRenderer.js';   // T-2 / T-3
 
 let _loggedHfPlacement = false; // one-time terrain-heightfield placement log (G-49 debugging)
 // v3: ?debug=paint — per-second report of road-paint mesh state for the tile the car is in.
@@ -2658,6 +2658,13 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       };
       const sigMesh = buildTrafficSignals(data.trafficSignals, getGroundY, nearestRoad);
       if (sigMesh) { entry.trafficSignalMesh = sigMesh; safeSceneAdd(scene, sigMesh); }
+      // T-3: the same axis the renderer lit, published for the traffic AI. Derived once, here, so a
+      // car and the lamp it is looking at cannot disagree about which phase they are on.
+      entry.trafficSignalAxes = data.trafficSignals.map((sg) => {
+        const r = nearestRoad(sg.point[0], sg.point[1]);
+        return { x: sg.point[0], z: sg.point[1],
+                 axis: axisForHeading(r?.tx ?? 0, r?.tz ?? 1) };
+      });
     }
 
     // Decals
@@ -3626,6 +3633,28 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
   // reads it (checked at the time of writing); a caller that sorts or splices it would corrupt the
   // list for all the others until the next tile load.
   let _segCache = null, _segCacheEpoch = -1;
+  /**
+   * Every loaded traffic signal, in WORLD coords, with the phase axis it governs. T-3.
+   *
+   * Cached against `_tileEpoch` like the road segments: signals only change when a tile loads or
+   * unloads, and rebuilding this per frame for 28 cars would be pure waste.
+   *
+   * The axis is derived HERE, once, from the nearest road tangent — the same rule the renderer uses
+   * to orient the head, so a car and the lamp it is looking at can never disagree about which phase
+   * they are on. Deriving it independently in two places is how that drifts.
+   */
+  let _sigCache = null, _sigCacheEpoch = -1;
+  function getLoadedTrafficSignals() {
+    if (_sigCache !== null && _sigCacheEpoch === _tileEpoch) return _sigCache;
+    const out = [];
+    for (const entry of tileCache.values()) {
+      if (!entry.trafficSignalAxes) continue;
+      for (const s of entry.trafficSignalAxes) out.push(s);
+    }
+    _sigCache = out; _sigCacheEpoch = _tileEpoch;
+    return out;
+  }
+
   function getLoadedRoadSegments() {
     if (_segCache !== null && _segCacheEpoch === _tileEpoch) return _segCache;
     const segments = [];
@@ -3912,6 +3941,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     takeBuildOverruns,
     getBuildPhaseTotals,
     resetBuildPhaseTotals,
+    getLoadedTrafficSignals,
     getLoadedRoadSegments,
     injectSpawnTile,
     setPhotoMode,

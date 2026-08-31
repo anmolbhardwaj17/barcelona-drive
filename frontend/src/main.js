@@ -1064,6 +1064,9 @@ spawnTileReady.finally(() => {
               return Number.isFinite(t) ? t : 0;
             },
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
+            // T-3: the phase axis is derived in tileManager from the same road tangent the
+            // renderer used to orient the head, so a car and the lamp it obeys cannot disagree.
+            getTrafficSignals: () => tileManager.getLoadedTrafficSignals?.() || [],
             getOrigin: getOriginOffset,
             // V-13: the traffic collider switches off at contact, so the impact is applied here
             // as ONE bounded velocity change instead of being left to the solver — letting the

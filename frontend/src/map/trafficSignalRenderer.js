@@ -116,10 +116,39 @@ function getSignalMaterial() {
   return _material;
 }
 
+let _signalNow = 0;
+
 /** Advance every signal in the city. One uniform write — no geometry touched. */
 export function updateSignals(timeSeconds) {
+  _signalNow = timeSeconds;
   const u = _material?.userData?.uniforms;
   if (u && u.uSignalTime) u.uSignalTime.value = timeSeconds % SIGNAL_CYCLE_S;
+}
+
+/**
+ * The clock the LAMPS are currently showing.
+ *
+ * The traffic AI must read this rather than sampling its own `performance.now()`. Both would be the
+ * same clock today — the rAF timestamp shares performance.now's origin — but "same today" is how
+ * two timings drift apart later, and the failure mode is cars stopping at green and driving through
+ * red, which looks deliberate and would be hard to trace.
+ */
+export function signalNow() { return _signalNow; }
+
+/**
+ * Is this axis showing red (or amber) right now? T-3.
+ *
+ * ⚠ MUST MATCH THE SHADER ABOVE. The lamp a driver SEES is chosen in the fragment shader from
+ * `uSignalTime`; this is what a traffic car OBEYS. If the two timings drift, cars stop at green and
+ * sail through red — the worst kind of bug, because everything looks deliberate. Same constants,
+ * same half-cycle offset, deliberately adjacent in this file so they are edited together.
+ *
+ * Amber counts as stop: a driver approaching an amber slows, and treating it as go would put cars
+ * INTO the junction as the phase turns.
+ */
+export function isRedFor(axis, timeSeconds) {
+  const t = (timeSeconds + axis * (SIGNAL_CYCLE_S / 2)) % SIGNAL_CYCLE_S;
+  return t >= 10;   // green 0..10, amber 10..12, red 12..24 — stop from amber onward
 }
 
 /** Which phase group an approach belongs to, from its heading. 0 = A (N-S-ish), 1 = B (E-W-ish). */
