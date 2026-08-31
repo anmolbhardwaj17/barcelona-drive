@@ -1399,7 +1399,35 @@ async function main() {
             type: m.type, closed: true,
           })),
       ].filter((b) => isClosedAreaWater(b.poly, b.type, b.closed));
-      const waterPolysMercator = waterBodies.map((b) => b.poly);
+      // ── A FOUNTAIN IS NOT A LAKE (F-1) ──────────────────────────────────────────────────────
+      // Every water polygon sank the terrain by WATER_SINK_DELTA (2.5 m). OSM maps a plaza fountain
+      // basin as a water polygon, so each one dug a 2.5 m PIT under itself — the user found them:
+      // "where fountains are we have added some depth in terrina get rid of it".
+      //
+      // The sink exists for real bodies of water, where flattening the grid to the surface is what
+      // stops a lake climbing a hillside. A basin a few metres across needs none of that; its water
+      // is drawn by the fountain model itself.
+      //
+      // Area, not tags, because the tagging is inconsistent (natural=water, water=pond,
+      // amenity=fountain all appear). 400 m² is a 20x20 m body: far larger than any fountain basin,
+      // far smaller than anything worth flattening terrain for.
+      const _U2 = Math.cos((41.35 * Math.PI) / 180) ** 2;   // mercator → real area at this latitude
+      const MIN_SINK_AREA_M2 = 400;
+      const polyAreaM2 = (poly) => {
+        let a2 = 0;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          a2 += (poly[j].x + poly[i].x) * (poly[j].y - poly[i].y);
+        }
+        return Math.abs(a2 / 2) * _U2;
+      };
+      const _tinyWater = waterBodies.filter((b) => polyAreaM2(b.poly) < MIN_SINK_AREA_M2).length;
+      if (_tinyWater > 0) {
+        console.log(`  [F-1] ${_tinyWater} water polygons under ${MIN_SINK_AREA_M2} m² excluded from `
+          + 'the terrain sink (fountain basins and the like — they were digging 2.5 m pits)');
+      }
+      const waterPolysMercator = waterBodies
+        .filter((b) => polyAreaM2(b.poly) >= MIN_SINK_AREA_M2)
+        .map((b) => b.poly);
 
       if (waterPolysMercator.length > 0) {
         // Pre-compute bounding boxes for fast rejection

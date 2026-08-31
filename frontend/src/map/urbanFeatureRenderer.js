@@ -451,9 +451,27 @@ function adjustPlacement(wx, wz, angle, type, roads, buildings) {
 
   if (bestCandidate) return { x: bestCandidate.x, z: bestCandidate.z };
 
-  // Last resort: just push away until center clears
-  const fallbackDist = fp.hw + fp.hd + 5;
-  return { x: wx + awayX * fallbackDist, z: wz + awayZ * fallbackDist };
+  // ── IF IT CANNOT BE PLACED CLEAR, DO NOT PLACE IT (U-2) ────────────────────────────────────
+  // This used to push a FIXED distance and return whatever that gave, checking nothing. When the
+  // candidate search failed — a feature mapped in the middle of a wide junction, where every ring
+  // is still on asphalt — the fallback quietly dropped a building into a live lane. The user found
+  // one: "i se epublic toilet on middle of the road man".
+  //
+  // A missing toilet is invisible. A toilet in a carriageway is a wall you crash into, and it is
+  // the kind of defect that makes the whole city look unconsidered. So the last resort is a REAL
+  // search — push out in a widening ring, in every direction rather than only away from the one
+  // nearest road, because "away from this road" is meaningless at a crossroads — and if nothing
+  // clears, return null and let the caller skip the feature.
+  for (let r = 6; r <= 40; r += 4) {
+    for (let a = 0; a < 12; a++) {
+      const th = (a / 12) * Math.PI * 2;
+      const cx2 = wx + Math.cos(th) * r, cz2 = wz + Math.sin(th) * r;
+      if (footprintRoadOverlap(cx2, cz2, fp.hw, fp.hd, angle, roads, margin) > 0) continue;
+      if (buildings && footprintHitsBuilding(cx2, cz2, fp.hw, fp.hd, buildings)) continue;
+      return { x: cx2, z: cz2 };
+    }
+  }
+  return null;   // nowhere clear within 40 m — the caller drops it
 }
 
 // ─── Geometry builders per feature type ─────────────────────────────────────
@@ -977,6 +995,9 @@ const EXCLUSION_RADIUS = {
  * @returns {THREE.Mesh[]}
  */
 export async function buildUrbanFeatureMeshes(features, roads, buildings, getGroundY, yieldFn) {
+  // U-2: features dropped because nowhere within 40 m cleared the carriageway. Counted, not
+  // silent — a feature vanishing needs to be explainable without reading the code.
+  let _skippedNoSpace = 0;
   if (!features || features.length === 0) return [];
   const groundYAt = typeof getGroundY === 'function' ? getGroundY : () => 0;
 
@@ -1014,6 +1035,9 @@ export async function buildUrbanFeatureMeshes(features, roads, buildings, getGro
     // Smart placement: shift position so full footprint clears roads + buildings
     if (FOOTPRINT[f.type] && roads) {
       const adj = adjustPlacement(wx, wz, angle, f.type, roads, buildings);
+      // null = nowhere within 40 m clears the carriageway. Skip it: a missing toilet is invisible,
+      // one standing in a live lane is a wall you crash into.
+      if (!adj) { _skippedNoSpace++; continue; }
       wx = adj.x;
       wz = adj.z;
       // Recompute angle to face nearest road from new position

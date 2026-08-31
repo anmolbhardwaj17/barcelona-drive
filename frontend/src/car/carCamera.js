@@ -52,13 +52,20 @@ export const VIEW_HOOD = 1;
 const VIEW_COUNT = 2;
 
 /** Bonnet camera, relative to the chassis origin (which sits low — see CHASSIS_BOX_OFFSET_Y). */
-// ⚠ MUST SIT OUTSIDE THE CABIN. The M3 is 4.79 m long with a roofline at ~1.47 m, so a camera at
-// the driver's actual eye point (~0.6 m forward, ~1.2 m up) is INSIDE the shell — and with no
-// interior modelled, that means looking at the culled backfaces of the windscreen and roof, i.e.
-// straight through the car. Placed forward of the glass, over the bonnet, where there is geometry
-// in front of it and nothing above it.
-const HOOD_FORWARD = 1.34;   // m ahead of centre — clear of the windscreen, over the bonnet
-const HOOD_HEIGHT  = 1.06;   // m above the chassis origin — just above the bonnet line
+// ⚠ MUST SIT OUTSIDE THE BODYWORK, AND 1.06 m WAS NOT. First attempt put the camera at 1.34 m
+// forward, 1.06 m up and it landed INSIDE the front of the car — the user's shot shows the inside
+// of the bonnet, the backs of the headlights and road through the gaps between panels.
+//
+// The arithmetic I should have done first: the physics chassis box is lifted CHASSIS_BOX_OFFSET_Y
+// (0.5 m) above the body origin and is 1.43 m tall, so the shell spans roughly p.y - 0.2 to
+// p.y + 1.2. Anything inside that band is inside the car, and with no interior modelled that means
+// looking at culled backfaces — the same trap as the cabin, met at the bonnet instead.
+//
+// So the camera goes ABOVE the shell rather than into it: clear of the roofline, far enough forward
+// to look down the bonnet. Slightly high for a true hood cam, and that is the deliberate trade —
+// being definitively outside the geometry beats being nominally correct and inside it.
+const HOOD_FORWARD = 1.05;   // m ahead of centre — over the bonnet
+const HOOD_HEIGHT  = 1.46;   // m above the chassis origin — ABOVE the p.y+1.2 roofline, not in it
 const HOOD_LOOK    = 14.0;   // look well down the road; a short target makes the view feel nose-down
 // Rigid, unlike the chase cam. A bonnet camera is BOLTED to the car — lerping it makes the road
 // swim under a nose that should be fixed, which reads as motion sickness rather than smoothness.
