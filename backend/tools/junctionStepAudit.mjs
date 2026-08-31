@@ -26,8 +26,9 @@ for(const f of files){const b=fs.readFileSync(f),hl=b.readUInt32LE(0);let x=hl;w
   const p=new Float32Array(ab,r.pointsOffset,r.pointCount*3),pts=[];
   for(let i=0;i<r.pointCount;i++){const lon=(p[i*3]/R)*(180/Math.PI),lat=(2*Math.atan(Math.exp(p[i*3+2]/R))-Math.PI/2)*(180/Math.PI);
    pts.push({x:p[i*3]*Math.cos(lat*Math.PI/180),z:p[i*3+2],y:p[i*3+1],lat,lon});}
+  let len=0; for(let i=0;i<pts.length-1;i++) len+=Math.hypot(pts[i+1].x-pts[i].x, pts[i+1].z-pts[i].z);
   ways.set(r.id,{id:r.id,type:r.highwayType,name:r.name||'',br:!!r.bridge,tun:!!r.tunnel,
-   ramp:!!r.isRamp,cross:!!r.crossesTrench,layer:r.layer??0,pts});}}
+   ramp:!!r.isRamp,cross:!!r.crossesTrench,layer:r.layer??0,len,pts});}}
 
 // index every ENDPOINT — a step matters where ways actually join, not where one passes over another
 const C=20, g=new Map();
@@ -51,19 +52,35 @@ for(const list of g.values()) for(const A of list){
       steps.push({ d, a:A.w, b:B.w, lat:A.p.lat, lon:A.p.lon });
     }}}
 steps.sort((x,y)=>y.d-x.d);
+// ── CAN THE STEP EVEN BE BLENDED AWAY? (N-57) ─────────────────────────────────────────────────
+// A correction is absorbed over `reach = step / grade` metres of road. At CONSTRUCT_RAMP_GRADE
+// (0.12) a 6 m step needs 50 m, and most ways meeting at a junction are link roads far shorter —
+// which is exactly why the first N-57 bake only fixed 7 of 133. Reporting the length of the SHORTER
+// side turns "it did not fix them" into "it could not", which are different problems with
+// different answers.
+const MAX_FIX_GRADE = 0.25;
+const blendable = steps.filter(s => {
+  const shortest = Math.min(s.a.len, s.b.len);
+  // Either side may absorb it; a way can spend at most ~90% of its length.
+  return Math.max(s.a.len, s.b.len) * 0.9 > 0 && (s.d / (Math.max(s.a.len, s.b.len) * 0.9)) <= MAX_FIX_GRADE;
+});
+const bothTunnel = steps.filter(s => s.a.tun && s.b.tun);
 const nearStep = steps.filter(s => Math.abs(s.d - LAYER_STEP) < 0.5);
 const involvesStructure = steps.filter(s => s.a.br||s.b.br||s.a.tun||s.b.tun||s.a.cross||s.b.cross);
 const involvesRamp = steps.filter(s => s.a.ramp||s.b.ramp);
 console.log(`drivable ways joined at a shared endpoint but disagreeing on its height (>${STEP_MIN} m): ${steps.length}\n`);
 console.log(`  step within 0.5 m of LAYER_STEP (${LAYER_STEP} m) : ${nearStep.length}   <- base-height-instead-of-profile`);
 console.log(`  at least one side is bridge/tunnel/trench        : ${involvesStructure.length}`);
-console.log(`  at least one side is a RAMP                      : ${involvesRamp.length}\n`);
+console.log(`  at least one side is a RAMP                      : ${involvesRamp.length}`);
+console.log(`  BLENDABLE at <=${MAX_FIX_GRADE * 100}% grade (N-57 could fix)   : ${blendable.length}`);
+console.log(`  both sides are TUNNELS (never moved)            : ${bothTunnel.length}`);
+console.log(`  -> unfixable by reconciliation                  : ${steps.length - blendable.length}\n`);
 const hist={};
 for(const s of steps){ const b=Math.round(s.d); hist[b]=(hist[b]||0)+1; }
 console.log('step size histogram (m -> count):');
 for(const [k,v] of Object.entries(hist).sort((a,b)=>+a[0]-+b[0]))
   console.log(`  ${String(k).padStart(3)}  ${'█'.repeat(Math.min(50,v))} ${v}`);
 console.log('\nworst:');
-console.log('   step  A                                    B                                    spawn');
+console.log('   step   lenA/lenB  A                              B                              spawn');
 for(const s of steps.slice(0,12))
-  console.log(`  ${s.d.toFixed(1).padStart(5)}  ${((s.a.name||s.a.type)+`[${s.a.type}]`+(s.a.br?'BR':'')+(s.a.tun?'TU':'')+(s.a.ramp?'/ramp':'')).slice(0,36).padEnd(37)}${((s.b.name||s.b.type)+`[${s.b.type}]`+(s.b.br?'BR':'')+(s.b.tun?'TU':'')+(s.b.ramp?'/ramp':'')).slice(0,36).padEnd(37)}?mode=fly&spawn=${s.lat.toFixed(5)},${s.lon.toFixed(5)}`);
+  console.log(`  ${s.d.toFixed(1).padStart(5)}  ${(String(Math.round(s.a.len))+'/'+String(Math.round(s.b.len))+'m').padStart(9)}  ${((s.a.name||s.a.type)+`[${s.a.type}]`+(s.a.br?'BR':'')+(s.a.tun?'TU':'')+(s.a.ramp?'/ramp':'')).slice(0,30).padEnd(31)}${((s.b.name||s.b.type)+`[${s.b.type}]`+(s.b.br?'BR':'')+(s.b.tun?'TU':'')+(s.b.ramp?'/ramp':'')).slice(0,30).padEnd(31)}?mode=fly&spawn=${s.lat.toFixed(5)},${s.lon.toFixed(5)}`);
