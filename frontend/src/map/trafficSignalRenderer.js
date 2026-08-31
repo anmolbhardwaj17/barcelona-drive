@@ -33,13 +33,24 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 /** Full cycle, seconds. Both axes share it, offset by half. */
 export const SIGNAL_CYCLE_S = 24;
 
-const POLE_R = 0.055;      // m — a signal pole is slim; the old one read as a bollard
-const POLE_H = 3.05;
+const POLE_R = 0.058;      // m — a signal pole is slim; the old one read as a bollard
+// Barcelona signal poles carry the head well above a van roof. 3.05 m put the main head at
+// windscreen height, which is why they read as short posts rather than signals.
+const POLE_H = 4.05;
 const HEAD_W = 0.24, HEAD_H = 0.70, HEAD_D = 0.20;
-const HEAD_Y = 2.62;       // centre of the main head above the kerb
-const REPEATER_Y = 1.22;   // low repeater — readable from the front of the queue
+const HEAD_Y = 3.35;       // centre of the main head above the kerb — clears vans and buses
+const REPEATER_Y = 1.32;   // low repeater — readable from the front of the queue
 const LENS_R = 0.072;
-const KERB_OFFSET = 0.45;  // m out from the baked point, away from the carriageway
+// ── THE BAKED POINT IS THE STOP LINE, NOT THE POLE ───────────────────────────────────────────
+// OSM tags `highway=traffic_signals` on a NODE OF THE WAY, so the position is on the road
+// CENTRELINE. Measured over the Gran Via tile: 36 signals, median 0.07 m from a centreline, 33 of
+// 36 within 1.5 m. A fixed 0.45 m step therefore planted every pole 2.0 m INSIDE a 5 m carriageway
+// — back in the driving path, which is the exact complaint that got the old system switched off.
+//
+// So the step is the road's own HALF WIDTH plus a kerb margin. The baked point stays useful for
+// what it actually is: where traffic should stop.
+const KERB_MARGIN = 0.75;  // m beyond the carriageway edge — on the pavement, clear of mirrors
+const KERB_FALLBACK_W = 7; // m — assumed width when the road carries none, so a pole never lands mid-lane
 
 const DARK = 0x24272b;     // housing + pole: Barcelona signals are near-black, not mid grey
 
@@ -223,7 +234,8 @@ export function buildTrafficSignals(signals, getGroundY, nearestRoad) {
     // Step to the RIGHT of the carriageway — Barcelona drives on the right, and the old builder's
     // left-hand offset (written for Delhi) is exactly why signals ended up in the driving path.
     const nx = -tz, nz = tx;
-    const px = wx + nx * KERB_OFFSET, pz = wz + nz * KERB_OFFSET;
+    const halfW = ((road?.width > 0 ? road.width : KERB_FALLBACK_W) / 2) + KERB_MARGIN;
+    const px = wx + nx * halfW, pz = wz + nz * halfW;
     const baseY = getGroundY?.(px, pz) ?? 0;
     const facing = Math.atan2(-tx, -tz);          // back down the road, at oncoming traffic
     const fx = -tx, fz = -tz;

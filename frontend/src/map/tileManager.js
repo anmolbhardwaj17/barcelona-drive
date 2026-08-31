@@ -2651,7 +2651,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
             const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2));
             const qx = ax + t * dx, qz = az + t * dz;
             const d = (x - qx) ** 2 + (z - qz) ** 2;
-            if (d < bestD) { bestD = d; const l = Math.sqrt(l2); best = { tx: dx / l, tz: dz / l }; }
+            // Width travels with the tangent: a signal must step to ITS road's kerb, and a fixed
+            // offset plants the pole mid-carriageway (measured: 2.0 m inside a 5 m road).
+            if (d < bestD) {
+              bestD = d; const l = Math.sqrt(l2);
+              best = { tx: dx / l, tz: dz / l, width: r.width || 0 };
+            }
           }
         }
         return bestD < 400 ? best : null;   // 20 m — beyond that it is not this signal's road

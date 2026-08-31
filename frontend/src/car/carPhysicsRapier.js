@@ -214,15 +214,26 @@ export function createCarPhysicsRapier(world, RAPIER, spawnPos, heading) {
     if (brake > 0.05 && signed > 1) {
       ef = 0; // braking handled below
     } else if (throttle > 0.02) {
-      ef = throttle * BASE_ENGINE_FORCE * fade;
+      // ── THROTTLE AGAINST REARWARD MOTION IS A BRAKE FIRST (V-15) ────────────────────────────
+      // Rolling backwards with W held, the engine alone had to cancel all that momentum through
+      // the tyres, because the wheel brakes below only ever engaged going FORWARD. It felt like
+      // the car ignored the input for a beat. A driver in this situation is on the brake, not
+      // feeding power, so the engine backs off and the brake does the work — then full drive
+      // resumes the instant the car is actually going forward.
+      ef = throttle * BASE_ENGINE_FORCE * fade * (signed < -1 ? 0.25 : 1);
     } else if (brake > 0.05) {
       ef = -brake * BASE_ENGINE_FORCE * 0.6; // reverse
     }
     vc.setWheelEngineForce(2, ef);
     vc.setWheelEngineForce(3, ef);
 
-    // Braking on all wheels when braking forward.
-    const brakeForce = (brake > 0.05 && signed > 1) ? brake * 90 : 0;
+    // ── BRAKING IS SYMMETRIC (V-15) ──────────────────────────────────────────────────────────
+    // This used to read `brake > 0.05 && signed > 1` — brakes ONLY while moving forward. So S
+    // slowed you from 60 km/h and W did nothing to slow you from 30 km/h in reverse. The pedal that
+    // opposes your direction of travel is the brake, whichever one it is.
+    const fwdBrake = (brake > 0.05 && signed > 1) ? brake : 0;       // S while rolling forward
+    const revBrake = (throttle > 0.05 && signed < -1) ? throttle : 0; // W while rolling backward
+    const brakeForce = Math.max(fwdBrake, revBrake) * 90;
     for (let i = 0; i < 4; i++) vc.setWheelBrake(i, brakeForce);
 
     // Handbrake → lock rears + drop their grip so the tail steps out (drift).
