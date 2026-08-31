@@ -44,6 +44,84 @@ const DRIVABLE = new Set([
 ]);
 
 /**
+ * N-58 · COINCIDENT BUT NOT JOINED — the distinction an offline audit CANNOT make.
+ *
+ * `backend/tools/junctionStepAudit.mjs` reports ~121 drivable "junction height-steps" by matching
+ * way endpoints that land within 1 m of each other in plan. The bake, matching by shared NODE ID,
+ * found only **36** disagreeing nodes out of 130,308. Both numbers were right; they are answers to
+ * different questions, and the difference was mistaken for a fix failing.
+ *
+ * Tiles carry no node ids, so the offline tool has no way to tell "these two ways are the same road
+ * at a join" from "these two ways happen to end at the same spot and are not connected at all". The
+ * bake can, and the answer decides which subsystem owns the defect: a shared node that disagrees is
+ * a RAMP RESOLVER problem (one of the two heights is wrong and there is no distance to ramp over),
+ * while two unconnected ends that coincide are a TOPOLOGY problem — the dead-end family, where the
+ * fix is a join, not a profile.
+ *
+ * Report only, like everything else in this file.
+ *
+ * @param {object[]} roads
+ * @returns {{ pairs: number, disagreeing: number, worst: object[] }}
+ */
+export function collectCoincidentUnjoined(roads) {
+  const COINCIDE_M = 1.0;
+  const ends = [];
+  for (const r of roads || []) {
+    const ids = r.nodeIds;
+    if (!ids || !r.points || ids.length !== r.points.length || ids.length < 2) continue;
+    if (!DRIVABLE.has(r.highwayType)) continue;
+    for (const i of [0, ids.length - 1]) {
+      const p = r.points[i];
+      const y = (p.length >= 4 && Number.isFinite(p[3])) ? p[3] : p[1];
+      if (!Number.isFinite(y)) continue;
+      ends.push({ road: r, nid: ids[i], x: p[0], z: p[2], y });
+    }
+  }
+  const C = 5, grid = new Map();
+  for (const e of ends) {
+    const k = `${Math.floor(e.x / C)}|${Math.floor(e.z / C)}`;
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(e);
+  }
+  const seen = new Set();
+  let pairs = 0, disagreeing = 0;
+  const worst = [];
+  for (const e of ends) {
+    for (let a = -1; a <= 1; a++) {
+      for (let b = -1; b <= 1; b++) {
+        const l = grid.get(`${Math.floor(e.x / C) + a}|${Math.floor(e.z / C) + b}`);
+        if (!l) continue;
+        for (const o of l) {
+          if (o.road.id === e.road.id) continue;
+          if (o.nid === e.nid) continue;            // genuinely joined — collectJunctionContinuity owns it
+          const key = e.road.id < o.road.id ? `${e.road.id}_${o.road.id}` : `${o.road.id}_${e.road.id}`;
+          if (seen.has(key)) continue;
+          if (Math.hypot(e.x - o.x, e.z - o.z) > COINCIDE_M) continue;
+          seen.add(key);
+          pairs++;
+          const dy = Math.abs(e.y - o.y);
+          if (dy > CONTINUITY_TOL_M) {
+            disagreeing++;
+            worst.push({ dy, a: e.road.name || e.road.highwayType, b: o.road.name || o.road.highwayType });
+          }
+        }
+      }
+    }
+  }
+  worst.sort((p2, q) => q.dy - p2.dy);
+  return { pairs, disagreeing, worst: worst.slice(0, 6) };
+}
+
+/** Print it. Separate from the collector so the bake decides when, like the rest of this file. */
+export function reportCoincidentUnjoined(res) {
+  console.log(`  [Coincident] drivable ends within 1 m of ANOTHER way's end but NOT sharing its `
+    + `node: ${res.pairs}   — of those, ${res.disagreeing} also disagree in height by > ${CONTINUITY_TOL_M} m`);
+  console.log('     these are a TOPOLOGY defect (unjoined), not a ramp-profile one — the offline '
+    + 'junctionStepAudit cannot tell them apart because tiles carry no node ids');
+  for (const w of res.worst) console.log(`     worst: ${w.dy.toFixed(1)} m  ${w.a}  vs  ${w.b}`);
+}
+
+/**
  * @param {object[]} roads - post-geometry roads: { id, nodeIds, points:[[x,y,z,absY]], ... }
  * @returns {{ total: number, byReason: object, worst: object[] }}
  */

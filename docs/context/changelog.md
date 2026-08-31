@@ -2955,3 +2955,20 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   creates more steps than it removes. **Reverted and re-baked; tiles verified back at 133/124/8/1.**
   The real fix needs the neighbour's ACTUAL height at the node, which does not exist when the
   resolver runs — a two-pass RampResolver, not a guard. Left as a decision, not started.
+- **N-57 shared-node reconciliation (KEPT) + N-58 the instrument that explained it.** Pass two of
+  `RampResolver`: every ramp decision is taken from neighbours' BASE heights because that is all
+  that exists while profiles are being computed, so a reconciliation pass now runs last (after
+  `smoothBridgeTransitions`) and bends only the last metres of a profile until both sides of a node
+  agree. It changes NO decision — which is the lesson from N-56, where changing which neighbour a
+  way aims at took steps 133 → 177. Guards: tunnels are never moved (floor slabs + commit-blocking
+  validator), the far end never moves (`reach < L`, or fixing one node relocates the step), and the
+  anchor is the least-free way present. Result **133 → 121**, `floatClassify` **ORPHAN 1 → 0** (the
+  Moll Adossat ramp now meets the deck it shares a node with), FloorValidator unchanged.
+  ⚠ **I predicted 45–60 and was wrong, and the counters are why it matters**: the bake found only
+  **36 disagreeing nodes of 130,308** against the audit's 121. The bake matches by shared NODE ID;
+  `junctionStepAudit` matches endpoints by POSITION within 1 m — different questions. Tiles carry no
+  node ids, so the offline tool *cannot* tell "the same road at a join" from "two unconnected ways
+  ending at the same spot". N-58 (`collectCoincidentUnjoined`, in-bake) measures the difference
+  directly, because it decides which subsystem owns the defect: a shared node that disagrees is a
+  ramp-profile problem, two coincident unjoined ends are a TOPOLOGY problem and belong to the
+  dead-end family. Also new: `backend/tools/defects.mjs`, one command for the whole dashboard.
