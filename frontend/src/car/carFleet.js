@@ -85,6 +85,26 @@ export function createCarPool(scene, templates) {
   scene.add(bm);
 
   const _bodyColor = new THREE.Color();
+  // ── ONE-SHOT COLOUR CENSUS (V-7) ───────────────────────────────────────────────────────────
+  // "i still see only red and black cars", against a palette that hashes to 9 distinct colours in
+  // an offline test and a setColorAt path that reads correct. Three rounds of reasoning have not
+  // settled it, so the code reports on itself instead — the same move as the pillar and embankment
+  // counters. Fires ONCE, ~6 s in, and says whether colours were applied at all and how they
+  // actually landed. If `applied` is 0 the tint never ran; if it is high and `distinct` is 2, the
+  // palette or the seed is collapsing.
+  const _colorCensus = new Map();
+  let _colorApplied = 0, _censusDone = false;
+  if (typeof window !== 'undefined') {
+    setTimeout(() => {
+      if (_censusDone) return;
+      _censusDone = true;
+      const rows = [...
+        _colorCensus.entries()].sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `#${k.toString(16).padStart(6, '0')}x${v}`).join(' ');
+      console.warn(`[carFleet] colour census — setColorAt applied ${_colorApplied} times, `
+        + `${_colorCensus.size} distinct: ${rows || '(none)'}`);
+    }, 6000);
+  }
   let allocated = 0;
   // OUR free list, never BatchedMesh's — see the header. Recycling through this keeps
   // bm._availableInstanceIds empty, which is what stops addInstance from sorting.
@@ -134,7 +154,11 @@ export function createCarPool(scene, templates) {
       if (id < 0) return;
       setGeometryIdSafe(bm, id, geoIds[v % geoIds.length]);
       bm.setMatrixAt(id, matrix);
-      if (colorHex !== undefined && bm.setColorAt) bm.setColorAt(id, _bodyColor.setHex(colorHex));
+      if (colorHex !== undefined && bm.setColorAt) {
+        bm.setColorAt(id, _bodyColor.setHex(colorHex));
+        _colorApplied++;
+        _colorCensus.set(colorHex, (_colorCensus.get(colorHex) || 0) + 1);
+      }
       bm.setVisibleAt(id, true);
     },
 
