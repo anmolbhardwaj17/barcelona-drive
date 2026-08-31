@@ -267,12 +267,18 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
           <stop offset="0%" stop-color="#5fa8ff"/>
           <stop offset="100%" stop-color="#1a6fe8"/>
         </linearGradient>
+        <!-- A soft drop shadow, not a drawn ellipse. The first version stacked a hard shadow
+             ellipse AND an offset darker copy to fake thickness; at 44 px both read as a grey
+             smudge sitting behind the arrow rather than as depth. One blurred shadow does the whole
+             job and keeps the silhouette clean. -->
+        <filter id="mm-nav-drop" x="-60%" y="-60%" width="220%" height="220%">
+          <feDropShadow dx="0" dy="1.6" stdDeviation="1.9"
+                        flood-color="#0a1830" flood-opacity="0.42"/>
+        </filter>
       </defs>
-      <ellipse cx="${mc}" cy="${mc + 7}" rx="13" ry="5" fill="#0b1a2e" opacity="0.30"/>
-      <polygon points="${mc},${mc - 13} ${mc + 11},${mc + 11} ${mc},${mc + 5} ${mc - 11},${mc + 11}"
-               fill="#12539f" transform="translate(0,2.2)"/>
-      <polygon points="${mc},${mc - 13} ${mc + 11},${mc + 11} ${mc},${mc + 5} ${mc - 11},${mc + 11}"
-               fill="url(#mm-nav-face)" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="${mc},${mc - 13} ${mc + 11},${mc + 11} ${mc},${mc + 4.5} ${mc - 11},${mc + 11}"
+               fill="url(#mm-nav-face)" stroke="#ffffff" stroke-width="2.2"
+               stroke-linejoin="round" filter="url(#mm-nav-drop)"/>
     </svg>
   `;
   // Low-poly Batman flying top-down — arms forward, cape flowing, dark colours
