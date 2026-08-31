@@ -84,6 +84,7 @@ export function createCarPool(scene, templates) {
   bm.userData = { sharedGeometry: true, sharedMaterial: true, isCarFleet: true };
   scene.add(bm);
 
+  const _bodyColor = new THREE.Color();
   let allocated = 0;
   // OUR free list, never BatchedMesh's — see the header. Recycling through this keeps
   // bm._availableInstanceIds empty, which is what stops addInstance from sorting.
@@ -114,11 +115,26 @@ export function createCarPool(scene, templates) {
       freeIds.push(id);
     },
 
-    /** Show slot `id` as variant `v` at `matrix`. */
-    place(id, v, matrix) {
+    /**
+     * Show slot `id` as variant `v` at `matrix`, optionally in body colour `colorHex`.
+     *
+     * ── WHY COLOUR ARRIVED LATE (V-5) ────────────────────────────────────────────────────────
+     * The kit cars never needed it: each variant's UVs point at a different swatch of the shared
+     * atlas, so their colour is baked into the geometry and every instance of a variant is the same
+     * car in the same paint. An AUTHORED model has its UVs pinned to a white texel (see V-4 in
+     * carModels.js), so it has no baked colour at all — without this it is a fleet of identical
+     * white hatchbacks.
+     *
+     * Per-instance, so it costs no extra draw: BatchedMesh carries an instance colour exactly as
+     * InstancedMesh does. Only the BODY takes it — glass, lamps, rubber, chrome and cabin are
+     * assigned in the aPart shader branch and never multiplied by the tint, which is what stops a
+     * red car having red windows.
+     */
+    place(id, v, matrix, colorHex) {
       if (id < 0) return;
       setGeometryIdSafe(bm, id, geoIds[v % geoIds.length]);
       bm.setMatrixAt(id, matrix);
+      if (colorHex !== undefined && bm.setColorAt) bm.setColorAt(id, _bodyColor.setHex(colorHex));
       bm.setVisibleAt(id, true);
     },
 
@@ -145,6 +161,29 @@ export function createCarPool(scene, templates) {
  *
  * Usage is strictly begin() → put()×n → commit(); the buffer is rewritten wholesale, never patched.
  */
+// ── BARCELONA BODY COLOURS (V-5) ──────────────────────────────────────────────────────────────
+// Authored cars have their UVs pinned to a white texel, so without a per-instance tint the fleet is
+// a row of identical white hatchbacks. Weighted to what actually parks on a Barcelona street:
+// white and silver dominate, then greys and black, with a little red and blue. Saturated colours
+// are deliberately rare — a street of primary-coloured cars reads as a toy set, which is the exact
+// impression this whole change is trying to remove.
+export const BODY_COLORS = [
+  0xe8e8e6, 0xe8e8e6, 0xe8e8e6,   // white — by far the most common
+  0xc6c9cc, 0xc6c9cc,             // silver
+  0x9aa0a6, 0x6e747a,             // greys
+  0x2b2f33, 0x2b2f33,             // black
+  0xb23a30,                       // red
+  0x2f4f7a,                       // navy
+  0x7a6a52,                       // beige/champagne
+  0x30594a,                       // dark green
+];
+/** Deterministic pick — a car must keep its colour across despawn/respawn, not flicker per frame. */
+export function bodyColorFor(seed) {
+  let h = (seed | 0) || 1;
+  h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
+  return BODY_COLORS[((h >>> 8) & 0xffff) % BODY_COLORS.length];
+}
+
 export const LIGHT_HEAD = 0xfff4d8;
 export const LIGHT_TAIL = 0xff2a12;
 

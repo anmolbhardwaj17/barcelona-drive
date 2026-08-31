@@ -33,11 +33,28 @@ export const CANON_LENGTH = 4.0;
 export const CAR_KIT_PATH = '/models/cars/';
 
 // The normal city cars from the kit (skip tractors/karts/race/debris).
-export const CITY_CARS = [
+// ── THE FLEET IS THE AUTHORED HATCHBACK, FOR NOW (V-5) ────────────────────────────────────────
+// User: "lets have all hatchback for now remove old one and leave rest". The nine kit models stay
+// ON DISK — nothing is deleted — they are simply not in the fleet. Put a name back in this list and
+// it returns; that is the whole mechanism.
+//
+// Variety now comes from PAINT rather than from shape (BODY_COLORS in carFleet.js), which is closer
+// to a real street anyway: a Barcelona block is mostly the same handful of hatchbacks in different
+// colours. More authored bodies join this list as they arrive — taxi, van, sedan.
+export const CITY_CARS = ['hatchback-euro'];
+
+/** Kit models kept on disk and out of the fleet. Restore by moving a name into CITY_CARS. */
+export const RETIRED_KIT_CARS = [
   'sedan', 'sedan-sports', 'suv', 'suv-luxury',
   'hatchback-sports', 'van', 'taxi', 'police', 'delivery',
-  'hatchback-euro',
 ];
+
+// ⚠ The shared material is built from the SEDAN, deliberately, even though it is no longer in the
+// fleet. WHITE_UV below is a texel measured in the SEDAN's atlas, and every authored car's UVs are
+// pinned to it — so if the material came from CITY_CARS[0] (now the hatchback, with its own
+// unrelated atlas) those coordinates would land on some arbitrary swatch and paint the whole fleet
+// that colour. The atlas this material carries must stay the one WHITE_UV was measured against.
+const KIT_MATERIAL_SOURCE = 'sedan';
 
 // ── AUTHORED CARS RIDE THE SHARED MATERIAL WITHOUT ITS ATLAS (V-4) ────────────────────────────
 // Every car in the world shares ONE BatchedMesh and therefore ONE material, built from
@@ -71,14 +88,14 @@ function loadGLTF(url) {
 /**
  * The ONE material every city car renders with.
  *
- * Built from CITY_CARS[0] rather than "whichever template resolved first" so the result does not
- * depend on network ordering. Registered with the material registry so the boot warm-up compiles
+ * Built from KIT_MATERIAL_SOURCE rather than "whichever template resolved first" so the result does
+ * not depend on network ordering — and specifically NOT from CITY_CARS[0], see the note there. Registered with the material registry so the boot warm-up compiles
  * its USE_BATCHING / USE_INSTANCING variants instead of letting the first car on screen do it
  * mid-drive (the `programs.length` delta gate).
  */
 function getKitMaterial() {
   if (_kitMatPromise) return _kitMatPromise;
-  _kitMatPromise = loadGLTF(CAR_KIT_PATH + CITY_CARS[0] + '.glb').then((gltf) => {
+  _kitMatPromise = loadGLTF(CAR_KIT_PATH + KIT_MATERIAL_SOURCE + '.glb').then((gltf) => {
     let src = null;
     gltf.scene.traverse((c) => { if (!src && c.isMesh && c.material) src = c.material; });
     if (!src) throw new Error('[carModels] no material in the kit source model');

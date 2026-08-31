@@ -19,6 +19,7 @@ import { COLLISION_GROUP_WORLD, COLLISION_GROUP_VEHICLE } from '../collisionGrou
 import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
 import { CANON_LENGTH } from './carModels.js';
 import { audio } from '../audio/audioManager.js';
+import { bodyColorFor } from './carFleet.js';   // V-5 — per-car body colour
 
 const PASS_DIST = 5.5; // m — a traffic car entering this radius fires a pass-by whoosh
 
@@ -33,8 +34,9 @@ const SPEED_BY_TYPE = {
   primary: 14, primary_link: 11, trunk: 16, trunk_link: 12,
 };
 
-const MAX_CARS    = 28;   // pool slots reserved in the shared car fleet
-const CAR_LENGTH  = 3.9;  // m — traffic cars are a hair longer than the parked ones
+const MAX_CARS    = 28;
+let _colorSeed = 1;   // advances per spawn so consecutive cars differ   // pool slots reserved in the shared car fleet
+const CAR_LENGTH  = 4.30; // m — see the note in parkedCars.js; was 3.9 and read as toy-sized
 const SPAWN_MIN   = 32;
 const SPAWN_MAX   = 185;
 const DESPAWN     = 240;
@@ -94,7 +96,7 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     _carQ.setFromAxisAngle(YAXIS3, yaw);
     _carP.set(x, y, z);
     _carM.compose(_carP, _carQ, _scaleV);
-    _pool.place(car.slot, car.tplIdx, _carM);
+    _pool.place(car.slot, car.tplIdx, _carM, car.bodyColor);
     const L = _lightLocals[car.tplIdx];
     if (!L) return;
     _lightBase.compose(_carP, _carQ, _one);
@@ -221,7 +223,10 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       body.collisionFilterMask = COLLISION_GROUP_VEHICLE;
       world.addBody(body);
 
-      cars.push({ slot, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl, tplIdx });
+      // Colour is chosen ONCE at spawn and carried on the car. Deriving it per frame from the slot
+      // id would repaint a car every time a slot was recycled, which reads as flickering traffic.
+      cars.push({ slot, body, path, idx: startIdx, frac: 0, speed: path.speed, cur: path.speed, hh, sw, sl, tplIdx,
+                  bodyColor: bodyColorFor(_colorSeed++) });
       return true;
     }
     return false;

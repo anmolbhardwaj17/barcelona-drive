@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { getCarPool, createLightPool, makeLightLocals, LIGHT_HEAD, LIGHT_TAIL } from './carFleet.js';
 import { parkingBayOffset, parkingBayWidth, kerbOffset } from '../map/roadWidths.js';   // R-W1
 import { CANON_LENGTH } from './carModels.js';
+import { bodyColorFor } from './carFleet.js';   // V-5 — per-car body colour
 
 // living_street dropped — those are the tight lanes where big parked cars look unrealistic.
 const DRIVABLE = new Set([
@@ -30,7 +31,12 @@ const MIN_BAY_WIDTH = 1.8;   // m — narrower than this is a kerb stripe, not a
 // a dense 200 m radius actually places, so the old number said nothing about the real ceiling. This
 // one does, which is why it is set with headroom and why binding it logs (see put()).
 const CAPACITY     = 512;
-const CAR_LENGTH   = 3.8;  // m
+// ── SIZED AGAINST THE PLAYER'S CAR, NOT INVENTED (V-5) ────────────────────────────────────────
+// Was 3.8 m while the player drives a 4.79 m M3 — a 20% deficit, and the user saw it immediately:
+// "they appear too smaller than my car". Real Barcelona hatchbacks are 4.05-4.30 m (Ibiza 4.06,
+// Corsa 4.06, Golf 4.28), so the old number was not a stylistic choice, it was simply wrong.
+// 4.25 m sits mid-range and closes the gap to the player without making traffic look oversized.
+const CAR_LENGTH   = 4.25; // m
 const SPACING      = 17.5; // m between parked-car slots (widened ~20% → fewer cars, better perf)
 const RANGE        = 200;  // m — place within this radius of the player
 const REBUILD_DIST = 35;   // m — player movement before a rebuild
@@ -105,7 +111,7 @@ export function createParkedCars({ scene, getRoadSegments, getGroundY, getOrigin
     // The car matrix carries CAR_SCALE (the pool's geometry is canonical); the light matrix must not,
     // because the light offsets are already in CAR_LENGTH units. See makeLightLocals.
     _m.compose(_p, _q, _s);
-    _pool.place(_slots[_used++], variant, _m);
+    _pool.place(_slots[_used++], variant, _m, bodyColorFor(Math.round(px * 7.31 + pz * 13.17)));
     _blobs.push(px, py, pz, yaw);   // v3 P0-15 — flat quads: x, y, z, yaw
 
     const L = lightLocals[variant];
