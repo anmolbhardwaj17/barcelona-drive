@@ -241,7 +241,7 @@ export function createEscMenu(refs = {}) {
   // Right-hand cluster: back to the hub, then close. The hub is where modes and the city live now,
   // so settings needs a door to it or the only way back is a reload.
   const topActions = el('div', 'dd-esc-topactions');
-  if (refs.onMainMenu) {
+  if (refs.onMainMenu && !refs.embedded) {
     const hubBtn = el('div', 'dd-esc-back', 'Main Menu');
     hubBtn.addEventListener('click', () => { uiSound.click(); setOpen(false); refs.onMainMenu(); });
     topActions.appendChild(hubBtn);
@@ -381,8 +381,16 @@ export function createEscMenu(refs = {}) {
   // (No BACK button — the ✕ top-right and Esc both close the menu.)
 
   document.body.appendChild(overlay);
-  const fab = el('div', 'dd-esc-fab', '☰'); fab.title = 'Settings (Esc)';
-  fab.addEventListener('click', () => setOpen(true)); document.body.appendChild(fab);
+  // ── EMBEDDED MODE ─────────────────────────────────────────────────────────────────────────────
+  // When the hub hosts this page as its SETTINGS tab, this module must not also be a screen: no
+  // overlay of its own, no ☰ button, no ESC binding. Two menus that both answer ESC is exactly the
+  // duplication the hub was built to remove. Fly mode has no hub, so there it stays standalone.
+  const embedded = !!refs.embedded;
+  let fab = null;
+  if (!embedded) {
+    fab = el('div', 'dd-esc-fab', '☰'); fab.title = 'Settings (Esc)';
+    fab.addEventListener('click', () => setOpen(true)); document.body.appendChild(fab);
+  }
 
   // ── Spawn ──
   function spawnAt(lat, lon) { const u = new URL(window.location.href); u.searchParams.set('spawn', `${lat.toFixed(5)},${lon.toFixed(5)}`); window.location.href = u.toString(); }
@@ -418,7 +426,7 @@ export function createEscMenu(refs = {}) {
   }
   function setOpen(v) {
     if (v !== open) (v ? uiSound.open() : uiSound.back());
-    open = v; overlay.classList.toggle('open', v); fab.style.display = v ? 'none' : 'flex';
+    open = v; overlay.classList.toggle('open', v); if (fab) fab.style.display = v ? 'none' : 'flex';
     setInputBlocked(v);                    // pause car/recover/horn input while the menu is open
     if (v) {
       for (const s of syncers) s();        // refresh live toggle states on open
@@ -431,7 +439,15 @@ export function createEscMenu(refs = {}) {
   } // no auto-focus — search only focuses on click
   window.addEventListener('resize', () => { if (open) sizeShowcase(); });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) setOpen(false); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(!open); } });
+  if (!embedded) {
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(!open); } });
+  }
 
-  return { open: () => setOpen(true), close: () => setOpen(false), isOpen: () => open };
+  return {
+    open: () => setOpen(true), close: () => setOpen(false), isOpen: () => open,
+    /** The settings page itself, for the hub to re-parent into its SETTINGS tab. */
+    pageElement: page,
+    /** Refresh toggles whose state can change outside this menu. The hub calls it on tab show. */
+    runSyncers: () => { for (const sy of syncers) sy(); },
+  };
 }

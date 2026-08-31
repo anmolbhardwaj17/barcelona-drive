@@ -18,6 +18,7 @@
  * can replace those files without a code change.
  */
 import { uiSound } from './uiSound.js';
+import { setInputBlocked } from '../inputGate.js';
 import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
 import { latLonToWorld } from '../projection.js';
@@ -69,7 +70,32 @@ const CSS = `
 .dd-mm-cash .lbl { font-size:9px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--e-dim); }
 .dd-mm-cash .amt { font:700 20px 'Inter',system-ui,sans-serif; color:var(--e-accent); letter-spacing:0.04em;
   font-variant-numeric:tabular-nums; line-height:1; }
-.dd-mm-topright { display:flex; align-items:center; gap:12px; }
+.dd-mm-topright { display:flex; align-items:center; gap:10px; }
+/* Tabs, not a second screen. GARAGE and SETTINGS are two views of one menu — the whole reason
+   the ESC overlay was folded in here was that two menus with two looks answering one key is
+   duplication, not depth. */
+.dd-mm-tab { cursor:pointer; user-select:none; padding:11px 22px; font-size:11px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.16em; color:var(--e-dim);
+  background:linear-gradient(180deg,#1d242d,#171d25); border:1px solid var(--e-line);
+  border-bottom:2px solid transparent; transition:color .14s, background .14s, border-color .14s; }
+.dd-mm-tab:hover { color:var(--e-text); background:linear-gradient(180deg,#242d38,#1b222b); }
+.dd-mm-tab.on { color:var(--e-accent); border-bottom-color:var(--e-accent); background:linear-gradient(180deg,#2b2418,#1d1810); }
+/* The re-parented settings page. Capped and centred so a long settings column does not become a
+   full-width wall of toggles on a wide monitor. */
+.dd-mm-settings { display:none; grid-column:1 / -1; overflow-y:auto; min-height:0; padding-right:12px; }
+.dd-mm-settings.on { display:block; }
+.dd-mm-settings > * { max-width:760px; }
+.dd-mm-settings::-webkit-scrollbar { width:9px; }
+.dd-mm-settings::-webkit-scrollbar-track { background:#111720; }
+.dd-mm-settings::-webkit-scrollbar-thumb { background:var(--e-line); }
+#dd-mm.settings .dd-mm-col { display:none; }
+/* ☰ — opens the hub in-game. Moved here from the ESC menu, which no longer owns a screen. */
+.dd-mm-fab { position:fixed; top:12px; left:12px; z-index:1500; width:40px; height:40px;
+  display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--e-text); cursor:pointer;
+  background:rgba(22,28,35,0.72); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(74,87,101,0.85); border-left:2px solid rgba(230,163,60,0.75);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.35); }
+.dd-mm-fab:hover { background:rgba(38,47,57,0.88); }
 .dd-mm-btn { cursor:pointer; user-select:none; padding:11px 20px; font-size:11px; font-weight:700;
   text-transform:uppercase; letter-spacing:0.16em; color:var(--e-text);
   background:linear-gradient(180deg,#252e38,#1a212a); border:1px solid var(--e-line-hi);
@@ -191,9 +217,13 @@ export function createMainMenu(refs = {}) {
   topLeft.appendChild(logo); topLeft.appendChild(cash);
   top.appendChild(topLeft);
   const topRight = el('div', 'dd-mm-topright');
-  const settingsBtn = el('div', 'dd-mm-btn', 'Settings');
-  settingsBtn.addEventListener('click', () => { uiSound.click(); refs.onOpenSettings?.(); });
-  topRight.appendChild(settingsBtn);
+  const tabGarage = el('div', 'dd-mm-tab on', 'Garage');
+  const tabSettings = el('div', 'dd-mm-tab', 'Settings');
+  const resumeBtn = el('div', 'dd-mm-btn', 'Resume');
+  tabGarage.addEventListener('click', () => { uiSound.click(); setTab('garage'); });
+  tabSettings.addEventListener('click', () => { uiSound.click(); setTab('settings'); });
+  resumeBtn.addEventListener('click', () => setOpen(false));
+  topRight.appendChild(tabGarage); topRight.appendChild(tabSettings); topRight.appendChild(resumeBtn);
   top.appendChild(topRight);
   root.appendChild(top);
 
@@ -267,8 +297,30 @@ export function createMainMenu(refs = {}) {
   rightCol.appendChild(places);
   body.appendChild(rightCol);
 
-  root.appendChild(el('div', 'dd-mm-foot', 'Esc — settings · Double-click a mode to start it'));
+  // Settings lives in the same grid, spanning it, with the three garage columns hidden behind
+  // `#dd-mm.settings`. The page itself is escMenu's, re-parented — the same move the paint picker
+  // already makes — so there is exactly one implementation of every toggle.
+  const settingsHost = el('div', 'dd-mm-settings');
+  body.appendChild(settingsHost);
+  let settingsMounted = false;
+  let tab = 'garage';
+  function setTab(t) {
+    tab = t;
+    tabGarage.classList.toggle('on', t === 'garage');
+    tabSettings.classList.toggle('on', t === 'settings');
+    settingsHost.classList.toggle('on', t === 'settings');
+    root.classList.toggle('settings', t === 'settings');
+    if (t !== 'settings') return;
+    if (!settingsMounted && refs.settingsPage) { settingsHost.appendChild(refs.settingsPage); settingsMounted = true; }
+    refs.onSettingsShown?.();   // re-sync toggles whose state can change outside this menu
+  }
+
+  root.appendChild(el('div', 'dd-mm-foot', 'Esc — close · Double-click a mode to start it'));
   document.body.appendChild(root);
+
+  const fab = el('div', 'dd-mm-fab', '☰'); fab.title = 'Menu (Esc)';
+  fab.addEventListener('click', () => setOpen(true));
+  document.body.appendChild(fab);
 
   /** Draw the whole city into the map panel. World bounds, because that is what drawTile takes. */
   function drawCityMap() {
@@ -301,9 +353,13 @@ export function createMainMenu(refs = {}) {
 
   function setOpen(v) {
     if (v === open) return;
+    uiSound[v ? 'open' : 'back']?.();
     open = v;
     root.classList.toggle('open', v);
+    fab.style.display = v ? 'none' : 'flex';
+    setInputBlocked(v);          // pause car/recover/horn input — main.js reads isOpen() for the real pause
     if (!v) { showcase?.stop?.(); return; }
+    setTab('garage');            // always land on the garage; settings is somewhere you go, not where you arrive
     paintCash();
     if (refs.colorPanelElement && refs.colorPanelElement.parentElement !== paint) paint.appendChild(refs.colorPanelElement);
     repaint();
@@ -318,6 +374,13 @@ export function createMainMenu(refs = {}) {
   }
 
   window.addEventListener('resize', () => { if (open) drawCityMap(); });
+  // The one ESC binding in the game now. escMenu drops its own in embedded mode.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    if (open && tab === 'settings') { setTab('garage'); return; }   // back out a level first
+    setOpen(!open);
+  });
 
   return { open: () => setOpen(true), close: () => setOpen(false), isOpen: () => open, element: root };
 }

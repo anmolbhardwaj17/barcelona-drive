@@ -1194,8 +1194,11 @@ spawnTileReady.finally(() => {
       metricsElements: [metricsPanel?.element, performancePanel?.element],
       carMode: ENABLE_CAR,   // resolved mode (URL ?mode outranks dd_flyMode) — for an honest Fly-mode toggle
       // ⚠ NO `gameModes` any more. Modes moved to the hub (mainMenu.js): they were offered in two
-      // places, and a settings menu is not where you choose what to play. ESC is settings only.
-      onMainMenu: () => mainMenu?.open?.(),
+      // places, and a settings menu is not where you choose what to play.
+      // ⚠ EMBEDDED whenever there is a hub to host it: the hub owns the ESC key, the ☰ button and
+      // the pause, and this becomes its SETTINGS tab rather than a second overlay with its own
+      // look. Fly mode has no hub, so there this stays a standalone screen.
+      embedded: !!carDriver,
     });
     // The hub — modes left, car centre, city right. Opened once the world is drivable, and from
     // the settings menu's MAIN MENU button.
@@ -1204,7 +1207,8 @@ spawnTileReady.finally(() => {
         gameModes: [dashMode, taxiMode, deliveryMode, policeMode],
         customMap,
         colorPanelElement: document.getElementById('dd-car-color-panel'),
-        onOpenSettings: () => escMenu?.open?.(),
+        settingsPage: escMenu?.pageElement,        // re-parented into the SETTINGS tab
+        onSettingsShown: () => escMenu?.runSyncers?.(),
       });
     }
     // Debug overlays are DEV-ONLY: never wire the ?debug= query params or the K-key toggle in a production
@@ -1656,7 +1660,8 @@ function animate(time = 0) {
     // Rendering deliberately CONTINUES: the menu draws a live car showcase, and the frame loop also
     // owns the adaptive-resolution probe and the shader-variant watch. Freezing the loop to freeze
     // the simulation would stop those too.
-    const _paused = !!escMenu?.isOpen?.();
+    // Either screen counts: the hub in car mode, the standalone settings overlay in fly mode.
+    const _paused = !!escMenu?.isOpen?.() || !!mainMenu?.isOpen?.();
     carDriver.update(frameDt, !!(taxiMode?.isCinematic?.() || deliveryMode?.isCinematic?.()) || _titleLive || _titleUp,
                      _carHold, _paused);
 
