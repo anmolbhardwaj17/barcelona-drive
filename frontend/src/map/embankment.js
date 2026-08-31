@@ -75,3 +75,35 @@ export function findEmbankedRuns(ok) {
   }
   return runs;
 }
+
+/**
+ * Keep only runs that are an APPROACH — one that reaches ground level at an end.
+ *
+ * ⚠ WHY THIS EXISTS. The rule "clear ground beneath -> embankment" cannot tell two different
+ * structures apart, and shipped the wrong one. An embankment is FILL: the ground rises to the road,
+ * so the run must come down to grade somewhere. A deck crossing open parkland is a VIADUCT — clear
+ * ground beneath it too, but held up at points, not filled under.
+ *
+ * Measured on the first drive that showed it: `embanked 67` pillar spots against `built 5` pillars,
+ * so the skirt was claiming nearly every support in the city, and a flyover over a park rendered as
+ * two long hollow concrete boxes under the deck (user screenshot, 2026-08-31).
+ *
+ * A run bounded by an at-grade section is a bridge approach and gets its skirt. A run bounded at
+ * BOTH ends by more elevated road is mid-span, and mid-span is what piers are for.
+ *
+ * A run touching the way's own first/last index is kept: the road continues into another way there,
+ * and refusing would drop the approach at every tile boundary.
+ *
+ * @param {{s:number,e:number}[]} runs
+ * @param {boolean[]} atGrade per-section "this cross-section is below the float minimum"
+ * @param {number} n total cross-sections
+ */
+export function keepApproachRuns(runs, atGrade, n) {
+  return runs.filter(({ s, e }) => {
+    const startsAtWayEnd = s === 0;
+    const endsAtWayEnd = e === n - 1;
+    const dropsBefore = s > 0 && atGrade[s - 1];
+    const dropsAfter = e < n - 1 && atGrade[e + 1];
+    return startsAtWayEnd || endsAtWayEnd || dropsBefore || dropsAfter;
+  });
+}

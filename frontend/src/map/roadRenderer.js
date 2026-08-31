@@ -30,7 +30,7 @@ import { applyGroundLayer, ROAD_VISUAL_ABOVE_TERRAIN, groundLift, roadDeckY, CUR
 import { ROAD_V2_PARS, ROAD_V2_APPLY, ROAD_V2_UNIFORMS, ROAD_V2_NORMAL_PARS, ROAD_V2_NORMAL_APPLY, createAsphaltTexture } from './roadMaterial.js';   // v3 P3-07 / P3-07c
 import { getRoadSurface } from './roadTexturePack.js';   // v3 P3-07b / P3-08 — authored surfaces
 import { getConcreteTextures } from './tunnelTextures.js';   // N-54 — embankments reuse the trench retaining plate
-import { resampleForSkirt, findEmbankedRuns } from './embankment.js';   // N-54 — the testable half
+import { resampleForSkirt, findEmbankedRuns, keepApproachRuns } from './embankment.js';   // N-54 / N-64
 import { createRoadTextures } from './generate-road-atlas.js';
 
 /**
@@ -3456,7 +3456,7 @@ function buildEmbankmentSkirtMeshes(roads, options, shared) {
   // D-23 proof of work: a skirt builder that finds nothing looks identical to one that is never
   // reached, and the pillar counters exist because that exact ambiguity cost a session.
   const st = { roadsIn: (roads || []).length, considered: 0, sections: 0, embanked: 0,
-               belowMin: 0, tooTall: 0, obstructed: 0, runs: 0, tris: 0 };
+               belowMin: 0, tooTall: 0, obstructed: 0, runs: 0, runsRejectedMidSpan: 0, tris: 0 };
 
   for (const road of roads || []) {
     if (road.tunnel || !road.points || road.points.length < 2) continue;
@@ -3477,6 +3477,9 @@ function buildEmbankmentSkirtMeshes(roads, options, shared) {
     if (leftEdge.length < n || rightEdge.length < n) continue;
 
     const ok = new Array(n).fill(false);
+    // "Below the float minimum" — i.e. the road is essentially on the ground here. N-64 needs this
+    // to tell an APPROACH (comes down to grade at an end) from a mid-span run over open ground.
+    const atGrade = new Array(n).fill(false);
     const groundY = new Array(n).fill(0);
     for (let i = 0; i < n; i++) {
       const p = rs.pts[i];
@@ -3485,7 +3488,7 @@ function buildEmbankmentSkirtMeshes(roads, options, shared) {
       groundY[i] = g;
       st.sections++;
       const h = rs.heights[i] - g;
-      if (h < MIN_BRIDGE_STRUCTURE_HEIGHT) { st.belowMin++; continue; }
+      if (h < MIN_BRIDGE_STRUCTURE_HEIGHT) { st.belowMin++; atGrade[i] = true; continue; }
       if (h > EMBANKMENT_MAX_H) { st.tooTall++; continue; }
       // The viaduct test, and the reason this cannot wall up an underpass: anything crossing
       // beneath — a ground road or a carved trench corridor — means the deck spans something and
@@ -3497,7 +3500,11 @@ function buildEmbankmentSkirtMeshes(roads, options, shared) {
       ok[i] = true; st.embanked++;
     }
 
-    for (const { s, e } of findEmbankedRuns(ok)) {
+    // N-64: a run that never reaches grade is a viaduct span, not fill. Leave it to the pillars.
+    const allRuns = findEmbankedRuns(ok);
+    const approachRuns = keepApproachRuns(allRuns, atGrade, n);
+    st.runsRejectedMidSpan += allRuns.length - approachRuns.length;
+    for (const { s, e } of approachRuns) {
       buildSkirtRun(pos, uv, leftEdge, rightEdge, rs, groundY, s, e, topDrop);
       st.runs++;
     }

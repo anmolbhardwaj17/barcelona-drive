@@ -74,3 +74,36 @@ test('all-eligible and none-eligible are both handled', () => {
   assert.deepEqual(findEmbankedRuns([false, false]), []);
   assert.deepEqual(findEmbankedRuns([]), []);
 });
+
+// ── N-64 · AN EMBANKMENT IS AN APPROACH, A VIADUCT IS NOT ──────────────────────────────────────
+// The rule "clear ground beneath -> embankment" shipped the wrong structure. Measured on the drive
+// that exposed it: `embanked 67` pillar spots against `built 5` pillars, and a flyover over a park
+// rendered as two long hollow concrete boxes under the deck.
+import { keepApproachRuns } from '../src/map/embankment.js';
+
+test('a run that comes down to grade after it IS an approach', () => {
+  // sections:      0 elevated, 1 elevated, 2 at grade
+  const runs = [{ s: 0, e: 1 }];
+  assert.deepEqual(keepApproachRuns(runs, [false, false, true], 3), [{ s: 0, e: 1 }]);
+});
+
+test('a run elevated at BOTH ends is mid-span — piers, not fill', () => {
+  // The deck is high before AND after: nothing to fill against. This is the park flyover.
+  const runs = [{ s: 2, e: 3 }];
+  const atGrade = [false, false, false, false, false, false];
+  assert.deepEqual(keepApproachRuns(runs, atGrade, 6), []);
+});
+
+test('a run touching the way\'s own end is kept — the road continues into another way', () => {
+  // Refusing here would drop the approach at every tile boundary, which is where ways are split.
+  assert.deepEqual(keepApproachRuns([{ s: 0, e: 2 }], [false, false, false], 3), [{ s: 0, e: 2 }]);
+  assert.deepEqual(keepApproachRuns([{ s: 1, e: 3 }], [false, false, false, false], 4),
+    [{ s: 1, e: 3 }]);
+});
+
+test('grade on either side qualifies — an approach can descend at either end', () => {
+  const before = keepApproachRuns([{ s: 1, e: 2 }], [true, false, false, false], 4);
+  const after = keepApproachRuns([{ s: 1, e: 2 }], [false, false, false, true], 4);
+  assert.equal(before.length, 1, 'descends before the run');
+  assert.equal(after.length, 1, 'descends after the run');
+});
