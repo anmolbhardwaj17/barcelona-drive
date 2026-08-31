@@ -23,7 +23,7 @@ async function mergeBudgeted(geoms, yieldFn) {
 
 let _matForecourtBand, _matForecourtTrim, _matForecourtRoof,
     _matCabinShell, _matCabinRoof, _matCabinDoor,
-    _matSteel, _matRed, _matWhite, _matConcrete, _matWater, _matSpray, _matStone,
+    _matSteel, _matRed, _matWhite, _matConcrete, _matWater, _matWaterDeep, _matSpray, _matStone,
     _matYellow, _matDarkGray,
     _matBrown, _matBeige, _matIronGreen;
 
@@ -73,6 +73,10 @@ function matWater()    { return _matWater    || (_matWater    = shared(new THREE
 // FALLING water is a different material, not a tint of the still kind. Aerated water is near-WHITE
 // and barely opaque; drawing it in pool-blue at 0.75 is what made the old strands read as blue wire.
 // depthWrite off so overlapping sheets don't z-fight, DoubleSide because the veil is open-ended.
+// DEEP water — the middle of the basin. One flat blue disc reads as painted card however good the
+// blue is, because still water's whole tell is that it gets DARKER where it gets deeper. This is
+// that second tone, and it costs one ring.
+function matWaterDeep(){ return _matWaterDeep|| (_matWaterDeep= shared(new THREE.MeshPhongMaterial({ color: 0x1d5675, emissive: 0x08202e, specular: 0x9fd4ee, shininess: 130, transparent: true, opacity: 0.92 }))); }
 function matSpray()    { return _matSpray    || (_matSpray    = shared(new THREE.MeshPhongMaterial({ color: 0xe8f3f7, emissive: 0x1b2b31, specular: 0xffffff, shininess: 120, transparent: true, opacity: 0.30, depthWrite: false, side: THREE.DoubleSide }))); }
 function matYellow()   { return _matYellow   || (_matYellow   = shared(new THREE.MeshLambertMaterial({ color: 0xeecc22 }))); }
 function matDarkGray() { return _matDarkGray || (_matDarkGray = shared(new THREE.MeshLambertMaterial({ color: 0xffffff, map: atlasCell(1, 0) }))); }
@@ -605,9 +609,29 @@ function buildFountain() {
   geos.push({ geo: inner, mat: 'stone' });
 
   // Water sits BELOW the rim, not level with it — a basin filled to the brim looks like a puddle.
-  const water = new THREE.CylinderGeometry(BASIN_R - RIM_W - 0.02, BASIN_R - RIM_W - 0.02, 0.04, segs);
-  water.translate(0, RIM_H * 0.62, 0);
+  const poolR = BASIN_R - RIM_W - 0.02;
+  const poolY = RIM_H * 0.62;
+  const water = new THREE.CylinderGeometry(poolR, poolR, 0.04, segs);
+  water.translate(0, poolY, 0);
   geos.push({ geo: water, mat: 'water' });
+
+  // ── TWO TONES, WHICH IS WHAT MAKES IT READ AS WATER ──────────────────────────────────────────
+  // The single disc above is a good blue and still reads as blue card, because a flat fill has no
+  // cue that says "you are looking INTO something". Still water's cue is that it darkens toward the
+  // middle, where it is deeper — so the centre gets a second, deeper ring. An annulus rather than a
+  // disc so it never fights the plinth standing in the middle of it.
+  const deep = new THREE.RingGeometry(0.66, poolR * 0.62, segs);
+  deep.rotateX(-Math.PI / 2);
+  deep.translate(0, poolY + 0.021, 0);        // 1 mm proud of the pool top — no z-fight, no gap
+  geos.push({ geo: deep, mat: 'waterDeep' });
+
+  // Where the veil lands, water is broken and aerated, so it goes pale rather than dark. This ring
+  // is the only thing in the basin that ties the falling water to the standing water; without it
+  // the curtain reads as passing THROUGH the pool rather than into it.
+  const splash = new THREE.RingGeometry(1.06, 1.46, segs);
+  splash.rotateX(-Math.PI / 2);
+  splash.translate(0, poolY + 0.024, 0);
+  geos.push({ geo: splash, mat: 'spray' });
 
   // ── Cast-iron centrepiece ────────────────────────────────────────────────────────────────────
   const plinth = new THREE.CylinderGeometry(0.46, 0.58, 0.34, 8);
@@ -978,7 +1002,7 @@ function buildDrinkingFountain() {
 
 const MAT_MAP = {
   steel: matSteel, red: matRed, white: matWhite, stone: matStone,
-  concrete: matConcrete, water: matWater, spray: matSpray,
+  concrete: matConcrete, water: matWater, waterDeep: matWaterDeep, spray: matSpray,
   yellow: matYellow, darkGray: matDarkGray,
   forecourtBand: matForecourtBand, forecourtTrim: matForecourtTrim, forecourtRoof: matForecourtRoof,
   cabinShell: matCabinShell, cabinRoof: matCabinRoof, cabinDoor: matCabinDoor,
