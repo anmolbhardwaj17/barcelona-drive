@@ -648,10 +648,17 @@ export function createScene(container) {
         color = mix(color, zn, smoothstep(0.25, 1.0, t));
         // Art-of-rally warm sun scatter: a tight glow around the sun + a broad wash along the horizon
         // near the sun azimuth. Fades out above the horizon so the zenith stays clean blue.
+        //
+        // ⚠ MUST BE GATED BY uNight, AND WAS NOT. The gradient above and the cloud layer below both
+        // cross-fade on uNight; this term was added unconditionally, so at night a warm cream glow
+        // (uSunGlow #ffcf9e) was still being ADDED to the night sky at full strength. The broad
+        // lobe is pow(sun, 2.5), which is wide enough to wash most of the dome — it read as bloom,
+        // but nothing here is bloom: it is a sun that never set. Fading it linearly keeps dusk and
+        // dawn working, which is the whole reason the term exists.
         float sun = max(dot(dir, normalize(uSunDir)), 0.0);
         float horizonFade = 1.0 - smoothstep(0.0, 0.5, h);
         vec3 glow = uSunGlow * (pow(sun, 9.0) * 0.55 + pow(sun, 2.5) * 0.22 * horizonFade) * uRally;
-        color += glow;
+        color += glow * (1.0 - uNight);
 
         // ── Clouds ────────────────────────────────────────────────────────────────────────────
         // Equirect lookup from the view direction. atan(z, x) is periodic, so the seam is exact
