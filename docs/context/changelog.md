@@ -3011,3 +3011,8 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   drivable segment on the same layer, with a push-to-clear search. Lamps that cannot escape are
   dropped; signals are only nudged (a missing signal is worse than an imperfect one).
   `window._ddLampStats()` / `window._ddSignalStats()`, cumulative across tiles.
+- **Night sky "bloom" was a sun that never set (2026-09-02).** The sky dome's warm sun-scatter term
+  (`uSunGlow` #ffcf9e) was added to `color` unconditionally while the gradient and the cloud layer
+  both cross-faded on `uNight`. At night the glow kept being added at full strength, and its broad
+  `pow(sun, 2.5)` lobe washed most of the dome. Now `color += glow * (1.0 - uNight)`, which also
+  keeps dusk/dawn working. `frontend/src/scene.js`, sky fragment shader.
