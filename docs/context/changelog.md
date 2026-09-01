@@ -3016,3 +3016,14 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   both cross-faded on `uNight`. At night the glow kept being added at full strength, and its broad
   `pow(sun, 2.5)` lobe washed most of the dome. Now `color += glow * (1.0 - uNight)`, which also
   keeps dusk/dawn working. `frontend/src/scene.js`, sky fragment shader.
+- **Road corners are filleted at parse time (2026-09-02).** `frontend/src/map/roadSmoothing.js`,
+  applied inside `roadToWorld` in `tileParserWorker.js` — the ONE point every consumer (ribbon,
+  kerbs, markings, physics colliders, guard-rail mask) reads `road.points` from, so the player and
+  the car get the same geometry. Measured, not estimated: drivable mean sharpest turn per way
+  **11.0° → 5.1°**; drivable vertices **+26.8%** (2,360 → 2,992 collider segments at 18 resident
+  tiles, i.e. +632 boxes — colliders are per-segment, so this is the number that costs); all road
+  classes **+53.8%**, the rest being render-only footways. **Zero extra fragments** — same asphalt
+  area, rounder edge — which matters because roads are fill-bound (`?roadv2=0`). Endpoint drift is
+  exactly 0 across all 39,627 ways: junction continuity (N-57..N-61, 130 → 102 steps) depends on
+  ways agreeing about shared node positions, so only interior vertices are touched. **No re-bake
+  needed.**

@@ -20,6 +20,7 @@
 const MERCATOR_UNSTRETCH = Math.cos((41.350 * Math.PI) / 180);
 
 import { buildTerrainFromGrid } from './terrainGrid.js';   // v3 P4-01 — see the note at bakedTerrain
+import { smoothPolyline } from './roadSmoothing.js';
 
 const textDecoder = new TextDecoder();
 
@@ -796,9 +797,13 @@ function mercatorToWorld(mx, my, originX, originY) {
 }
 
 function roadToWorld(road, ox, oy) {
+  // ⚠ SMOOTHING BELONGS HERE AND NOWHERE ELSE. Every consumer — the road ribbon, the kerbs, the
+  // markings, the physics colliders, the guard-rail mask — reads `road.points` after this function.
+  // Rounding corners in the renderer alone would give the player a smooth road and the car a
+  // faceted collider to catch on. One choke point, one geometry.
   return {
     ...road,
-    points: (road.points || []).map((p) => {
+    points: smoothPolyline((road.points || []).map((p) => {
       const isArray = Array.isArray(p);
       const mx = isArray ? p[0] : p.x;
       const my = isArray ? (p.length >= 3 ? p[2] : p[1]) : p.y;
@@ -807,7 +812,7 @@ function roadToWorld(road, ox, oy) {
       const out = { x: w.x, y: w.z };
       if (elevation !== undefined && Number.isFinite(elevation)) out.elevation = elevation;
       return out;
-    }),
+    })),
   };
 }
 

@@ -331,3 +331,21 @@ Road ribbons are built in `roadRenderer.js` as flat quad strips:
 - `MergeGeometryBuilder.js` builds triangular gore (nose) fills
 - Gore vertices pre-computed in binary tile under `junctions[].gore.{vertices, indices}`
 - Rendered by `buildGoreMeshes(junctions)` in `roadRenderer.js`
+
+
+## Road corner smoothing (2026-09-02)
+
+`roadToWorld` in `tileParserWorker.js` runs `smoothPolyline` (`map/roadSmoothing.js`) over every
+road's points as they are converted to world space. This is deliberately the ONE choke point: the
+ribbon, kerbs, markings, guard-rail mask and the per-segment physics box colliders all read
+`road.points` after it, so rounding a corner for the renderer alone would hand the player a smooth
+road and the car a faceted collider to catch on.
+
+**Invariants** (both covered by `test/roadSmoothing.test.js`):
+1. Endpoints are never moved — junction continuity is built on ways agreeing about a shared node's
+   position, and drift there re-opens the height-steps N-57..N-61 closed.
+2. A fillet's radius is capped at a fraction of the shorter adjacent leg, so two corners on a short
+   link cannot overlap and fold the line over itself.
+
+Tuning lives in the module header. `backend/tools/cornerAudit.mjs` measures the corner-angle
+distribution against the baked tiles if the thresholds need revisiting.
