@@ -326,7 +326,15 @@ function readRoads(rawRoads, buffer, binOffset, ox, oy) {
   const out = new Array(rawRoads.length);
   for (let i = 0; i < rawRoads.length; i++) {
     const r = rawRoads[i];
-    const points = readFloat32Triples(buffer, binOffset, r.pointsOffset, r.pointCount, ox, oy);
+    // ⚠ SMOOTHING GOES HERE, ON THE BINARY PATH. It was first applied in `roadToWorld`, which is
+    // only reached by `parseJsonTile` — "a rare fallback" by its own comment — so it rounded
+    // nothing in the shipped game. Tiles are binary v10 and every one of them lands in readRoads.
+    //
+    // This is still the single choke point the fix needs: the ribbon, kerbs, markings, guard-rail
+    // mask and the per-segment physics box colliders all read `road.points` from here, so the
+    // player and the car cannot end up with different geometry.
+    const points = smoothPolyline(
+      readFloat32Triples(buffer, binOffset, r.pointsOffset, r.pointCount, ox, oy));
     out[i] = {
       id: r.id,
       width: r.width,          // R-W1: alias of kerbToKerbW — the DRAWN paved surface
@@ -803,7 +811,7 @@ function roadToWorld(road, ox, oy) {
   // faceted collider to catch on. One choke point, one geometry.
   return {
     ...road,
-    points: smoothPolyline((road.points || []).map((p) => {
+    points: smoothPolyline((road.points || []).map((p) => {   // JSON fallback; readRoads is the live path
       const isArray = Array.isArray(p);
       const mx = isArray ? p[0] : p.x;
       const my = isArray ? (p.length >= 3 ? p[2] : p[1]) : p.y;
