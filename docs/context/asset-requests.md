@@ -227,97 +227,105 @@ fixable in the loader; those two are not.
 
 ---
 
+## ⚠ STYLE CORRECTION — 2026-09-02
+
+**The first R6 set was wrong and was rejected.** Every prompt carried "dusk golden hour, deep
+blue-teal shadow, volumetric haze", which produced five photoreal hazy sunset renders against a game
+that is bright, flat-shaded and low-poly. The error was anchoring the ARTWORK on the MENU's palette:
+the ESC/hub chrome is dark ETS2 amber, and that got copied into the art brief as though it were the
+game's look. **A dark menu does not mean dark art.** The cards and wallpapers are windows into the
+game, so they follow §4.1's world anchors — and bright art on dark chrome is the combination that
+works, because the card scrim supplies the text contrast either way.
+
+Both R6 and R7 below use the corrected block.
+
+---
+
 ## R6 · Game-mode card art — five wide banners, full-bleed behind the text
 
-**User, 2026-09-01.** The hub (`ui/mainMenu.js`) draws each mode as a FULL-BLEED card: the art fills
-the card and the name + blurb sit on top of it, bottom-left, under a scrim. That changes the
-composition brief — the old set was made for a small thumbnail beside text.
+The hub (`ui/mainMenu.js`) draws each mode as a FULL-BLEED card: art fills the card, name and blurb
+sit on top of it, bottom-left, under a scrim.
 
 - **Goes to:** `frontend/public/modes/mode-{free,dash,taxi,delivery,police}.webp` — **keep these exact
-  names.** The hub reads them and the title screen preloads them; swapping the files needs no code.
-- **Size:** **1200 × 420** (≈2.9:1). The card renders about 300 × 104 and uses `background-size:
-  cover`, so the centre band always survives; the far left and right edges may not.
-- **⚠ COMPOSITION IS LOAD-BEARING.** The name and blurb sit **bottom-left**, in white, over a
-  bottom-weighted dark gradient. So: **subject in the upper-right two thirds; keep the lower-left
-  third quiet** — sky, road, haze, anything without detail. A busy lower-left survives the scrim but
-  fights the type.
+  names.** The hub reads them and the title screen preloads them; swapping needs no code change.
+- **Size:** **1200 × 420** (≈2.9:1). Rendered ~300 × 104 with `background-size: cover`, so the centre
+  band always survives; the far edges may not.
+- **⚠ COMPOSITION:** name and blurb sit **bottom-left** in white under a bottom-weighted dark scrim.
+  Put the **subject upper-right; keep the lower-left third quiet.**
 - **Budget:** UI art, NOT the 24 MB texture cap. ~60-90 KB each as WebP.
-- **Missing file:** the card falls back to its per-mode CSS gradient and still reads. Do them one at
-  a time if you like.
+- **Missing file:** the card falls back to its per-mode CSS gradient and still reads.
 
-> **Shared style block — append to every one of the five:**
-> Cinematic wide banner key art for a stylised Barcelona driving game, 1200x420, extreme wide
-> letterbox composition. Dusk, just after sunset: warm amber street light and headlights against
-> deep blue-teal shadow. Stylised realism — clean geometric architecture, smooth surfaces, soft
-> volumetric haze, no photographic grain. Low camera near road level. Main subject placed in the
-> UPPER RIGHT of the frame; keep the LOWER LEFT third calm and uncluttered for a text overlay.
-> No text, no logos, no UI, no watermark, no faces, no borders.
+> **Shared style block — append to EVERY prompt in R6 and R7:**
+> Stylised low-poly 3D game art, flat shading, bright midday sunlight, clear blue sky with simple
+> soft white clouds. Clean hard-edged geometry, large flat areas of colour, minimal surface detail.
+> Crisp, evenly lit, high contrast, fully readable. Barcelona palette: cream and sand facades
+> (#E7DECB, #D3C5A8), terracotta clay roofs (#A76A5C), muted olive-green trees (#6E7A55), grey
+> asphalt (#4F4E4C), Mediterranean blue (#2F5C77). Looks like a modern stylised indie driving game,
+> not a photograph. NO photorealism, NO haze, NO fog, NO bloom, NO depth of field, NO motion blur,
+> NO lens flare, NO film grain, NO sunset, NO golden hour, NO night. No text, no logos, no UI, no
+> watermark, no faces near camera.
 
 **mode-free** — Free Roam
-> A silver coupe cruising away from camera down an empty Barcelona avenue, the Eixample's chamfered
-> corners and lit shopfronts receding into evening haze, palm trees along both kerbs.
+> A silver car driving away from camera down a wide empty Barcelona avenue, cream and sand apartment
+> blocks with terracotta roofs on both sides, olive-green street trees and palms along the kerbs,
+> bright blue sky.
 
 **mode-dash** — Checkpoint Dash
-> A silver coupe hard on the throttle through a wide Barcelona junction, the road surface streaked
-> with motion blur, a tall glowing amber checkpoint arch of light standing ahead and to the right.
+> A silver car speeding through a wide Barcelona junction, a tall glowing amber checkpoint ring
+> standing over the road ahead and to the right, cream buildings with terracotta roofs around the
+> crossing, bright blue sky.
 
 **mode-taxi** — City Cab
-> A black-and-yellow Barcelona taxi waiting at a lit kerb on a narrow Gothic Quarter street, its
-> roof sign glowing, warm light spilling from a doorway onto wet stone paving.
+> A black-and-yellow Barcelona taxi stopped at the kerb on a narrow old-town street, pale stone
+> buildings and iron balconies, a small green plaza visible at the end of the street, bright daylight.
 
 **mode-delivery** — Rush Hour
-> A small white panel van cornering hard through dense evening traffic on a Barcelona avenue, red
-> brake lights streaking across the frame, cardboard parcels visible through its rear glass.
+> A small white delivery van driving through busy traffic on a wide Barcelona avenue, cars queued
+> ahead of it, cream buildings with terracotta roofs and olive-green trees along the right, bright
+> blue sky.
 
 **mode-police** — Heat
-> A silver coupe fleeing along the Barcelona seafront, seen from behind and slightly above, with
-> blue and red police lights flaring through the haze close behind it and palm trees whipping past.
+> A silver car being chased by a blue-and-white police car along the Barcelona seafront road, palm
+> trees and the Mediterranean on the left, cream seafront buildings on the right, bright daylight.
 
 ---
 
 ## R7 · Loading-screen artwork — rotating full-bleed stills
 
-**User, 2026-09-01:** "the whole page doesn't have any image, there should be images coming there
-rotating and facts on top left". The mode loader (`#dd-modeload`, the bottom-left counter you get
-after PLAY) now crossfades a rotating set behind the UI with a slow Ken Burns push.
+The mode loader (`#dd-modeload`, the bottom-left counter after PLAY) crossfades a rotating set behind
+the UI with a slow Ken Burns push.
 
 - **Goes to:** `frontend/public/loading/load-1.webp` … `load-8.webp`
 - **Size:** 1920 × 1080 (16:9), full-bleed
 - **⚠ COMPOSITION:** facts sit **top-left**, the % counter **bottom-left**, both white over a scrim
-  weighted to the top and bottom edges. **Keep the left third calm; put the subject right of
-  centre.** A busy left edge survives the scrim but fights both text blocks.
-- **Budget:** UI art, NOT the 24 MB texture cap. ~150-250 KB each as WebP.
+  weighted to the top and bottom edges. **Keep the left third calm; subject right of centre.**
+- **Budget:** UI art, NOT the texture cap. ~150-250 KB each as WebP.
 - **Ship any number.** `index.html` probes 1-8 and rotates only what loads, so two now and six later
-  is fine, and a missing slot is skipped rather than flashed as black.
+  is fine; an empty slot is skipped, never flashed as black.
 
-> **Shared style block — append to every one:**
-> Cinematic 16:9 wallpaper for a stylised Barcelona driving game. Dusk or blue hour: warm amber
-> street light against deep blue-teal shadow. Stylised realism — clean geometric architecture,
-> smooth surfaces, soft volumetric haze, no photographic grain. Wide establishing view with strong
-> depth. Keep the LEFT THIRD calm and uncluttered — sky, road, water or haze — for text overlays.
-> No text, no logos, no UI, no watermark, no faces, no borders.
+Same shared style block as R6 above.
 
 **load-1** — the Eixample grid
-> A high wide view over Barcelona's Eixample at dusk, the chamfered octagonal city blocks receding
-> in a lit grid, warm window light and amber street lamps, the Sagrada Família silhouetted on the
-> right horizon.
+> A high wide view over Barcelona's Eixample district, the octagonal city blocks laid out in a grid
+> with terracotta roofs and cream facades, olive-green street trees lining every avenue, the Sagrada
+> Família standing on the right horizon, bright blue sky with soft white clouds.
 
 **load-2** — the seafront
-> The Barcelona waterfront at blue hour seen along the beach, palm trees and a lit promenade curving
-> away to the right, calm sea and open sky filling the left of the frame.
+> The Barcelona beachfront seen along the shore, palm trees and a wide promenade curving away to the
+> right, calm Mediterranean blue sea and open sky filling the left of the frame, bright daylight.
 
-**load-3** — a Gothic Quarter street
-> A narrow Gothic Quarter street at night, stone walls and iron balconies, a single warm lantern
-> throwing light across wet paving, the alley opening into a lit square on the right.
+**load-3** — an old-town street
+> A narrow Barcelona old-town street of pale stone buildings with iron balconies, opening into a
+> small sunlit square with green trees on the right, bright daylight, strong clean shadows.
 
 **load-4** — the ring road
-> A Barcelona ring road at dusk from a low bridge, empty carriageways sweeping right, city lights
-> and the Collserola hills beyond, an open dark sky over the left half.
+> A wide Barcelona ring road seen from a low bridge, empty carriageways sweeping away to the right,
+> the city and the green Collserola hills beyond, big open blue sky over the left half.
 
 **load-5** — Montjuïc overlook
-> Barcelona seen from Montjuïc at sunset, the port and the whole lit city spread below and to the
-> right, calm hazy sky and sea filling the left of the frame.
+> Barcelona seen from the Montjuïc hill, the port and the whole city spread below and to the right
+> with terracotta roofs to the horizon, calm blue sea and sky filling the left of the frame.
 
-**load-6** — Passeig de Gràcia
-> A wide Barcelona boulevard at dusk lined with modernista façades and ornate street lamps, tram
-> tracks and crossings catching the light, the buildings massed on the right.
+**load-6** — a boulevard
+> A wide Barcelona boulevard lined with ornate cream modernista facades and street lamps, a green
+> planted median and pedestrian crossings, buildings massed on the right, bright blue sky.
