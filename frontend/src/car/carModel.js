@@ -319,9 +319,16 @@ export async function createCarModel(scene) {
   /** Day/night: headlights are a soft DRL by day, a strong beam at night — unless manually overridden. */
   let _isNight = false;
   let _lightsForced = null; // null = auto (follow day/night); true = forced ON; false = forced OFF
+  // ⚠ Declared HERE, not beside the pool mesh below: _applyLights() runs during construction, long
+  // before the mesh is built, and a `let` read before its declaration is a TDZ ReferenceError. Only
+  // the number is needed this early; the mesh reads it later, per frame.
+  let _poolTarget = 0;
   function _applyLights() {
     const on = _lightsForced == null ? _isNight : _lightsForced;
     _rig?.setIntensity(on ? HEADLIGHT_NIGHT : HEADLIGHT_DAY);
+    // The pool is a NIGHT effect only. In daylight the road is already lit, so an additive patch
+    // in front of the car would just be a bright smear with no light to justify it.
+    _poolTarget = (on && _isNight) ? 1 : 0;
   }
   _applyLights();   // the rig parks dark; adopting it means taking over its intensity
   function setNight(isNight) { _isNight = isNight; _applyLights(); }
@@ -394,6 +401,55 @@ export async function createCarModel(scene) {
   carShadowMesh.castShadow = false;
   carShadowMesh.receiveShadow = false;
   scene.add(carShadowMesh);
+
+  // ── HEADLIGHT GROUND POOL ─────────────────────────────────────────────────────────────────────
+  // The SpotLights light walls brilliantly and the road barely at all, and that is not a bug —
+  // it is Lambert at grazing incidence. The beam aims about 4 degrees below horizontal, so on the
+  // road N.L is cos(86 deg) ~= 0.07 while a wall facing the beam gets ~1.0: the wall receives about
+  // FOURTEEN TIMES the diffuse response. Raising intensity cannot fix that ratio, it just blows the
+  // walls out — which is exactly what the rig's own comment records happening at 60.
+  //
+  // So the pool is projected, not lit, the same answer streetlightRenderer already uses for its
+  // lamp pools. Two triangles and one additive draw.
+  //
+  // ⚠ NO CanvasTexture. Art bible 3.3 bans it outright for world-render surfaces, so the beam
+  // shape is computed in the fragment shader instead: a forward trapezoid with a soft edge and a
+  // near/far falloff. Cheaper than a texture anyway — there is nothing to upload or sample.
+  const POOL_LEN = 17.0;   // m of road ahead that the pool covers
+  const POOL_W   = 7.5;    // m across at its widest
+  const poolGeo = new THREE.PlaneGeometry(POOL_W, POOL_LEN, 1, 1);
+  poolGeo.rotateX(-Math.PI / 2);              // lay it flat
+  poolGeo.translate(0, 0, POOL_LEN * 0.5 + 1.6);   // ahead of the nose, not under the car
+  const poolMat = new THREE.ShaderMaterial({
+    uniforms: { uAmt: { value: 0 }, uTint: { value: new THREE.Color(0xFFF0CC) } },
+    vertexShader: `varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `
+      uniform float uAmt; uniform vec3 uTint; varying vec2 vUv;
+      void main(){
+        // v runs 0 at the far end to 1 at the car (PlaneGeometry's +Y maps to -Z after rotateX).
+        float near = vUv.y;
+        // Beam spreads with distance: narrow at the bumper, wide down the road.
+        float halfW = mix(0.16, 0.5, 1.0 - near);
+        float across = abs(vUv.x - 0.5);
+        float lateral = 1.0 - smoothstep(halfW * 0.55, halfW, across);
+        // Along the beam: fades out at the far throw and just in front of the bumper, so the pool
+        // never ends in a hard line and never sits UNDER the car.
+        float along = smoothstep(0.0, 0.22, near) * (1.0 - smoothstep(0.62, 1.0, near));
+        float a = lateral * along * uAmt;
+        if (a <= 0.001) discard;
+        gl_FragColor = vec4(uTint * a, a);
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const headlightPool = new THREE.Mesh(poolGeo, poolMat);
+  headlightPool.renderOrder = 1;        // after opaque ground, before the car body
+  headlightPool.frustumCulled = false;  // it is always at the car; culling it costs more than it saves
+  headlightPool.visible = false;
+  scene.add(headlightPool);
 
   // ── Effects material refs ───────────────────────────────────────────────
   const defaultTlMat = new THREE.MeshStandardMaterial({ color: 0x880000, emissive: 0xFF0000, emissiveIntensity: 0.3 });
@@ -471,6 +527,16 @@ export async function createCarModel(scene) {
     carShadowMesh.position.set(p.x, p.y - 0.25 + CAR_VISUAL_LIFT, p.z);
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
     carShadowMesh.rotation.y = yaw;
+
+    // Pool rides the ground, taking the car's YAW only — a projected pool must not pitch or roll
+    // with the chassis the way the body does, or it swings off the road under braking.
+    // ⚠ Must come AFTER `yaw` is declared: reading it above is a TDZ ReferenceError, and per H16 a
+    // throw in this path takes the whole frame loop with it.
+    headlightPool.position.set(p.x, p.y - 0.24 + CAR_VISUAL_LIFT, p.z);
+    headlightPool.rotation.y = yaw;
+    poolMat.uniforms.uAmt.value += (_poolTarget - poolMat.uniforms.uAmt.value)
+      * Math.min(1, 6 * (dt || 0.016));
+    headlightPool.visible = poolMat.uniforms.uAmt.value > 0.004;
     _chassisQ.set(q.x, q.y, q.z, q.w);
 
     // Compute wheel spin from actual speed (not engine force)
@@ -512,6 +578,8 @@ export async function createCarModel(scene) {
     // material in the world (D-39).
     _rig?.detach();
     scene.remove(bodyGroup);
+    scene.remove(headlightPool);
+    poolGeo.dispose(); poolMat.dispose();
     scene.remove(carShadowMesh);
     carShadowGeo.dispose(); carShadowMat.dispose(); shadowTex.dispose();
     wheelPivots.forEach((p) => {
