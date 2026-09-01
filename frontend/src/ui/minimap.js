@@ -60,6 +60,19 @@ const COMPASS_RING_WIDTH = 20; // width of the compass band around the minimap
 // OSM standard is colourful + detailed (green parks, blue water, coloured roads). Light touch: punch it
 // a little by day, flip to a deep navy by night. (CARTO CDN proved unreliable on some networks.)
 // The custom map tiles bake their own day/night palette, so no CSS filter tinting is needed.
+// ── THE PLANE HAS AN EDGE, AND THE TILT PUT IT ON SCREEN ──────────────────────────────────────
+// The drone tilt makes the map recede, so you see further than the drawn canvas reaches — and
+// beyond it the wrapper showed through as a BLACK wedge at the far side. Enlarging the canvas is
+// the obvious fix and the wrong one: a redraw already costs up to ~10 ms at speed and the cost
+// scales with drawn area, so covering the tilt would nearly double it for ground you can barely
+// resolve at that distance.
+//
+// Instead the wrapper carries the map's own ground tone, so past the edge reads as unresolved
+// ground rather than a hole, and a screen-space haze band sits over the far side to dissolve the
+// edge itself. Screen-space matters: the plane ROTATES with heading, so a fade painted on the map
+// would spin with it and the far side is always the top of the SCREEN.
+const MM_VOID_DAY   = '#e4e7e2';   // just under STYLE.day.ground (#edefeb) so it reads as distance
+const MM_VOID_NIGHT = '#12161d';   // ditto against the night ground
 const FILTER_DAY = 'none';
 const FILTER_NIGHT = 'none';
 let _isNight = false;
@@ -192,6 +205,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     overflow: hidden;
     pointer-events: auto;
     cursor: pointer;
+    background: ${_isNight ? MM_VOID_NIGHT : MM_VOID_DAY};
   `;
 
   const mapInnerSize = MM_INNER_SIZE;
@@ -216,6 +230,27 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   `;
   mapInner.appendChild(mapDiv);
   wrapper.appendChild(mapInner);
+
+  // Far-edge haze. Sits above the plane and below the marker, in SCREEN space, so it always covers
+  // the receding top of the tilted view regardless of heading.
+  const mapHaze = document.createElement('div');
+  mapHaze.id = 'minimap-haze';
+  mapHaze.style.cssText = `
+    position: absolute; inset: 0; pointer-events: none; border-radius: 50%;
+    background: linear-gradient(180deg, ${_isNight ? MM_VOID_NIGHT : MM_VOID_DAY} 0%,
+      ${_isNight ? MM_VOID_NIGHT : MM_VOID_DAY}00 26%, transparent 34%);
+  `;
+  wrapper.appendChild(mapHaze);
+
+  /** Re-tint the beyond-the-plane fill and its haze for the current day/night key. */
+  function _paintVoid() {
+    const c = _isNight ? MM_VOID_NIGHT : MM_VOID_DAY;
+    wrapper.style.background = c;
+    // Expanded mode fills the screen and never exposes the plane's edge, so the haze would only be
+    // a band across the top of a full-screen map.
+    mapHaze.style.opacity = expanded ? '0' : '1';
+    mapHaze.style.background = `linear-gradient(180deg, ${c} 0%, ${c}00 26%, transparent 34%)`;
+  }
 
   // Soft dark vignette over the map edges (expanded mode only). Keeps the map fully OPAQUE — a spotlit-map
   // look — instead of fading it to transparent over the 3D scene (which ghosted / looked fake).
@@ -547,6 +582,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       mapInner.style.left = '0';
       mapInner.style.top = '0';
       mapInner.style.filter = _isNight ? FILTER_NIGHT : FILTER_DAY;   // keep the game tint in the big map too
+      _paintVoid();
       innerShadow.style.display = 'none';
       highlight.style.display = 'none';
       markerEl.style.display = 'none';
@@ -595,6 +631,7 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
       // Flat for this frame only; update() reapplies the drone tilt on the very next one.
       mapInner.style.transform = `translate(-50%, -50%) rotate(${-currentRotationDeg}deg)`;
       mapInner.style.filter = (_isNight ? FILTER_NIGHT : FILTER_DAY);
+      _paintVoid();
       innerShadow.style.display = '';
       highlight.style.display = '';
       markerEl.style.display = '';
