@@ -133,7 +133,12 @@
          until the 3D world is ready; main.js then snaps it to 100, fades it, and reveals the live title. */
       #dd-title .boot { position: absolute; inset: 0; z-index: 5;
         display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 12px;
-        padding: 0 0 52px 58px; background: #0b0e15; transition: opacity .9s ease; }
+        padding: 0 0 52px 58px; transition: opacity .9s ease;
+        /* ⚠ TRANSPARENT, not #0b0e15. This is an inset:0 panel at z-index 5, so an opaque fill
+           painted straight over the artwork behind it — the art loaded, rotated and was never once
+           visible. The `.scrim` below it already supplies the contrast the counter needs, and it is
+           what keeps the counter legible whatever still is showing. */
+        background: transparent; }
       #dd-title .boot.done { opacity: 0; pointer-events: none; }
       #dd-title .boot .pct { font-size: 96px; font-weight: 800; letter-spacing: -0.01em; color: #f3ede1;
         font-variant-numeric: tabular-nums; line-height: 1; }
@@ -155,20 +160,32 @@
          a flash of the flat background. A slow Ken Burns push keeps a still frame from reading as
          a frozen page during a 20 s load. Layers whose image 404s are never shown — see the
          preload filter in enter() — so a missing file costs a slot, never a black flash. */
-      #dd-modeload .shots { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
-      #dd-modeload .shots i { position: absolute; inset: 0; background-size: cover; background-position: center;
+      #dd-title .shots, #dd-modeload .shots { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+      #dd-title .shots i, #dd-modeload .shots i { position: absolute; inset: 0; background-size: cover; background-position: center;
         opacity: 0; transition: opacity 1.1s ease; animation: ddKen 18s ease-out infinite alternate; }
-      #dd-modeload .shots i.on { opacity: 1; }
+      #dd-title .shots i.on, #dd-modeload .shots i.on { opacity: 1; }
       @keyframes ddKen { from { transform: scale(1.02); } to { transform: scale(1.11); } }
       /* The scrim is load-bearing: white type over arbitrary photography is unreadable. Weighted to
          BOTH ends because the facts sit top-left and the counter bottom-left. */
-      #dd-modeload .scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
-        background: linear-gradient(180deg, rgba(8,11,17,0.80) 0%, rgba(8,11,17,0.34) 32%,
-                                            rgba(8,11,17,0.52) 68%, rgba(8,11,17,0.94) 100%); }
-      #dd-modeload .tip { position: absolute; top: 46px; left: 58px; z-index: 2; max-width: min(520px, 46vw); }
-      #dd-modeload .tiplabel { font-size: 11px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase;
+      #dd-title .scrim, #dd-modeload .scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+        /* ⚠ TUNED FOR THE ART THAT SHIPPED, NOT FOR ART IN GENERAL. The first values assumed bright
+           daylight stills; the set on disk is blue-hour, already dark, and 0.80/0.52/0.94 crushed
+           them to a near-black page. Only the two text bands need protecting, so the middle is left
+           almost clear and the ends carry the contrast. */
+        background: linear-gradient(180deg, rgba(8,11,17,0.62) 0%, rgba(8,11,17,0.10) 24%,
+                                            rgba(8,11,17,0.16) 62%, rgba(8,11,17,0.86) 100%); }
+      #dd-title .tip, #dd-modeload .tip { position: absolute; top: 46px; left: 58px; z-index: 2; max-width: min(520px, 46vw); }
+      /* On the title the artwork is LOADING dressing only: once the boot finishes, the live 3D city
+         is revealed behind the logo and a still photograph over it would be a lie. */
+      #dd-title .shots, #dd-title .scrim, #dd-title .tip { transition: opacity .7s ease; }
+      /* The title's own vignette/glow pair is there to keep the logo column readable over the LIVE
+         city. During boot there is no city — just artwork — and the glow reads as a grey smear over
+         it, so it is held back until the reveal it was built for. */
+      #dd-title:not(.reveal)::before, #dd-title:not(.reveal)::after { opacity: 0; }
+      #dd-title.reveal .shots, #dd-title.reveal .scrim, #dd-title.reveal .tip { opacity: 0; pointer-events: none; }
+      #dd-title .tiplabel, #dd-modeload .tiplabel { font-size: 11px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase;
         color: #e6a33c; margin-bottom: 11px; }
-      #dd-modeload .tiptext { font-size: 17px; font-weight: 600; line-height: 1.62; color: rgba(255,255,255,0.93);
+      #dd-title .tiptext, #dd-modeload .tiptext { font-size: 17px; font-weight: 600; line-height: 1.62; color: rgba(255,255,255,0.93);
         transition: opacity .4s ease; text-shadow: 0 1px 6px rgba(0,0,0,0.75); }
       #dd-modeload .pct, #dd-modeload .cap, #dd-modeload .bbar { position: relative; z-index: 2; }
       #dd-modeload .pct { text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
@@ -215,35 +232,49 @@
         filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
         animation: ddBob 3.4s ease-in-out infinite;
       }
+      /* ── SAME LANGUAGE AS THE HUB ──────────────────────────────────────────────────────────
+         These were pill-shaped translucent app buttons with a coral hover — left over from the
+         art-of-rally styling the ESC menu already shed. The game speaks one dialect now: squared
+         plates, a 1px cool border, a lit top edge, amber for the one thing you are meant to press,
+         and uppercase letterspaced type. Matching it here stops the title reading as a landing page
+         bolted onto a sim. Tokens are duplicated rather than imported because this stylesheet is
+         inline in index.html, which no module can reach. */
       #dd-title .tagline {
-        position: relative; z-index: 2; font-weight: 600;
-        font-size: 12px; letter-spacing: 0.32em; text-transform: uppercase;
-        color: rgba(243,237,225,0.92); margin-top: -2px;
-        padding: 10px 22px 10px 26px; border-radius: 999px;
-        background: rgba(14,18,26,0.6);
-        border: 1px solid rgba(243,237,225,0.12);
-        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        position: relative; z-index: 2; font-weight: 700;
+        font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase;
+        color: #8a97a4; margin-top: -2px;
+        padding: 9px 18px 9px 15px; border-radius: 0;
+        background: linear-gradient(180deg, rgba(34,43,53,0.86), rgba(26,33,42,0.86));
+        border: 1px solid rgba(53,65,78,0.9); border-left: 3px solid #e6a33c;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+        backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       }
       #dd-title .play {
         position: relative; z-index: 2; cursor: pointer; user-select: none;
-        font-family: inherit; font-size: 17px; font-weight: 600; letter-spacing: 0.22em; color: #f3ede1;
-        padding: 16px 84px; border-radius: 13px;
-        border: 1px solid rgba(243,237,225,0.14);
-        background: rgba(14,18,26,0.72);
-        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-        box-shadow: 0 8px 28px rgba(0,0,0,0.35);
-        transition: background .16s, transform .1s, border-color .16s, box-shadow .16s; margin-top: 8px;
+        font-family: inherit; font-size: 14px; font-weight: 700; letter-spacing: 0.24em;
+        color: #161a1f; text-transform: uppercase;
+        padding: 17px 76px; border-radius: 0;
+        border: 1px solid #7d5415;
+        background: linear-gradient(180deg, #f2b555, #b87d24);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.30), 0 6px 22px rgba(0,0,0,0.45);
+        transition: background .14s, box-shadow .14s; margin-top: 10px;
       }
       #dd-title .play:hover {
-        border-color: rgba(215,106,79,0.75); background: rgba(215,106,79,0.2);
-        box-shadow: 0 8px 32px rgba(215,106,79,0.28);
+        background: linear-gradient(180deg, #f7c069, #c98b2a);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.34), 0 8px 26px rgba(230,163,60,0.30);
       }
-      #dd-title .play:active { transform: scale(0.97); }
+      #dd-title .play:active {
+        background: linear-gradient(180deg, #c98b2a, #a06c1c);
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.45);
+      }
 
     </style>
   </head>
   <body>
     <div id="dd-title">
+      <div class="shots"><i></i><i></i></div>
+      <div class="scrim"></div>
+      <div class="tip"><div class="tiplabel">Did you know?</div><div class="tiptext"></div></div>
       <div class="boot">
         <div class="pct">0</div>
         <div class="cap">Loading Barcelona</div>
@@ -336,9 +367,58 @@
           "Locals call the city 'Barna' — 'Barça' means the football club.",
           "Human-tower 'castells', built up to ten people high, are UNESCO intangible heritage."
         ];
-        // Shared with the mode loader, which shows the same facts top-left over its artwork.
-        // One list, one voice — a second copy would drift.
+        // Shared with BOTH loading screens. One list, one voice — a second copy would drift.
         window._ddFacts = facts;
+
+        // ── THE LOADER ARTWORK, ONCE, FOR BOTH SCREENS ────────────────────────────────────────
+        // This first shipped inside enter(), which only dresses the POST-PLAY loader. The screen a
+        // player actually meets first is the title's own boot counter, and that stayed a black
+        // page. So the rotator is a function and both callers use it.
+        //
+        // ⚠ IMAGES ARE STAGGERED, NOT PARALLEL. Six stills is ~880 KB and firing them all at once
+        // competes with the tile fetches the counter is measuring — the loading screen would slow
+        // the load it decorates. The first lands immediately; the rest trickle in behind it.
+        window._ddLoaderArt = function (root) {
+          var slots = root.querySelectorAll('.shots i');
+          if (!slots.length) return function () {};
+          var tipEl = root.querySelector('.tiptext');
+          var cur = 0, ready = [], fi = -1, shotTimer = null, factTimer = null;
+          function show() {
+            if (!ready.length) return;
+            var next = slots[cur % 2];
+            next.style.backgroundImage = 'url(' + ready[cur % ready.length] + ')';
+            slots[0].classList.toggle('on', next === slots[0]);
+            slots[1].classList.toggle('on', next === slots[1]);
+            cur++;
+            if (!shotTimer) shotTimer = setInterval(function () { if (ready.length > 1) show(); }, 7000);
+          }
+          function probe(n) {
+            if (n > 8) return;
+            var url = '/loading/load-' + n + '.webp';
+            var img = new Image();
+            img.onload = function () {
+              ready.push(url);
+              if (ready.length === 1) show();
+              setTimeout(function () { probe(n + 1); }, 400);
+            };
+            img.onerror = function () { probe(n + 1); };   // a gap in the numbering is not the end
+            img.src = url;
+          }
+          probe(1);
+          if (tipEl) {
+            var facts2 = window._ddFacts || [];
+            var nextFact = function () {
+              if (!facts2.length) return;
+              var i; do { i = (Math.random() * facts2.length) | 0; } while (i === fi && facts2.length > 1);
+              fi = i;
+              tipEl.style.opacity = 0;
+              setTimeout(function () { tipEl.textContent = facts2[i]; tipEl.style.opacity = 1; }, 320);
+            };
+            nextFact();
+            factTimer = setInterval(nextFact, 6500);
+          }
+          return function stop() { if (shotTimer) clearInterval(shotTimer); if (factTimer) clearInterval(factTimer); };
+        };
         var el = document.getElementById("dd-fact");
         if (!el) return;
         var last = -1;
@@ -390,45 +470,7 @@
             '<div class="pct">0</div><div class="cap">Loading Barcelona</div><div class="bbar"><i></i></div>';
           document.body.appendChild(ld);
 
-          // ── Rotating artwork + facts ──────────────────────────────────────────────────────
-          // Images are PROBED before use, so the set is whatever actually exists on disk: drop
-          // more files in /loading and they join the rotation with no code change, and a slot with
-          // no file is simply never shown rather than flashing the flat background.
-          (function () {
-            var slots = ld.querySelectorAll('.shots i'), cur = 0, ready = [];
-            var tipEl = ld.querySelector('.tiptext');
-            var facts = window._ddFacts || [];
-            var fi = -1;
-            function nextFact() {
-              if (!facts.length) return;
-              var i; do { i = (Math.random() * facts.length) | 0; } while (i === fi && facts.length > 1);
-              fi = i;
-              tipEl.style.opacity = 0;
-              setTimeout(function () { tipEl.textContent = facts[i]; tipEl.style.opacity = 1; }, 320);
-            }
-            nextFact();
-            var factTimer = setInterval(nextFact, 6500);
-
-            for (var n = 1; n <= 8; n++) {
-              (function (url) {
-                var probe = new Image();
-                probe.onload = function () { ready.push(url); if (ready.length === 1) show(); };
-                probe.src = url;
-              })('/loading/load-' + n + '.webp');
-            }
-            var shotTimer = null;
-            function show() {
-              if (!ready.length) return;
-              var url = ready[cur % ready.length];
-              var next = slots[cur % 2];
-              next.style.backgroundImage = 'url(' + url + ')';
-              slots[0].classList.toggle('on', next === slots[0]);
-              slots[1].classList.toggle('on', next === slots[1]);
-              cur++;
-              if (!shotTimer && ready.length > 1) shotTimer = setInterval(show, 7000);
-            }
-            ld._ddStopArt = function () { clearInterval(factTimer); if (shotTimer) clearInterval(shotTimer); };
-          })();
+          ld._ddStopArt = window._ddLoaderArt ? window._ddLoaderArt(ld) : null;
           var mlPctEl = ld.querySelector('.pct'), mlBarEl = ld.querySelector('.bbar i');
           var mlPct = 0, mlDone = false;
           var mlTick = setInterval(function () {
@@ -455,6 +497,8 @@
 
         // Boot counter — eases toward 92% while the world builds; main.js snaps it to 100 and fades the
         // boot when the scene is ready (window._ddBootDone). 30s safety net so it can never stick black.
+        // The title's boot counter is the FIRST screen anyone sees, and it was a black page.
+        var _titleArtStop = window._ddLoaderArt ? window._ddLoaderArt(title) : null;
         var bootEl = title.querySelector('.boot');
         var pctEl = title.querySelector('.boot .pct');
         var barEl = title.querySelector('.boot .bbar i');
@@ -473,6 +517,7 @@
           setTimeout(function () {
             if (bootEl) bootEl.classList.add('done');
             title.classList.add('reveal');
+            setTimeout(function () { if (_titleArtStop) _titleArtStop(); }, 800);   // live city is behind it now
           }, 320);
         };
         setTimeout(function () { if (window._ddBootDone) window._ddBootDone(); }, 30000);
