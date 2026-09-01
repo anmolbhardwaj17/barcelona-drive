@@ -1,8 +1,15 @@
-# Rapier Physics — the DEFAULT engine (escape hatch: `?physics=cannon`)
+# Rapier Physics — the ONLY engine
+
+> ⚠ **There is no `?physics=cannon` any more.** The 360-line cannon `RaycastVehicle` and that flag were
+> both deleted on 2026-07-16 after the release soak (see changelog). `carPhysics.js` is now only
+> `getCarContactMaterials`. cannon-es itself stays as the collider DESCRIPTOR layer — `tileManager`
+> builds CANNON bodies and `rapierWorldAdapter` mirrors them — so "cannon" in this file means those
+> descriptors, never a second physics engine you can switch to. If Rapier's WASM fails to init there
+> is no fallback vehicle: the outer catch drops you into the free camera.
 
 **Status (2026-07-11):** Rapier is now the DEFAULT physics engine. Measured faster than cannon-es (step
 ~1.0ms vs ~2.3ms, alloc ~0.12MB/frame vs ~0.32, worst frame 12ms, min FPS 56). Collision-sound events are
-wired (chassis contact-force events → cannon-shaped `collide` dispatch). `?physics=cannon` forces the old
+wired (chassis contact-force events → cannon-shaped `collide` dispatch). The deleted `?physics=cannon` used to force the old
 engine for one release as an escape hatch; if Rapier WASM init fails, cannon is the automatic fallback.
 Cannon remains the *collider description language* — tileManager keeps building `CANNON.Body` objects
 unchanged in both modes.
@@ -51,6 +58,6 @@ carDriver's crash-sound listener (2.6 m/s cutoff + 110ms debounce) works unchang
 ## Flip-to-default — DONE (2026-07-11)
 
 1. ~~Soak test across modes~~ ✅ 2. ~~Wire collision sound events~~ ✅ (see above)
-3. ~~Default the flag~~ ✅ — `main.js` enables Rapier unless `?physics=cannon`.
+3. ~~Default the flag~~ ✅ — and the flag itself is gone (2026-07-16); Rapier is unconditional.
    **Remaining:** after a release of soak with no regressions, delete the cannon step path
    (carPhysics.js stays as the tuning reference until then).
