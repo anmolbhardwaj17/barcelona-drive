@@ -1474,6 +1474,38 @@ async function main() {
           return inside;
         }
 
+        // ── A DRIVABLE TRENCH BEATS A WATER SINK WHERE THEY OVERLAP ──────────────────────────
+        // The sink flattens a cell to the water surface and marks it `sunkCells`; carveTrenchesIntoGrid
+        // then REFUSES to cut those cells ("tunnels under water are out of scope v1"), leaving natural
+        // terrain sitting in the roadway — and the slice ③ validator correctly fails the bake for it.
+        //
+        // That is what has been blocking every bake: road 542495910, Ronda del Mig, a primary tunnel
+        // at layer −1. Barcelona's rieres are culverted streams, and OSM maps one straight over this
+        // trench, so 8 samples had natural ground up to 2.55 m INTO the carriageway. Measured
+        // signature: gridY pinned at 66.89 while the road descended 0.31 m per 2 m sample.
+        //
+        // The trench wins, and only inside `halfW` — the actual floor, not the batter. Two reasons it
+        // is the right way round: the trench floor is a COMMIT-BLOCKING invariant while the sink is a
+        // terrain flattening, and water renders from its own per-polygon meshes, so declining to sink
+        // the terrain under a tunnel costs nothing visually. Same distance test the carve uses, so the
+        // two cannot disagree about which cells those are.
+        const _swM = latLonToMercator(south, west), _neM = latLonToMercator(north, east);
+        const _tileCorr = trenchCorridors.filter((c) =>
+          !(c.maxX < _swM.x || c.minX > _neM.x || c.maxZ < _swM.y || c.minZ > _neM.y));
+        let _sinkYieldedToTrench = 0;
+        const _inTrenchFloor = (mx, mz) => {
+          for (const c of _tileCorr) {
+            if (mx < c.minX || mx > c.maxX || mz < c.minZ || mz > c.maxZ) continue;
+            const dx = c.bx - c.ax, dz = c.bz - c.az;
+            const len2 = dx * dx + dz * dz;
+            if (len2 < 1e-6) continue;
+            const t = Math.max(0, Math.min(1, ((mx - c.ax) * dx + (mz - c.az) * dz) / len2));
+            const px = c.ax + t * dx, pz = c.az + t * dz;
+            if (Math.hypot(mx - px, mz - pz) * _BR_K_UNSTRETCH <= c.halfW) return true;
+          }
+          return false;
+        };
+
         for (let r = 0; r < TERRAIN_GRID; r++) {
           const lat = south + (north - south) * (r / (TERRAIN_GRID - 1));
           for (let c = 0; c < TERRAIN_GRID; c++) {
@@ -1485,12 +1517,17 @@ async function main() {
               if (m.x < bb.minX || m.x > bb.maxX || m.y < bb.minY || m.y > bb.maxY) continue;
               if (pointInPolyMercator(m.x, m.y, waterPolysMercator[pi])) {
                 if (surfaceElev[pi] == null) continue; // safety-net: multi-elevation body, do not flatten
+                if (_inTrenchFloor(m.x, m.y)) { _sinkYieldedToTrench++; break; }   // trench wins — see above
                 data[idx] = surfaceElev[pi] - WATER_SINK_DELTA; // flat, at the body's real surface
                 sunkCells.add(idx);
                 break;
               }
             }
           }
+        }
+        // D-23: a guard that rejects nothing looks exactly like one with nothing to reject.
+        if (_sinkYieldedToTrench > 0) {
+          console.log(`  [Trench] ${tileId}: water sink yielded ${_sinkYieldedToTrench} cells to a drivable trench floor`);
         }
       }
     }
