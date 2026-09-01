@@ -1222,6 +1222,25 @@ spawnTileReady.finally(() => {
     // so the world isn't visibly popping in when the loader lifts. Poll the tile manager; cap the wait.
     const _hideLoader = () => { const l = document.getElementById('dd-loading'); if (l && !l.classList.contains('hide')) {
       l.classList.add('hide'); setTimeout(() => l.remove(), 700); } };
+    // ── WHAT IS THE LOAD ACTUALLY WAITING ON? ────────────────────────────────────────────────
+    // `getInitialLoadState()` already names it — inFlight vs pending vs an empty cache — but until
+    // now it was only ever printed ONCE, in the give-up branch at the 130-poll (~19.5 s) cap. So a
+    // world that never finished streaming could only be diagnosed by catching that single line,
+    // and a session that reloaded before the cap produced no evidence at all. That cost a
+    // recorded-but-unsolved blocker on 2026-08-30 and again on 2026-09-01.
+    //
+    // Live, so it can be asked mid-stall. `isInitialLoadComplete()` is false when ANY of these
+    // hold, and they mean different things:
+    //   inFlight > 0  — fetches issued and never settled (server, worker, or a tile file being
+    //                   rewritten under the server by a running bake)
+    //   pending > 0   — the queue is not draining (build budget starved, or a build that threw)
+    //   resident 0    — nothing ever parsed
+    if (typeof window !== 'undefined') {
+      window._ddLoadState = () => ({
+        ...(tileManager?.getInitialLoadState?.() ?? { unavailable: true }),
+        complete: !!(tileManager?.isInitialLoadComplete?.()),
+      });
+    }
     let _polls = 0;
     const _pollLoad = setInterval(() => {
       _polls++;
