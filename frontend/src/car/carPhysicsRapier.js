@@ -18,8 +18,23 @@ const REDLINE_RPM = 6500, IDLE_RPM = 850, SHIFT_COOLDOWN = 0.30;
 
 // Geometry MATCHES the cannon car so carModel's visual placement (body at the low-CoM origin, wheels at
 // their world Y) lines up — otherwise the body floats above the wheels (monster-truck look).
-const CH = { x: 0.95, y: 0.715, z: 2.395 };   // collision box half-extents
-const BOX_OFFSET_Y = 0.5;                       // box sits UP from the low CoM origin (cannon CHASSIS_BOX_OFFSET_Y)
+// ── THE BOX MUST NOT REACH BELOW WHAT THE WHEELS CAN CLIMB ────────────────────────────────────
+// It used to: y 0.715 at offset 0.50 put the box bottom at -0.215, while the contact patch sits at
+// WHEEL_Y - REST_LEN - WHEEL_R = 0.20 - 0.32 - 0.34 = -0.46. That is **24.5 cm** of clearance, and
+// less once the suspension compresses under load — against a 68 cm tall tyre. So any ridge between
+// roughly a kerb and half a wheel hit the BOX first and stopped the car dead on something the
+// wheels would have rolled straight over. Nothing about grip or engine force could fix it; the
+// obstacle never reached a wheel.
+//
+// The box now stops at -0.10, giving 36 cm of clearance — just over one wheel RADIUS (0.34), which
+// is about the tallest step a raycast wheel can climb anyway. That makes the wheel's own limit the
+// binding one, which is the correct place for it.
+//
+// The TOP is deliberately unchanged at +1.215, so the box still wraps the same bodywork and nothing
+// about the visual moves: carModel centres the body on its OWN CHASSIS_BOX_OFFSET_Y and never reads
+// this. Only the underside — the part that was fighting the wheels — was trimmed.
+const CH = { x: 0.95, y: 0.6575, z: 2.395 };    // collision box half-extents (y was 0.715)
+const BOX_OFFSET_Y = 0.5575;                    // raised with the trim so the box TOP stays at 1.215
 const CHASSIS_MASS = 1730;                      // kg — real G80 M3 kerb+driver
 
 // Wheel layout (chassis-local, relative to the low origin). Front = +z, RWD (engine on rear).
