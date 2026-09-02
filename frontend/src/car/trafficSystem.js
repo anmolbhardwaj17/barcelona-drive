@@ -60,6 +60,54 @@ const SPAWN_MIN   = 32;
 const SPAWN_MAX   = 185;
 const DESPAWN     = 240;
 const LANE_OFFSET = 2.2;
+
+/**
+ * Points along a quadratic Bézier that carries a turning car THROUGH a junction.
+ *
+ * ⚠ WHY THIS IS NEEDED AT ALL. Paths are LANE-OFFSET polylines (LANE_OFFSET = 2.2 m), so at a
+ * 90-degree junction the outgoing lane line does not begin where the incoming one ends: entering
+ * eastbound the last point sits 2.2 m south of centre, and the new northbound road's first point
+ * sits 2.2 m east of ITS centre — about 3.1 m away, in a different direction. The old code called
+ * that "the dup join point", skipped it, and appended from index 1, so a turning car jumped from
+ * its lane straight to a point already up the next street: it cut the corner diagonally across
+ * the intersection instead of turning through it.
+ *
+ * The control point is where the two lane lines would actually MEET — the intersection of the
+ * incoming ray and the outgoing ray run backwards — which is exactly the corner a driver turns
+ * around. Returns points strictly BETWEEN p0 and p2; the caller still appends from index 1.
+ *
+ * @param p0  last point of the current path            @param p2  best.pts[1], one step along the new road
+ * @param hx,hz   incoming heading (unit)               @param cdx,cdz  outgoing heading (unit)
+ */
+export function junctionArc(p0, p2, hx, hz, cdx, cdz) {
+  const det = hx * cdz - hz * cdx;
+  // Near-parallel: a straight-through continuation has no corner to round.
+  if (Math.abs(det) < 1e-3) return null;
+  const vx = p2.x - p0.x, vz = p2.z - p0.z;
+  const t = (vx * cdz - vz * cdx) / det;
+  // t is how far along the incoming heading the corner sits. Negative means the junction is
+  // BEHIND the car (bad data); a huge value means the lines are nearly parallel after all.
+  if (!(t > 0.05) || t > 40) return null;
+  const cx = p0.x + hx * t, cz = p0.z + hz * t;
+  const dot = Math.max(-1, Math.min(1, hx * cdx + hz * cdz));
+  const deg = Math.acos(dot) * 180 / Math.PI;
+  if (deg < 12) return null;                       // a gentle bend needs no help
+  const steps = Math.max(2, Math.min(8, Math.round(deg / 12)));
+  const out = [];
+  for (let i = 1; i < steps; i++) {
+    const u = i / steps, m = 1 - u;
+    out.push({
+      x: m * m * p0.x + 2 * m * u * cx + u * u * p2.x,
+      // Elevation is interpolated, not Béziered: the corner control point has no height of its
+      // own, and a junction is flat enough that a linear ramp between the two ends is right.
+      y: p0.y + (p2.y - p0.y) * u,
+      z: m * m * p0.z + 2 * m * u * cz + u * u * p2.z,
+    });
+  }
+  return out;
+}
+
+
 const SPAWN_PER_FRAME = 2;
 const SPAWN_GAP   = 16;   // m — don't spawn within this of another car (avoids spawn-cluster deadlock)
 const STOP_DIST = 7;      // m — brake if something is this close ahead in-lane
@@ -332,17 +380,30 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     }
     if (!cands.length) return false;
     let best = null;
+    let chosen = null;
     if (cands.length === 1) {
-      best = cands[0].cont;
+      // ⚠ _turnDot was NOT set here, only in the weighted branch below — so a junction with exactly
+      // one legal continuation (a bend, or a T you can only leave one way) got no turn slowdown at
+      // all, and the car took it at full speed.
+      best = cands[0].cont; chosen = cands[0]; car._turnDot = cands[0].dot;
     } else {
       let total = 0;
       for (const c of cands) total += c.w;
       let r = Math.random() * total;
-      for (const c of cands) { r -= c.w; if (r <= 0) { best = c.cont; car._turnDot = c.dot; break; } }
-      if (!best) { best = cands[cands.length - 1].cont; car._turnDot = cands[cands.length - 1].dot; }
+      for (const c of cands) { r -= c.w; if (r <= 0) { best = c.cont; chosen = c; car._turnDot = c.dot; break; } }
+      if (!best) { chosen = cands[cands.length - 1]; best = chosen.cont; car._turnDot = chosen.dot; }
     }
     if (!best) return false;
-    for (let i = 1; i < best.pts.length; i++) path.pts.push(best.pts[i]); // skip dup join point
+    // Round the corner before joining. See junctionArc: best.pts[0] is NOT a duplicate of the
+    // current path end — it is the same junction expressed in the OTHER road's lane offset.
+    if (best.pts.length >= 2 && chosen) {
+      const p0 = path.pts[path.pts.length - 1];
+      let cdx = best.pts[1].x - best.pts[0].x, cdz = best.pts[1].z - best.pts[0].z;
+      const cl = Math.hypot(cdx, cdz) || 1; cdx /= cl; cdz /= cl;
+      const arc = junctionArc(p0, best.pts[1], hx, hz, cdx, cdz);
+      if (arc) for (const a of arc) path.pts.push(a);
+    }
+    for (let i = 1; i < best.pts.length; i++) path.pts.push(best.pts[i]);
     path.endWx = best.endWx; path.endWz = best.endWz;
     return true;
   }
