@@ -3052,3 +3052,28 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   cells to a compromise matching neither. A correct version must touch only cells already visibly
   off (>15 cm) and apply full correction inside the carriageway. `backend/tools/atGradeRoadFit.mjs`
   measures the population; the wheel-sink report is still OPEN.
+
+## 2026-09-02 — direction signs, and a commit that hid P-D3
+
+- **P-D3 (baked junction destinations → boards + gantries) is NOT described by its commit
+  message.** A `git add -A` swept it into `c7b96d7`, the tree-night-gradient commit. Recorded here
+  because the commit log will not lead anyone to it — same failure mode as the canopy-softening
+  slip. Grep `junctionSigns` to find the work.
+- **Direction signs — three defects, one drive-by** (`roadInfraRenderer.js`):
+  - The face was `MeshBasicMaterial`, i.e. UNLIT, so it kept full daylight brightness after dark
+    while the city darkened around it, and bloom turned it into a blank white rectangle. Now
+    Lambert (the house material) with a small emissive floor: it dims with everything else and the
+    headlights light it on approach. The panel vignette also ran to `rgba(255,255,255,0.5)` over
+    `#f2f2ee` — near pure white, which is what bloom grabbed. Now 0.22.
+  - `DoubleSide` CANNOT be right on a sign here: the face texture carries `repeat.x = -1` to undo
+    `worldGroup.scale.x = -1`, so the back showed that texture mirrored — reversed lettering, arrow
+    pointing the wrong way. Now `FrontSide` + a blank back plate, all of a tile's plates merged
+    into ONE mesh so it costs no draw call.
+  - The arrow was sized on its own instead of against the text column: 234 px of a 512 px panel on
+    a glyph carrying one bit, which forced long names to wrap at 24 px. Arrow down to ~a fifth,
+    text column 248 → 314 px, font floors raised (single 40 → 46, wrapped 24 → 34).
+- **Deploy**: the frontend's `VITE_STATIC_TILES=1` path makes the Express backend unnecessary in
+  production — tiles are fetched as plain files, so the whole game is ONE static Cloudflare Pages
+  project (no Worker, no R2, no CORS). 568 files / 202 MB, inside both Pages limits.
+  ⚠ The project already existed and is live on `drive.anmolbhardwaj.com`; its production branch is
+  `main`, so `--branch v3` lands as a PREVIEW, not production.
