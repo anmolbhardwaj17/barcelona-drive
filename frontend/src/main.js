@@ -1082,6 +1082,26 @@ spawnTileReady.finally(() => {
         // Pedestrians (sidewalks) and parked cars (curb) belong on the TERRAIN, not the road. Using the
         // road-biased getSurfaceHeightAt (which returns max(roadHeight, terrain) within 10 m of any road)
         // floated them wherever the road is baked above the terrain (e.g. Passeig Olímpic / Montjuïc).
+        // ── WHICH SURFACE IS "THE GROUND" DEPENDS ON WHAT IS STANDING ON IT ──────────────────
+        // Traffic asks for the road SURFACE first (see its getGroundY above); this asks for TERRAIN
+        // first. That asymmetry matters because the drawn road is not always flush with the terrain
+        // beside it: measured over 53,918 at-grade drivable points, 90.7% agree within 5 cm but
+        // **2.6% sit 15-60 cm apart** (backend/tools/atGradeRoadFit.mjs). Wherever that gap exists,
+        // anything placed on TERRAIN while standing on a ROAD is sunk into the carriageway by the
+        // gap — the object and its contact shadow both disappear under the surface they look like
+        // they are on.
+        //
+        // A parked car is in a parking lane, which IS carriageway, so it gets the traffic rule.
+        // Pedestrians keep terrain-first deliberately: they stand on pavements, verges and parks,
+        // and `getSurfaceHeightAt` would answer with the neighbouring ROAD height and lift them off
+        // the kerb. Same question, genuinely different right answers.
+        const roadSurfaceY = (wx, wz) => {
+          const s = tileManager.getSurfaceHeightAt?.(wx, wz);
+          if (s && Number.isFinite(s.surfaceY)) return s.surfaceY;
+          const t = tileManager.getTerrainHeightAt?.(wx, wz);
+          if (Number.isFinite(t)) return t;
+          return tileManager.normalizedGroundFloor?.() ?? 0;
+        };
         const terrainGroundY = (wx, wz) => {
           const t = tileManager.getTerrainHeightAt?.(wx, wz);
           if (Number.isFinite(t)) return t;
@@ -1094,7 +1114,7 @@ spawnTileReady.finally(() => {
           parkedCars = createParkedCars({
             scene,
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
-            getGroundY: terrainGroundY,
+            getGroundY: roadSurfaceY,   // parking lane is carriageway — see the note above
             getOrigin: getOriginOffset,
           });
         }
