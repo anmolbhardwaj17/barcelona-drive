@@ -1058,6 +1058,7 @@ spawnTileReady.finally(() => {
         contactShadows = createContactShadows({ scene });
         // "Do the traffic cars have shadows?" is answerable, not a matter of opinion.
         if (typeof window !== 'undefined') window._ddShadowStats = () => contactShadows?.stats?.() ?? 'none';
+        if (typeof window !== 'undefined') window._ddShadowDump = () => contactShadows?.dump?.(camera.position) ?? 'none';
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
             scene, world, contactShadows,
@@ -1091,10 +1092,11 @@ spawnTileReady.finally(() => {
         // gap — the object and its contact shadow both disappear under the surface they look like
         // they are on.
         //
-        // A parked car is in a parking lane, which IS carriageway, so it gets the traffic rule.
-        // Pedestrians keep terrain-first deliberately: they stand on pavements, verges and parks,
-        // and `getSurfaceHeightAt` would answer with the neighbouring ROAD height and lift them off
-        // the kerb. Same question, genuinely different right answers.
+        // ⚠ TRIED AND REVERTED (2026-09-02). Switching parked cars to roadSurfaceY LIFTED them
+        // visibly off the road — `getSurfaceHeightAt` returns a height the parked-car placer does
+        // not expect to stack on, so the reasoning ("a parking lane is carriageway") was right
+        // about the geometry and wrong about the contract. Kept here, unused, because the next
+        // person will have the same idea; the note is cheaper than repeating the experiment.
         const roadSurfaceY = (wx, wz) => {
           const s = tileManager.getSurfaceHeightAt?.(wx, wz);
           if (s && Number.isFinite(s.surfaceY)) return s.surfaceY;
@@ -1114,7 +1116,7 @@ spawnTileReady.finally(() => {
           parkedCars = createParkedCars({
             scene,
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
-            getGroundY: roadSurfaceY,   // parking lane is carriageway — see the note above
+            getGroundY: terrainGroundY,   // ⚠ roadSurfaceY LIFTED them off the road — reverted 2026-09-02
             getOrigin: getOriginOffset,
           });
         }

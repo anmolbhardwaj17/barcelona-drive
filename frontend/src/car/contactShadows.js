@@ -74,6 +74,36 @@ export function createContactShadows({ scene, capacity = 700 }) {
     setEnabled(on) { mesh.visible = on; },
     /** window._ddShadowStats() — is anything actually being drawn, and is the pool overflowing? */
     stats() { return { thisFrame: _n, peak: _peak, capacity, framesAtCapacity: _overflow, droppedAdds: _dropped }; },
+    /**
+     * window._ddShadowDump() — WHY are 374 submitted instances invisible?
+     * stats() proved they are submitted. Count, capacity, lift, coordinate frame and the visible
+     * flag are all eliminated by inspection, so what is left is runtime state: the material, and
+     * where the matrices actually put the blobs. Prints both, plus the first instance's world
+     * position so it can be compared against the camera.
+     */
+    dump(cameraPos) {
+      const m0 = new THREE.Matrix4(), p0 = new THREE.Vector3(), s0 = new THREE.Vector3(), q0 = new THREE.Quaternion();
+      const out = {
+        count: mesh.count, visible: mesh.visible, inScene: !!mesh.parent,
+        renderOrder: mesh.renderOrder, frustumCulled: mesh.frustumCulled,
+        material: {
+          type: mat.type, transparent: mat.transparent, opacity: mat.opacity,
+          depthWrite: mat.depthWrite, depthTest: mat.depthTest,
+          visible: mat.visible, colorHex: '#' + mat.color.getHexString(),
+          hasMap: !!mat.map, mapImageOk: !!(mat.map && mat.map.image && mat.map.image.width),
+          blending: mat.blending, side: mat.side,
+        },
+        instances: [],
+      };
+      for (let i = 0; i < Math.min(3, mesh.count); i++) {
+        mesh.getMatrixAt(i, m0); m0.decompose(p0, q0, s0);
+        const e = { pos: [+p0.x.toFixed(2), +p0.y.toFixed(2), +p0.z.toFixed(2)],
+                    scale: [+s0.x.toFixed(2), +s0.y.toFixed(2), +s0.z.toFixed(2)] };
+        if (cameraPos) e.distToCam = +p0.distanceTo(cameraPos).toFixed(1);
+        out.instances.push(e);
+      }
+      return out;
+    },
     dispose() { scene.remove(mesh); geo.dispose(); mat.dispose(); },
   };
 }
