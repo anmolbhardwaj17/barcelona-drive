@@ -3027,3 +3027,28 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   exactly 0 across all 39,627 ways: junction continuity (N-57..N-61, 130 → 102 steps) depends on
   ways agreeing about shared node positions, so only interior vertices are touched. **No re-bake
   needed.**
+- **Tree canopies became AO occluders, then were softened (2026-09-02).** `aoBaker.js` never received
+  trees — `bakeAoGrid(elevation, buildings)` — which is why an avenue of plane trees left the road
+  perfectly evenly lit. Canopies now rasterise as round crowns (radius `0.38 × height`, jittered
+  0.72–1.22× off a hash of the tree id) and march their **own** horizon, mixed at `CANOPY_OPACITY`.
+  Baked, so zero frame cost — the four AO shader sites already consume the attribute.
+  - ⚠ **First run rasterised 419 cells city-wide, ~1 per tile, and shaded nothing.** Cause: **0 of
+    391 trees in the benchmark tile carry a `height` tag** — OSM essentially never tags
+    `natural=tree` height, so every tree failed `h < CANOPY_MIN_H`. Defaulted to the card atlas's
+    own `plane_pollarded` (12 m / 9 m crown), the same tree the renderer draws → **752,604 cells**.
+    The counter is the only reason this was caught instead of shipping as "no visible change".
+  - ⚠ **Opacity 0.6 read as a painted slab**, not shade, with a hard edge at the crown line. AO is
+    *ambient* — it darkens by sky visibility and has no direction in it, so under a continuous row
+    of trees it cannot dapple, only flatten. Dialled to **0.34**, crown radius jittered → **724,304
+    cells**. Genuine dapple needs a baked **directional** pass at a fixed sun angle; the runtime
+    shadow path is blocked because the vegetation pools set `frustumCulled` and
+    `perObjectFrustumCulled` both false (the latter measured as a frame-killer).
+  - ⚠ Housekeeping: the softening landed inside commit `9ab2c11` ("Direction signage…") via a
+    `git add -A`, not under its own message. Recorded here so it is findable.
+- **Road/terrain conform: tried, measured, REVERTED (2026-09-02).** Conforming terrain to at-grade
+  roads fired on 543,143 cells but made the fit **worse** — flush points 90.7% → 83.0%, and the
+  5–15 cm band 1.0% → 7.9%. The easing (`w = 1 − (dist/halfW)²` out to 6 m, skipping only gaps under
+  5 cm) dragged already-flush cells toward roads, and at junctions two crossing roads pulled the same
+  cells to a compromise matching neither. A correct version must touch only cells already visibly
+  off (>15 cm) and apply full correction inside the carriageway. `backend/tools/atGradeRoadFit.mjs`
+  measures the population; the wheel-sink report is still OPEN.
