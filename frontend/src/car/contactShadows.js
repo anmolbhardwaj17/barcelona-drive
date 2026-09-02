@@ -7,6 +7,20 @@ import * as THREE from 'three';
 
 const YAXIS = new THREE.Vector3(0, 1, 0);
 
+// ── WHY 0.12 AND NOT 0.03 ─────────────────────────────────────────────────────────────────────
+// The blob used +0.03, and the ground-layer table says exactly what that buys (groundLayers.js:64):
+// the DRAWN asphalt sits at base + 0.07 plus a bump of 0.001-0.009, so a lift measured from the
+// road heights value "must exceed ~0.020-0.029 before the paint is above the asphalt at all. A
+// '0.03 lift' is really 1-10 mm of clearance, which is what left lane arrows buried wherever the
+// surface bumped." The car shadows were losing the same fight — visible on a crosswalk, gone on
+// plain asphalt a metre away, which is exactly what the user photographed.
+//
+// 0.12 clears the whole shipped paint stack (lane lines base+0.100, parking stripes base+0.105,
+// crosswalks base+0.095) so the shadow falls ON the paint, which is what a real shadow does. The
+// cost of being generous is 12 cm of float, invisible on a soft 4 m disc; the cost of being tight
+// is a shadow that flickers in and out over road markings.
+const SHADOW_LIFT = 0.12;
+
 function softDiscTexture() {
   const s = 64;
   const c = document.createElement('canvas');
@@ -45,7 +59,7 @@ export function createContactShadows({ scene, capacity = 700 }) {
       if (_n >= capacity) { _dropped++; return; }
       _q.setFromAxisAngle(YAXIS, yaw);
       _s.set(sizeX, 1, sizeZ);
-      _p.set(x, y + 0.03, z);
+      _p.set(x, y + SHADOW_LIFT, z);
       _m.compose(_p, _q, _s);
       mesh.setMatrixAt(_n++, _m);
     },

@@ -493,7 +493,17 @@ export async function createCarModel(scene) {
     bodyGroup.quaternion.premultiply(_rollQ);
 
     // Shadow
-    carShadowMesh.position.set(p.x, p.y - 0.25 + CAR_VISUAL_LIFT, p.z);
+    // ── THE PLAYER'S BLOB WAS 27 cm OFF THE GROUND, i.e. INSIDE THE CAR ─────────────────────
+    // Contact patch relative to the chassis origin is WHEEL_Y - REST_LEN - WHEEL_R
+    // = 0.20 - 0.32 - 0.34 = -0.46. The old `p.y - 0.25 + CAR_VISUAL_LIFT` put the blob at -0.19,
+    // which is 0.27 m above the road — level with the car's own underside, so the body hid it. That
+    // is why the player car reads as ungrounded in a plain-asphalt shot while showing a shadow over
+    // a crosswalk (where the paint stack happens to sit higher).
+    //
+    // -0.34 is ground + 0.12, the same lift contactShadows uses for traffic and parked cars, which
+    // clears the whole shipped paint stack (lane lines base+0.100, parking stripes base+0.105).
+    // One number, one reason, both systems.
+    carShadowMesh.position.set(p.x, p.y - 0.34, p.z);
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
     carShadowMesh.rotation.y = yaw;
     _chassisQ.set(q.x, q.y, q.z, q.w);
