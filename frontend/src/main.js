@@ -1056,6 +1056,8 @@ spawnTileReady.finally(() => {
         // conversion is HUD-verified). Re-enable only after re-parenting/offset-correcting them.
         // boundaryHaze = createBoundaryHaze(worldGroup);
         contactShadows = createContactShadows({ scene });
+        // "Do the traffic cars have shadows?" is answerable, not a matter of opinion.
+        if (typeof window !== 'undefined') window._ddShadowStats = () => contactShadows?.stats?.() ?? 'none';
         if (CONFIG.ENABLE_TRAFFIC && world) {
           trafficSystem = createTrafficSystem({
             scene, world, contactShadows,

@@ -36,21 +36,30 @@ export function createContactShadows({ scene, capacity = 700 }) {
   scene.add(mesh);
 
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
-  let _n = 0;
+  let _n = 0, _peak = 0, _overflow = 0, _dropped = 0;
 
   return {
     begin() { _n = 0; },
     /** Add a shadow blob at (x,y,z) sized sizeX×sizeZ (m), aligned to yaw. */
     add(x, y, z, sizeX, sizeZ, yaw = 0) {
-      if (_n >= capacity) return;
+      if (_n >= capacity) { _dropped++; return; }
       _q.setFromAxisAngle(YAXIS, yaw);
       _s.set(sizeX, 1, sizeZ);
       _p.set(x, y + 0.03, z);
       _m.compose(_p, _q, _s);
       mesh.setMatrixAt(_n++, _m);
     },
-    commit() { mesh.count = _n; mesh.instanceMatrix.needsUpdate = true; },
+    commit() {
+      // D-23: `add()` drops silently past capacity, and a blob that was never drawn looks exactly
+      // like one drawn too faint — the two need opposite fixes. `peak` is the honest number: if it
+      // sits at `capacity` the pool is overflowing and somebody's shadows are missing.
+      if (_n > _peak) _peak = _n;
+      _overflow = _n >= capacity ? _overflow + 1 : _overflow;
+      mesh.count = _n; mesh.instanceMatrix.needsUpdate = true;
+    },
     setEnabled(on) { mesh.visible = on; },
+    /** window._ddShadowStats() — is anything actually being drawn, and is the pool overflowing? */
+    stats() { return { thisFrame: _n, peak: _peak, capacity, framesAtCapacity: _overflow, droppedAdds: _dropped }; },
     dispose() { scene.remove(mesh); geo.dispose(); mat.dispose(); },
   };
 }
