@@ -49,7 +49,14 @@ export function getHeadlightRig(scene) {
   const cookie = getHeadlightCookie();
   // The aim target. Local to whatever the lights are parented to, so it re-parents with them.
   const target = new THREE.Object3D();
-  target.position.set(0, -1, 20);
+  // ⚠ THE DEPRESSION ANGLE IS WHY THE ROAD STAYS DARK, NOT THE INTENSITY. At (0,-1,20) against a
+  // lamp at y=0.30 the beam falls 1.3 m over 18.25 m — about 4 degrees. The road's normal is UP, so
+  // it receives N.L ~ sin(4deg) = 0.07 while a wall ahead receives ~1.0: the beam washes buildings
+  // and leaves the carriageway black, and no intensity can fix a ratio. (A flat additive ground
+  // "pool" quad was tried for this and reverted — it cannot lie on a hill.)
+  // (0,-2.1,12) is ~11.3 degrees: N.L 0.196, a 2.8x lift on the road with the throw still well
+  // ahead of the car.
+  target.position.set(0, -2.1, 12);
 
   const spots = [];
   for (const xPos of [-0.55, 0.55]) {

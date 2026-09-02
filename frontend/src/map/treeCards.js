@@ -200,7 +200,14 @@ const CARD_NIGHT_EMISSIVE = [0.042, 0.050, 0.044];
 // materially brighter at exactly the moment the lift landed — the two changes compounded and the
 // trees read as daylit foliage in a night scene. This tint pulls the lit response back down; the
 // emissive above then sets the floor so they do not go black.
-export const CARD_NIGHT_TINT = [0.55, 0.62, 0.56];
+// ⚠ CALIBRATED AGAINST THE AMBIENT FLOOR, so it moved when the floor did. At [0.55,0.62,0.56] the
+// canopy kept only ~58% of its albedo, which was right when NIGHT ambient was 1.0 and everything
+// else in frame was over-lit too. P-L1 cut that floor to 0.32 and the trees went to near-black
+// silhouettes while the lamp-lit road stayed bright — the tint was subtracting a third time from a
+// surface that had already lost two thirds of its light.
+// Street lamps sit AT canopy height on these avenues, so a tree beside one should be among the
+// brightest things in frame, not the darkest.
+export const CARD_NIGHT_TINT = [0.80, 0.86, 0.81];
 
 /**
  * How much light a canopy actually receives at night, as a fraction of full albedo.

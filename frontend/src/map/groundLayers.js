@@ -18,6 +18,7 @@
  */
 
 import { BCN_DIMS } from './barcelona-constants.js';
+import { registerMaterial } from './materialRegistry.js';
 const CURB_HEIGHT = BCN_DIMS.CURB_HEIGHT;
 
 export const GROUND_LAYERS = {
@@ -161,6 +162,16 @@ export function applyGroundLayer(material, layerClass) {
   if (bias === undefined) throw new Error(`groundLayers: unknown class '${layerClass}'`);
   (material.userData ||= {})._groundLayer = layerClass;   // v3 P0-14: lets assertGroundLayers() tell
                                                           // a compliant material from a hand-rolled one
+  // ⚠ REGISTER, OR THE STREET LIGHTS CANNOT SEE IT. `patchLightGrid` is applied through
+  // `onMaterialRegistered`, so a material that never enters the registry is never patched and is
+  // lit by the ambient rig ALONE. Every ground marking went through here and none of them
+  // registered, which is why at night the zebra crossings and lane lines read BLUE while the
+  // asphalt they are painted on — registered via patchRoadAO — read warm under the same lamp.
+  // White paint under a blue-only rig can only return blue.
+  // Unlit classes (MeshBasic pictograms, zona30) still land on patchLightGrid's silent no-op guard
+  // and are reported under ?debug=init; registering them costs nothing and makes them visible to
+  // the diagnostics instead of invisible to everything.
+  registerMaterial(material, `ground:${layerClass}`);
   if (bias === 0) {
     material.polygonOffset = false;
   } else {

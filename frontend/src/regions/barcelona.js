@@ -90,7 +90,13 @@ export default {
      * it. Cost scales with radius^2 on the CPU rebuild (more cells per lamp); per-FRAGMENT cost is
      * unchanged, still bounded by the 4 slots.
      */
-    lampRadiusM: 48,
+    // 25 m, chosen on a night drive (2026-09-02). 48 m was picked against the OLD 1.0 ambient
+    // floor, where a small radius meant lamps only lit what you were nearly under. With the floor
+    // at 0.32 that premise is gone, and 48 m on 22 m spacing had every road point seeing 3-4 lamps
+    // — measured pool contrast 1.06x, i.e. street lighting acting as a SECOND AMBIENT TERM, which
+    // no intensity fixes (swept 0.36-1.6, tops out 1.27x). Re-measure with
+    // `node backend/tools/nightBalanceProbe.mjs`.
+    lampRadiusM: 25,
     /**
      * Added directly to reflectedLight.directDiffuse, so it lives on the same scale as the rest of
      * the night rig — where diffuse sits around 0.05–0.2. The spike used 3.0 purely so 32 stub
@@ -100,7 +106,9 @@ export default {
      * Lowered again with the smoothstep falloff: that holds near 1 through the near field where
      * quadratic had collapsed, so the same number now reads far brighter than it did.
      */
-    lampIntensity: 0.36,  // Third value chosen on a night drive (0.2 pre-cone -> 0.28 -> 0.36).
+    lampIntensity: 1.1,   // Fourth value, night drive 2026-09-02 (0.2 -> 0.28 -> 0.36 -> 1.1).
+                          // Raised WITH the radius cut: 3.7x smaller footprint, so total emitted
+                          // light still FALLS. The point is local lamps, not more light.
                           // The cone costs ~40% at mid-street by design, and the 16-bit index now
                           // lights the full 512 m window, so more of the frame is lit at once and
                           // the eye reads any single pool as dimmer than it did. Under a lamp this
