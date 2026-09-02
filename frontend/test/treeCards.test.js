@@ -365,12 +365,14 @@ test('P3-07c: the detail normal is injected where `normal` actually exists', () 
 
 test('P3-11: the sky dome has a night key and draws before the stars', () => {
   const sc = fs.readFileSync('src/scene.js', 'utf8');
-  const et = fs.readFileSync('src/ui/envToggle.js', 'utf8');
+  // The presets moved to envPresets.js (P-L1) so they could be unit tested — envToggle imports
+  // scene.js and sixteen renderer modules, so no node test can load it.
+  const et = fs.readFileSync('src/ui/envPresets.js', 'utf8');
 
   // The dome carried DAY colours only, which is why night hid it behind a flat bgColor — and a
   // hidden dome can hold no clouds, no dawn/dusk and no horizon glow.
   assert.ok(/NIGHT_SKY_HORIZON/.test(sc) && /uNight/.test(sc), 'the dome has a night key');
-  assert.ok(/skyVisible:\s*true,\s*\n\s*bgColor:\s*null/.test(et.slice(et.indexOf('const NIGHT'))),
+  assert.ok(/skyVisible:\s*true,\s*\n\s*bgColor:\s*null/.test(et.slice(et.indexOf('export const NIGHT'))),
     'night no longer hides the sky behind a flat colour');
 
   // Stars are renderOrder -1 with depthWrite off; an opaque dome at the default 0 paints over them.

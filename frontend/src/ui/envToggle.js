@@ -25,54 +25,8 @@ const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
 export function onNightModeChange(cb) { _nightModeCallbacks.push(cb); }
 
-const DAY = {
-  // L1 golden-hour split: the hemi (now a REAL light — cool sky fill + warm ground bounce) carries the
-  // colour separation; ambient drops to a neutral base so the fill isn't doubled. Sun warmed slightly.
-  ambientColor:     0xd4e2ec,
-  ambientIntensity: 0.30,
-  hemiSkyColor:     0xa3c0e4, // cool blue sky-light → shadows read cool
-  hemiGroundColor:  0xc4966a, // warm ground bounce, eased (0xd08a4e washed facades too golden)
-  hemiIntensity:    0.55,
-  dirIntensity:     2.7,
-  dirColor:         0xffe3c2, // warm key, one notch whiter (0xffdcae read too yellow on cream walls)
-  fogColor:         0xc4dcea,  // brighter sky-matched haze (less grey)
-  fogDensity:       0.0032,     // thinned (was 0.0052) — day haze was reading as a grey wash over the frame
-  skyVisible:       true,
-  bgColor:          null,
-  toneMappingExposure: 1.6,   // pulled from 1.9 — the scene was overexposed, washing every surface colour pale
-  lampEmissive:     0.25,   // subtle glow in daylight
-  bloomStrength:    0.5,    // subtle bloom by day (only the sun/bright highlights)
-  bloomThreshold:   1.1,    // high threshold → daytime scene doesn't bloom
-  lightsOn:         false,
-};
+import { DAY, NIGHT } from './envPresets.js';
 
-const NIGHT = {
-  // Reference-matched night (low-poly cinematic renders): the WHOLE albedo palette collapses into a
-  // narrow dark blue-charcoal band — day colours must NOT survive (no vivid greens / bright cream
-  // facades after dark). Fill light is deep desaturated blue at LOW intensity; the warm emissives
-  // (windows, streetlamps, signs) carry all the contrast and pop against it via bloom.
-  ambientColor:     0x6b7a9e,  // desaturated blue fill — the blue TINT (not darkness) is what sells night
-  ambientIntensity: 1.0,       // readable floor: geometry must survive as blue-charcoal masses, not voids
-  hemiSkyColor:     0x46567e,  // dark blue sky dome light
-  hemiGroundColor:  0x232a3a,  // dark ground bounce
-  hemiIntensity:    0.6,
-  dirIntensity:     0.7,       // soft moon — form on rooftops/facades
-  dirColor:         0x8fa6d8,  // cool moonlight
-  fogColor:         0x101a2e,  // deep navy haze
-  fogDensity:       0.0045,    // thin night haze so the distance keeps depth, not grey murk
-  // v3 P3-11: the dome is VISIBLE at night now. It was hidden behind a flat bgColor because it
-  // carried day colours only — and a hidden dome cannot hold clouds, cannot carry dawn/dusk and
-  // cannot take a horizon glow, so the night sky was a solid navy rectangle. It has a night key now
-  // (NIGHT_SKY_* in scene.js), so bgColor is no longer needed: the gradient's zenith 0x080e1e sits
-  // where the flat 0x0a1224 was, as the TOP of a gradient rather than the whole sky.
-  skyVisible:       true,
-  bgColor:          null,
-  toneMappingExposure: 1.5,    // 1.75 read as day; darkness now comes from the blue rig + grade, not exposure
-  lampEmissive:     9.0,       // hotter streetlamp glow → warm pops punch through the deep blue
-  bloomStrength:    0.55,      // soft halo only — 1.0 turned every window into a fuzzy ball
-  bloomThreshold:   0.72,      // just the truly bright emissives bloom (lamps, window cores)
-  lightsOn:         true,
-};
 
 /**
  * @param {{
