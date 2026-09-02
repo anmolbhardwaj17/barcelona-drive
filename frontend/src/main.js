@@ -84,6 +84,7 @@ import { toNormalizedRoadY } from './roadElevation.js';
 import { setOriginOffset, getOriginOffset } from './originOffset.js';
 import { CONFIG } from './config.js';
 import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
+import { initTreeShadowProxies, updateTreeShadowProxies, invalidateTreeShadowProxies, treeShadowStats } from './map/treeShadowProxies.js';   // v3 P-L2
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
 import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
@@ -732,6 +733,14 @@ const _BENCH = isBenchMode();
 //                   which visibly strobes the whole scene. That strobe was reported as a bug twice.
 const _LGPARAM = (() => { try { return new URLSearchParams(location.search); } catch { return null; } })();
 const _LIGHTGRID = !_LGPARAM?.has('nolightgrid');
+
+// ── v3 P-L2 TREE SHADOW PROXIES ────────────────────────────────────────────────────────────────
+// ON by default. `?treeshadows=0` disables — an ATTRIBUTION switch, not a preference: this is the
+// only thing casting a shadow on a tree-lined avenue, so it is also the only way to tell "the day
+// frame looks flat" apart from "the day frame looks flat FOR SOME OTHER REASON".
+const _TREESHADOWS = _LGPARAM?.get('treeshadows') !== '0';
+let _tsInit = false, _tsTileEpoch = -1;
+const _tsCamLocal = new THREE.Vector3();
 const _LIGHTGRID_AB = _LGPARAM?.get('lightgrid') === 'ab';
 
 // ?debug=roadfit — measures drawn road vs drawn terrain and prints a distribution. Measurement only:
@@ -2079,6 +2088,30 @@ function animate(time = 0) {
       rebuildLightGrid();
     }
   }
+
+  // P-L2 tree shadow casters. Deliberately OUTSIDE the `_LIGHTGRID` block above: street lighting is
+  // a NIGHT feature and these are what the DAY frame is missing, so gating them together would mean
+  // `?nolightgrid` silently removed the day's only shadows too.
+  if (_TREESHADOWS) {
+    if (!_tsInit) { initTreeShadowProxies(worldGroup, true); _tsInit = true; }
+    _tsCamLocal.copy(camera.position);
+    worldGroup.worldToLocal(_tsCamLocal);
+    const _tsEpoch = tileManager.getTileEpoch();
+    // A tile streaming in brings trees that must start casting — the camera may not have moved far
+    // enough to trigger the distance rebuild on its own.
+    if (_tsEpoch !== _tsTileEpoch) { _tsTileEpoch = _tsEpoch; invalidateTreeShadowProxies(); }
+    const _tsBefore = treeShadowStats.rebuilds;
+    updateTreeShadowProxies(_tsCamLocal.x, _tsCamLocal.z, tileManager.getTreeProxyArrays);
+    // ⚠ renderer.shadowMap.autoUpdate is FALSE, so a moved caster changes NOTHING until the depth
+    // pass is asked to run again. Without this the proxies rebuild correctly and the shadows stay
+    // frozen where the car used to be.
+    if (treeShadowStats.rebuilds !== _tsBefore) requestShadowRefresh();
+  }
+  // `window._ddTreeShadows()` — how many casters are actually submitted, out of how many trees
+  // scanned. `proxies: 0` with a non-zero `considered` means the radius filter rejected everything
+  // (wrong coordinate frame); `considered: 0` means no tile ever stored proxy data at all. The two
+  // failures look identical on screen — both are "no shadows".
+  if (!window._ddTreeShadows) window._ddTreeShadows = () => ({ enabled: _TREESHADOWS, ...treeShadowStats });
 
   cpuTimer.lap('lgrid');   // logger + time-to-drive + spike — split out so none of it hides in `post`
 

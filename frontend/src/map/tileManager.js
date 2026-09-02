@@ -2471,6 +2471,23 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
       darkenTerrainAroundTrees(terrainMesh, vegTreePositions);
     }
 
+    // P-L2: canopy positions WITH ground Y, for the shadow-caster proxies (treeShadowProxies.js).
+    // Flat [x, groundY, z] triples rather than objects: the proxy builder rescans every resident
+    // tile's trees on each rebuild to find the ones inside the shadow frustum, and that scan is the
+    // only per-rebuild cost worth caring about at ~2k trees a tile.
+    // Ground Y is resolved HERE, once, while the tile's own elevation sampler is in scope — the
+    // proxy builder runs long after that and has no way back to it.
+    if (vegTreePositions.length > 0) {
+      const _tp = new Float32Array(vegTreePositions.length * 3);
+      for (let i = 0; i < vegTreePositions.length; i++) {
+        const _p = vegTreePositions[i];
+        _tp[i * 3]     = _p.x;
+        _tp[i * 3 + 1] = getGroundY ? getGroundY(_p.x, _p.y) : 0;
+        _tp[i * 3 + 2] = _p.y;      // ⚠ .y IS world Z on these records (see buildSceneryColliders)
+      }
+      entry.treeProxyData = _tp;
+    }
+
     // Green meshes already built in Phase 1 — add to vegetation list for cleanup tracking
     if (entry.greenMeshes) entry.greenMeshes.forEach((m) => vegetationMeshes.push(m));
 
@@ -3908,6 +3925,18 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
    * Get all lamp-head world positions from loaded tiles (for dynamic PointLight placement).
    * @returns {{ x: number, y: number, z: number }[]}
    */
+  /**
+   * Per-tile [x, groundY, z] triples for every resident tile's trees (P-L2).
+   * Returned as the raw array-of-arrays so the caller can scan without a concat allocation.
+   */
+  function getTreeProxyArrays() {
+    const out = [];
+    for (const entry of tileCache.values()) {
+      if (entry.treeProxyData?.length) out.push(entry.treeProxyData);
+    }
+    return out;
+  }
+
   function getStreetlightPositions() {
     const out = [];
     for (const entry of tileCache.values()) {
@@ -3986,6 +4015,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     normalizedGroundFloor,
     getCurrentTileTerrainRange,
     getStreetlightPositions,
+    getTreeProxyArrays,
     /** DEBUG ONLY — resident tile entries, for measurement probes (?debug=roadfit). Never used by the game. */
     __debugTileEntries: () => [...tileCache.values()],
   };
