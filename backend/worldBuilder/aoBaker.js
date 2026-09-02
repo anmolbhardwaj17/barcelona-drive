@@ -51,6 +51,12 @@ const EYE_HEIGHT = 1.5;      // sample the sky from head height, not the pavemen
 // only by leaves keeps most of its sky.
 const CANOPY_OPACITY = 0.6;  // 0 = leaves are glass, 1 = leaves are concrete
 const CANOPY_MIN_H   = 3;    // m — a sapling does not shape the sky; same rule buildings get
+// ⚠ OSM DOES NOT TAG TREE HEIGHT. Measured: 0 of 391 trees in the benchmark tile carry one, so the
+// first run rasterised 419 cells across the whole city — about one per tile — and shaded nothing.
+// The default is the signature Barcelona street tree from the card atlas manifest
+// (`treeAtlas.js`, plane_pollarded: heightM 12, canopyM 9), which is also what the renderer draws,
+// so the shade matches the tree instead of describing an imaginary one.
+const CANOPY_DEFAULT_H = 12;
 // Crown radius from trunk height. A 12 m plane tree carries roughly a 4.5 m radius crown; the clamp
 // stops a mis-tagged height from painting a 20 m disc of shade.
 const CANOPY_R_FRAC  = 0.38;
@@ -152,7 +158,7 @@ export function bakeAoGrid(elevation, buildings, trees) {
   for (const t of trees || []) {
     const pt = t && t.point;
     if (!pt) continue;
-    const h = Math.min(t.height || 0, 40);
+    const h = Math.min(Number.isFinite(t.height) && t.height > 0 ? t.height : CANOPY_DEFAULT_H, 40);
     if (h < CANOPY_MIN_H) continue;
     const rad = Math.max(CANOPY_R_MIN, Math.min(CANOPY_R_MAX, h * CANOPY_R_FRAC));
     const tx = pt[0], tz = pt[1];
