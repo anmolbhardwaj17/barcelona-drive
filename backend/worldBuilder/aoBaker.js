@@ -49,7 +49,16 @@ const EYE_HEIGHT = 1.5;      // sample the sky from head height, not the pavemen
 // sky/no-sky test that is right for masonry. Applied to leaves it would turn every avenue into a
 // tunnel. So canopies march on their OWN horizon and are mixed at CANOPY_OPACITY: a ray stopped
 // only by leaves keeps most of its sky.
-const CANOPY_OPACITY = 0.6;  // 0 = leaves are glass, 1 = leaves are concrete
+// ⚠ 0.6 READ AS A PAINTED BLANKET, NOT AS SHADE. This term is AMBIENT occlusion — it darkens by
+// how much SKY a point sees, with no direction in it. Under a continuous row of plane trees the sky
+// is hidden everywhere, so a high value produces one flat dark slab with a hard edge at the crown
+// line, which is what the user reported as unnatural. Real dappled shade is a DIRECTIONAL projection
+// of the sun through gaps and cannot come from this term at any setting.
+//
+// So it is dialled to where it reads as "the air under a tree is dimmer" rather than "a shadow was
+// painted here". Anything that actually dapples needs a baked directional pass at a fixed sun angle,
+// which is a separate piece of work.
+const CANOPY_OPACITY = 0.34; // 0 = leaves are glass, 1 = leaves are concrete
 const CANOPY_MIN_H   = 3;    // m — a sapling does not shape the sky; same rule buildings get
 // ⚠ OSM DOES NOT TAG TREE HEIGHT. Measured: 0 of 391 trees in the benchmark tile carry one, so the
 // first run rasterised 419 cells across the whole city — about one per tile — and shaded nothing.
@@ -160,7 +169,12 @@ export function bakeAoGrid(elevation, buildings, trees) {
     if (!pt) continue;
     const h = Math.min(Number.isFinite(t.height) && t.height > 0 ? t.height : CANOPY_DEFAULT_H, 40);
     if (h < CANOPY_MIN_H) continue;
-    const rad = Math.max(CANOPY_R_MIN, Math.min(CANOPY_R_MAX, h * CANOPY_R_FRAC));
+    // Per-tree radius jitter. Every crown at exactly 0.38*h drew a row of identical discs, and the
+    // union of identical discs has a mechanically even edge — half of why the band read as painted.
+    // Hashed off the id so it is stable across bakes rather than random per run.
+    const jit = ((Math.imul((t.id | 0) ^ 0x9e3779b9, 0x85ebca6b) >>> 8) & 0xffff) / 0xffff;
+    const rad = Math.max(CANOPY_R_MIN,
+      Math.min(CANOPY_R_MAX, h * CANOPY_R_FRAC * (0.72 + jit * 0.5)));
     const tx = pt[0], tz = pt[1];
     if (tx + rad < minWx || tx - rad > maxWx || tz + rad < minWz || tz - rad > maxWz) continue;
     const ci0 = Math.max(0, Math.floor((tx - rad - minWx) / RASTER_CELL));
