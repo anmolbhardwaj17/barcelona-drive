@@ -87,7 +87,7 @@ import { requestShadowRefresh, consumeShadowRefresh } from './shadowRefresh.js';
 import { initTreeShadowProxies, updateTreeShadowProxies, invalidateTreeShadowProxies, treeShadowStats } from './map/treeShadowProxies.js';   // v3 P-L2
 import { isBenchMode, benchModeKind, startBenchRoute } from './bench/benchRoute.js';
 import { initAssetRegistry } from './loaders.js';
-import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered } from './map/materialRegistry.js';   // v3 P1-03
+import { getRegisteredMaterials, meshKindsFor, onMaterialRegistered, auditMaterialPatches } from './map/materialRegistry.js';   // v3 P1-03
 import { getHeadlightRig } from './car/headlightRig.js';   // built before the warm-up — see D-39
 import { probeRoadFit } from './ui/roadFitProbe.js';   // ?debug=roadfit — measurement only
 import { armReport, noteVariant, noteLongFrame, noteResidency, shipReport } from './ui/driveReport.js';   // F9 → one file, see below
@@ -1289,6 +1289,10 @@ spawnTileReady.finally(() => {
         try {
           const st = tileManager?.getInitialLoadState?.() ?? {};
           if (_done) {
+    // A dropped patch chain is invisible on screen except as an art bug — building facades unlit
+    // by the street lamps, and nothing logged. Checked once, here, when every tile material that
+    // will exist does.
+    auditMaterialPatches();
             console.warn('[perf] initial tile load COMPLETE after %d polls (~%d ms), %d tiles resident',
               _polls, Math.round(_polls * 150), st.resident ?? -1);
           } else {

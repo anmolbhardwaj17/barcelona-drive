@@ -51,6 +51,7 @@
 
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, STOREY_H } from '../buildingConstants.js';
 import { getKTX2Texture } from '../loaders.js';   // the SHARED KTX2 loader — see loadFacadeArray
+import { patchMaterial } from './materialRegistry.js';
 
 /** Metres one layer spans horizontally. Both arrays share it so u repeats stay consistent. */
 export const LAYER_W_M = 2 * STOREY_H;   // 7.0 m
@@ -512,7 +513,17 @@ if (typeof window !== 'undefined') {
 let _facadeDiagLogged = false;
 const _facadeTypesSeen = new Set();
 export function patchFacadeArrayMaterial(material, arrays) {
-  material.onBeforeCompile = (shader) => {
+  // ⚠ patchMaterial, NOT `material.onBeforeCompile = ...`.
+  //
+  // This assigned onBeforeCompile DIRECTLY, and patchMaterial CHAINS handlers (it keeps `prev` and
+  // calls it first). A raw assignment therefore DESTROYED every patch already installed on this
+  // material — including patchLightGrid. That is why building facades were not lit by the street
+  // lamps while the pavement at their base was: the lamp was reaching the ground and the wall had
+  // silently had its lighting patch overwritten.
+  //
+  // Nothing reported it. assertNoClobber only fires when onBeforeCompile is FALSY, so it cannot see
+  // a REPLACEMENT — the handler is still truthy, just no longer the one that was chained.
+  patchMaterial(material, (shader) => {
     // One-shot diagnostic. Two wrong guesses have already been made on this task (vMapUv, then the
     // mip chain), so the next drive should REPORT rather than need another guess: which material
     // types are actually being patched, and what the arrays look like.
@@ -646,8 +657,10 @@ export function patchFacadeArrayMaterial(material, arrays) {
         // transparency or an alphaTest. The mask has no consumer now that night windows are a
         // generated grid, so the albedo ships opaque and alpha is left alone.
         'diffuseColor = vec4(facadeTexel.rgb * facTint, diffuseColor.a);');
-  };
-  material.customProgramCacheKey = () => 'facadeArray-v1';
+  }, 'facadeArray');
+  // ⚠ NO raw customProgramCacheKey here either — that was the second clobber. patchMaterial
+  // installs a key built from the material's own key PLUS its patch tags, which is what keeps
+  // two materials with different patch sets from sharing one compiled program.
   material.needsUpdate = true;
   return material;
 }

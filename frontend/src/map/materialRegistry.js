@@ -56,6 +56,10 @@ export function patchMaterial(mat, patch, tag, opts = {}) {
     if (prev) prev(shader, renderer);     // earlier patches run FIRST, so later ones see their edits
     patch(shader, renderer);
   };
+  // Remember the handler we installed. If anything later ASSIGNS onBeforeCompile instead of going
+  // through here, the chain is gone and every patch on this material is silently dropped —
+  // auditMaterialPatches() below is what turns that into a console line instead of an art bug.
+  ud._ddPatchFn = mat.onBeforeCompile;
 
   // Keep the program cache honest (see the trap above). Preserve any key the material already had.
   const baseKey = ud._baseCacheKey ?? (ud._baseCacheKey = mat.customProgramCacheKey?.bind(mat) ?? null);
@@ -123,11 +127,33 @@ export function describeMaterial(mat) {
  * which is the exact failure this module exists to prevent. Warns rather than throws — a false
  * positive must not take the game down mid-drive.
  */
-export function assertNoClobber(mat) {
-  if (!import.meta.env?.DEV || !mat?.userData?._patchTags?.length) return;
-  if (!mat.onBeforeCompile) {
-    console.warn('[materialRegistry] "%s" had its patches CLOBBERED — %s were dropped. ' +
-      'Use patchMaterial() instead of assigning onBeforeCompile.',
-      mat.userData._kind ?? mat.type, mat.userData._patchTags.join('+'));
+/**
+ * Find materials whose patch chain was CLOBBERED by a raw `onBeforeCompile = ...` assignment.
+ *
+ * ⚠ THE PREDECESSOR OF THIS FUNCTION COULD NOT WORK, AND WAS NEVER CALLED. It tested
+ * `!mat.onBeforeCompile` — but a clobber REPLACES the handler, so it stays truthy. It would have
+ * reported nothing even if something called it, and nothing did.
+ *
+ * This compares against the handler patchMaterial actually installed, which is the only thing that
+ * distinguishes "still chained" from "overwritten". It found the real case it was written for:
+ * facadeArray assigned onBeforeCompile directly, dropping patchLightGrid from every building
+ * facade — the lamps lit the pavement and not the wall above it, with nothing logged.
+ *
+ * Not gated behind DEBUG_INIT: a dropped patch is a silent FAILURE, not chatter.
+ */
+export function auditMaterialPatches() {
+  const broken = [];
+  for (const mat of _registry) {
+    const ud = mat.userData;
+    if (!ud?._ddPatchFn) continue;                 // never patched through here — nothing to lose
+    if (mat.onBeforeCompile !== ud._ddPatchFn) {
+      broken.push(`${ud._kind ?? mat.type}(${(ud._patchTags || []).join('+') || 'untagged'})`);
+    }
   }
+  if (broken.length) {
+    console.warn('[materialRegistry] %d material(s) had their patch chain CLOBBERED — every patch on ' +
+      'them was dropped (lighting, AO, wind...). Use patchMaterial() instead of assigning ' +
+      'onBeforeCompile: %s', broken.length, broken.join(', '));
+  }
+  return broken;
 }
