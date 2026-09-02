@@ -34,6 +34,29 @@ const RAY_STEP = 2;          // metres — matches the building raster cell size
 const RASTER_CELL = 2;       // metres per building-raster cell
 const EYE_HEIGHT = 1.5;      // sample the sky from head height, not the pavement
 
+// ── CANOPY OCCLUSION ──────────────────────────────────────────────────────────────────────────
+// Trees were never occluders here, which is why an avenue of plane trees leaves the road perfectly
+// evenly lit — the loudest "this is not a place" tell in a daylight screenshot. They cannot be added
+// via the runtime shadow pass: the vegetation pools are global BatchedMeshes with
+// `frustumCulled = false` AND `perObjectFrustumCulled = false` (vegPools.js — per-instance culling
+// was itself measured as a frame-killer), so a casting pool renders every LOD-visible tree rather
+// than the forty near the camera. That was tried and recorded: "150k+ trees in the shadow pass
+// tanked FPS (33→)".
+//
+// Baked, it costs nothing at runtime — the four AO shader sites already consume this attribute.
+//
+// ⚠ A CANOPY IS NOT A BUILDING. The march below takes a single max-tangent horizon, a binary
+// sky/no-sky test that is right for masonry. Applied to leaves it would turn every avenue into a
+// tunnel. So canopies march on their OWN horizon and are mixed at CANOPY_OPACITY: a ray stopped
+// only by leaves keeps most of its sky.
+const CANOPY_OPACITY = 0.6;  // 0 = leaves are glass, 1 = leaves are concrete
+const CANOPY_MIN_H   = 3;    // m — a sapling does not shape the sky; same rule buildings get
+// Crown radius from trunk height. A 12 m plane tree carries roughly a 4.5 m radius crown; the clamp
+// stops a mis-tagged height from painting a 20 m disc of shade.
+const CANOPY_R_FRAC  = 0.38;
+const CANOPY_R_MIN   = 2.0;
+const CANOPY_R_MAX   = 7.0;
+
 const _dirX = [], _dirZ = [];
 for (let a = 0; a < AZIMUTHS; a++) {
   const th = (a / AZIMUTHS) * Math.PI * 2;
@@ -58,7 +81,7 @@ function pointInRing(x, z, ring) {
  *                             [{ id, footprint:[[x,z],…], height, layer }]
  * @returns {{ resolution: number, data: Uint8Array } | null}
  */
-export function bakeAoGrid(elevation, buildings) {
+export function bakeAoGrid(elevation, buildings, trees) {
   const res = elevation?.resolution;
   const elev = elevation?.data;
   if (!res || !elev || elev.length !== res * res) return null;
@@ -94,6 +117,7 @@ export function bakeAoGrid(elevation, buildings) {
   const rw = Math.ceil((maxWx - minWx) / RASTER_CELL) + 1;
   const rh = Math.ceil((maxWz - minWz) / RASTER_CELL) + 1;
   const raster = new Float32Array(rw * rh); // building height above local ground; 0 = open
+  const canopy = new Float32Array(rw * rh); // canopy top above local ground; 0 = open sky
 
   for (const b of buildings) {
     if (!b || (b.layer != null && b.layer < 0)) continue;         // underground — not an occluder
@@ -123,6 +147,32 @@ export function bakeAoGrid(elevation, buildings) {
     }
   }
 
+  // ── 1b. Canopy raster — same grid, its own layer (see CANOPY_OPACITY) ─────
+  let canopyCells = 0;
+  for (const t of trees || []) {
+    const pt = t && t.point;
+    if (!pt) continue;
+    const h = Math.min(t.height || 0, 40);
+    if (h < CANOPY_MIN_H) continue;
+    const rad = Math.max(CANOPY_R_MIN, Math.min(CANOPY_R_MAX, h * CANOPY_R_FRAC));
+    const tx = pt[0], tz = pt[1];
+    if (tx + rad < minWx || tx - rad > maxWx || tz + rad < minWz || tz - rad > maxWz) continue;
+    const ci0 = Math.max(0, Math.floor((tx - rad - minWx) / RASTER_CELL));
+    const ci1 = Math.min(rw - 1, Math.ceil((tx + rad - minWx) / RASTER_CELL));
+    const cj0 = Math.max(0, Math.floor((tz - rad - minWz) / RASTER_CELL));
+    const cj1 = Math.min(rh - 1, Math.ceil((tz + rad - minWz) / RASTER_CELL));
+    const r2 = rad * rad;
+    for (let cj = cj0; cj <= cj1; cj++) {
+      const cz = minWz + (cj + 0.5) * RASTER_CELL;
+      for (let ci = ci0; ci <= ci1; ci++) {
+        const cx = minWx + (ci + 0.5) * RASTER_CELL;
+        if ((cx - tx) * (cx - tx) + (cz - tz) * (cz - tz) > r2) continue;   // round crown, not its bbox
+        const k = cj * rw + ci;
+        if (h > canopy[k]) { if (canopy[k] === 0) canopyCells++; canopy[k] = h; }
+      }
+    }
+  }
+
   // ── 2+3. Horizon march per grid point ─────────────────────────────────────
   const out = new Uint8Array(res * res);
   const steps = Math.floor(RAY_RANGE / RAY_STEP);
@@ -137,28 +187,40 @@ export function bakeAoGrid(elevation, buildings) {
       let svf = 0;
       for (let a = 0; a < AZIMUTHS; a++) {
         const dx = _dirX[a] * RAY_STEP, dz = _dirZ[a] * RAY_STEP;
-        let px = wx, pz = wz, maxTan = 0;
+        let px = wx, pz = wz, maxTan = 0, maxTanLeaf = 0;
         for (let s = 1; s <= steps; s++) {
           px += dx; pz += dz;
           const ci = ((px - minWx) / RASTER_CELL) | 0;
           const cj = ((pz - minWz) / RASTER_CELL) | 0;
-          let topY;
-          if (ci >= 0 && ci < rw && cj >= 0 && cj < rh && raster[cj * rw + ci] > 0) {
-            topY = elevAt(px, pz) + raster[cj * rw + ci];
-          } else {
-            topY = elevAt(px, pz);                    // terrain-only horizon (slopes, trench walls)
-            if (topY <= eyeY) continue;
+          const inR = ci >= 0 && ci < rw && cj >= 0 && cj < rh;
+          const k = inR ? cj * rw + ci : -1;
+          const ground = elevAt(px, pz);
+          if (k >= 0 && raster[k] > 0) {
+            const t = (ground + raster[k] - eyeY) / (s * RAY_STEP);
+            if (t > maxTan) maxTan = t;
+          } else if (ground > eyeY) {                 // terrain-only horizon (slopes, trench walls)
+            const t = (ground - eyeY) / (s * RAY_STEP);
+            if (t > maxTan) maxTan = t;
           }
-          const t = (topY - eyeY) / (s * RAY_STEP);
-          if (t > maxTan) maxTan = t;
+          // Leaves march their own horizon so they can be MIXED rather than switched.
+          if (k >= 0 && canopy[k] > 0) {
+            const tl = (ground + canopy[k] - eyeY) / (s * RAY_STEP);
+            if (tl > maxTanLeaf) maxTanLeaf = tl;
+          }
         }
-        svf += 1 / (1 + maxTan * maxTan);             // cos²(horizon) — cosine-weighted sky slice
+        const openSolid = 1 / (1 + maxTan * maxTan);   // cos²(horizon) — cosine-weighted sky slice
+        if (maxTanLeaf > maxTan) {
+          const openLeaf = 1 / (1 + maxTanLeaf * maxTanLeaf);
+          svf += openSolid * (1 - CANOPY_OPACITY) + openLeaf * CANOPY_OPACITY;
+        } else {
+          svf += openSolid;                            // masonry already closed this ray
+        }
       }
       out[r * res + c] = Math.round((svf / AZIMUTHS) * 255);
     }
   }
 
-  return { resolution: res, data: out };
+  return { resolution: res, data: out, canopyCells };
 }
 
 /**
@@ -178,6 +240,31 @@ export function gatherAoOccluders(tileId, buildingsByTile) {
         if (seen.has(key)) continue;
         seen.add(key);
         out.push(b);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Canopy occluders for a tile: its own trees + the 8 neighbours', deduped by id. Same 3x3 gather
+ * the buildings get, and for the same reason — RAY_RANGE is 60 m, so a tree just over the tile edge
+ * still shades ground inside it, and without the neighbours every tile would show a shading seam at
+ * its border.
+ */
+export function gatherAoTrees(tileId, treesByTile) {
+  const [z, tx, ty] = tileId.split('_').map(Number);
+  const seen = new Set();
+  const out = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const list = treesByTile.get(`${z}_${tx + dx}_${ty + dy}`);
+      if (!list) continue;
+      for (const t of list) {
+        const key = t.id != null ? t.id : t;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(t);
       }
     }
   }

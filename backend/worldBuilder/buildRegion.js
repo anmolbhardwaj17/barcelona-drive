@@ -36,6 +36,14 @@ import { collectTunnelFloorViolations, reportTunnelFloorValidation,
 // trenchAuthor — dropping one orphans the cut; they have proper ≤0.15 profiles anyway).
 const _BROKEN_RAMP_GRADE = Number.isFinite(parseFloat(process.env.BROKEN_RAMP_GRADE)) ? parseFloat(process.env.BROKEN_RAMP_GRADE) : 0.60;
 const _BR_K_UNSTRETCH = Math.cos((41.350 * Math.PI) / 180);
+// Mercator -> lat/lon, for the road-fit conform pass below. R matches backend/projection.js.
+const _BR_R = 6378137;
+const mercXToLon = (x) => (x / _BR_R) * (180 / Math.PI);
+const mercYToLat = (y) => (2 * Math.atan(Math.exp(y / _BR_R)) - Math.PI / 2) * (180 / Math.PI);
+// Same class list atGradeRoadFit.mjs measures, so the fix and the metric describe one population.
+const DRIVABLE_FOR_CONFORM = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+  'unclassified', 'residential', 'living_street', 'service', 'motorway_link', 'trunk_link',
+  'primary_link', 'secondary_link', 'tertiary_link', 'busway']);
 const _BR_R_EARTH = 6378137;
 const _BR_DRIVABLE_TUNNEL = new Set([
   'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link',
@@ -161,7 +169,7 @@ import { collectJunctionContinuity, collectCoincidentUnjoined, reportCoincidentU
 import { buildRoadGeometry } from './roads/RoadGeometryBuilder.js';
 import { clipPathsAgainstCarriageways } from './roads/pathCoverageClipper.js';
 import { bakeSidewalks } from './sidewalkBaker.js';
-import { bakeAoGrid, gatherAoOccluders } from './aoBaker.js';
+import { bakeAoGrid, gatherAoOccluders, gatherAoTrees } from './aoBaker.js';
 import { classifyJunctions } from './junctions/JunctionClassifier.js';
 import { buildMergeGeometry } from './junctions/MergeGeometryBuilder.js';
 import { tileToBBox, latLonToTile, mercatorToWorld, worldToMercator, mercatorToLatLon, getOriginMercator, latLonToMercator } from '../projection.js';
@@ -1266,6 +1274,7 @@ async function main() {
   // the grid uses) so every tile carves identical geometry → cross-tile seams agree by
   // construction. Carved per-tile as the LAST grid mutation. See authored-tunnels-design.md.
   const trenchCorridors = demSampler ? buildTrenchCorridors(simplified, demSampler) : [];
+  let _aoCanopyCells = 0;   // D-23: proof the canopy occluders actually rasterised
   // OPTION L: streets crossing above a daylighted corridor get deck colliders (bridge
   // mechanism). Flag set on the GLOBAL roads BEFORE the per-tile clones are taken.
   // Shoulder cuts (returned) un-bury near-trench surface roads — carved with the corridors.
@@ -1577,6 +1586,89 @@ async function main() {
     // ── Authored trench carve (slice ②): LAST grid mutation — after water sink and road
     // drape, before payload assembly, so every consumer reads the trenched grid.
     if (trenchCorridors.length > 0) {
+      // ── CONFORM THE TERRAIN TO AT-GRADE ROADS ────────────────────────────────────────────────
+      // Measured over 53,918 at-grade drivable points (backend/tools/atGradeRoadFit.mjs): 90.7% are
+      // already flush to within 5 cm, but 2.6% sit 15-60 cm off. That band is what the user sees as
+      // "wheels inside the road" — the drawn carriageway is above the terrain beside it, and a car
+      // that rests on the terrain (at the kerb, in a parking lane, anywhere the road's own box
+      // collider does not reach) sits exactly that far below the surface it looks like it is on.
+      //
+      // Same principle the trench carve just established: where a drivable surface and the terrain
+      // disagree, the DRIVABLE SURFACE WINS. Here that means lifting/dropping the grid to meet the
+      // road rather than re-fitting the road, because road heights feed the physics colliders,
+      // junction continuity (102 steps, four measured passes) and the tunnel floors — moving them
+      // would reopen all of it.
+      //
+      // ⚠ BOUNDED ON PURPOSE. Only |gap| <= MAX_CONFORM_M is touched. The 4.7% of points beyond
+      // 1.5 m are a DIFFERENT defect — untagged flyovers, the worst being Gran Via at +24 m with
+      // layer 0 and no bridge tag (≈4x LAYER_STEP). Dragging terrain up to meet those would build a
+      // 24 m earth ramp across the Eixample. They need their tags fixed, not the ground moved.
+      // Carved and water-sunk cells are skipped so this cannot undo the trench floor above.
+      if (demSampler) {
+        const MAX_CONFORM_M = 1.0;      // beyond this it is structure, not a fitting error
+        const CONFORM_HALF_W = 6.0;     // m either side of the centreline — carriageway + a little
+        let _conformed = 0, _conformMax = 0;
+        const _swC = latLonToMercator(south, west), _neC = latLonToMercator(north, east);
+        for (const road of tileRoadsFinal) {
+          if (road.bridge || road.tunnel) continue;
+          if (road.layer != null && road.layer !== 0) continue;
+          if (!DRIVABLE_FOR_CONFORM.has(road.highwayType)) continue;
+          const pts = road.points;
+          if (!pts || pts.length < 2) continue;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const a = pts[i], b2 = pts[i + 1];
+            const ax = a[0], az = a[2], bx = b2[0], bz = b2[2];
+            if (Math.max(ax, bx) < _swC.x || Math.min(ax, bx) > _neC.x) continue;
+            if (Math.max(az, bz) < _swC.y || Math.min(az, bz) > _neC.y) continue;
+            const yA = a.length >= 4 && Number.isFinite(a[3]) ? a[3] : a[1];
+            const yB = b2.length >= 4 && Number.isFinite(b2[3]) ? b2[3] : b2[1];
+            if (!Number.isFinite(yA) || !Number.isFinite(yB)) continue;
+            const dx = bx - ax, dz = bz - az;
+            const len2 = dx * dx + dz * dz;
+            if (len2 < 1e-6) continue;
+            // Cell window from the segment's AABB plus the half-width.
+            const padM = (CONFORM_HALF_W / _BR_K_UNSTRETCH) + 4;
+            const llMin = { lat: mercYToLat(Math.min(az, bz) - padM), lon: mercXToLon(Math.min(ax, bx) - padM) };
+            const llMax = { lat: mercYToLat(Math.max(az, bz) + padM), lon: mercXToLon(Math.max(ax, bx) + padM) };
+            const r0 = Math.max(0, Math.floor(((llMin.lat - south) / (north - south)) * (TERRAIN_GRID - 1)));
+            const r1 = Math.min(TERRAIN_GRID - 1, Math.ceil(((llMax.lat - south) / (north - south)) * (TERRAIN_GRID - 1)));
+            const c0 = Math.max(0, Math.floor(((llMin.lon - west) / (east - west)) * (TERRAIN_GRID - 1)));
+            const c1 = Math.min(TERRAIN_GRID - 1, Math.ceil(((llMax.lon - west) / (east - west)) * (TERRAIN_GRID - 1)));
+            for (let r = r0; r <= r1; r++) {
+              const lat = south + (north - south) * (r / (TERRAIN_GRID - 1));
+              for (let cc = c0; cc <= c1; cc++) {
+                const idx = r * TERRAIN_GRID + cc;
+                if (sunkCells.has(idx)) continue;          // water surface — leave it
+                const lon = west + (east - west) * (cc / (TERRAIN_GRID - 1));
+                const m = latLonToMercator(lat, lon);
+                const t = Math.max(0, Math.min(1, ((m.x - ax) * dx + (m.y - az) * dz) / len2));
+                const px = ax + t * dx, pz = az + t * dz;
+                const dist = Math.hypot(m.x - px, m.y - pz) * _BR_K_UNSTRETCH;
+                if (dist > CONFORM_HALF_W) continue;
+                const roadY = yA + t * (yB - yA);
+                const cur = data[idx];
+                if (!Number.isFinite(cur)) continue;
+                const gap = roadY - cur;
+                if (Math.abs(gap) > MAX_CONFORM_M || Math.abs(gap) < 0.05) continue;
+                // Ease to zero at the band edge so the ground does not step at the kerb.
+                const w = 1 - (dist / CONFORM_HALF_W) ** 2;
+                data[idx] = cur + gap * w;
+                _conformed++;
+                if (Math.abs(gap) > _conformMax) _conformMax = Math.abs(gap);
+              }
+            }
+          }
+        }
+        if (_conformed > 0) {
+          console.log(`  [RoadFit] ${tileId}: conformed ${_conformed} terrain cells to at-grade roads (worst gap ${_conformMax.toFixed(2)} m)`);
+        }
+      }
+      // ⚠ CONFORM BEFORE THE CARVE, NOT AFTER. Run after, this raised terrain back INTO the trench
+      // beside a tunnel portal — where an at-grade road runs right next to a descending tunnel — and
+      // re-broke the floor validator (0 violations -> 8 on 4 roads, worst 0.61 m). Skipping
+      // water-sunk cells was not enough; carved cells are not recorded anywhere to skip. Ordering
+      // solves it outright: the carve runs last and has the final say, which is the same precedent
+      // the water-sink fix set — a drivable trench floor outranks everything else.
       const tr = carveTrenchesIntoGrid(data, { south, west, north, east, grid: TERRAIN_GRID }, trenchCorridors, sunkCells);
       if (tr.cellsCut > 0) console.log(`  [Trench] ${tileId}: cut ${tr.cellsCut} cells (max depth ${tr.maxCut.toFixed(1)}m)`);
       // Slice ③: validate drivable-surface-implies-floor on the CARVED grid with the DRAPED roads.
@@ -1930,7 +2022,11 @@ async function main() {
     // Occluders come from this tile + its 8 neighbours so street canyons darken correctly
     // across tile seams. Skipped in road-only debug mode (no buildings parsed).
     if (!roadOnlyDebugMode) {
-      const aoGrid = bakeAoGrid(payload.elevation, gatherAoOccluders(tileId, buildingsByTile));
+      // Trees are occluders now (aoBaker CANOPY_OPACITY) — an avenue of planes has to darken the
+      // road under it, and the runtime shadow pass cannot do it (see the aoBaker header).
+      const aoGrid = bakeAoGrid(payload.elevation, gatherAoOccluders(tileId, buildingsByTile),
+        gatherAoTrees(tileId, treesByTile));
+      if (aoGrid && aoGrid.canopyCells > 0) _aoCanopyCells += aoGrid.canopyCells;
       if (aoGrid) payload.aoGrid = aoGrid;
     }
 
@@ -1977,6 +2073,7 @@ async function main() {
 
 
   const _validatorBlocking = process.env.TRENCH_VALIDATOR !== 'report';
+  console.log(`  [AO] canopy occluder cells rasterised: ${_aoCanopyCells.toLocaleString()} (0 means trees are NOT shading the ground)`);
   reportTunnelFloorValidation(floorViolations, { blocking: _validatorBlocking, whitelist: KNOWN_FLOOR_GAP_ROADS });
   // R-P1 census — never blocking. The count decides whether repair logic is worth writing, which is
   // the same P-R1 gate that closed M1 as not-a-defect.

@@ -332,45 +332,61 @@ Same shared style block as R6 above.
 
 ---
 
-## R8 · Game logo — ETS2-adjacent wordmark
+## R8 · Game logo — 70s motorsport title (RUSH reference)
 
-Replaces `frontend/public/logo-barcelona-drive.webp` (currently 1679×937 RGBA, 107 KB, cartoon red
-+ white with a heavy black outline and a Sagrada Família illustration).
+**User reference 2026-09-02: the *Rush* (2013) film logo.** Heavy italic condensed sans, extreme
+forward slant, letterforms cutting into horizontal speed bars, cream on dark navy, subtle print
+grain, small letterspaced subtitle on a rule.
 
-- **Goes to:** `frontend/public/logo-barcelona-drive.webp` — **same filename**, three call sites read
-  it (title, ESC/settings header, hub header) and none need changing.
-- **Size:** 1600 × 600, **transparent background** (RGBA, alpha — not a dark rectangle).
-- **⚠ IT MUST SURVIVE 64 px TALL.** Rendered at `min(180px, 36vh)` on the title, **74 px** in
-  settings and **64 px** in the hub. At 64 px the whole lockup is ~115 px wide. That is the real
-  constraint and it is what kills the current one: its cathedral illustration is ~40% of the height
-  and becomes mush. Anything finer than a bold silhouette will not read.
-- **Sits on DARK** (`#0b0e15`, or the blurred city). It needs light values and its own edge — a
-  logo that relies on a dark outline disappears against dark.
-- **Budget:** UI art, not the 24 MB texture cap. ~60-110 KB as WebP.
+Replaces `frontend/public/logo-barcelona-drive.webp` (1679×937 RGBA, 107 KB, cartoon red + white
+with a heavy black outline and a Sagrada Família illustration).
+
+- **Goes to:** `frontend/public/logo-barcelona-drive.webp` — **same filename**; three call sites read
+  it (title, ESC/settings, hub) and none need changing.
+- **Size:** 1600 × 600, **transparent background** (RGBA — not a dark rectangle).
+- **⚠ IT MUST SURVIVE 64 px TALL.** Rendered `min(180px, 36vh)` on the title, **74 px** in settings,
+  **64 px** in the hub — the whole lockup is then ~115 px wide. This is what kills the current logo
+  (its cathedral is ~40% of the height and turns to mush) and it is why the lockup below is
+  restructured.
+- **⚠ THE LOCKUP HAS TO CHANGE, NOT JUST THE FONT.** "RUSH" is four letters; "BARCELONA DRIVE" is
+  fourteen. Set that long in a heavy italic and it is either unreadably wide or unreadably small.
+  The reference already shows the fix: **DRIVE is the big slanted word, BARCELONA is the small
+  letterspaced line beneath it** — exactly where "BASED ON A TRUE STORY" sits.
+- **Sits on DARK** (`#0b0e15` / blurred city), so cream reads and the reference palette works
+  unchanged. Amber (#e6a33c) is available for the rule or the subtitle if wanted, but cream-only is
+  closer to the reference and safer at 64 px.
+- **Budget:** UI art, not the 24 MB cap. ~60-110 KB as WebP.
 
 > **Shared style block — append to each:**
-> Horizontal game logo lockup on a fully transparent background. Bold condensed uppercase sans,
-> tight letter spacing, slight forward italic lean suggesting motion. Warm amber and cream palette
-> (#e6a33c amber, #f2ead9 cream) with a thin dark keyline for separation. Subtle brushed-metal
-> shading, restrained — a modern European trucking/driving simulator title, not a cartoon or arcade
-> logo. Clean vector-like edges, high contrast, legible when shrunk to 100 pixels wide. No
-> background, no drop shadow, no glow, no 3D perspective, no bevel gloss, no photographic elements.
+> Vintage 1970s motorsport film title logo on a fully transparent background. Very heavy condensed
+> sans-serif in extreme forward italic, roughly 20 degrees of slant, letters tightly packed and
+> nearly touching, with flat angular cuts on the terminals. Solid warm off-white cream (#EDE8DC),
+> single weight, with a subtle distressed print grain speckling the fill. Long horizontal speed bars
+> extending from the letterforms to the left and along the baseline, as if the word is moving. No
+> outline, no bevel, no gloss, no 3D extrusion, no glow, no drop shadow, no background. Clean sharp
+> vector edges. Must stay legible shrunk to 115 pixels wide.
 
-**A · Wordmark with a chamfered-block mark** *(recommended — the Eixample's octagon is Barcelona's
-most recognisable plan shape and stays legible as a solid silhouette)*
-> The words "BARCELONA DRIVE" as a two-line lockup, "BARCELONA" small and letterspaced above
-> "DRIVE" set large and heavy. To the left, a simple solid emblem of a chamfered octagonal city
-> block with a road crossing it, in amber.
+**A · The reference lockup** *(recommended)*
+> The word "DRIVE" set very large in heavy forward-italic condensed capitals, with horizontal speed
+> bars extending left from the D and running along the bottom of the word. Beneath the right end of
+> the bar, the word "BARCELONA" in small widely-letterspaced capitals.
 
-**B · Wordmark with a route chevron**
-> The words "BARCELONA DRIVE" on one line, "BARCELONA" in cream and "DRIVE" in amber. To the left, a
-> minimal emblem of two stacked forward chevrons suggesting a road stripe receding, in amber.
+**B · Two-line, both slanted**
+> The word "BARCELONA" in small heavy forward-italic condensed capitals, directly above the word
+> "DRIVE" set much larger in the same italic, both left-aligned on the same slant, with horizontal
+> speed bars extending left from both words.
 
-**C · Wordmark with four Catalan bars**
-> The words "BARCELONA DRIVE" as a two-line lockup in cream, with a small solid amber badge to the
-> left carrying four vertical bars — the Catalan senyera reduced to a flat graphic mark.
+**C · With an amber rule**
+> The word "DRIVE" set very large in heavy forward-italic condensed cream capitals with horizontal
+> speed bars, and beneath it a thin solid amber (#e6a33c) horizontal rule carrying the word
+> "BARCELONA" in small widely-letterspaced cream capitals.
 
-⚠ **Image models misspell wordmarks.** Expect several attempts, and check the spelling of BARCELONA
-character by character before shipping — a subtly wrong logo is worse than the current one. If it
-keeps failing, generate the EMBLEM alone on transparent and set the type separately; the emblem is
-the part a model is actually good at.
+⚠ **Image models misspell wordmarks**, and a heavy italic makes it harder to spot. Check BARCELONA
+character by character before shipping. If it keeps failing, generate the STYLE on a short word and
+set the real type in a vector tool — the reference look is a font choice plus speed bars, both of
+which are reproducible by hand.
+
+⚠ **The grain will not survive 64 px** — it will read as flat cream. That is fine and expected; it
+is there for the 180 px title. Do not compensate by making the grain coarser, which would look
+dirty at full size.
+
