@@ -370,6 +370,31 @@ export async function createCarModel(scene) {
     wheelPivots.push(pivot);
   }
 
+  // ── DOES THE DRAWN TYRE MATCH THE ONE PHYSICS ROLLS ON? ──────────────────────────────────────
+  // The wheel mesh is scaled by CAR_VISUAL_SCALE (derived from BODY length) and recentred on its own
+  // bbox — and its RADIUS is then never checked against carPhysicsRapier's WHEEL_R. Nothing makes
+  // them agree. If the drawn tyre is larger, its bottom hangs below the contact patch and the car
+  // reads as sunk into the road by exactly the difference; if smaller, it hovers.
+  //
+  // Printed once rather than reasoned about, because "the wheels sink" has at least three plausible
+  // causes (this, a missing road collider, road-vs-terrain drift) and they are indistinguishable
+  // from a screenshot. This one is a number.
+  const PHYS_WHEEL_R = 0.34;   // MUST match carPhysicsRapier WHEEL_R — not imported, that module loads WASM
+  {
+    const _wb = new THREE.Box3();
+    for (const p of wheelPivots) if (p.children.length) _wb.expandByObject(p);
+    if (!_wb.isEmpty()) {
+      const sz = _wb.getSize(new THREE.Vector3());
+      const drawnR = Math.max(sz.y, Math.min(sz.x, sz.z)) / 2;   // radius = the two non-thickness axes
+      const delta = drawnR - PHYS_WHEEL_R;
+      console.log('[CarModel] tyre radius — drawn %s m vs physics %s m → %s%s m %s',
+        drawnR.toFixed(3), PHYS_WHEEL_R.toFixed(3), delta >= 0 ? '+' : '', delta.toFixed(3),
+        Math.abs(delta) < 0.02 ? '(match)'
+          : delta > 0 ? '⚠ DRAWN TYRE IS BIGGER — it will sink into the road by this much'
+                      : '⚠ DRAWN TYRE IS SMALLER — it will hover above the road by this much');
+    }
+  }
+
   // ── Blob shadow ─────────────────────────────────────────────────────────
   const shadowCanvas = document.createElement('canvas');
   shadowCanvas.width = 128; shadowCanvas.height = 128;
