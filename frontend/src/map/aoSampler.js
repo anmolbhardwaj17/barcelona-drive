@@ -90,7 +90,28 @@ export function aoDarkening(svf, strength) {
  * already dark, so full-strength AO on top can crush canyon floors to black. envToggle sets this
  * via setAoNightScale; tune AO_NIGHT_SCALE from night screenshots — instant, no tile rebuild.
  */
-export const AO_NIGHT_SCALE = 0.55;
+// ⚠ AO IS A SKY-VISIBILITY TERM, AND AT NIGHT THE SKY IS NOT THE LIGHT SOURCE.
+//
+// vAoDark encodes how much of the sky DOME a point can see, which is the right occlusion model by
+// day, when the sky IS the fill. After dark the fill comes from street lamps at ~8 m — and the
+// ground floor of a street canyon has the LOWEST sky visibility of anything in frame, so it takes
+// the HEAVIEST AO exactly where the lamp is closest. The gradient comes out upside down: upper
+// floors lit, base crushed to black, which is the opposite of a real lit street.
+//
+// It is worse than a mismatched dial, because AO_FRAG_APPLY multiplies `diffuseColor` — the ALBEDO
+// — and `patchLightGrid` adds its contribution as `lightGridContribution(...) * diffuseColor.rgb`
+// at lights_fragment_end. So the AO darkening is applied to the LAMP LIGHT as well as to the sky
+// fill. A structural fix would keep a pre-AO albedo for the grid to multiply; that is a change to
+// the ordering contract between two independent material patches and wants its own pass.
+//
+// 0.55 was chosen against the OLD 1.0 night ambient, when everything in frame was over-lit and AO
+// was doing useful work holding it back. P-L1 cut that floor to 0.32, so the same 0.55 now
+// subtracts a second time from surfaces that already lost two thirds of their light — the same
+// mis-calibration that hit CARD_NIGHT_TINT and for the same reason.
+//
+// Note some of the base darkness is legitimately ALBEDO: Barcelona ground floors are closed metal
+// shutters at night. This dial cannot and should not erase that.
+export const AO_NIGHT_SCALE = 0.22;
 const _aoScaleUniform = { value: 1 };
 export function setAoNightScale(isNight) { _aoScaleUniform.value = isNight ? AO_NIGHT_SCALE : 1; }
 

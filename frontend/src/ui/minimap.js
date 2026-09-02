@@ -786,6 +786,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     _isNight = isNight;
     _markerNight = isNight;
     if (customMap) { customMap.setNight(isNight); redrawMap(true); }
+    // ⚠ THE VOID AND ITS HAZE ARE NOT REDRAWN BY redrawMap. They are wrapper/overlay CSS, painted
+    // once at construction from `_isNight` — which is false then — so without this the beyond-the-
+    // plane fill kept the DAY tone (#e4e7e2) after dark: the map body went navy while its far edge
+    // stayed a pale, whitish band. _paintVoid already existed and was simply never called here.
+    _paintVoid();
     borderRing.style.background = _isNight ? '#2a2a2a' : '#ffffff';
     updateMarker();
   }

@@ -1178,10 +1178,10 @@ spawnTileReady.finally(() => {
         const controlsStrip = document.createElement('div');
         controlsStrip.id = 'controls-strip';
         controlsStrip.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:900;' +
-          "font-family:'Inter',system-ui,sans-serif;font-size:11.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;" +
+          "font-family:'Inter',system-ui,sans-serif;font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;" +
           'color:rgba(243,237,225,.68);text-shadow:0 1px 4px rgba(0,0,0,.4);' +
           'pointer-events:none;user-select:none;white-space:nowrap;';
-        controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
+        controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; N Day/Night &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
         document.body.appendChild(controlsStrip);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
@@ -2233,6 +2233,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'F9') { e.preventDefault(); _reportWithBuild({ trigger: 'F9' }); return; }
   if (e.code === 'KeyP') { e.preventDefault(); setPhotoMode(!_photoOn); return; }
   if (e.code === 'KeyL') { e.preventDefault(); carDriver?.toggleHeadlights?.(); return; } // headlights: auto→on→off
+  // N — day/night. Dispatched as a CLICK on the toggle's own button rather than reaching into the
+  // module: the button already owns the transition, the localStorage write and the material
+  // callback fan-out, and a second entry point that re-implemented any of those would drift.
+  if (e.code === 'KeyN') { e.preventDefault(); envToggle?.element?.click(); return; }
   // V-14: CHASE ↔ HOOD. Not a cockpit view — bmw_m3.glb has no interior geometry at all, so a
   // camera inside the cabin would look at culled backfaces and see through the bodywork.
   if (e.code === 'KeyC') { e.preventDefault(); carDriver?.cycleView?.(); return; }
