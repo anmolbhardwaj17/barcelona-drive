@@ -406,6 +406,24 @@ export function createMainMenu(refs = {}) {
   document.body.appendChild(root);
 
   const fab = el('div', 'dd-mm-fab', '☰'); fab.title = 'Menu (Esc)';
+  // ⚠ NOT on the title screen. #dd-title covers the viewport until PLAY is pressed, and PLAY is
+  // what opens this very menu — so a second entry point to it sat on top of the start screen
+  // offering the same destination, before the player had chosen anything at all. Hidden until the
+  // title is gone; setOpen() below owns it from then on.
+  const _titleUp = () => {
+    const t = document.getElementById('dd-title');
+    return !!t && !t.classList.contains('hide');
+  };
+  if (_titleUp()) {
+    fab.style.display = 'none';
+    // The title screen is removed by class, not by teardown, so watch for the class rather than
+    // guessing a timeout.
+    const _mo = new MutationObserver(() => {
+      if (!_titleUp()) { fab.style.display = 'flex'; _mo.disconnect(); }
+    });
+    const _t = document.getElementById('dd-title');
+    if (_t) _mo.observe(_t, { attributes: true, attributeFilter: ['class'] });
+  }
   fab.addEventListener('click', () => setOpen(true));
   document.body.appendChild(fab);
 

@@ -107,7 +107,7 @@
         #dd-loading .factlabel { margin-top: 4px; font-size: 12px; }
         #dd-loading .fact { font-size: 14px; line-height: 1.45; min-height: 42px; max-width: min(560px, 78vw); }
         #dd-title { gap: 12px; }
-        #dd-title .logo { width: auto; height: min(180px, 36vh); }
+        #dd-title .logo { width: auto; height: min(130px, 26vh); }
         #dd-title .tagline { font-size: 10px; padding: 7px 16px 7px 19px; }
         #dd-title .play { padding: 10px 56px; font-size: 15px; }
         #dd-title .boot, #dd-modeload { padding: 0 0 28px 34px; }
@@ -161,14 +161,14 @@
          a flash of the flat background. A slow Ken Burns push keeps a still frame from reading as
          a frozen page during a 20 s load. Layers whose image 404s are never shown — see the
          preload filter in enter() — so a missing file costs a slot, never a black flash. */
-      #dd-modeload .shots { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
-      #dd-modeload .shots i { position: absolute; inset: 0; background-size: cover; background-position: center;
+      #dd-modeload .shots, #dd-title .boot .shots { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+      #dd-modeload .shots i, #dd-title .boot .shots i { position: absolute; inset: 0; background-size: cover; background-position: center;
         opacity: 0; transition: opacity 1.1s ease; animation: ddKen 18s ease-out infinite alternate; }
       #dd-modeload .shots i.on { opacity: 1; }
       @keyframes ddKen { from { transform: scale(1.02); } to { transform: scale(1.11); } }
       /* The scrim is load-bearing: white type over arbitrary photography is unreadable. Weighted to
          BOTH ends because the facts sit top-left and the counter bottom-left. */
-      #dd-modeload .scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      #dd-modeload .scrim, #dd-title .boot .scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
         /* ⚠ TUNED FOR THE ART THAT SHIPPED, NOT FOR ART IN GENERAL. The first values assumed bright
            daylight stills; the set on disk is blue-hour, already dark, and 0.80/0.52/0.94 crushed
            them to a near-black page. Only the two text bands need protecting, so the middle is left
@@ -178,19 +178,20 @@
       /* Top RIGHT, opposite the counter in the bottom left — the two text blocks sit on opposite
          diagonals instead of stacking down one edge. Right-aligned so the ragged edge faces inward
          and the block reads as anchored to its corner. */
-      #dd-modeload .tip { position: absolute; top: 46px; right: 58px; z-index: 2;
+      #dd-modeload .tip, #dd-title .boot .tip { position: absolute; top: 46px; right: 58px; z-index: 2;
         max-width: min(520px, 46vw); text-align: right; }
-      #dd-modeload .tiplabel { font-family: 'Barlow Condensed', 'Inter', sans-serif;
+      #dd-modeload .tiplabel, #dd-title .boot .tiplabel { font-family: 'Barlow Condensed', 'Inter', sans-serif;
         font-size: 13px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase;
         color: #e0362a; margin-bottom: 11px; }
-      #dd-modeload .tiptext { font-family: 'Barlow Condensed', 'Inter', sans-serif;
+      #dd-modeload .tiptext, #dd-title .boot .tiptext { font-family: 'Barlow Condensed', 'Inter', sans-serif;
         font-size: 20px; font-weight: 500; line-height: 1.5; color: rgba(255,255,255,0.93);
         transition: opacity .4s ease; text-shadow: 0 1px 6px rgba(0,0,0,0.75); }
-      #dd-modeload .pct, #dd-modeload .cap, #dd-modeload .bbar { position: relative; z-index: 2; }
-      #dd-modeload .pct { text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+      #dd-modeload .pct, #dd-modeload .cap, #dd-modeload .bbar,
+      #dd-title .boot .pct, #dd-title .boot .cap, #dd-title .boot .bbar { position: relative; z-index: 2; }
+      #dd-modeload .pct, #dd-title .boot .pct { text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
       @media (max-height: 560px) {
-        #dd-modeload .tip { top: 24px; right: 34px; max-width: min(420px, 52vw); }
-        #dd-modeload .tiptext { font-size: 17px; }
+        #dd-modeload .tip, #dd-title .boot .tip { top: 24px; right: 34px; max-width: min(420px, 52vw); }
+        #dd-modeload .tiptext, #dd-title .boot .tiptext { font-size: 17px; }
       }
       #dd-modeload .pct { font-size: 96px; font-weight: 800; letter-spacing: -0.01em; color: #f3ede1;
         font-variant-numeric: tabular-nums; line-height: 1; }
@@ -227,7 +228,7 @@
         background: radial-gradient(closest-side, rgba(244,238,226,0.32), rgba(244,238,226,0.15) 48%, transparent 74%);
       }
       #dd-title .logo {
-        position: relative; z-index: 2; width: min(560px, 78vw);
+        position: relative; z-index: 2; width: min(400px, 58vw);
         filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
         animation: ddBob 3.4s ease-in-out infinite;
       }
@@ -242,10 +243,11 @@
       }
       #dd-title .play {
         position: relative; z-index: 2; cursor: pointer; user-select: none;
-        font-family: inherit; font-size: 17px; font-weight: 600; letter-spacing: 0.22em; color: #f3ede1;
-        padding: 16px 84px; border-radius: 13px;
-        border: 1px solid rgba(243,237,225,0.14);
-        background: rgba(14,18,26,0.72);
+        font-family: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.26em; color: #f3ede1;
+        text-transform: uppercase;
+        padding: 15px 72px; border-radius: 11px;
+        border: 1px solid rgba(215,106,79,0.55);
+        background: #d76a4f;
         backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
         box-shadow: 0 8px 28px rgba(0,0,0,0.35);
         transition: background .16s, transform .1s, border-color .16s, box-shadow .16s; margin-top: 8px;
@@ -261,12 +263,14 @@
   <body>
     <div id="dd-title">
       <div class="boot">
+        <div class="shots"><i></i><i></i></div>
+        <div class="scrim"></div>
+        <div class="tip"><div class="tiplabel">Did you know?</div><div class="tiptext"></div></div>
         <div class="pct">0</div>
         <div class="cap">Loading Barcelona</div>
         <div class="bbar"><i></i></div>
       </div>
       <img class="logo" src="/logo-barcelona-drive.webp" alt="Barcelona Drive" />
-      <div class="tagline">Cruise the streets of Barcelona</div>
       <button id="dd-play" class="play">PLAY</button>
     </div>
 
@@ -483,6 +487,8 @@
         // Boot counter — eases toward 92% while the world builds; main.js snaps it to 100 and fades the
         // boot when the scene is ready (window._ddBootDone). 30s safety net so it can never stick black.
         var bootEl = title.querySelector('.boot');
+        // Same rotator the post-PLAY loader uses — it takes a root, so nothing needed duplicating.
+        bootEl._ddStopArt = window._ddLoaderArt ? window._ddLoaderArt(bootEl) : null;
         var pctEl = title.querySelector('.boot .pct');
         var barEl = title.querySelector('.boot .bbar i');
         var pct = 0, bootDone = false;
