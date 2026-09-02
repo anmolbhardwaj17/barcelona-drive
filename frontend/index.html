@@ -164,7 +164,13 @@
       #dd-modeload .shots, #dd-title .boot .shots { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
       #dd-modeload .shots i, #dd-title .boot .shots i { position: absolute; inset: 0; background-size: cover; background-position: center;
         opacity: 0; transition: opacity 1.1s ease; animation: ddKen 18s ease-out infinite alternate; }
-      #dd-modeload .shots i.on { opacity: 1; }
+      #dd-modeload .shots i.on, #dd-title .boot .shots i.on { opacity: 1; }
+      /* Centred wordmark on the boot screen. The counter stays bottom-left and the facts top-right,
+         so the middle was empty — and the middle is where a player looks first. */
+      #dd-title .boot .bootlogo { position: absolute; top: 50%; left: 50%; z-index: 2;
+        transform: translate(-50%, -50%); width: min(360px, 52vw); height: auto;
+        filter: drop-shadow(0 10px 26px rgba(0,0,0,0.6)); pointer-events: none; }
+      @media (max-height: 560px) { #dd-title .boot .bootlogo { width: min(260px, 44vw); } }
       @keyframes ddKen { from { transform: scale(1.02); } to { transform: scale(1.11); } }
       /* The scrim is load-bearing: white type over arbitrary photography is unreadable. Weighted to
          BOTH ends because the facts sit top-left and the counter bottom-left. */
@@ -243,11 +249,10 @@
       }
       #dd-title .play {
         position: relative; z-index: 2; cursor: pointer; user-select: none;
-        font-family: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.26em; color: #f3ede1;
-        text-transform: uppercase;
-        padding: 15px 72px; border-radius: 11px;
-        border: 1px solid rgba(215,106,79,0.55);
-        background: #d76a4f;
+        font-family: inherit; font-size: 17px; font-weight: 600; letter-spacing: 0.22em; color: #f3ede1;
+        padding: 16px 84px; border-radius: 13px;
+        border: 1px solid rgba(243,237,225,0.14);
+        background: rgba(14,18,26,0.72);
         backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
         box-shadow: 0 8px 28px rgba(0,0,0,0.35);
         transition: background .16s, transform .1s, border-color .16s, box-shadow .16s; margin-top: 8px;
@@ -266,6 +271,7 @@
         <div class="shots"><i></i><i></i></div>
         <div class="scrim"></div>
         <div class="tip"><div class="tiplabel">Did you know?</div><div class="tiptext"></div></div>
+        <img class="bootlogo" src="/logo-barcelona-drive.webp" alt="Barcelona Drive" />
         <div class="pct">0</div>
         <div class="cap">Loading Barcelona</div>
         <div class="bbar"><i></i></div>
