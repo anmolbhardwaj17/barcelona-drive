@@ -173,6 +173,47 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     return Number.isFinite(y) ? y : 0;
   }
 
+  /**
+   * `window._ddTrafficHeight()` — why is that car floating?
+   *
+   * Traffic takes its Y from getGroundY, the TERRAIN sampler, while the player drives on the ROAD
+   * colliders. Wherever the road leaves the terrain the two disagree: in a cutting the terrain sits
+   * ABOVE the road, which reads as cars floating over a path that does not climb when you follow it.
+   *
+   * ⚠ THIS IS A MEASUREMENT, NOT A FIX, ON PURPOSE. The obvious repair — sample the road's own
+   * baked elevation instead — is the same move that lifted the parked cars off the road earlier in
+   * this session and had to be reverted. And `atGradeRoadFit` measured 4.7% of at-grade points as
+   * UNTAGGED FLYOVERS (Gran Via baked at +24 m carrying layer 0), so trusting baked road elevation
+   * blind would put traffic 24 m above the spawn street. The fix depends on which case is on screen,
+   * and this is what tells them apart.
+   *
+   * Comparing a car's Y to the terrain is useless here — it IS the terrain, by construction. So this
+   * reports WHICH ROAD each car is driving, and whether that road is structural. Read it with a
+   * floater in view:
+   *   - floaters all on bridge/ramp roads  -> structure; traffic needs the deck, not the ground
+   *   - floaters on ordinary roads         -> the 15-60 cm road/terrain mismatch, or a trench
+   *   - every car offset by the same amount -> the car origin sits off its wheels, not a road problem
+   */
+  if (typeof window !== 'undefined') {
+    window._ddTrafficHeight = () => {
+      const rows = cars.map((c) => ({
+        road: c.path?.roadName || '(unnamed)',
+        type: c.path?.roadType || '?',
+        bridge: !!c.path?.roadBridge,
+        ramp: !!c.path?.roadRamp,
+        groundY: +(c.body.position.y - c.hh).toFixed(2),
+        physX: +c.body.position.x.toFixed(1),
+        physZ: +c.body.position.z.toFixed(1),
+      }));
+      const structural = rows.filter((r) => r.bridge || r.ramp).length;
+      console.log('[traffic] %d cars, %d on bridge/ramp roads.', rows.length, structural);
+      console.log('  Traffic Y comes from the TERRAIN sampler; the player drives the ROAD colliders.');
+      console.log('  Match a floater you can SEE to its row, then read bridge/ramp.');
+      console.table(rows);
+      return rows;
+    };
+  }
+
   // Shared per-frame budget: buildPath is the expensive traffic op (groundY sampling per point + allocs),
   // called by BOTH path-extension and every spawn attempt (up to 8×/spawn). A burst of spawns/extends in
   // one frame stacked into the ~14ms `traffic` spike. Cap total builds/frame (reset in update); excess
@@ -207,6 +248,10 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
     const first = wp(0), last = wp(N - 1);
     // startW/endW = world coords of the centreline ends, used to chain onto connecting roads.
     return {
+      // Road identity, for _ddTrafficHeight — the projection in getLoadedRoadSegments is a NEW
+      // object per road, so anything not copied forward here simply does not exist downstream.
+      roadName: seg.name || '', roadType: seg.highwayType || '',
+      roadBridge: seg.bridge === true, roadRamp: seg.isRamp === true,
       pts, len, speed: baseSpeed * (0.8 + Math.random() * 0.35),
       startWx: first.x, startWz: first.y,
       endWx: last.x, endWz: last.y,
