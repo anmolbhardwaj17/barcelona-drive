@@ -1461,14 +1461,27 @@ already owned by Phase 4 of the terrain rework. Different problem, different fix
 - **Full spec:** master plan §4 → P4
 - **Done when:** _(fill in on completion — measured number, not 'looks fine')_
 
-### `[ ]` P4-07 · 1.0d · risk low
-**SHORE FOAM — one owner.** Foam band in `waterChunk.glsl.js` driven by `shoreD` with animated noise advance; quieter static ring around marina/breakwater edges. **Sells the beach at Barceloneta, which is the seafront spawn.**
+### `[~]` P4-07 · 1.0d · risk low — **STATIC HALF SHIPPED 2026-09-02, animation still open**
+**SHORE FOAM — one owner.** Foam band driven by `shoreD`. **Sells the beach at Barceloneta, which
+is the seafront spawn.**
 
-- **Files:** `waterChunk.glsl.js`, `waterSurface.js`, `terrainRenderer.js:713-745`
-- **Depends:** waterChunk
+⚠ **The specced files do not exist.** There is no `waterChunk.glsl.js` and no sea shader: the open
+sea stopped being a water plane when `coastline.js` took it over, and is now TERRAIN VERTEX COLOUR
+painted in `terrainRenderer.js` beside the sand and the waterline blend. So the foam is painted the
+same way, in the same place — and it is STATIC. The animated-noise-advance half needs a sea shader
+that does not exist yet, and that is a separate piece of work, not a tweak to this one.
+
+- **Files:** `terrainRenderer.js` (the open-sea branch, beside the existing `shoreD / 10` waterline)
+- **Depends:** ~~waterChunk~~ — nothing; `shoreD` was already computed here
 - **Subsystem:** water
-- **Full spec:** master plan §4 → P4
-- **Done when:** _(fill in on completion — measured number, not 'looks fine')_
+- **Done when:** ✅ **band is 6.9-10.1 m wide** (noise-jittered, `foamNear` 1.0±1.6 → `foamFar`
+  9.5±3.2), peaking at a **0.62** blend toward near-white, sine-profiled so it builds and dissipates
+  rather than ending in a line. Width is not a taste call: terrain vertices sit **~3.9 m** apart, so
+  a band under ~8 m falls between them and reads as a dotted line — real Mediterranean surf is
+  5-15 m, so the honest width and the resolvable width agree. **Zero draw calls and zero fragment
+  cost** — it writes an attribute the mesh already carries.
+  ⚠ **NOT SEEN ON SCREEN.** Automation cannot load the world (G-57), so this needs one drive at the
+  Barceloneta spawn to judge. Tuning constants are inline at the call site.
 
 ### `[ ]` P4-08 · 9.0d · risk medium
 **VEGETATION: card trees.** 2048×1024 (4×2 grid of 512 cells) albedo+opacity RGBA + tangent-space normal, bark strip in the bottom band of each cell, **3 LOD tiers × 8 species = 24 geometries in ONE pool.** Species: Platanus × hispanica, Tipuana tipu, Celtis australis, Washingtonia (palm), Phoenix (palm), Jacaranda, Citrus/ornamental, Pinus pinea. Plus the alpha-tested normal-mapped Lambert material (**MUST preserve the `patchVegWash` injection reading batching-colour alpha, or give it a compile-time define per §7 rule 6**) and **LOD2 impostors rendered OFFLINE from the finished LOD0 cards** (8 species × 4 yaw),…

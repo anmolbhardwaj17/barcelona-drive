@@ -519,6 +519,35 @@ export async function buildTerrainMesh(elevation, tileKey, tunnelRoads, roads, w
         r = 0.400 * (1 - t) + sr * t;
         g = 0.345 * (1 - t) + sg * t;
         b = 0.245 * (1 - t) + sb * t;
+
+        // ── P4-07 · SHORE FOAM ────────────────────────────────────────────────────────────────
+        // The tracker specs this as animated noise in `waterChunk.glsl.js`. That file does not
+        // exist: the open sea is not a shader at all, it is TERRAIN VERTEX COLOUR painted a few
+        // lines above (coastline.js took over the open sea from the old water plane). So the foam
+        // is painted the same way the sand and the waterline already are, and it is static — the
+        // animated half needs a sea shader that is a different piece of work.
+        //
+        // ⚠ THE BAND CANNOT BE NARROW. Terrain vertices sit ~3.9 m apart, so anything under ~8 m
+        // lands between vertices and reads as a dotted line rather than surf. That constraint is
+        // survivable because real Mediterranean surf IS roughly 5-15 m of white water — the honest
+        // width and the resolvable width happen to agree here. A 2 m band would need geometry this
+        // mesh does not have.
+        //
+        // Peaks just off the waterline rather than at it: at shoreD 0 the water is already blending
+        // into wet sand, and foam brightest exactly on the seam would fight that gradient. The
+        // noise-jittered edges stop it reading as a drawn ring around the coast.
+        const foamJit = terrainNoise(vx, vz, 0.07, 29.0);          // -1..1, wanders along the shore
+        const foamNear = 1.0 + foamJit * 1.6;                      // band starts ~ 0-3 m out
+        const foamFar  = 9.5 + foamJit * 3.2;                      // and ends ~ 6-13 m out
+        if (shoreD > foamNear && shoreD < foamFar) {
+          const fu = (shoreD - foamNear) / Math.max(0.5, foamFar - foamNear);   // 0..1 across the band
+          // Sharper on the seaward side, softer inshore — surf piles up and then dissipates.
+          const fa = Math.sin(Math.PI * fu) ** 1.4 * 0.62
+                   * (0.75 + 0.25 * terrainNoise(vx, vz, 0.22, 41.0));          // break it up
+          r += (0.86 - r) * fa;
+          g += (0.90 - g) * fa;
+          b += (0.91 - b) * fa;
+        }
         coastAttr[i] = 1;
       } else if (inBeach || shoreD <= 32 || (raw < 2.2 && dSea <= 4)) {
         // Sand coverage 0..1 with SOFT edges — the binary in/out test read as a stepped cutout
