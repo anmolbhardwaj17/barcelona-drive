@@ -2879,7 +2879,10 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
    * @param {number} localZ - viewer position in local space
    * @param {{ headingDeg?: number }} [opts]
    */
+  let _lastUpdateSkip = 'update() has never been called';
+  let _updateCalls = 0;
   async function update(localX, localZ, opts) {
+    _updateCalls++;
     // Start of a new frame → reset the shared tile-work budget (see yieldToMain). All in-flight tile
     // finalizes measure against this single per-frame reference, capping total build work per frame.
     const _now = performance.now();
@@ -2903,12 +2906,26 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     if (opts && Number.isFinite(opts.headingDeg)) {
       cameraHeadingRad = opts.headingDeg * Math.PI / 180;
     }
-    if (!Number.isFinite(localX) || !Number.isFinite(localZ)) return;
+    // ── WHY DID THIS FRAME NOT QUEUE ANYTHING? ───────────────────────────────────────────────
+    // Both of these returns are silent, and between them they can leave a world with zero tiles and
+    // no error anywhere — the "world never streams" blocker recorded 2026-08-30 and seen again on
+    // 09-01/09-02, where _ddLoadState() reads started:false, inFlight:0, pending:0, resident:0.
+    // That state says the streamer was never ASKED, which is a completely different bug from a
+    // hung fetch, and nothing on screen or in the console distinguished them. One string does.
+    if (!Number.isFinite(localX) || !Number.isFinite(localZ)) {
+      _lastUpdateSkip = `viewer xz not finite (${localX}, ${localZ})`;
+      return;
+    }
     const o = getOriginOffset();
     const worldX = localX + o.x;
     const worldZ = localZ + o.z;
     const { x: tx, y: ty } = worldToSlippyTile(worldX, worldZ);
-    if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
+    if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
+      _lastUpdateSkip = `tile xy not finite — viewer (${localX.toFixed(1)}, ${localZ.toFixed(1)}) `
+        + `+ origin (${o.x}, ${o.z}) -> world (${worldX}, ${worldZ}) -> tile (${tx}, ${ty})`;
+      return;
+    }
+    _lastUpdateSkip = null;
     const prevTx = currentTx;
     const prevTy = currentTy;
     currentTx = tx;
@@ -3936,7 +3953,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // settles. Tile unload is what disposes materials, so a caller can avoid the whole race by not
     // starting a compile while this is non-zero.
     return { inFlight: inFlightCount, pending: pendingQueue.length, disposals: _pendingDisposals.length,
-             resident: tileCache.size, started: _startedLoading };
+             resident: tileCache.size, started: _startedLoading,
+             // null when the last update() ran to completion; a reason string when it bailed early.
+             lastUpdateSkip: _lastUpdateSkip, updates: _updateCalls };
   }
 
   return {

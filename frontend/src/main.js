@@ -1586,19 +1586,28 @@ function armLightGrid() {
     patched, _lgLampCount, vis.under.toFixed(3), vis.mid.toFixed(3));
 }
 
+// Frame-loop tripwire. `_ddLoadState().updates === 0` proves tileManager.update() is never reached,
+// but not WHERE the frame stops — and the two candidates (loop never runs / loop bails early) need
+// opposite fixes. Three counters between the top of the loop and the tile update settle it, and cost
+// three increments a frame.
+const _ddFrames = { entered: 0, pastFpsCap: 0, pastTileGuard: 0, reachedTiles: 0 };
+if (typeof window !== 'undefined') window._ddFrames = () => ({ ..._ddFrames });
 function animate(time = 0) {
+  _ddFrames.entered++;
   requestAnimationFrame(animate);
   // FPS cap: on a high-refresh display (120 Hz) the game ran ~80 fps, and the per-frame engine allocation
   // (Three.js + cannon-es, ~1 MB/frame) is what feeds the GC pauses that cause stutter. Capping to a steady
   // 60 both cuts garbage/sec (~25% fewer frames → fewer GC pauses) AND gives even frame pacing (a big
   // perceived-smoothness win). Skipped refreshes do zero work → zero allocation. ?fpscap=0 disables it.
   if (_fpsCapMs > 0 && time - _lastRenderT < _fpsCapMs) return;
+  _ddFrames.pastFpsCap++;
   _lastRenderT = time;
   const deltaTimeRaw = lastTime === 0 ? 16 : time - lastTime;
   const deltaTimeSeconds = Math.min(0.05, deltaTimeRaw / 1000);
   const frameDt = lastTime === 0 ? 0.016 : deltaTimeSeconds;
   lastTime = time;
   if (tileManager == null) return;
+  _ddFrames.pastTileGuard++;
 
   cpuTimer.start();
   let viewerWx, viewerWz, headingDeg, speedKmh;
@@ -1808,6 +1817,7 @@ function animate(time = 0) {
     speedKmh = 0;
   }
 
+  _ddFrames.reachedTiles++;
   tileManager.update(viewerWx, viewerWz, { headingDeg, speedKmh: Math.abs(speedKmh || 0) });
   cpuTimer.lap('tiles');
   // v3 P0-13b: all three sky bodies are parented to `scene` (scene.js:288/372/492), i.e. the

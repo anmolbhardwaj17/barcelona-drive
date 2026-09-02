@@ -1067,3 +1067,24 @@ the second bake overwrote everything so the tiles ended up consistent, but that 
 
 Same shape as the pattern this file already records elsewhere: a tool borrowed to answer a question
 it was not built for.
+
+## G-57 · A HIDDEN BROWSER TAB CANNOT LOAD THE WORLD — and it looks exactly like a streaming bug
+
+`requestAnimationFrame` does not fire in a hidden tab. `setInterval` does. The game streams tiles
+from `animate()` and polls its load gate from a `setInterval`, so a hidden tab produces this:
+
+- `_ddGate.polls` climbing, `complete: false` forever
+- `_ddLoadState()` → `started:false, inFlight:0, pending:0, resident:0` — the streamer was never ASKED
+- `_ddFrames()` → `entered: 1` and never again (rAF was scheduled once and never called back)
+- the car frozen in empty sky, HUD drawn, **and not one console error**
+
+That is indistinguishable by eye from "the world never finishes streaming", and it burned a real
+investigation on 2026-09-02: a bake clobbering tile files was proposed as the cause, tiles were
+verified intact, and the true answer was that the automation tab was never visible.
+
+**Before diagnosing any streaming stall, check `document.visibilityState`.** Browser-automation tabs
+are frequently hidden — taking a screenshot tends to make one visible while a bare JS eval does not,
+which is precisely why the symptom comes and goes between calls in the same session.
+
+⚠ This does NOT explain a stall in a tab the player is looking at. If `visibilityState` is
+`"visible"` and `_ddFrames().entered` is still stuck at 1, that is a real bug and a different one.
