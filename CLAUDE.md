@@ -133,6 +133,7 @@ BAKE_SINGLE_TILE=16_33161_24477 node worldBuilder/buildRegion.js --area eixample
 | [spawn-system.md](docs/context/spawn-system.md) | Spawn config refactor, how to change spawn, future UI integration point |
 | [roadmap.md](docs/context/roadmap.md) | Deferred features backlog — what's NOT in v7 tiles yet and why |
 | [perf-audit.md](docs/context/perf-audit.md) | Multi-agent performance optimization audit — 35 ranked findings, 6-phase fix plan, verdict on per-building viewport culling. Read before perf work |
+| [day-night-lighting-audit.md](docs/context/day-night-lighting-audit.md) | Day/night lighting audit — day has NO cast shadows (trees opted out), night is FLATTER than day (ambient 1.0 vs 0.30) and the grade pass manufactures the magenta road. Phased plan P-L1..P-L4; read before any lighting work |
 | [changelog.md](docs/context/changelog.md) | Running log of changes; append here for every session |
 | [barcelona-road-system.md](docs/context/barcelona-road-system.md) | Barcelona road overhaul design — phased roadmap, Norma 8.2-IC target, current baseline |
 | [tunnel-fix-playbook.md](docs/context/tunnel-fix-playbook.md) | Tunnel subsystem fix playbook — 8-subsystem contract model (C1–C7), symptom→cause map, dependency-ordered fix phases, Findings Report format |
