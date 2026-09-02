@@ -1787,7 +1787,7 @@ function animate(time = 0) {
     speedKmh = carDriver.getSpeedKmh();
 
     // AI traffic + parked cars + pedestrians — player position is in the physics frame (lp.lx, lp.lz).
-    if (contactShadows) contactShadows.begin();
+    if (contactShadows) { contactShadows.setViewer(lp.lx, lp.lz); contactShadows.begin(); }
     // Paused: traffic and pedestrians hold position. They step on their own clock, so freezing the
     // car alone would leave the city moving around a stopped player.
     // V-12: the contact test is an oriented-box overlap now, so it needs the player's heading —

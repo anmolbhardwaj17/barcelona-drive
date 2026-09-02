@@ -21,19 +21,53 @@ const YAXIS = new THREE.Vector3(0, 1, 0);
 // is a shadow that flickers in and out over road markings.
 const SHADOW_LIFT = 0.12;
 
+// ── DISTANCE CULL ─────────────────────────────────────────────────────────────────────────────
+// ⚠ THESE BLOBS USED TO BE FREE BY ACCIDENT. At the old +0.03 lift every one of them was drawn and
+// then depth-rejected by the road, so 347 transparent quads cost almost nothing. Lifting them to
+// 0.12 made them RENDER — and 347 alpha-blended 2.3x4.5 m quads is real overdraw on a frame the
+// project already treats as fill-bound (`?roadv2=0` exists for exactly this reason). The user felt
+// it as lag the moment the shadows started working.
+//
+// The dump showed the waste directly: the first three instances sat 99 m, 140 m and 198 m from the
+// camera, paying full blend cost for a soft grey smudge nobody can resolve. A contact shadow's
+// whole job is grounding the thing in front of you.
+const CULL_M = 70;            // beyond this a 4 m blob is a few pixels of grey
+const CULL_FADE_M = 15;       // fade out over the last stretch so cars do not pop a shadow on
+const _CULL2 = CULL_M * CULL_M;
+
+/**
+ * The soft disc, as a DataTexture rather than a CanvasTexture.
+ *
+ * ⚠ WHY NOT A CANVAS. Two reasons, and the second is why this changed. (1) The art bible bans
+ * `new THREE.CanvasTexture` for any world-render surface (§3.3, "no exceptions, no waivers"); this
+ * was one of the 48 remaining sites. (2) A canvas texture has a decode step that can silently
+ * produce nothing — and the symptom of that is EXACTLY what was reported: 354 live instances, mesh
+ * visible and in the scene, frustum culling off, and no shadow anywhere on screen. Bytes written
+ * directly into a DataTexture have no decode step and no failure mode.
+ *
+ * Same falloff as before: 0.55 at the centre, 0.32 at 60% radius, 0 at the rim.
+ */
 function softDiscTexture() {
-  const s = 64;
-  const c = document.createElement('canvas');
-  c.width = c.height = s;
-  const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-  g.addColorStop(0, 'rgba(0,0,0,0.55)');
-  g.addColorStop(0.6, 'rgba(0,0,0,0.32)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, s, s);
-  const tex = new THREE.CanvasTexture(c);
+  const S = 64, data = new Uint8Array(S * S * 4);
+  const c = (S - 1) / 2;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const r = Math.hypot(x - c, y - c) / c;            // 0 at centre, 1 at the inscribed rim
+      let a;
+      if (r >= 1) a = 0;
+      else if (r < 0.6) a = 0.55 + (0.32 - 0.55) * (r / 0.6);
+      else a = 0.32 * (1 - (r - 0.6) / 0.4);
+      const i = (y * S + x) * 4;
+      data[i] = 0; data[i + 1] = 0; data[i + 2] = 0;      // black ink; alpha carries the shape
+      data[i + 3] = Math.max(0, Math.min(255, Math.round(a * 255)));
+    }
+  }
+  const tex = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;      // a 4 m disc seen from 100 m aliases hard without them
+  tex.needsUpdate = true;
   return tex;
 }
 
@@ -50,13 +84,23 @@ export function createContactShadows({ scene, capacity = 700 }) {
   scene.add(mesh);
 
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
+  let _vx = 0, _vz = 0, _culled = 0;
   let _n = 0, _peak = 0, _overflow = 0, _dropped = 0;
 
   return {
-    begin() { _n = 0; },
+    /** Viewer position for the distance cull. Call once per frame before the add()s. */
+    setViewer(x, z) { _vx = x; _vz = z; },
+    begin() { _n = 0; _culled = 0; },
     /** Add a shadow blob at (x,y,z) sized sizeX×sizeZ (m), aligned to yaw. */
     add(x, y, z, sizeX, sizeZ, yaw = 0) {
       if (_n >= capacity) { _dropped++; return; }
+      const dx = x - _vx, dz = z - _vz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > _CULL2) { _culled++; return; }
+      // Shrink to nothing over the last CULL_FADE_M so a shadow grows in rather than popping.
+      const d = Math.sqrt(d2);
+      const fade = d > CULL_M - CULL_FADE_M ? (CULL_M - d) / CULL_FADE_M : 1;
+      sizeX *= fade; sizeZ *= fade;
       _q.setFromAxisAngle(YAXIS, yaw);
       _s.set(sizeX, 1, sizeZ);
       _p.set(x, y + SHADOW_LIFT, z);
@@ -73,7 +117,8 @@ export function createContactShadows({ scene, capacity = 700 }) {
     },
     setEnabled(on) { mesh.visible = on; },
     /** window._ddShadowStats() — is anything actually being drawn, and is the pool overflowing? */
-    stats() { return { thisFrame: _n, peak: _peak, capacity, framesAtCapacity: _overflow, droppedAdds: _dropped }; },
+    stats() { return { thisFrame: _n, peak: _peak, capacity, framesAtCapacity: _overflow,
+                       droppedAdds: _dropped, culledFar: _culled, cullM: CULL_M }; },
     /**
      * window._ddShadowDump() — WHY are 374 submitted instances invisible?
      * stats() proved they are submitted. Count, capacity, lift, coordinate frame and the visible
