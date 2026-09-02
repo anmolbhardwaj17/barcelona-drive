@@ -116,9 +116,12 @@ risk, all reversible in one file each.
 Do P-L1 first and alone: it is likely that the lamp pools and headlights the night frame is missing
 appear for free, which changes what is left to fix.
 
-**P-L2 — day shadows.** A bounded near-camera tree shadow-caster set inside the existing ±85 m
-frustum, measured with the F9 drive report against the standing budget (p95 night GPU ≤ 15.0 ms).
-Kill it if the depth pass costs more than ~1.5 ms. This is the single biggest day win.
+**P-L2 — day shadows. DONE** (`map/treeShadowProxies.js`). Trees are camera-facing CARDS, so
+flipping `castShadow` would give a WRONG shadow, not a missing one — from the sun's view a billboard
+is edge-on. Instead: invisible 20-triangle proxy blobs at canopy size, capped at 512, radius matched
+to the shadow frustum. Hidden via `colorWrite=false, depthWrite=false` — `object.layers` and
+`material.visible=false` both fail here, and fail silently by removing the shadow too (three's
+shadow walk gates on both). `?treeshadows=0`, `window._ddTreeShadows()`.
 
 **P-L3 — sky and grounding.** Horizon gradient + sun disc; real contact shadow under the car.
 
@@ -126,6 +129,45 @@ Kill it if the depth pass costs more than ~1.5 ms. This is the single biggest da
 P-L1, because nothing specular can read against a flat ambient wash.
 
 ---
+
+## 4b. Measured after P-L1 (`backend/tools/nightBalanceProbe.mjs`)
+
+The probe computes the night carriageway pixel from the REAL `lampContribution` and the REAL
+presets, through three's ACES curve. Asphalt `0x4a4a4a`, lamps at 22 m spacing.
+
+| | under a lamp | between lamps | pool contrast |
+|---|---|---|---|
+| before P-L1 | rgb(73, 63, 78) | **rgb(66, 60, 76)** | 1.06x |
+| after P-L1  | rgb(53, 43, 50) | rgb(47, 40, 49) | 1.08x |
+
+**The magenta is confirmed numerically, not argued.** In both rows GREEN is the darkest channel:
+sodium `0xFFB25E` supplies R, the blue sky rig supplies B, and neither supplies G. The deficit
+falls 10 → 7 and the absolute brightness drops by a third, so the tint should read far weaker — and
+the grade's night saturation clamp (`colorGradePass.js:49`, engages once a pixel is dark) could not
+fire at the old brightness and can at the new one. That last part is a PREDICTION; the drive settles it.
+
+⚠ **The first version of this probe measured the wrong lamp.** It took `lampRadiusM`/`lampIntensity`
+from the `?? 26` / `?? 1.1` fallbacks in `rebuildLightGrid` rather than the region config's actual
+48 m / 0.36, and produced a confident, internally consistent tune for a configuration the game does
+not have. It now imports `regions/barcelona.js` directly.
+
+### The finding that was NOT acted on
+
+At 48 m radius on 22 m spacing every point on the road sees three or four lamps, so **the street
+lighting behaves as a second ambient term** — pool contrast is 1.06x, and no lamp intensity fixes
+that (swept 0.36 → 1.6: contrast tops out at 1.27x). Making the lamps local instead —
+`radius 20, intensity 0.9` — measures at 1.34x with the road warm under a lamp (+0.16) and
+genuinely blue between (−0.24), which is the warm/cool separation that reads as night.
+
+This was deliberately NOT changed. The 48 m was chosen on a night drive for a stated reason
+("pools died at ~15 m and lamps only lit when you were nearly under them"), and that premise was
+the 1.0 ambient floor P-L1 has just removed. Re-tuning it in the same pass would make the drive
+unattributable, and a model with no bloom, grade, AO or headlights should not overrule an eye.
+Try it live in one reload:
+
+```js
+window._lg.set({ radius: 20, intensity: 0.9 })   // takes effect one cell crossing away
+```
 
 ## 5. Not verified
 
