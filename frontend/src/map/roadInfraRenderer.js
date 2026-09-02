@@ -850,7 +850,6 @@ function buildSpeedSignMeshes(signInstances) {
   const poleMat = getSpeedSignPoleMat();
   const meshes = [];
   const poleGeometries = [];
-  const backGeometries = [];
   const _q = new THREE.Quaternion();
   const _axisY = new THREE.Vector3(0, 1, 0);
 
@@ -1197,6 +1196,7 @@ function buildDirectionBoardMeshes(boardInstances) {
   const poleMat = getBoardPoleMat();
   const meshes = [];
   const poleGeometries = [];
+  const backGeometries = [];   // blank back plates, merged into one mesh below
   const _q = new THREE.Quaternion();
   const _axisY = new THREE.Vector3(0, 1, 0);
 
