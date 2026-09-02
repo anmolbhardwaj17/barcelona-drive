@@ -604,6 +604,56 @@ function getBoardPoleMat() {
 
 /** Cache: direction board textures keyed by roadName. */
 const _dirBoardTexCache = new Map();
+/**
+ * Cache: direction board FACE materials keyed by roadName.
+ *
+ * Shared for the same reason the texture is: one material per distinct street name rather than one
+ * per board. Marked `sharedMaterial` so the tile-unload walk leaves it alone.
+ */
+const _dirBoardMatCache = new Map();
+let sharedBoardBackMat = null;
+
+/**
+ * The blank aluminium back of a sign.
+ *
+ * ⚠ THIS EXISTS BECAUSE `DoubleSide` CANNOT BE RIGHT HERE. The face texture carries
+ * `repeat.x = -1` to undo `worldGroup.scale.x = -1`, so the front reads correctly — and a
+ * double-sided plane therefore shows that same texture MIRRORED from behind: reversed lettering
+ * and an arrow pointing the wrong way, which is what you see driving past one. A real sign has a
+ * plain back, so the fix is a back plate, not a side mode.
+ */
+function getBoardBackMat() {
+  if (!sharedBoardBackMat) {
+    sharedBoardBackMat = new THREE.MeshLambertMaterial({ color: 0x9c9e9c });
+    sharedBoardBackMat.userData.sharedMaterial = true;
+  }
+  return sharedBoardBackMat;
+}
+
+/**
+ * The face material for one street name.
+ *
+ * ⚠ LAMBERT, NOT BASIC. As `MeshBasicMaterial` the panel is unlit, so it held full daylight
+ * brightness after dark while the whole city around it darkened, and bloom turned it into a white
+ * rectangle with no readable text on it at all. Lambert puts the sign under the same rig as
+ * everything else: it dims at night, and the headlights actually light it as you approach — which
+ * is how a retroreflective panel behaves anyway. The small `emissive` is the floor that keeps it
+ * legible on an unlit street rather than going to black.
+ */
+function getDirectionBoardMat(roadName) {
+  const key = roadName || '';
+  let mat = _dirBoardMatCache.get(key);
+  if (!mat) {
+    mat = new THREE.MeshLambertMaterial({
+      map: getDirectionBoardTexture(roadName),
+      side: THREE.FrontSide,
+      emissive: 0x2a2a28,
+    });
+    mat.userData.sharedMaterial = true;
+    _dirBoardMatCache.set(key, mat);
+  }
+  return mat;
+}
 
 /** Catalan/Spanish particles that stay lowercase in a title-cased street name. */
 const CAT_LOWER = new Set(['de', 'del', 'dels', 'la', 'les', 'el', 'els', 'i', 'a', 'en', 'amb', 'per', 'da', 'do', 'y']);
@@ -656,7 +706,7 @@ function getDirectionBoardTexture(roadName) {
   ctx.fillRect(0, 0, W, H);
   // Subtle vignette so it doesn't read as a flat sticker
   const vg = ctx.createLinearGradient(0, 0, 0, H);
-  vg.addColorStop(0, 'rgba(255,255,255,0.5)');
+  vg.addColorStop(0, 'rgba(255,255,255,0.22)');   // was 0.5 — drove the panel to ~pure white, which bloom then ate
   vg.addColorStop(1, 'rgba(200,200,195,0.35)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
@@ -667,44 +717,50 @@ function getDirectionBoardTexture(roadName) {
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.roundRect(26, 26, W - 52, H - 52, 8); ctx.stroke();
 
-  // Solid charcoal arrow on the left (points toward the destination)
-  const cy = H / 2, ax = 58, head = 62, shaftW = 30;
+  // Solid charcoal arrow on the left (points toward the destination).
+  // ⚠ SIZE THE ARROW AGAINST THE TEXT COLUMN, NOT ON ITS OWN. It first shipped at
+  // head 62 + shaft 92 + margins = 234 px of a 512 px panel — 46% of the sign spent on a
+  // glyph carrying one bit of information, which forced "Gran Via de les Corts Catalanes"
+  // to wrap to two lines at 24 px and read as unlabelled from the car. Real Spanish urban
+  // señalización gives the arrow roughly a fifth and the destination the rest.
+  const cy = H / 2, ax = 40, head = 44, shaftW = 24;
+  const ARROW_SHAFT = 54;
   ctx.fillStyle = INK;
   ctx.beginPath();
   ctx.moveTo(ax, cy);                       // tip
-  ctx.lineTo(ax + head, cy - 58);           // head top
+  ctx.lineTo(ax + head, cy - 46);           // head top
   ctx.lineTo(ax + head, cy - shaftW / 2);   // neck top
-  ctx.lineTo(ax + head + 92, cy - shaftW / 2); // shaft top
-  ctx.lineTo(ax + head + 92, cy + shaftW / 2); // shaft bottom
+  ctx.lineTo(ax + head + ARROW_SHAFT, cy - shaftW / 2); // shaft top
+  ctx.lineTo(ax + head + ARROW_SHAFT, cy + shaftW / 2); // shaft bottom
   ctx.lineTo(ax + head, cy + shaftW / 2);   // neck bottom
-  ctx.lineTo(ax + head, cy + 58);           // head bottom
+  ctx.lineTo(ax + head, cy + 46);           // head bottom
   ctx.closePath();
   ctx.fill();
 
   // Street name — Catalan Title Case, charcoal. Prefer one line (shrink to 40px); if it still won't fit,
   // wrap to two balanced lines and size those to fit.
   const name = toCatalanTitleCase(roadName || 'Carrer');
-  const textX = ax + head + 92 + 22;        // just right of the arrow shaft
-  const maxW = W - textX - 30;
+  const textX = ax + head + ARROW_SHAFT + 18;   // just right of the arrow shaft
+  const maxW = W - textX - 22;                 // 314 px, up from 248
   const fontOf = (px) => `700 ${px}px "Helvetica Neue", Arial, sans-serif`;
   ctx.fillStyle = INK;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
-  let lines, fontPx = 54;
+  let lines, fontPx = 62;
   ctx.font = fontOf(fontPx);
   if (ctx.measureText(name).width <= maxW) {
     lines = [name];
   } else {
     // shrink a single line down to 40px
-    while (fontPx > 40) { fontPx -= 2; ctx.font = fontOf(fontPx); if (ctx.measureText(name).width <= maxW) break; }
+    while (fontPx > 46) { fontPx -= 2; ctx.font = fontOf(fontPx); if (ctx.measureText(name).width <= maxW) break; }
     if (ctx.measureText(name).width <= maxW) {
       lines = [name];
     } else {
       // wrap to two lines and fit the wider line
       lines = splitTwoLines(name);
-      fontPx = 46;
-      while (fontPx > 24) {
+      fontPx = 56;
+      while (fontPx > 34) {
         ctx.font = fontOf(fontPx);
         const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
         if (widest <= maxW) break;
@@ -794,6 +850,7 @@ function buildSpeedSignMeshes(signInstances) {
   const poleMat = getSpeedSignPoleMat();
   const meshes = [];
   const poleGeometries = [];
+  const backGeometries = [];
   const _q = new THREE.Quaternion();
   const _axisY = new THREE.Vector3(0, 1, 0);
 
@@ -1156,20 +1213,41 @@ function buildDirectionBoardMeshes(boardInstances) {
       poleGeometries.push(pole);
     }
 
-    // Sign board — front face with texture
+    // Sign board — front face with texture. FrontSide only; the back is a separate blank plate,
+    // see getBoardBackMat for why DoubleSide is wrong here.
     const signGeom = new THREE.PlaneGeometry(BOARD_W, BOARD_H);
-    const tex = getDirectionBoardTexture(b.roadName);
-    // DoubleSide so the sign is visible from BOTH directions (was FrontSide → invisible from behind).
-    const signMat = new THREE.MeshBasicMaterial({ map: tex, transparent: false, side: THREE.DoubleSide });
-
-    const signMesh = new THREE.Mesh(signGeom, signMat);
+    const signMesh = new THREE.Mesh(signGeom, getDirectionBoardMat(b.roadName));
     const signPos = new THREE.Vector3(0, BOARD_SIGN_Y + BOARD_H / 2 + b.baseY, 0.04);
     signPos.applyQuaternion(_q).add(new THREE.Vector3(b.x, 0, b.z));
     signMesh.position.copy(signPos);
     signMesh.quaternion.copy(_q);
     signMesh.castShadow = false;
     signMesh.receiveShadow = false;
+    signMesh.userData.sharedMaterial = true;
     meshes.push(signMesh);
+
+    // Blank back plate, merged with the others below into ONE mesh so the fix costs no draw call.
+    const back = new THREE.PlaneGeometry(BOARD_W, BOARD_H);
+    back.rotateY(Math.PI);
+    // 1.5 cm behind the face, so the sign reads as a panel with thickness rather than a decal.
+    const backPos = new THREE.Vector3(0, BOARD_SIGN_Y + BOARD_H / 2 + b.baseY, 0.025)
+      .applyQuaternion(_q).add(new THREE.Vector3(b.x, 0, b.z));
+    back.applyMatrix4(new THREE.Matrix4().compose(backPos, _q, new THREE.Vector3(1, 1, 1)));
+    backGeometries.push(back);
+  }
+
+  // Merge every back plate into one mesh — the blank backs are identical, so the whole tile's
+  // worth costs a single draw.
+  if (backGeometries.length > 0) {
+    const mergedBack = mergeGeometries(backGeometries);
+    backGeometries.forEach((g) => g.dispose());
+    if (mergedBack) {
+      const backMesh = new THREE.Mesh(mergedBack, getBoardBackMat());
+      backMesh.userData.sharedMaterial = true;
+      backMesh.castShadow = false;
+      backMesh.receiveShadow = false;
+      meshes.unshift(backMesh);
+    }
   }
 
   // Merge all poles into one mesh
