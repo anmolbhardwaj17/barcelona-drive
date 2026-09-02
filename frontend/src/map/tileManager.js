@@ -2624,7 +2624,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     // Road infra (signs, gantries)
     if (CONFIG.ENABLE_ROAD_INFRA) {
       buildPhase('p4 infra');
-      const { meshes: infraMeshesRaw } = buildRoadInfrastructure(roads, key, getGroundY);
+      // P-D1/P-D3: baked per-junction destinations — what each exit LEADS TO, derived over the
+      // whole region at bake because it cannot be seen from inside one tile.
+      const { meshes: infraMeshesRaw } = buildRoadInfrastructure(roads, key, getGroundY, data.junctionSigns);
       entry.roadInfraMeshes = await mergeMeshesByMaterial(infraMeshesRaw, yieldToMain);
       entry.laneArrowMesh = entry.roadInfraMeshes.find(m => m.userData?.type === 'laneArrows') || null;
       for (const m of entry.roadInfraMeshes) { safeSceneAdd(scene, m); }

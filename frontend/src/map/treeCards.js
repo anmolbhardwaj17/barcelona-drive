@@ -141,6 +141,32 @@ export function getTreeCardMaterial() {
     injectTreeWind(shader);
 
     if (patchCardFaceDirection(shader)) CARD_UNLIT_BACK = true;
+
+    // ── LAMPS LIGHT THE BOTTOM OF A TREE, NOT THE TOP ──────────────────────────────────────
+    // The night lift was uniform over the whole card, so a 12 m plane tree got one flat tone from
+    // root to crown and read as a dark green slab. Real street lighting is mounted BELOW the crown
+    // and points down: the trunk and the low foliage are the brightest part of a tree at night and
+    // the canopy is the darkest. That vertical gradient is most of what says "lit street" — its
+    // absence is what the user saw.
+    //
+    // Applied to the EMISSIVE only. Touching `diffuse` would fight the lighting rig and touching
+    // `color` is already spent on CARD_NIGHT_TINT. uNightGround is 0 by day, so this whole term
+    // vanishes and daylight is bit-identical.
+    shader.uniforms.uNightGround = { value: 0 };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vCardV;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vCardV = uv.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNightGround;\nvarying float vCardV;')
+      .replace('#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        // uv.y is 0 at the base of the card and 1 at the crown (getTreeCardGeometry builds it that
+        // way), so 1 - v is "how close to the lamps". Squared, because falloff from a point source
+        // is not linear and a linear ramp reads as a painted gradient rather than as light.
+        float _lampReach = (1.0 - clamp(vCardV, 0.0, 1.0));
+        totalEmissiveRadiance *= 1.0 + uNightGround * _lampReach * _lampReach * 3.2;`);
+    _cardShaders.push(shader);
+    shader.uniforms.uNightGround.value = _cardNight ? 1.0 : 0.0;
   }, 'vegTreeCard');
 
   return _material;
@@ -195,7 +221,11 @@ const _nightTintListeners = [];
 export function onCardNightTint(fn) { _nightTintListeners.push(fn); }
 
 let _cardNight = false;
+// Live shader refs, so the day/night switch can move uNightGround without a recompile (G-53).
+const _cardShaders = [];
 function _applyCardNight(m) {
+  // Ground-lift gradient follows the same switch. A uniform write, never a recompile.
+  for (const sh of _cardShaders) if (sh.uniforms.uNightGround) sh.uniforms.uNightGround.value = _cardNight ? 1.0 : 0.0;
   if (!m) return;
   if (_cardNight) {
     m.emissive.setRGB(...CARD_NIGHT_EMISSIVE);

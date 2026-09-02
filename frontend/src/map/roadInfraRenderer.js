@@ -1002,9 +1002,14 @@ function isOnAnyRoad(px, pz, roads, margin) {
   return false;
 }
 
-function generateDirectionBoards(intersections, roads, rng) {
+function generateDirectionBoards(intersections, roads, rng, destLookup) {
   const instances = [];
-  const MAX_PER_TILE = 20;
+  // ⚠ 20 IS THE AUDIT'S NUMBER FOR THE FAILURE, NOT A TARGET. buildDirectionBoardMeshes builds a
+  // MeshBasicMaterial per board, and mergeMeshesByMaterial buckets by material reference, so each
+  // board is its own draw: 20 x ~15 resident tiles = ~300 draws against a 450-draw CITY budget
+  // (v3-audits/signage.md S3). Until the pooled-atlas rebuild lands, this is capped so the boards
+  // can be JUDGED without the draw count deciding the argument.
+  const MAX_PER_TILE = 6;
   const placedHashes = new Set();
 
   for (const inter of intersections) {
@@ -1023,16 +1028,47 @@ function generateDirectionBoards(intersections, roads, rng) {
       || (mainRoad.highwayType && mainRoad.highwayType.endsWith('_link') && mainLayer !== 0);
     if (isBridgeOrRamp) continue;
 
-    // Collect unique names of OTHER roads branching off at this junction
-    // These are the destinations the direction board should point toward
+    // ── WHERE THE ROAD LEADS, NOT WHAT IT IS CALLED (P-D1) ──────────────────────────────────
+    // This used to collect the NAMES of the other roads at the junction, which is a street name,
+    // not a destination — a Spanish sign states where you end up. Those destinations are derived at
+    // bake over the whole graph (destinationLabels.js), because a destination 1.5 km away is
+    // several tiles from the junction that names it and cannot be seen from here.
+    //
+    // The old sibling-name logic remains as the fallback for junctions the derivation could not
+    // resolve (1.3% measured), so a tile baked before this data existed still produces boards.
     const otherNames = [];
     const seenNames = new Set();
-    for (const cr of inter.connectedRoads) {
-      if (cr.road === mainRoad.road) continue;
-      const n = cr.name || '';
-      if (n && n !== mainRoad.name && !seenNames.has(n)) {
-        seenNames.add(n);
-        otherNames.push(n);
+    // ⚠ 3x3, not a single cell. hashPoint floors into 12 m buckets, so a junction a few centimetres
+    // from a cell edge hashes differently in the bake and here — and the miss is SILENT, falling
+    // back to sibling names that look plausible. Scanning the neighbours costs 9 map lookups.
+    let baked = null;
+    if (destLookup) {
+      for (let dx = -1; dx <= 1 && !baked; dx++) {
+        for (let dz = -1; dz <= 1 && !baked; dz++) {
+          baked = destLookup.get(hashPoint(inter.x + dx * 12, inter.z + dz * 12, 12)) || null;
+        }
+      }
+    }
+    if (baked && baked.length) {
+      // Drop the exit the driver is arriving ON — a board must not send you back where you came
+      // from. `mainRoad` is that approach, so its bearing is the one to exclude.
+      const apx = inter.x - mainRoad.road.points[0].x;
+      const apz = inter.z - mainRoad.road.points[0].y;
+      const apDeg = Math.atan2(apx, apz) * 180 / Math.PI;
+      const angDiff = (a, b) => { let d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+      const usable = baked
+        .filter((e) => angDiff(e.bearing, apDeg) > 45)
+        .sort((a, b) => a.distM - b.distM);
+      for (const e of usable.slice(0, 2)) if (!seenNames.has(e.name)) { seenNames.add(e.name); otherNames.push(e.name); }
+    }
+    if (otherNames.length === 0) {
+      for (const cr of inter.connectedRoads) {
+        if (cr.road === mainRoad.road) continue;
+        const n = cr.name || '';
+        if (n && n !== mainRoad.name && !seenNames.has(n)) {
+          seenNames.add(n);
+          otherNames.push(n);
+        }
       }
     }
     // If no named side roads, use the main road name or a type fallback
@@ -1156,7 +1192,7 @@ function buildDirectionBoardMeshes(boardInstances) {
  * Generate gantry data for motorway/trunk/primary roads.
  * Returns array of { x, z, tx, tz, angle, baseY, roadWidth, roadName, connectedNames }.
  */
-function generateGantries(roads, intersections) {
+function generateGantries(roads, intersections, destLookup) {
   const instances = [];
   const MAX_PER_TILE = 6;
 
@@ -1188,13 +1224,38 @@ function generateGantries(roads, intersections) {
       if (instances.length >= MAX_PER_TILE) break;
 
       // Find nearby intersection names for the sign text
-      const nearHash = hashPoint(s.x, s.z, 50);
+      // ── WHAT THE GANTRY ANNOUNCES (P-D1) ──────────────────────────────────────────────────
+      // Was the NAMES of roads meeting nearby. An overhead gantry on an autovia announces where the
+      // exits GO, so it takes the same baked destinations the ground boards use — derived over the
+      // whole graph, because a destination 1.5 km ahead is several tiles from this gantry.
       let connectedNames = [];
-      for (const inter of intersections) {
-        if (Math.hypot(inter.x - s.x, inter.z - s.z) < 200) {
-          for (const cr of inter.connectedRoads) {
-            if (cr.name && cr.name !== roadName && !connectedNames.includes(cr.name)) {
-              connectedNames.push(cr.name);
+      if (destLookup) {
+        let bestD = 200, bestExits = null;
+        for (const inter of intersections) {
+          const d = Math.hypot(inter.x - s.x, inter.z - s.z);
+          if (d >= bestD) continue;
+          for (let dx = -1; dx <= 1 && !bestExits; dx++) {
+            for (let dz = -1; dz <= 1 && !bestExits; dz++) {
+              const ex = destLookup.get(hashPoint(inter.x + dx * 12, inter.z + dz * 12, 12));
+              if (ex) { bestExits = ex; bestD = d; }
+            }
+          }
+        }
+        if (bestExits) {
+          connectedNames = bestExits
+            .slice()
+            .sort((a, b) => a.distM - b.distM)
+            .map((e) => e.name)
+            .filter((n) => n && n !== roadName);
+        }
+      }
+      if (connectedNames.length === 0) {
+        for (const inter of intersections) {
+          if (Math.hypot(inter.x - s.x, inter.z - s.z) < 200) {
+            for (const cr of inter.connectedRoads) {
+              if (cr.name && cr.name !== roadName && !connectedNames.includes(cr.name)) {
+                connectedNames.push(cr.name);
+              }
             }
           }
         }
@@ -1215,19 +1276,27 @@ function generateGantries(roads, intersections) {
 }
 
 /** Format highway type as readable label for signs when no name available. */
+/**
+ * Fallback label when a road has no name.
+ *
+ * ⚠ WAS DELHI (audit S14). This returned 'National Highway' / 'State Highway' / 'Main Road' — the
+ * INDIAN classification, printed on Barcelona signs. Spain signs by network: autopista/autovía
+ * (A-, AP-, and the city's B-10 / B-20 rondas), carretera, and plain urban streets. Catalan,
+ * because that is what the street plates and the rest of this file's text already use.
+ */
 function formatRoadType(highwayType) {
   const map = {
-    motorway: 'National Highway',
-    motorway_link: 'NH Slip Road',
-    trunk: 'State Highway',
-    trunk_link: 'SH Slip Road',
-    primary: 'Main Road',
-    primary_link: 'Main Road Link',
-    secondary: 'City Road',
-    secondary_link: 'City Road Link',
-    tertiary: 'Local Road',
-    tertiary_link: 'Local Road Link',
-    residential: 'Residential Road',
+    motorway: 'Autopista',
+    motorway_link: 'Accés autopista',
+    trunk: 'Autovia',
+    trunk_link: 'Accés autovia',
+    primary: 'Via principal',
+    primary_link: 'Accés',
+    secondary: 'Carretera',
+    secondary_link: 'Accés',
+    tertiary: 'Carrer',
+    tertiary_link: 'Accés',
+    residential: 'Carrer',
     service: 'Service Road',
   };
   return map[highwayType] || 'Road';
@@ -1373,7 +1442,11 @@ function buildGantryMeshes(gantryInstances) {
  * @param {string} tileKey - for deterministic seeding
  * @returns {{ meshes: THREE.Mesh[] }}
  */
-export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
+export function buildRoadInfrastructure(roads, tileKey, getGroundY = null, junctionSigns = null) {
+  // Baked destinations, keyed by the same hash the junction placement uses so a lookup is O(1).
+  const destLookup = junctionSigns && junctionSigns.length
+    ? new Map(junctionSigns.map((j) => [hashPoint(j.point[0], j.point[1], 12), j.exits]))
+    : null;
   if (!roads || roads.length === 0) return { meshes: [] };
 
   const rng = seededRandom(tileKeyToSeed(tileKey));
@@ -1509,12 +1582,22 @@ export function buildRoadInfrastructure(roads, tileKey, getGroundY = null) {
   }
 
   // 4. Direction boards (Barcelona/Spanish white urban directional signs)
-  const boardInstances = []; // direction boards REMOVED — floating/ugly poles (restore generateDirectionBoards)
+  // ── RE-ENABLED (P-D3) ────────────────────────────────────────────────────────────────────
+  // Disabled in 05231ae because the poles floated. That cause is FIXED: groundInstances (below)
+  // snaps every non-bridge instance to terrain and drops the ones whose ground is unknown, which
+  // is what the audit records as S2. Capped at MAX_PER_TILE=6 until the pooled-atlas rebuild
+  // (P-D2) removes the per-board material — see the note there.
+  const boardInstances = generateDirectionBoards(intersections, roads, rng, destLookup);
   const boardMeshes = buildDirectionBoardMeshes(boardInstances);
   meshes.push(...boardMeshes);
 
   // 5. Highway gantries (green boards with text + gray poles)
-  const gantryInstances = []; // highway gantries REMOVED — floating/ugly poles (restore generateGantries)
+  // ── RE-ENABLED (P-D3) ────────────────────────────────────────────────────────────────────
+  // The overhead boards on legs either side of the carriageway. Placement was already right and is
+  // untouched: motorway/trunk/primary only, road at least 150 m long and 8 m wide, one every 400 m,
+  // max 6 per tile — so a gantry can never straddle a side street. Same floating-pole fix as the
+  // ground boards (groundInstances terrain-snaps and drops unknown-ground instances).
+  const gantryInstances = generateGantries(roads, intersections, destLookup);
   const gantryMeshes = buildGantryMeshes(gantryInstances);
   meshes.push(...gantryMeshes);
 
