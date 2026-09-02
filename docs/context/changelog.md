@@ -3077,3 +3077,19 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   project (no Worker, no R2, no CORS). 568 files / 202 MB, inside both Pages limits.
   ⚠ The project already existed and is live on `drive.anmolbhardwaj.com`; its production branch is
   `main`, so `--branch v3` lands as a PREVIEW, not production.
+- **Production deploy is now static Cloudflare Pages from `main`** (`drive.anmolbhardwaj.com`).
+  Build with `VITE_MAP_API= VITE_STATIC_TILES=1 VITE_TILE_REGION=barcelona npx vite build`, then
+  copy `backend/tiles/barcelona` into `frontend/dist/tiles/` and
+  `wrangler pages deploy frontend/dist --project-name barcelona-drive --branch main`.
+  ⚠ **`--branch` decides production vs preview.** The project's production branch is `main`; any
+  other branch name silently deploys a PREVIEW with its own alias URL and leaves the custom domain
+  serving the old build. A deploy that says "Success" tells you nothing about which one you got —
+  check `wrangler pages deployment list` for the `Production` row.
+- **A missing tile on Pages returns 200 `text/html`, not 404.** Pages serves index.html for any
+  unmatched path, which is what makes the client-routed `/game` work — there is no `/game` file — so
+  it must not be disabled globally. The consequence is that a tile beyond the baked region sailed
+  past the tile worker's `if (!res.ok)` and got parsed as a binary tile. `tileParserWorker` now
+  treats a `text/html` response as `not_found`.
+  ⚠ A `_redirects` rule scoping a real 404 to `/tiles/*` was tried FIRST and **measured as inert** —
+  the asset fallback still won, still 200 text/html. It was deleted rather than left in the repo
+  looking like protection. The content-type guard is the whole fix.

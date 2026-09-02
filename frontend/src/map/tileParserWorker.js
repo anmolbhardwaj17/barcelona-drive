@@ -1098,6 +1098,22 @@ self.onmessage = async (e) => {
 
     const contentType = res.headers.get('content-type') || '';
 
+    // A STATIC HOST CAN ANSWER 200 WITH A WEB PAGE. Cloudflare Pages serves index.html for any
+    // unmatched path — that is what makes the client-routed /game work — so a tile beyond the baked
+    // region came back as 34 KB of HTML with status 200, sailed past the `!res.ok` check above, and
+    // was parsed as a binary tile. Treat HTML as the not-found it actually is, whatever the status
+    // line claims.
+    //
+    // ⚠ A `_redirects` rule (`/tiles/* /404-tile 404`) was tried first and MEASURED AS INERT on
+    // Pages — the asset fallback still won and the response was still 200 text/html. It was removed
+    // rather than left in place looking like protection. This guard is the whole fix. The cost of
+    // the fallback is a 34 KB HTML body per out-of-bounds request, once each, then the result is
+    // cached as PLACEHOLDER.
+    if (contentType.includes('text/html')) {
+      self.postMessage({ id, error: 'not_found', status: res.status });
+      return;
+    }
+
     if (contentType.includes('octet-stream')) {
       // ── Binary v6 path ──────────────────────────────────────────────────
       const buffer = await res.arrayBuffer();
