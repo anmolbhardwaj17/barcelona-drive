@@ -60,7 +60,7 @@ const CSS = `
 .dd-mm-top { display:flex; align-items:center; justify-content:space-between; gap:18px;
   padding:16px 4vw 13px; border-bottom:1px solid var(--e-line); box-shadow:0 1px 0 rgba(230,163,60,0.28); }
 .dd-mm-topleft { display:flex; align-items:center; gap:20px; min-width:0; }
-.dd-mm-logo { height:64px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
+.dd-mm-logo { height:46px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
 /* Money is a PLATE, not a number floating next to a button. Top-left, beside the logo, because
    that is where a player looks for their balance and because the right-hand side is for actions. */
 .dd-mm-cash { display:flex; flex-direction:column; gap:3px; padding:9px 16px;

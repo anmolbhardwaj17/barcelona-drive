@@ -169,6 +169,15 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
   const marinas = header.marinas
     ? readAreaFeatures(header.marinas, buffer, binOffset)
     : [];
+  // P-D1: what each exit of each junction leads to. Positions are mercator like every other point
+  // feature and are converted with the same helper; the exits ride the header as plain objects.
+  const junctionSigns = Array.isArray(header.junctionSigns)
+    ? header.junctionSigns.map((j) => {
+        const f32 = new Float32Array(buffer, binOffset + j.pointOffset, 2);
+        const w = mercatorToWorld(f32[0], f32[1], originX, originY);
+        return { point: [w.x, w.z], exits: j.exits };
+      })
+    : [];
   const trafficSignals = header.trafficSignals
     ? readPointList(header.trafficSignals, buffer, binOffset, (entry, f32) => {
         const r = { id: entry.id, point: [f32[0], f32[1]] };
@@ -258,6 +267,7 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
     pedestrianAreas,
     marinas,
     trafficSignals,
+    junctionSigns,
     streetLamps,
     trees,
     tourismPois,

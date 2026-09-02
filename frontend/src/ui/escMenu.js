@@ -63,7 +63,7 @@ const CSS = `
 /* ── header: logo, a hard amber rule under it ── */
 .dd-esc-top { display:flex; align-items:center; justify-content:space-between; padding:18px 0 14px;
   border-bottom:1px solid var(--e-line); box-shadow:0 1px 0 rgba(230,163,60,0.28); }
-.dd-esc-logoimg { height:74px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
+.dd-esc-logoimg { height:54px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
 .dd-esc-topactions { display:flex; align-items:center; gap:10px; }
 
 /* car paint swatches — squared off with the rest */

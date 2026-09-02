@@ -428,6 +428,23 @@ export function convertTile(jsonData) {
     }
   }
 
+  // ── Junction direction signs (P-D1) ─────────────────────────────────────
+  // ⚠ NOT through pushF32 like the point features below. Those are a fixed Float32 pair per
+  // feature; a junction sign carries a VARIABLE list of exits, each with a destination string. So
+  // the position rides the binary pool for consistency and the exits stay in the JSON header.
+  //
+  // Size checked before choosing this: 8,242 signable exits across 432 tiles is ~19 per tile, a
+  // couple of KB of header. If this ever grows past that, the destination STRINGS want interning
+  // into a per-tile name table — the same trick citymap.bin already uses for road names.
+  header.junctionSigns = [];
+  if (Array.isArray(jsonData.junctionSigns)) {
+    for (const j of jsonData.junctionSigns) {
+      if (!j || !j.point || !j.exits || !j.exits.length) continue;
+      const ref = pushF32([j.point[0], j.point[1]]);
+      header.junctionSigns.push({ pointOffset: ref.offset, exits: j.exits });
+    }
+  }
+
   // ── v7: point features — shared encoding (Float32 pair per feature) ──────
   // Traffic signals
   header.trafficSignals = [];

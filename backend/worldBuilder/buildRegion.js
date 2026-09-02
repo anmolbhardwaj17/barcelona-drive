@@ -24,6 +24,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { REGION_CONFIG } from './config.js';
 import { buildTrenchCorridors, carveTrenchesIntoGrid, flagTrenchCrossings, flagFloatersOverCarve } from './terrain/trenchAuthor.js';
+import { deriveJunctionDestinations } from './roads/destinationLabels.js';
 import { collectTunnelFloorViolations, reportTunnelFloorValidation,
          collectSurfaceFloorViolations, reportSurfaceFloorValidation } from './terrain/validateTunnelFloors.js';   // R-P1
 
@@ -1266,6 +1267,32 @@ async function main() {
   // the grid uses) so every tile carves identical geometry → cross-tile seams agree by
   // construction. Carved per-tile as the LAST grid mutation. See authored-tunnels-design.md.
   const trenchCorridors = demSampler ? buildTrenchCorridors(simplified, demSampler) : [];
+
+  // ── WHERE DOES EACH EXIT LEAD? (P-D1) ─────────────────────────────────────────────────────────
+  // A direction board states a DESTINATION, which is a property of the graph BEYOND the junction —
+  // roadInfraRenderer's per-tile view cannot see it, because a destination 1.5 km away is several
+  // tiles over. So it is derived once here, over the whole region, and shipped per tile.
+  //
+  // Mercator x/z are scaled by cos(lat) into real metres first: the walk measures distance and
+  // rejects candidates outside a bearing cone, and both are meaningless in unstretched mercator.
+  const _destWays = simplified
+    .filter((r) => r.points && r.points.length >= 2)
+    .map((r) => ({
+      id: r.id, name: r.name || '', highwayType: r.highwayType,
+      pts: r.points.map((p) => ({ x: p[0] * _BR_K_UNSTRETCH, z: p[2] * _BR_K_UNSTRETCH })),
+    }));
+  const junctionDestinations = deriveJunctionDestinations(_destWays);
+  {
+    let _exits = 0;
+    for (const ex of junctionDestinations.values()) _exits += ex.length;
+    console.log(`  [Signs] junction destinations: ${junctionDestinations.size.toLocaleString()} junctions, `
+      + `${_exits.toLocaleString()} signable exits (from the graph, no OSM destination tags)`);
+  }
+  // Key is a snapped METRIC grid cell; recover mercator so tiles can filter by their own bbox.
+  const _destList = [...junctionDestinations.entries()].map(([k, exits]) => {
+    const [gx, gz] = k.split(',').map(Number);
+    return { mx: gx / _BR_K_UNSTRETCH, mz: gz / _BR_K_UNSTRETCH, exits };
+  });
   let _aoCanopyCells = 0;   // D-23: proof the canopy occluders actually rasterised
   // OPTION L: streets crossing above a daylighted corridor get deck colliders (bridge
   // mechanism). Flag set on the GLOBAL roads BEFORE the per-tile clones are taken.
@@ -1800,6 +1827,13 @@ async function main() {
       metroStations:    metroByTile.get(tileId)    || [],
       healthcare:       healthByTile.get(tileId)   || [],
       shops:            shopsByTile.get(tileId)    || [],
+      // P-D1: what each exit of each junction in this tile LEADS TO. Derived once over the whole
+      // region above — a destination 1.5 km away is several tiles from the junction that names it,
+      // so this cannot be computed per tile. Mercator x/z, matching every other point feature.
+      junctionSigns:    _destList
+        .filter((d) => d.mx >= bounds.minX && d.mx <= bounds.maxX
+                    && d.mz >= bounds.minY && d.mz <= bounds.maxY)   // mercator northing is .y here
+        .map((d) => ({ point: [d.mx, d.mz], exits: d.exits })),
     };
 
     // ── Per-tile v7 feature count log (non-zero only) ─────────────────────
