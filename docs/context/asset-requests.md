@@ -329,3 +329,48 @@ Same shared style block as R6 above.
 **load-6** — a boulevard
 > A wide Barcelona boulevard lined with ornate cream modernista facades and street lamps, a green
 > planted median and pedestrian crossings, buildings massed on the right, bright blue sky.
+
+---
+
+## R8 · Game logo — ETS2-adjacent wordmark
+
+Replaces `frontend/public/logo-barcelona-drive.webp` (currently 1679×937 RGBA, 107 KB, cartoon red
++ white with a heavy black outline and a Sagrada Família illustration).
+
+- **Goes to:** `frontend/public/logo-barcelona-drive.webp` — **same filename**, three call sites read
+  it (title, ESC/settings header, hub header) and none need changing.
+- **Size:** 1600 × 600, **transparent background** (RGBA, alpha — not a dark rectangle).
+- **⚠ IT MUST SURVIVE 64 px TALL.** Rendered at `min(180px, 36vh)` on the title, **74 px** in
+  settings and **64 px** in the hub. At 64 px the whole lockup is ~115 px wide. That is the real
+  constraint and it is what kills the current one: its cathedral illustration is ~40% of the height
+  and becomes mush. Anything finer than a bold silhouette will not read.
+- **Sits on DARK** (`#0b0e15`, or the blurred city). It needs light values and its own edge — a
+  logo that relies on a dark outline disappears against dark.
+- **Budget:** UI art, not the 24 MB texture cap. ~60-110 KB as WebP.
+
+> **Shared style block — append to each:**
+> Horizontal game logo lockup on a fully transparent background. Bold condensed uppercase sans,
+> tight letter spacing, slight forward italic lean suggesting motion. Warm amber and cream palette
+> (#e6a33c amber, #f2ead9 cream) with a thin dark keyline for separation. Subtle brushed-metal
+> shading, restrained — a modern European trucking/driving simulator title, not a cartoon or arcade
+> logo. Clean vector-like edges, high contrast, legible when shrunk to 100 pixels wide. No
+> background, no drop shadow, no glow, no 3D perspective, no bevel gloss, no photographic elements.
+
+**A · Wordmark with a chamfered-block mark** *(recommended — the Eixample's octagon is Barcelona's
+most recognisable plan shape and stays legible as a solid silhouette)*
+> The words "BARCELONA DRIVE" as a two-line lockup, "BARCELONA" small and letterspaced above
+> "DRIVE" set large and heavy. To the left, a simple solid emblem of a chamfered octagonal city
+> block with a road crossing it, in amber.
+
+**B · Wordmark with a route chevron**
+> The words "BARCELONA DRIVE" on one line, "BARCELONA" in cream and "DRIVE" in amber. To the left, a
+> minimal emblem of two stacked forward chevrons suggesting a road stripe receding, in amber.
+
+**C · Wordmark with four Catalan bars**
+> The words "BARCELONA DRIVE" as a two-line lockup in cream, with a small solid amber badge to the
+> left carrying four vertical bars — the Catalan senyera reduced to a flat graphic mark.
+
+⚠ **Image models misspell wordmarks.** Expect several attempts, and check the spelling of BARCELONA
+character by character before shipping — a subtly wrong logo is worse than the current one. If it
+keeps failing, generate the EMBLEM alone on transparent and set the type separately; the emblem is
+the part a model is actually good at.
