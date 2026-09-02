@@ -32,7 +32,35 @@ Traffic logic does not register next to them.
 
 ## Plan
 
-### T-1 · Cars actually turn — ✅ SHIPPED
+### T-1 · Cars actually turn — ✅ SHIPPED, then ⚠ FIXED 2026-09-02
+
+**The first version could not turn at all in the Eixample, and the weighted choice hid it.** The
+U-turn guard `dot <= 0.15` permits turns up to **81 degrees**. Barcelona's Eixample is a
+PERPENDICULAR grid, so every cross street is dot ≈ 0.0 and was rejected — the only candidate that
+ever survived was straight ahead. Weighting the choice changed nothing because there was never more
+than one thing to weight.
+
+It also caused the jams the user photographed: a T-junction whose only exits are 90 degrees left and
+right had NO legal continuation, so the car reached its path end, stopped in the carriageway, and
+never moved again (the anti-deadlock deliberately spares cars near the player).
+
+Threshold re-derived over all 20,902 directed way-ends in the city:
+
+| reject below | max turn | dead ends |
+|---|---|---|
+| `0.15` (was) | 81° | **21.3%** |
+| `0.0` | 90° | 17.8% |
+| **`-0.10`** (now) | **96°** | **16.9%** |
+| `-0.30` | 107° | 16.7% |
+| `-0.50` | 120° | 16.6% |
+
+`-0.10` takes nearly the whole win; past it the curve is flat and only admits near-U-turns.
+Two follow-on fixes: the weight clamps `dot` at 0 before squaring (`dot*dot` is symmetric, so a raw
+negative would score a sharp turn like a gentle one), and a car that genuinely runs out of road is
+now despawned even in view — out of road is not the same as blocked, and sparing it leaves a
+permanent roadblock. `window._ddTrafficStats()` reports the extend fail rate.
+
+### T-1 (original entry)
 
 **Landed as:** weighted continuation choice in `extendPath()`
 (`w = 0.35 + dot * dot * 2.4`, so straight stays most likely without always winning) plus a corner

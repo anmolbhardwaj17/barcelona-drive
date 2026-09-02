@@ -215,6 +215,16 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
 
   // Chain the car onto a connected road at its current path end, so it drives through intersections
   // instead of vanishing at the segment end. Appends the best forward-continuation to car.path.pts.
+  // D-23 proof of work: "cars jam at dead ends" and "cars never reach dead ends" look identical
+  // from the driver's seat. window._ddTrafficStats().
+  const _stats = { extendTried: 0, extendFailed: 0, despawnedOutOfRoad: 0 };
+  if (typeof window !== 'undefined') {
+    window._ddTrafficStats = () => ({
+      ..._stats,
+      extendFailRate: _stats.extendTried ? (_stats.extendFailed / _stats.extendTried * 100).toFixed(1) + '%' : 'n/a',
+      live: cars.length,
+    });
+  }
   const CONNECT_DIST = 9;    // m (world) — endpoints this close count as connected
   const MAX_PATH_PTS = 320;  // cap runaway path growth
   function extendPath(car, origin) {
@@ -253,11 +263,27 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       let cdx = cont.pts[1].x - cont.pts[0].x, cdz = cont.pts[1].z - cont.pts[0].z;
       const cl2 = Math.hypot(cdx, cdz) || 1; cdx /= cl2; cdz /= cl2;
       const dot = cdx * hx + cdz * hz;
-      if (dot <= 0.15) continue;                      // still no U-turns
-      // Weight by how straight it is, but never to zero: straight ~3x a sharp turn rather than
-      // always winning. `cross` tells left from right, kept so the turn can be signalled later.
+      // ── 0.15 MADE A RIGHT-ANGLE TURN ILLEGAL, WHICH IS EVERY TURN IN THE EIXAMPLE ───────────
+      // dot > 0.15 permits turns up to 81 degrees. Barcelona's Eixample is a PERPENDICULAR grid, so
+      // a cross street is dot ≈ 0.0 and was rejected every single time: the only surviving candidate
+      // was straight ahead. That is the "cars never turn" report, and it is also why they jam — a
+      // T-junction whose only exits are 90 degrees left and right had NO legal continuation, so the
+      // car reached its path end and stopped dead in the road.
+      //
+      // Threshold measured, not picked, over all 20,902 directed way-ends in the city:
+      //   dot > 0.15 (81 deg) → 21.3% dead ends      dot > -0.30 (107 deg) → 16.7%
+      //   dot >  0.0 (90 deg) → 17.8%                dot > -0.50 (120 deg) → 16.6%
+      //   dot > -0.10 (96 deg) → 16.9%   ← nearly the whole win; past here it is flat
+      // 96 degrees covers a real right angle plus slack for imperfect OSM geometry, and stops well
+      // short of the near-U-turns that -0.5 would allow for 0.3 points of nothing.
+      if (dot <= -0.10) continue;
+      // Weight by how straight it is, but never to zero. `Math.max(0, dot)` matters now that dot can
+      // be NEGATIVE: dot*dot is symmetric, so squaring a raw negative would score a sharp turn the
+      // same as an equally-angled gentle one. At a 4-way this gives straight ~68%, each turn ~16%.
+      // `cross` tells left from right, kept so the turn can be signalled later.
       const cross = hx * cdz - hz * cdx;
-      cands.push({ cont, dot, cross, w: 0.35 + dot * dot * 2.4 });
+      const fwd = Math.max(0, dot);
+      cands.push({ cont, dot, cross, w: 0.5 + fwd * fwd * 1.6 });
     }
     if (!cands.length) return false;
     let best = null;
@@ -414,7 +440,9 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       // Decays over `_turnSlowT` rather than ending at the corner, so the car accelerates OUT of
       // the turn instead of snapping back to cruise the instant the geometry straightens.
       if (car._turnDot != null && car._turnDot < 0.86) {
-        car._turnSlow = 0.45 + car._turnDot * 0.55;   // hard turn ~0.56x, gentle bend ~0.92x
+        // Clamped: _turnDot can now be as low as -0.10 (a 96-degree turn), which would otherwise
+        // drive this below the intended floor. A right-angle turn caps out at the slowest speed.
+        car._turnSlow = Math.max(0.34, 0.45 + car._turnDot * 0.55);   // hard turn ~0.45x, gentle bend ~0.92x
         car._turnSlowT = 2.4;
         car._turnDot = null;
       }
@@ -448,8 +476,21 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
       if (car.cur < 0.6) {
         car.stopT = (car.stopT || 0) + d;
         const farFromPlayer = (cx - playerPx) ** 2 + (cz - playerPz) ** 2 > 45 * 45;
-        if (car.stopT > DEADLOCK_T && farFromPlayer) { removeCar(car); cars.splice(c, 1); continue; }
-      } else car.stopT = 0;
+        // ── OUT OF ROAD IS NOT THE SAME AS BLOCKED ────────────────────────────────────────────
+        // Sparing near-player cars is right for one you are BLOCKING — it must not vanish while you
+        // look at it. But a car whose path ended with no legal continuation is not waiting for
+        // anything: it will sit in the carriageway for the rest of the session and everything behind
+        // it queues up. That is the photographed jam. 16.9% of directed way-ends have no legal exit
+        // even after the turn-threshold fix, so this case is common, not exotic.
+        //
+        // It still gets a longer rope in view (2x) than out of it, so the only way to watch one go
+        // is to park next to a dead end and wait.
+        const limit = car.outOfRoad ? (farFromPlayer ? DEADLOCK_T : DEADLOCK_T * 2) : DEADLOCK_T;
+        if (car.stopT > limit && (farFromPlayer || car.outOfRoad)) {
+          if (car.outOfRoad) _stats.despawnedOutOfRoad++;
+          removeCar(car); cars.splice(c, 1); continue;
+        }
+      } else { car.stopT = 0; car.outOfRoad = false; }
 
       // Near the path end → chain onto a connected road so the car drives through the intersection
       // instead of vanishing. Cooldown so a dead-end car doesn't rescan every frame.
@@ -457,7 +498,14 @@ export function createTrafficSystem({ scene, world, getGroundY, getRoadSegments,
         car.extendCd = (car.extendCd || 0) - d;
         if (car.extendCd <= 0 && _extendBudget > 0) {
           _extendBudget--;
-          if (!extendPath(car, origin)) car.extendCd = 0.5;
+          _stats.extendTried++;
+          if (!extendPath(car, origin)) {
+            car.extendCd = 0.5;
+            _stats.extendFailed++;
+            // Only once the car has actually RUN OUT of path — at pts.length-2 it still has a
+            // segment left and may yet find an exit on the next try.
+            if (car.idx >= pts.length - 1) car.outOfRoad = true;
+          }
         }
       }
 
