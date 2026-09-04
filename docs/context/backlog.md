@@ -232,7 +232,15 @@ places in the same city. Cheapest honest first slice: ghost cars at ~10 Hz, no s
 
 ## Inherited from the v3 tracker — still open there, not duplicated here
 
-`N-25` trees in carriageways (⚠ **the obvious fix is proven not to work** — read it before retrying) ·
-`N-26` collision wireframes invisible (two speculative fixes already reverted — **get the HUD line
-first**) · `N-31` sidewalk overhang (needs a sloped batter, not the reverted edge skirt) · `N-56`
-reverted · `N-57` in flight · `P4-17` ⛔ blocked on `P4-11` (`signAtlas.js` does not exist).
+`N-25` trees in carriageways — ⚠ the obvious fix is proven not to work; blocked on the COORDINATE
+SPACE, not on the guard. **That blocker weakened on 2026-09-05**: P-6's `shopSnapAudit.mjs` pins the
+asymmetry exactly (road points MERCATOR in the tile, tree/shop/building positions WORLD) and is a
+working template for the conversion N-7's `convertRoadsForVeg` was meant to do. Still needs a
+rejection counter proven before a bake (D-23) ·
+`N-31` sidewalk overhang (needs a sloped batter, not the reverted edge skirt) · `N-56` reverted ·
+`N-57` in flight — re-measured 2026-09-05 at **116** steps; the next step is NOT another bake ·
+`P4-17` ⛔ blocked on `P4-11` (`signAtlas.js` does not exist — 7 d, high risk, code not art).
+
+~~`N-26` collision wireframes invisible~~ — ✅ **closed in the tracker, this line was stale.** Not a
+bug: `initCollisionDebug()` is inside `if (import.meta.env.DEV)`. Port **4040 = dev = debug tools**,
+**4044 = preview = production = no K key**.
