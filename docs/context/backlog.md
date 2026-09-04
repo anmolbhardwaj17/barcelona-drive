@@ -173,8 +173,23 @@ ourselves as well"*. Right, and **we already do it in one place**: R-W1's `roadW
 tiles show 100% road-width coverage when OSM tags almost none. That is the template — one model, one
 source of truth, read through `roadWidths.js`, never a `?? 6` at a call site.
 
-Measured gaps: road names **76.0%** (9,514 unnamed) · shop names 93.2% · traffic signals 4,225 nodes
-with position only and **no consumer at all**.
+⚠ **BOTH TICKETS ARE NOW CLOSED, AND BOTH PREMISES WERE MINE AND WRONG.** Kept in full below,
+because the pattern is the lesson: I wrote both from headline coverage numbers without breaking them
+down or checking the live code, and both evaporated on contact.
+
+- **S-1 · street-name synthesis** — ❌ **DROPPED 2026-09-05.** I quoted "76% name coverage, so 9,514
+  unnamed roads" and turned that into a ticket. Broken down by TYPE, the unnamed roads are almost
+  entirely things that should not carry a street name: footway 4,566 · service 1,678 · steps 1,294 ·
+  corridor 494 · pedestrian 536 · path 262 · slip roads. Drivable streets genuinely missing a name:
+  **≈161** (tertiary 51, living_street 31, unclassified 29, secondary 25, residential 19, trunk 5,
+  primary 1). Not worth a generator, and generating names for driveways and pavements would be
+  actively wrong. **Do not revive without re-running the per-type breakdown.**
+
+  ✅ **What the investigation found and fixed instead:** `getGantrySignTexture` fell back to the
+  literal string **`'Delhi'`** for the main line of an overhead board whenever the road it spans had
+  no OSM name — live code, on real signs in Barcelona. Gantries now skip unnamed roads (6 of 681
+  eligible region-wide, so almost nothing is lost but exactly those signs), and the fallback is an
+  empty string rather than another placeholder: blank beats confidently wrong.
 
 - **S-2 · placement from the drawn surface** — ✅ **ALREADY DONE, by T-2. Ticket withdrawn.**
   ⚠ **I specced this from a stale reading and should have checked the live code first.**
