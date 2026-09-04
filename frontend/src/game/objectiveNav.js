@@ -51,7 +51,7 @@ export function createObjectiveNav({ getRoadSegments, getMinimap, color = null }
 
     /**
      * @returns {{
-     *   hasRoute:boolean, remainingM:number, crowM:number,
+     *   hasRoute:boolean, remainingM:number, crowM:number, etaS:number,
      *   next:{dir:string, onto:string, inM:number}|null, offRoute:boolean
      * }}
      * `remainingM` is distance ALONG THE ROADS, which is the number worth showing: crow-flies goes
@@ -60,11 +60,11 @@ export function createObjectiveNav({ getRoadSegments, getMinimap, color = null }
     update(carX, carY, dt) {
       sinceReplan += dt || 0;
       const crowM = target ? Math.hypot(target.x - carX, target.y - carY) : 0;
-      if (!target) return { hasRoute: false, remainingM: 0, crowM: 0, next: null, offRoute: false };
+      if (!target) return { hasRoute: false, remainingM: 0, crowM: 0, etaS: 0, next: null, offRoute: false };
 
       if (!route) {
         if (sinceReplan >= RETRY_S) replan(carX, carY);
-        return { hasRoute: false, remainingM: crowM, crowM, next: null, offRoute: false };
+        return { hasRoute: false, remainingM: crowM, crowM, etaS: 0, next: null, offRoute: false };
       }
 
       const proj = projectOnRoute(route.points, carX, carY);
@@ -72,7 +72,7 @@ export function createObjectiveNav({ getRoadSegments, getMinimap, color = null }
       const offRoute = proj.offBy > OFF_ROUTE_M;
       if (offRoute && sinceReplan >= MIN_REPLAN_S) {
         replan(carX, carY);
-        return { hasRoute: !!route, remainingM: route ? route.lengthM : crowM, crowM, next: null, offRoute: true };
+        return { hasRoute: !!route, remainingM: route ? route.lengthM : crowM, crowM, etaS: route ? route.timeS : 0, next: null, offRoute: true };
       }
       getMinimap?.()?.setRouteProgress?.(along);
 
@@ -81,9 +81,14 @@ export function createObjectiveNav({ getRoadSegments, getMinimap, color = null }
         // 6 m of slack so an instruction does not linger for the frame you are standing on it.
         if (m.distFromStart > along + 6) { next = { dir: m.dir, onto: m.onto, inM: m.distFromStart - along }; break; }
       }
+      const frac = proj.total > 0 ? Math.max(0, 1 - along / proj.total) : 0;
       return {
         hasRoute: true,
         remainingM: Math.max(0, proj.total - along),
+        // Scaled by how much of the route is left rather than re-planned: the remaining TIME tracks
+        // the remaining DISTANCE on the same route, and re-running A* once a second to refine an
+        // ETA would cost more than the ETA is worth.
+        etaS: route.timeS * frac,
         crowM, next, offRoute: false,
       };
     },

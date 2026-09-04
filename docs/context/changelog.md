@@ -2,6 +2,34 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — M-8 Heat's objective card · M-9 the ETA
+
+**M-8.** Heat was the only mode without the centre card, because it has no destination and
+`update(nav)` therefore has nothing to say — it would print its honest "No road route yet" fallback
+forever. New `objectiveHud.setInstruction()` lets a mode fill the card in directly.
+- The cue is **two directions on purpose**: the ARROW is camera-relative (it must match what is on
+  screen, and the visual world is X-mirrored — a world bearing comes out reversed left/right, which
+  is the bug `dashMode`'s comment records), while the WORDS are a world compass point, because "head
+  north-east" survives you swinging the camera and "bear left" does not.
+- ⚠ The corner card's sub-line lost "· nearest 20 m" in the same change. The centre card owns that
+  number now; printing the same fact twice, ten inches apart, is exactly what City Cab shipped with
+  "Fare 1 · Pick up" beside a card already reading PICK UP.
+- Kicker reads the TREND — Closing / Gaining ground / Almost clear — and the accent goes green when
+  the gap is opening, so the colour says how it is going before the number does.
+- **No world halo, deliberately:** a glowing ring over a police car is noise when it already has
+  flashing lights. `policeMode` now takes `camera`, which it never did.
+
+**M-9.** `planRoute` returns `timeS` — `gScore[t]`, **the number A\* was already minimising**. It was
+computed on every plan and dropped on the floor. An ETA derived afterwards from length ÷ some average
+speed would be a second, worse estimate that disagrees with the route the player was actually given.
+`objectiveNav` scales it by the fraction of route remaining rather than re-planning to refine it.
+Shown beside the distance ("420 m · 3 min"); under 45 s it reads "under a min", because "0:38" on a
+walk-up is spurious precision, not information.
+
+3 new tests — including the one that justifies the whole ticket: **the same 300 m takes >2× longer on
+a service lane than on a primary**, so the ETA follows the class and not the distance. **520 pass.**
+
+
 ## 2026-09-05 — P-2: pedestrians cross the road (one line had blocked 11,325 crossings)
 
 - **THE BLOCKER WAS A WHITELIST, NOT A DESIGN.** The bake has flagged `footway=crossing` since

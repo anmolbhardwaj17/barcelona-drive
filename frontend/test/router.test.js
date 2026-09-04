@@ -151,3 +151,34 @@ test('a turn names the street you end up ON, not the one you leave', () => {
   assert.equal(r.legs[0].dir, 'Turn right');
   assert.equal(r.legs[0].onto, "Carrer d'Aragó");
 });
+
+// ── M-9: the ETA ───────────────────────────────────────────────────────────────────────────────
+// A* minimises TIME, so the trip time is the search's own answer. It was being computed on every
+// plan and dropped on the floor, and any ETA derived afterwards from length ÷ average speed would
+// be a second, worse estimate that disagrees with the route the player was given.
+
+test('a route reports the travel time the search actually minimised', () => {
+  const segs = grid(5, 100, 'residential');            // residential = 8 m/s in the speed table
+  const r = planRoute(segs, { x: 0, y: 0 }, { x: 400, y: 0 });
+  assert.ok(r, 'no route');
+  assert.ok(Math.abs(r.lengthM - 400) < 1, r.lengthM);
+  assert.ok(Math.abs(r.timeS - 400 / 8) < 0.5, `400 m of residential should be ~50 s, got ${r.timeS}`);
+});
+
+test('the ETA follows the CLASS, not just the distance', () => {
+  // The whole reason to report the search's own number: the same metres take different time.
+  const slow = [{ highwayType: 'service', name: 'Lane', points: [{ x: 0, y: 0 }, { x: 300, y: 0 }] }];
+  const fast = [{ highwayType: 'primary', name: 'Gran Via', points: [{ x: 0, y: 0 }, { x: 300, y: 0 }] }];
+  const a = planRoute(slow, { x: 0, y: 0 }, { x: 300, y: 0 });
+  const b = planRoute(fast, { x: 0, y: 0 }, { x: 300, y: 0 });
+  assert.ok(Math.abs(a.lengthM - b.lengthM) < 1, 'same distance');
+  assert.ok(a.timeS > b.timeS * 2, `service ${a.timeS.toFixed(0)}s vs primary ${b.timeS.toFixed(0)}s`);
+});
+
+test('a zero-length route reports zero time, not undefined', () => {
+  const segs = grid(3, 100);
+  const r = planRoute(segs, { x: 0, y: 0 }, { x: 0, y: 0 });
+  assert.ok(r);
+  assert.equal(r.timeS, 0);
+  assert.equal(r.lengthM, 0);
+});

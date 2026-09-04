@@ -60,6 +60,13 @@ function injectStyle() {
 }
 
 const fmtM = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+/** m:ss, or "<1 min" — an ETA of "0:04" on a 40 m walk-up is noise, not information. */
+const fmtEta = (sec) => {
+  if (!Number.isFinite(sec) || sec <= 0) return '';
+  if (sec < 45) return 'under a min';
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+};
 
 /**
  * @param {{label?:string, color?:string}} [o]
@@ -73,7 +80,7 @@ export function createObjectiveHud({ label = 'OBJECTIVE', color = '#35e0ff' } = 
     '<div class="ddoh-instr"><div class="ddoh-in">Head for</div><div class="ddoh-street">—</div></div></div>' +
     '<div class="ddoh-bot"><div><div class="ddoh-label">OBJECTIVE</div><div class="ddoh-sub"></div></div>' +
     '<div class="ddoh-dist">0 m</div></div>';
-  const glyph = el.querySelector('.ddoh-glyph');
+  const glyphEl = el.querySelector('.ddoh-glyph');
   const inEl = el.querySelector('.ddoh-in');
   const street = el.querySelector('.ddoh-street');
   const labelEl = el.querySelector('.ddoh-label');
@@ -101,22 +108,47 @@ export function createObjectiveHud({ label = 'OBJECTIVE', color = '#35e0ff' } = 
       if (!nav) return;
       if (nav.next) {
         // A real instruction. The glyph carries the turn; the street carries the where.
-        glyph.textContent = ARROW[nav.next.dir] || '↑';
-        glyph.style.color = _color;
+        glyphEl.textContent = ARROW[nav.next.dir] || '↑';
+        glyphEl.style.color = _color;
+        glyphEl.style.transform = '';
         inEl.textContent = `${nav.next.dir}${nav.next.inM >= 20 ? ` in ${fmtM(nav.next.inM)}` : ' now'}`;
         street.textContent = nav.next.onto || '—';
       } else if (nav.hasRoute) {
         // On the route with nothing to do but keep going — say so rather than showing a stale turn.
-        glyph.textContent = '↑'; glyph.style.color = _color;
+        glyphEl.textContent = '↑'; glyphEl.style.color = _color; glyphEl.style.transform = '';
         inEl.textContent = 'Continue';
         street.textContent = 'Straight ahead';
       } else {
         // No route yet: the far end may still be streaming. Do not invent a turn — say what is true.
-        glyph.textContent = '◎'; glyph.style.color = 'rgba(255,255,255,.7)';
+        glyphEl.textContent = '◎'; glyphEl.style.color = 'rgba(255,255,255,.7)'; glyphEl.style.transform = '';
         inEl.textContent = 'Direct';
         street.textContent = 'No road route yet';
       }
-      distEl.textContent = fmtM(nav.remainingM || 0);
+      // M-9: distance AND time. The router minimises time, so the ETA is the search's own answer —
+      // see planRoute. Shown beside the distance rather than in `sub`, which the modes already own.
+      const eta = nav.hasRoute ? fmtEta(nav.etaS) : '';
+      const dtxt = eta ? `${fmtM(nav.remainingM || 0)} · ${eta}` : fmtM(nav.remainingM || 0);
+      if (distEl.textContent !== dtxt) distEl.textContent = dtxt;
+      distEl.style.color = _color;
+      if (subEl.textContent !== sub) subEl.textContent = sub;
+    },
+    /**
+     * Drive the top half directly, for a mode with no ROUTE.
+     *
+     * Heat has no destination — the objective is "away" — so `update(nav)` has nothing to say and
+     * would print its honest "No road route yet" fallback forever. This is the same card, filled in
+     * by a mode that knows something a router does not.
+     *
+     * @param {{kicker?:string, text?:string, glyph?:string, rotateRad?:number, dist?:string, sub?:string}} o
+     */
+    setInstruction({ kicker = '', text = '', glyph = '↑', rotateRad = null, dist = '', sub = '' } = {}) {
+      if (glyphEl.textContent !== glyph) glyphEl.textContent = glyph;
+      glyphEl.style.color = _color;
+      // Rotating the glyph is why this exists: a fixed arrow that means "away" points at nothing.
+      glyphEl.style.transform = rotateRad === null ? '' : `rotate(${rotateRad}rad)`;
+      if (inEl.textContent !== kicker) inEl.textContent = kicker;
+      if (street.textContent !== text) street.textContent = text;
+      if (distEl.textContent !== dist) distEl.textContent = dist;
       distEl.style.color = _color;
       if (subEl.textContent !== sub) subEl.textContent = sub;
     },

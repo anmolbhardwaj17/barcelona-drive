@@ -129,7 +129,7 @@ export function nearestNode(g, x, y, maxD = 60) {
  * @param {{x:number,y:number}} from  world
  * @param {{x:number,y:number}} to    world
  * @param {{margin?:number, snapRadius?:number}} [opts]
- * @returns {{points:{x:number,y:number}[], lengthM:number, legs:object[]}|null}
+ * @returns {{points:{x:number,y:number}[], names:string[], lengthM:number, timeS:number, legs:object[]}|null}
  */
 export function planRoute(segs, from, to, { margin = 260, snapRadius = 70 } = {}) {
   const bbox = [
@@ -141,7 +141,7 @@ export function planRoute(segs, from, to, { margin = 260, snapRadius = 70 } = {}
   const s = nearestNode(g, from.x, from.y, snapRadius);
   const t = nearestNode(g, to.x, to.y, snapRadius);
   if (s < 0 || t < 0) return null;
-  if (s === t) return { points: [{ x: g.xs[s], y: g.ys[s] }], lengthM: 0, legs: [] };
+  if (s === t) return { points: [{ x: g.xs[s], y: g.ys[s] }], names: [], lengthM: 0, timeS: 0, legs: [] };
 
   // Admissible heuristic: straight-line distance at the FASTEST class in the table. Using an average
   // speed here would overestimate the remaining cost and quietly make A* return non-optimal routes —
@@ -189,7 +189,11 @@ export function planRoute(segs, from, to, { margin = 260, snapRadius = 70 } = {}
     if (from >= 0) for (const e of g.adj[from]) if (e.t === to) { nm = e.name; break; }
     names.push(nm);
   }
-  return { points, names, lengthM, legs: maneuvers(points, names) };
+  // ⚠ `gScore[t]` is the SEARCH's own answer in seconds — A* minimises it, so the trip time was
+  // being computed on every plan and then dropped on the floor. An ETA derived afterwards from
+  // length ÷ some average speed would be a second, worse estimate that disagrees with the route the
+  // player was actually given.
+  return { points, names, lengthM, timeS: gScore[t], legs: maneuvers(points, names) };
 }
 
 const index = (g, p) => { const i = g.index.get(key(p.x, p.y)); return i === undefined ? -1 : i; };

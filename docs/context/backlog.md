@@ -24,7 +24,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 |---|---|---|
 | Pedestrians | P-1, **P-2** | P-3, P-4, P-5, P-6 |
 | Ground layering | Z-1, Z-1b (the correction) | Z-2, Z-4 · **Z-3 dropped** |
-| Game modes | M-1 … M-7 | M-8, M-9, M-10 |
+| Game modes | M-1 … M-7, **M-8, M-9** | M-10 |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
 
 ⚠ **Numbering fix:** the changelog used "Z-2" for the paint-ladder *correction* while
@@ -50,19 +50,21 @@ Pedestrians now wait at the kerb, cross, and re-join the far pavement. `window._
 runtime proof; `backend/tools/crossingCount.mjs` is the offline population. ⚠ **They do not yet look
 for traffic** — the kerb wait is a fixed interval, not gap acceptance. Follow-up folded into P-6.
 
-### M-8 · Heat has no objective marker or routing — **next**
-Verified: `policeMode.js` references neither `objectiveNav` nor `createObjectiveMarker`. It is the
-only mode still without them. It has no *fixed* objective, so the honest version is a **flee** cue —
-distance/bearing away from the nearest unit — not a route to a point.
-**Done when** Heat shows the same card family as the other three.
+### ~~M-8 · Heat's objective card~~ ✅ **done 2026-09-05**
+Heat has no destination, so `update(nav)` had nothing to say — the card is driven by a new
+`setInstruction()` override instead: an arrow that rotates to point AWAY from the nearest unit
+(camera-relative, because the world is X-mirrored) over a WORLD compass word ("Head north-east",
+which survives you swinging the camera). ⚠ The corner card's "· nearest 20 m" was removed in the same
+change — the centre card owns that number now, and printing it twice was the City Cab mistake.
+No world halo: a glowing ring over a police car is noise when it already has flashing lights.
 
-### M-9 · surface the ETA
-The router already routes on TIME (edge weight = length ÷ class speed) but `planRoute` returns only
-`{points, names, lengthM, legs}` — **the accumulated time is computed and thrown away.** Return
-`gScore[t]` and put it on the objective card.
-**Done when** the card reads a time as well as a distance.
+### ~~M-9 · the ETA~~ ✅ **done 2026-09-05**
+`planRoute` returns `timeS` — `gScore[t]`, the number A* was already minimising. It had been computed
+on every plan and dropped. An ETA derived afterwards from length ÷ average speed would be a second,
+worse estimate that disagrees with the route the player was actually given. Shown beside the distance
+("420 m · 3 min"), and under 45 s it reads "under a min" rather than a spuriously precise "0:38".
 
-### Z-2 · surfaces outside the ground-layer scheme
+### Z-2 · surfaces outside the ground-layer scheme — **next**
 Measured, and my earlier one-line summary was **wrong in a way worth recording**: the parking
 *surface* sits at terrain+0.04, which is **below** the road deck at +0.05 — it is the parking
 *markings* at +0.06 that land above it. So a car park abutting a street has its surface buried and
