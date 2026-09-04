@@ -3856,3 +3856,33 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
 - `backend/tools/shopSnapAudit.mjs` (new): 14,541 shops, 95.7% within 12 m of a pavement, p50 2.2 m.
 - ⚠ Road points are MERCATOR in the tile, shop/tree positions are WORLD. The audit's first run
   compared them raw and reported 0% / 5,069,611 m. Documented at both call sites.
+
+## 2026-09-05 — N-25: the vegetation baker mixed two coordinate spaces
+- **316,063 baked positions were in the wrong space** — all zone trees, all zone bushes, most bushes
+  and 2.8% of trees — and `readBakedVegetation` converts everything as Mercator, so they landed
+  3,800 km off the map. Every tree and bush in every park in Barcelona did not exist.
+- **THREE spaces, not two.** Roads AND water are carried as Mercator; buildings and greens as world;
+  the mask grid and both distance sorts are world. So the vegetation mask's road *and* water
+  components have never blocked anything. The water case surfaced only because the assertion added
+  for roads was about to throw on it — before a bake rather than after.
+- `vegetationBaker` now normalises to WORLD internally (fixing the mask's road and water components,
+  the ground-road grid, the junction clearance and both distance sorts) and converts to Mercator at
+  emit through one helper, so no output array can be forgotten the way the zone arrays were.
+- `assertVegSpace()` fails the bake on a space mismatch; `buildRegion` prints D-23 rejection counters
+  and warns loudly on a region-wide zero.
+- New tools: `vegSpaceAudit.mjs` (which space is each array in) and `vegRoadAudit.mjs` (offenders,
+  defined as inside `carriagewayW` on a drivable road — 21,897, p50 0.90 m into the lane).
+- ⚠ The tracker's recorded cause was wrong: 97.2% of trees were already Mercator and matched the
+  grid. The roadside guard worked; that is why the previous attempt changed nothing.
+
+## 2026-09-05 — N-57: the "71 declined steps" premise was an artefact of the audit
+- `junctionStepAudit.mjs` asked whether the LONGER way could absorb a step. `reconcileSharedNodes`
+  picks its anchor by rule (through-way → surface → non-tunnel) and bends what is left, so the
+  SHORT way is often the mover. Now reports a range: best 71 · split 90 · **worst 18**.
+- Real headroom is 18-90, not 71. Then the resolver's own `[N-65]` breakdown settled it: **15 of 15
+  remaining skips are "a way passes through"** — the anchor rule working as designed, not a defect.
+  Zero are genuinely too short. N-57 is at its design limit; reopening it means deciding a mid-span
+  kink beats a 6 m joint, which is a design call, not a bug fix.
+- **Region re-baked 2026-09-05** (432 tiles, 520 s): wrong-space positions **15,986 → 0** across all
+  four arrays; trees in a drivable driving surface **21,897 → 3,305 (-85%)**. Guards rejected
+  15,021 / 70,611 / 80,359; 697 space assertions evaluated. ⚠ 12 stale orphan tiles remain (N-25b).

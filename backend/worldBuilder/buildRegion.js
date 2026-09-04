@@ -168,7 +168,7 @@ import { buildMergeGeometry } from './junctions/MergeGeometryBuilder.js';
 import { tileToBBox, latLonToTile, mercatorToWorld, worldToMercator, mercatorToLatLon, getOriginMercator, latLonToMercator } from '../projection.js';
 import { convertTile } from './convertToBinary.js';
 import { bakeTerrainMesh, bakePhysicsTerrain } from './terrainBaker.js';
-import { bakeVegetation } from './vegetationBaker.js';
+import { bakeVegetation, REJECTS as VEG_REJECTS, VEG_SPACE_CHECKS } from './vegetationBaker.js';
 import { bakeRoadSurfaces } from './roadBaker.js';
 import { loadDEM } from './demLoader.js';
 import { parsePbfAreaFeatures, normalizeAreaFeature, splitAreaFeaturesByTile } from './pbfAreaFeatures.js';
@@ -2185,6 +2185,29 @@ async function main() {
   }
   if (roadOnlyDebugMode) {
     console.log('  Road-only debug mode: buildings=0, greens=0, terrain=flat');
+  }
+
+  // N-25 / D-23: a guard that rejects nothing across a whole region is a guard that is not wired to
+  // anything, however the tree count moved. The previous attempt deleted 99,715 trees without
+  // touching one offender, and nothing in the output said so.
+  {
+    const r = VEG_REJECTS;
+    const total = r.roadOnRoad + r.roadInBuilding + r.perimExcluded;
+    console.log('');
+    console.log('  Vegetation guards — trees REJECTED at the point of decision:');
+    console.log(`    on a ground road     : ${r.roadOnRoad}`);
+    console.log(`    inside a building    : ${r.roadInBuilding}`);
+    console.log(`    perimeter, masked out: ${r.perimExcluded}`);
+    if (total === 0) {
+      console.warn('    ⚠ ZERO rejections region-wide. A guard that never fires is not a guard —');
+      console.warn('      this is the N-25 signature. Check the coordinate space before trusting the bake.');
+    }
+    console.log(`    coordinate-space assertions that actually evaluated: ${VEG_SPACE_CHECKS.ran} `
+      + `across ${VEG_SPACE_CHECKS.tiles} tiles`);
+    if (VEG_SPACE_CHECKS.ran === 0 && VEG_SPACE_CHECKS.tiles > 0) {
+      console.warn('    ⚠ NONE of them evaluated — the accessor paths are wrong and the green line above');
+      console.warn('      means nothing. This is the failure mode the checks were added to prevent.');
+    }
   }
 
   console.log('');

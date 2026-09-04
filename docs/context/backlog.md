@@ -167,6 +167,25 @@ abreast at a shared pace. New `getLoadedShops()` accessor on tileManager.
 
 ---
 
+### N-25b · 12 stale orphan tiles the region bake does not produce
+The 2026-09-05 region bake wrote **432** tiles; **445** exist. These 12 (plus `citymap.bin`) date from
+2026-08-29 and are not produced by the current pipeline — a different extent, presumably. They still
+carry pre-N-25 mixed-space vegetation, and **every one of the 1,957 residual wrong-space positions
+lives in them**; the 432 fresh tiles are 100% clean.
+
+```
+16/33149/24468  16/33149/24469  16/33151/24470  16/33151/24471
+16/33152/24473  16/33154/24485  16/33157/24467  16/33157/24470
+16/33157/24485  16/33158/24466  16/33159/24465  16/33166/24468   (+ citymap.bin)
+```
+
+⚠ **Not deleted, deliberately.** They are real map data at the fringe and deleting them could open
+holes in the world — K-3 is an open ticket about exactly that, and muddying it would be expensive.
+**Done when** someone establishes whether the current region bbox is meant to cover them (re-bake
+with the wider extent) or not (delete them and confirm no tile request 404s at the edge).
+
+---
+
 ## Parked (no owner, no date)
 
 ### K-3 · REFRAMED 2026-09-05 — it is a HOLE IN THE GROUND, not a white surface
@@ -232,11 +251,11 @@ places in the same city. Cheapest honest first slice: ghost cars at ~10 Hz, no s
 
 ## Inherited from the v3 tracker — still open there, not duplicated here
 
-`N-25` trees in carriageways — ⚠ the obvious fix is proven not to work; blocked on the COORDINATE
-SPACE, not on the guard. **That blocker weakened on 2026-09-05**: P-6's `shopSnapAudit.mjs` pins the
-asymmetry exactly (road points MERCATOR in the tile, tree/shop/building positions WORLD) and is a
-working template for the conversion N-7's `convertRoadsForVeg` was meant to do. Still needs a
-rejection counter proven before a bake (D-23) ·
+~~`N-25` trees in carriageways~~ — ✅ **FIXED 2026-09-05, region re-baked.** It was far bigger than
+the title: **316,063 baked vegetation positions were in the wrong coordinate space**, including ALL
+zone trees and ALL zone bushes, so every park in Barcelona was empty and nobody had noticed. The
+recorded cause was also wrong — 97.2% of trees already matched the grid, which is why the previous
+attempt deleted 99,715 trees and changed nothing. See the tracker row ·
 `N-31` sidewalk overhang (needs a sloped batter, not the reverted edge skirt) · `N-56` reverted ·
 `N-57` in flight — re-measured 2026-09-05 at **116** steps; the next step is NOT another bake ·
 `P4-17` ⛔ blocked on `P4-11` (`signAtlas.js` does not exist — 7 d, high risk, code not art).

@@ -59,11 +59,27 @@ steps.sort((x,y)=>y.d-x.d);
 // side turns "it did not fix them" into "it could not", which are different problems with
 // different answers.
 const MAX_FIX_GRADE = 0.25;
-const blendable = steps.filter(s => {
-  const shortest = Math.min(s.a.len, s.b.len);
-  // Either side may absorb it; a way can spend at most ~90% of its length.
-  return Math.max(s.a.len, s.b.len) * 0.9 > 0 && (s.d / (Math.max(s.a.len, s.b.len) * 0.9)) <= MAX_FIX_GRADE;
-});
+const REACH_FRACTION = 0.9;
+const cap = (len) => len * REACH_FRACTION * MAX_FIX_GRADE;   // matches RampResolver.capacityOf
+
+// ⚠ THE OLD `blendable` WAS AN UPPER BOUND REPORTED AS A TARGET, and that is why this audit and the
+// resolver disagreed for a whole ticket. It asked whether the LONGER way could absorb the step. The
+// resolver does not get to choose the longer way: `reconcileSharedNodes` picks the ANCHOR by rule —
+// a way passing through, else a surface way, else a non-tunnel — and bends whatever is left. When
+// the long way is the anchor, the SHORT way is the mover and the step is genuinely unfixable while
+// this line called it blendable. Measured against the shipped tiles the two numbers differ by more
+// than a factor of two, so "the pass is declining steps it could fix" was an artefact of the
+// question, not a defect in the pass.
+//
+// Reported as a RANGE now, because without the through-way index this tool cannot know which side
+// the resolver will move:
+//   best   — the longer way absorbs it alone   (the old number; only reachable if it is the mover)
+//   split  — both sides share it               (N-61, only when the anchor is genuinely free)
+//   worst  — the shorter way must absorb it    (what a through-way or a portal forces)
+const blendBest  = steps.filter(s => s.d <= cap(Math.max(s.a.len, s.b.len)));
+const blendSplit = steps.filter(s => s.d <= cap(s.a.len + s.b.len));
+const blendWorst = steps.filter(s => s.d <= cap(Math.min(s.a.len, s.b.len)));
+const blendable = blendBest;
 const bothTunnel = steps.filter(s => s.a.tun && s.b.tun);
 const nearStep = steps.filter(s => Math.abs(s.d - LAYER_STEP) < 0.5);
 const involvesStructure = steps.filter(s => s.a.br||s.b.br||s.a.tun||s.b.tun||s.a.cross||s.b.cross);
@@ -72,9 +88,13 @@ console.log(`drivable ways joined at a shared endpoint but disagreeing on its he
 console.log(`  step within 0.5 m of LAYER_STEP (${LAYER_STEP} m) : ${nearStep.length}   <- base-height-instead-of-profile`);
 console.log(`  at least one side is bridge/tunnel/trench        : ${involvesStructure.length}`);
 console.log(`  at least one side is a RAMP                      : ${involvesRamp.length}`);
-console.log(`  BLENDABLE at <=${MAX_FIX_GRADE * 100}% grade (N-57 could fix)   : ${blendable.length}`);
+console.log(`  blendable at <=${MAX_FIX_GRADE * 100}% grade — RANGE, see the note in this file:`);
+console.log(`     best  (longer way is the mover)              : ${blendBest.length}`);
+console.log(`     split (both sides share it, N-61)            : ${blendSplit.length}`);
+console.log(`     worst (shorter way is forced to move)        : ${blendWorst.length}   <- the floor`);
 console.log(`  both sides are TUNNELS (never moved)            : ${bothTunnel.length}`);
-console.log(`  -> unfixable by reconciliation                  : ${steps.length - blendable.length}\n`);
+console.log(`  -> unfixable even in the BEST case              : ${steps.length - blendBest.length}`);
+console.log(`  -> the pass's real headroom is between ${blendWorst.length} and ${blendSplit.length}, not ${blendBest.length}\n`);
 const hist={};
 for(const s of steps){ const b=Math.round(s.d); hist[b]=(hist[b]||0)+1; }
 console.log('step size histogram (m -> count):');

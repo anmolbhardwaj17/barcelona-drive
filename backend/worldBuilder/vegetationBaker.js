@@ -8,7 +8,7 @@
  *
  * No Three.js dependencies. Pure math.
  */
-import { latLonToMercator, mercatorToWorld, getOriginMercator } from '../projection.js';
+import { latLonToMercator, mercatorToWorld, worldToMercator, getOriginMercator } from '../projection.js';
 
 // ============================================================================
 // Coordinate helpers
@@ -702,10 +702,10 @@ function collectAllPositions(tileData, tileKey, vegMask, config) {
   // Roadside trees
   const roadside = getRoadsideTreePositions(tileData, tileKey);
   for (const p of roadside) {
-    if (isOnGroundRoad(groundGrid, p.x, p.y)) continue;
+    if (isOnGroundRoad(groundGrid, p.x, p.y)) { REJECTS.roadOnRoad++; continue; }
     if (!isInsideOrNearBuilding(p.x, p.y, buildings)) {
       positions.push({ x: p.x, y: p.y });
-    }
+    } else REJECTS.roadInBuilding++;
     if (positions.length >= cap) break;
   }
 
@@ -714,7 +714,7 @@ function collectAllPositions(tileData, tileKey, vegMask, config) {
     for (const p of perim) {
       if (!isExcluded(p.x, p.y, 2)) {
         positions.push(p);
-      }
+      } else REJECTS.perimExcluded++;
       if (positions.length >= cap) break;
     }
   }
@@ -1016,13 +1016,87 @@ function collectZoneVegetation(tileData, tileKey, vegMask) {
  * Convert the tile road data from [[x, yUp, z], ...] to [{x, y}, ...] format
  * matching the frontend's convention where y = world Z.
  */
+/**
+ * ── N-25: THE COORDINATE SPACE, WHICH WAS NEVER ONE SPACE ──────────────────────────────────────
+ *
+ * This baker mixes two coordinate spaces and always has:
+ *   • `road.points`        ABSOLUTE MERCATOR  (~245,000 / 5,071,000)
+ *   • `building.footprint` real-metre WORLD   (~7,000 / 5,600)
+ *   • `greens`, `water`    real-metre WORLD
+ *   • `tileBounds`         used via latLonToWorld → the mask grid is in WORLD
+ *
+ * Nothing errors when those meet. Measured in the shipped tiles before this fix
+ * (`backend/tools/vegSpaceAudit.mjs`):
+ *
+ *   • ALL 135,228 zone trees and ALL 54,886 zone bushes were emitted in WORLD, and
+ *     `readBakedVegetation` converts every entry as if it were Mercator — so a park tree at
+ *     (7172.9, 5514.5) landed at (-171358, -3797422). **Every tree and bush in every park in
+ *     Barcelona was 3,800 km outside the map.** 316,063 positions in total.
+ *   • The vegetation MASK rasterised Mercator roads into a WORLD-bounded grid, so its road
+ *     component blocked nothing, ever — N-7's "a mask that blocks nothing is indistinguishable
+ *     from a mask with generous margins", still true.
+ *   • `sortPositionsByDistance` ranked Mercator positions by distance to a WORLD centre.
+ *
+ * The fix is to pick ONE space inside the baker, and the only choice that does not move the output
+ * contract is WORLD: the mask bounds, the buildings, the greens and both distance sorts are already
+ * world, so converting the roads makes four separate things correct at once. The emitted arrays are
+ * converted back to Mercator at the end, because that is what the reader expects and 97% of what
+ * shipped was already that.
+ *
+ * ⚠ Do not "simplify" this by converting buildings to Mercator instead. That would leave the mask
+ * grid and both sorts in world, i.e. it would fix the arithmetic and keep the bug.
+ */
+
+/** Order-of-magnitude space check. Mercator eastings are ~235-250 k; Barcelona world is 0-20 km. */
+function looksMercator(x) { return Math.abs(x) > 100000; }
+
+/**
+ * ── D-23: A COUNTER AT THE POINT OF DECISION ──────────────────────────────────────────────────
+ *
+ * The previous N-25 attempt deleted 99,715 trees and left the offender count at exactly 4,029 — the
+ * identical absolute number. Nobody could tell whether the guard was firing and missing, or not
+ * firing at all, because nothing counted. It was not firing: the grid was 240 km from the trees.
+ *
+ * These counters make that impossible to repeat. `buildRegion` prints them at the end of a bake; a
+ * guard that rejects ZERO across a whole region is a guard that is not wired to anything, whatever
+ * the tree count did.
+ */
+export const REJECTS = { roadOnRoad: 0, roadInBuilding: 0, perimExcluded: 0, zoneExcluded: 0 };
+/** How many space assertions actually EVALUATED — see the note at the call site. */
+export const VEG_SPACE_CHECKS = { ran: 0, tiles: 0 };
+export function resetVegRejects() {
+  REJECTS.roadOnRoad = 0; REJECTS.roadInBuilding = 0; REJECTS.perimExcluded = 0; REJECTS.zoneExcluded = 0;
+}
+
+function assertVegSpace(label, sample, wantMercator) {
+  if (sample === undefined || sample === null || !Number.isFinite(sample)) return;
+  const is = looksMercator(sample);
+  if (is !== wantMercator) {
+    throw new Error(
+      `vegetationBaker: ${label} is in ${is ? 'MERCATOR' : 'WORLD'} space but ${wantMercator ? 'MERCATOR' : 'WORLD'} was expected `
+      + `(sample x=${sample}). This is N-25: mixing the two silently throws vegetation thousands of km `
+      + `out of the map. Fix the producer, do not relax this check.`);
+  }
+}
+
+/**
+ * Road points → {x, y} in WORLD metres.
+ *
+ * ⚠ The name is N-7's and the conversion is the one N-7 was reverted before shipping. Everything
+ * downstream in this file — the mask, the ground-road grid, the junction clearance, both distance
+ * sorts — assumes world, and got Mercator.
+ */
 function convertRoadsForVeg(roads) {
   if (!roads || roads.length === 0) return [];
+  let checked = false;
   return roads.map(r => ({
     ...r,
     points: (r.points || []).map(p => {
-      if (Array.isArray(p)) return { x: p[0], y: p[2] };
-      return p; // already in object form
+      const mx = Array.isArray(p) ? p[0] : p.x;
+      const my = Array.isArray(p) ? p[2] : p.y;
+      if (!checked && Number.isFinite(mx)) { assertVegSpace('road.points', mx, true); checked = true; }
+      const w = mercatorToWorld(mx, my);
+      return { x: w.x, y: w.z };
     }),
   }));
 }
@@ -1058,13 +1132,26 @@ function convertGreensForVeg(greens) {
 /**
  * Convert water polygons for vegetation mask (just needs polygon array).
  */
+/**
+ * Water polygons → {x, y} in WORLD metres.
+ *
+ * ⚠ THE THIRD SPACE IN THIS FILE. Water is stored and carried as ABSOLUTE MERCATOR (verified in the
+ * shipped tiles: 238013.0, 5072888.0), while greens and buildings are WORLD. It is handed straight
+ * to `buildVegetationMask`, whose grid is bounded by `latLonToWorld(tileBounds)` — so the mask's
+ * WATER component has never blocked anything either, for the same reason its road component never
+ * did. Found only because the space assertion added for roads was about to throw on it.
+ */
 function convertWaterForVeg(water) {
   if (!water || water.length === 0) return [];
+  let checked = false;
   return water.map(w => ({
     ...w,
     polygon: (w.polygon || []).map(p => {
-      if (Array.isArray(p)) return { x: p[0], y: p[1] };
-      return p;
+      const mx = Array.isArray(p) ? p[0] : p.x;
+      const my = Array.isArray(p) ? p[1] : p.y;
+      if (!checked && Number.isFinite(mx)) { assertVegSpace('water.polygon', mx, true); checked = true; }
+      const c = mercatorToWorld(mx, my);
+      return { x: c.x, y: c.z };
     }),
   }));
 }
@@ -1089,6 +1176,33 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   const vegBuildings = convertBuildingsForVeg(tileData.buildings);
   const vegGreens = convertGreensForVeg(tileData.greens);
   const vegWater = convertWaterForVeg(tileData.water);
+
+  // The other three producers are already world; assert rather than assume, so a future change to
+  // any of them fails the bake instead of silently relocating a park.
+  //
+  // ⚠ `assertVegSpace` returns quietly on a non-finite sample, which makes a wrong ACCESSOR PATH
+  // indistinguishable from a clean bake — the same shape of hole D-23 is about. So each sample is
+  // taken from the first entry that actually has geometry, and `vegSampled` records which checks
+  // really ran. A check that never evaluates is worse than no check: it reads as reassurance.
+  const firstX = (arr, key) => {
+    for (const e of arr || []) {
+      const pts = key ? e?.[key] : e;
+      if (Array.isArray(pts) && pts.length && Number.isFinite(pts[0]?.x)) return pts[0].x;
+    }
+    return undefined;
+  };
+  const vegSampled = [];
+  for (const [label, sample] of [
+    ['building.footprint', firstX(vegBuildings, 'footprint')],
+    ['greens.polygon',     firstX(vegGreens, 'polygon')],
+    ['water.polygon',      firstX(vegWater, 'polygon')],
+  ]) {
+    if (sample === undefined) continue;      // this tile genuinely has none of that feature
+    assertVegSpace(label, sample, false);
+    vegSampled.push(label);
+  }
+  VEG_SPACE_CHECKS.ran += vegSampled.length;
+  VEG_SPACE_CHECKS.tiles++;
 
   const vegTileData = {
     roads: vegRoads,
@@ -1124,23 +1238,28 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   // Assign variants
   const treeVariantIndices = bucketPositionsByType(positions, tileKey);
 
-  // Build flat tree positions
-  const treePositions = new Float32Array(positions.length * 2);
-  for (let i = 0; i < positions.length; i++) {
-    treePositions[i * 2] = positions[i].x;
-    treePositions[i * 2 + 1] = positions[i].y;
-  }
+  // ── OUTPUT CONTRACT: MERCATOR ──────────────────────────────────────────────────────────────
+  // `tileParserWorker.readBakedVegetation` converts every baked position with
+  // `(v - origin) * cos(lat)`, i.e. it reads Mercator. Everything above this line is WORLD. One
+  // helper, used for all four arrays, so no array can be forgotten the way zone trees and zone
+  // bushes were — they were emitted in world and every one of them left the map.
+  const flatMerc = (arr) => {
+    const out = new Float32Array(arr.length * 2);
+    for (let i = 0; i < arr.length; i++) {
+      const m = worldToMercator(arr[i].x, arr[i].y);
+      out[i * 2] = m.x; out[i * 2 + 1] = m.y;
+    }
+    return out;
+  };
+
+  const treePositions = flatMerc(positions);
   const treeVariants = treeVariantIndices;
 
   // Collect bush positions
   const bushPosArr = collectBushPositions(positions, vegTileData, tileKey, vegMask);
 
-  // Build flat bush positions
-  const bushPositions = new Float32Array(bushPosArr.length * 2);
-  for (let i = 0; i < bushPosArr.length; i++) {
-    bushPositions[i * 2] = bushPosArr[i].x;
-    bushPositions[i * 2 + 1] = bushPosArr[i].y;
-  }
+  // Bushes are re-ordered below (nearest-first) before being flattened — see the sort block.
+  let bushPositions = null;
 
   // Collect zone vegetation
   const zoneResult = collectZoneVegetation(vegTileData, tileKey, vegMask);
@@ -1178,20 +1297,14 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
     }
     if (bushPosArr.length > 0) {
       const order = nearestFirst(bushPosArr);
-      const sorted = order.map((i) => bushPosArr[i]);
-      for (let i = 0; i < sorted.length; i++) {
-        bushPositions[i * 2] = sorted[i].x;
-        bushPositions[i * 2 + 1] = sorted[i].y;
-      }
+      bushPositions = flatMerc(order.map((i) => bushPosArr[i]));
     }
   }
+  if (!bushPositions) bushPositions = new Float32Array(0);
 
-  // Zone tree positions
-  const zoneTreePositions = new Float32Array(zoneResult.allTreePositions.length * 2);
-  for (let i = 0; i < zoneResult.allTreePositions.length; i++) {
-    zoneTreePositions[i * 2] = zoneResult.allTreePositions[i].x;
-    zoneTreePositions[i * 2 + 1] = zoneResult.allTreePositions[i].y;
-  }
+  // Zone tree positions — WORLD until here, Mercator on disk. Emitting these in world is the bug
+  // that put every park tree in Barcelona 3,800 km off the map.
+  const zoneTreePositions = flatMerc(zoneResult.allTreePositions);
 
   // Zone tree variants
   const keySeed = (tileKey || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);
@@ -1204,11 +1317,7 @@ export function bakeVegetation(tileData, elevation, tileBounds) {
   const zoneTreeScales = new Float32Array(zoneResult.allTreeScales);
 
   // Zone bush positions
-  const zoneBushPositions = new Float32Array(zoneResult.allBushPositions.length * 2);
-  for (let i = 0; i < zoneResult.allBushPositions.length; i++) {
-    zoneBushPositions[i * 2] = zoneResult.allBushPositions[i].x;
-    zoneBushPositions[i * 2 + 1] = zoneResult.allBushPositions[i].y;
-  }
+  const zoneBushPositions = flatMerc(zoneResult.allBushPositions);
 
   return {
     treePositions,
