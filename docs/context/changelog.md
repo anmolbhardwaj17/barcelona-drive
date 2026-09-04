@@ -2,6 +2,30 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — M-10: the router was measured, and needs nothing
+
+New `backend/tools/routeBench.mjs` runs `planRoute` over the **18 tiles around the Gran Via spawn**
+(4,812 road segments — the resident set at its densest, and where the v3 benchmark measures, because
+a p95 answer anywhere quieter is an answer to a different question).
+
+| trip | graph nodes | plan ms (p50 / worst of 15) | route |
+|---|---|---|---|
+| 200 m | 271 | 0.9 / 1.4 | 0.28 km, 2 turns |
+| 500 m | 428 | 0.4 / 0.7 | 0.69 km, 5 turns |
+| 1 km | 1,010 | 0.9 / 1.2 | 1.31 km, 4 turns |
+| 2 km | 1,315 | 1.1 / 1.5 | 2.76 km, 10 turns |
+
+**Worst case 1.5 ms at 2 km — four times the longest trip the modes generate.** Against a 13.3 ms
+night frame, fired at most once every 1.1 s and only on a replan, that is ~0.1% amortised. The
+ticket said a worker is the fix *only if a number says so*. It does not. **Closed with no code
+change**, which is the useful outcome: the alternative was a week of worker plumbing to remove
+0.1% of a frame.
+
+⚠ The bench scales Mercator to ground metres by `cos(41.39°)`. Skipping that makes every distance,
+the 260 m graph margin and the whole speed table 33% wrong — the tiles store roads in Mercator, and
+N-7 and N-25 in the tracker are both this same mistake.
+
+
 ## 2026-09-05 — Z-1c: the `crossing` depth class was applied to NOTHING
 
 Found by the user's `_ddPick` on a Carrer de Badajoz zebra: `"what": "crosswalk", "depthBias": -14`.

@@ -171,8 +171,9 @@ bug rather than an ending.
   line in `objectiveHud`.
 - **Voice / chime on a turn.** The instruction changes silently.
 - **Lane guidance, roundabout exits.** `maneuvers()` classifies by angle only.
-- **A worker.** Planning is on the main thread. It is bounded and throttled, and no hitch has been
-  measured — but it has also not been measured on a 500 m trip through the densest tiles.
+- ~~**A worker.**~~ ✅ M-10 measured it: **1.5 ms worst case on a 2 km trip** through the 18 densest
+  tiles (`backend/tools/routeBench.mjs`), against a 13.3 ms frame, at most once every 1.1 s and only
+  on a replan. Planning stays on the main thread; a worker would be work with nothing to show.
 
 ## 5. Verification — what a drive should show
 

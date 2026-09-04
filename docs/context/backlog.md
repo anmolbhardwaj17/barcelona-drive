@@ -24,7 +24,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 |---|---|---|
 | Pedestrians | P-1, **P-2** | P-3, P-4, P-5, P-6 |
 | Ground layering | Z-1, Z-1b, **Z-2a** | Z-2b (bus stops, tram rails, tunnel approaches, blend strips), Z-4 · **Z-3 dropped** |
-| Game modes | M-1 … M-7, **M-9** | M-10 · **M-8 reverted** |
+| Game modes | M-1 … M-7, **M-9, M-10** | **M-8 reverted** |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
 
 ⚠ **Numbering fix:** the changelog used "Z-2" for the paint-ladder *correction* while
@@ -94,11 +94,21 @@ which is the arrangement that makes visibility depend on viewing angle.
 **Done when** someone has actually looked at a gore fill up close and either raised it above the
 asphalt or written down why it belongs underneath.
 
-### M-10 · routing cost on the main thread is unmeasured
-A* is bounded (graph clipped to the trip) and throttled (≥1.1 s between searches), and no hitch has
-been reported — **but it has never been measured on a 500 m trip through the densest tiles**, which is
-the case that would hurt. Measure before optimising; a worker is the fix only if a number says so.
-**Done when** there is a millisecond figure for `planRoute` at Gran Via (`?spawn=fixed`).
+### ~~M-10 · routing cost on the main thread~~ ✅ **measured 2026-09-05 — no work needed**
+`backend/tools/routeBench.mjs`, 18 tiles around the Gran Via spawn (4,812 road segments — the
+resident set at its densest, which is where the v3 benchmark measures):
+
+| trip | graph nodes | plan ms (p50 / worst of 15) |
+|---|---|---|
+| 200 m | 271 | 0.9 / 1.4 |
+| 500 m | 428 | 0.4 / 0.7 |
+| 1 km | 1,010 | 0.9 / 1.2 |
+| 2 km | 1,315 | 1.1 / 1.5 |
+
+**Worst case 1.5 ms, on a 2 km trip — four times the length the modes ever ask for.** Against a
+13.3 ms night frame, once every ≥1.1 s at most, and only on a replan. **A worker would be work with
+nothing to show for it.** The board said a worker is the fix only if a number says so; the number
+says no. ⚠ Keep the bench: if the trip cap or the graph margin ever grows, this is the check.
 
 ### P-3 · use the animation clips already on disk
 Every people GLB ships **11 clips**; verified only three are baked (`walk`, `idle`, a death/fall pose).
@@ -119,6 +129,22 @@ Needs P-2, **and needs bake work**: shops are not in `pbfUrbanFeatures` at all �
 ---
 
 ## Parked (no owner, no date)
+
+**K-3 · a large WHITE surface where a road/pavement should be** — seen twice near Carrer de Badajoz,
+not reproducible on demand; the user will re-probe when it next appears. ⚠ **Do not guess at this
+from a screenshot** — three guesses from screenshots were wrong in one session. The code narrows it
+to exactly two candidates and one probe call separates them: both the road and the panot pavement
+use `color: 0xffffff`, the road taking its real shade from **vertex colours** and the pavement from a
+**texture**. Point at the white and run `window._ddPick()`:
+- `map: "NO TEXTURE"` on a sidewalk/panot mesh → the texture failed to load at runtime (the KTX2
+  files exist and serve 200, so it is not a missing asset).
+- `vertexTint: "#ffffff"` or `null` → missing vertex colours against a `vertexColors` material. This
+  codebase has been bitten by that contract twice.
+
+`window._ddGround()` alongside says whether something is CULLED rather than BROKEN. One console
+screenshot also showed `[perf] initial tile load GAVE UP at the cap … 6 queued`, so an un-streamed
+tile is a third possibility that the probes would rule in or out immediately.
+
 
 **K-1 · coordinate/mirror conventions cleanup** — consolidate the X-mirror, the terrain heightfield's
 −90° rotation and the Rapier-vs-cannon convention difference into one boundary module, so renderers
