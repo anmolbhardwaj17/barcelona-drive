@@ -48,6 +48,59 @@ export function outOfBoundsM(wx, wz) {
 
 export const BOUNDARY_GRACE_M = OUT_GRACE_M;
 
+// ── THE INVISIBLE WALL (2026-09-04) ───────────────────────────────────────────────────────────
+//
+// The haze curtains say "edge", and the breadcrumb teleport catches you once you are well past —
+// but between the two there was nothing STOPPING you, so the honest description of the old
+// behaviour was "drive into the void for 45 m, then get yanked somewhere else". A teleport is a
+// punishment for a thing the game never prevented.
+//
+// This is a position constraint, not a collider. Four static Rapier boxes would have to be
+// re-placed as the physics origin moves and would need to be tall enough that nothing jumps them;
+// clamping the chassis back to the plane and killing the outward velocity gives the same felt
+// result — you cannot pass — for no colliders and no streaming. The teleport stays as the
+// backstop for anything the wall cannot catch (a physics fling, a fall).
+const WALL_INSET_M = 6;   // the wall stands this far INSIDE the curtains, so you stop in the haze
+                          // rather than at a line in clear air
+
+/**
+ * The wall as a WORLD-SPACE box, projected once from the same corners the haze curtains use.
+ *
+ * ⚠ DO NOT convert degrees to metres by hand here. The first cut did — `111320 * cos(lat)` — and the
+ * push landed 0.69 m short every time, because that formula describes the GROUND while this
+ * projection describes world units, and the two differ by the Mercator scale at this latitude. A
+ * test caught it. Projecting the corners removes the assumption entirely, is exact by construction,
+ * and drops a `worldToLatLon()` from the per-frame path.
+ */
+let _box = null;
+function box() {
+  if (_box) return _box;
+  const sw = latLonToWorld(B.minLat, B.minLon);
+  const ne = latLonToWorld(B.maxLat, B.maxLon);
+  _box = {
+    minX: Math.min(sw.x, ne.x) + WALL_INSET_M, maxX: Math.max(sw.x, ne.x) - WALL_INSET_M,
+    minZ: Math.min(sw.z, ne.z) + WALL_INSET_M, maxZ: Math.max(sw.z, ne.z) - WALL_INSET_M,
+  };
+  return _box;
+}
+
+/**
+ * How far this ABSOLUTE-world position must move to get back inside the wall.
+ *
+ * @returns {{x:number, z:number, depth:number}} world-axis displacement in world units. All zero
+ *          when inside. Corners accumulate both axes, which is what makes a corner feel like a
+ *          corner rather than like whichever wall happened to be tested first.
+ */
+export function boundaryPush(wx, wz) {
+  const b = box();
+  let x = 0, z = 0;
+  if (wx > b.maxX) x = b.maxX - wx;
+  else if (wx < b.minX) x = b.minX - wx;
+  if (wz > b.maxZ) z = b.maxZ - wz;
+  else if (wz < b.minZ) z = b.minZ - wz;
+  return { x, z, depth: Math.hypot(x, z) };
+}
+
 /**
  * Four haze curtains just inside the bbox. Vertical fade (opaque-ish at ground → gone by the top),
  * slow horizontal noise wobble so it reads as weather, not geometry. Call update(dt, fogColor)

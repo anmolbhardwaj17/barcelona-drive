@@ -180,40 +180,132 @@ Window `blur` clears all keys (prevents stuck inputs when switching windows).
 
 ## Camera (`carCamera.js`)
 
-Speed-responsive chase camera. Follows chassis position with position lerp, looks ahead with separate lookAt lerp.
+Speed-responsive chase camera with mouse orbit. Follows the chassis' **interpolated** transform (so it
+is smooth against the render rate rather than snapping on the 60 Hz physics grid), with a separate
+lookAt lerp for a stable horizon.
 
-### Parameters
+### View modes — C cycles three (V-15, 2026-09-04)
+
+`main.js` binds **C** → `carDriver.cycleView()` → `carCamera.cycleView()`. The order walks the camera
+progressively **inward**, and the mode persists in `sessionStorage['dd_view']` (range-checked on read).
+
+| # | Export | What it is |
+|---|---|---|
+| 0 | `VIEW_CHASE` | Wide chase — the default, and the rig every other number here was tuned against |
+| 1 | `VIEW_CHASE_CLOSE` | Close chase — same camera, closer boom |
+| 2 | `VIEW_HOOD` | Bumper cam — rides the car, sits ahead of the measured nose |
+
+### View transitions (V-16) — the arc
+
+**C blends; it does not cut.** The blend runs in the car's **yaw-only local frame**, so it rides with
+the car — blend in world space and a car at 90 km/h leaves its own camera path behind. The path is
+**lifted over the roof** by `TRANSITION_LIFT × sin(πt)`, scaled by how close the straight path passes
+to the car centre in plan, so the lift is spent only where it is needed.
+
+| | duration | worst step | apex | cabin clearance |
+|---|---|---|---|---|
+| wide → close | 0.6 s | 0.089 m | 2.50 m (no lift) | never crosses the cabin |
+| close → bumper | 0.6 s | 0.319 m | 2.38 m | 0.62 m |
+| bumper → wide | 0.6 s | 0.408 m | 2.68 m | 0.61 m |
+
+- **Why it arcs at all:** the old code re-seated (`_init = false`) with a comment saying a straight
+  lerp from 6.6 m behind to a point on the bonnet sends the camera **through the bodywork**. That
+  diagnosis was right and the remedy was not — a cut avoids the problem rather than solving it. The
+  straight path crosses the car centre 24 cm above a 1.2 m roofline, which is a coin toss against
+  mirrors and aerials; the arc makes it ~0.6 m.
+- **Why the lift is scaled, not blanket:** wide → close keeps both rigs behind the car (closest
+  approach 4.5 m), so a fixed lift would hop the camera for nothing on every press.
+- **Why it starts from the live camera position, not the old rig's ideal:** the chase cam lags its
+  ideal by design (`LERP_POSITION = 0.16`), so starting at the ideal pops on frame one.
+- **Why `ap = 1` while transitioning:** the eased arc *is* the smoothing. Lerping toward a moving
+  blend point drags the camera off the arc and off its clearance, and the two rigs disagree on the
+  rate anyway (0.85 bolted-on bumper vs 0.16 trailing chase) — which is what would put a pop at the
+  far end of an otherwise smooth move.
+- **Duration is 0.6 s, not 0.5:** smoothstep peaks at 1.5× its mean rate, so the ~9.7 m wide↔bumper
+  move at 0.5 s puts 0.38 m between frames — 23 m/s of camera. It reads, but it whips.
+- Look-ahead blends across the transition too; leaving it to `_smoothLookAt` would ease at 0.22 —
+  its own rate, not the transition's — so the frame would arrive before the aim did.
+- Pressing C mid-transition re-captures the arc's start from the live position; `getViewBlend()`
+  reports 0…1 and settles at 1.
+
+`isChaseView(mode)` is exported for "either chase rig". ⚠ **The two chase views are a PARAMETER SET,
+not a second camera** — they share the whole update path (orbit, reverse flip, shake, soft clamp,
+look-ahead, FOV) and differ only in the rig table. Forking that path is how two chase cams drift apart.
+
+⚠ There is **no cockpit mode** and that is a MODEL problem, not a camera one: `bmw_m3.glb` has eleven
+materials and not one is an interior, so a camera inside it faces culled backfaces. The enum has room.
+
+### Chase rig table (`CHASE_RIGS`)
+
+At-rest values; the speed deltas below are shared by both rigs.
+
+| | wide (`VIEW_CHASE`) | close (`VIEW_CHASE_CLOSE`) |
+|---|---|---|
+| distance behind car | 6.6 m | 4.5 m |
+| height above chassis origin | 2.5 m | 2.05 m |
+| look-ahead | 4.0 m | 3.2 m |
+| tunnel distance | 6.0 m | 4.1 m |
+| tunnel height | 1.95 m | 1.62 m |
+| **settled roofline depression** | **16.5°** | **20.3°** |
+
+**CLOSE was derived by holding the ANGLES, not by scaling the numbers.** The rear roof edge sits
+~1.2 m up and ~2.2 m behind the chassis origin, so the wide rig depresses it by `atan(1.3/4.4)` =
+16.5°. At 4.5 m back the gap is 2.3 m and 2.05 m of height gives 20.3° — deliberately a shade
+steeper, so pulling in shows **more** road over the roof rather than less. Look-ahead shortens to
+match: the wide rig pitches 8.6° down to its target, and from a 2.05 m eye that is a 3.2 m target.
+**Leaving `look` at 4.0 with a shorter boom is exactly what flattens the view into the roofline** —
+the same mistake the `BASE_CAM_HEIGHT` comment records from the 1.9 m era.
+
+### Shared parameters
 
 | Parameter | Value | Notes |
 |---|---|---|
-| Base distance | 4.8 m | behind car |
-| Speed distance boost | +0.6 m | at 80 km/h |
-| Base height | 1.4 m | above car |
-| Speed height drop | -0.25 m | at 80 km/h |
-| Base look-ahead | 2.5 m | |
+| Speed distance boost | +0.3 m | at 80 km/h (`speedFactor = min(1, kmh/80)`) |
+| Speed height drop | −0.25 m | at 80 km/h |
 | Speed look-ahead boost | +3.0 m | at 80 km/h |
-| Lerp position | 0.16 | per-frame; frame-rate independent via `1-(1-α)^(dt×60)` |
+| Look target height | +0.9 m | above chassis origin |
+| Lerp position | 0.16 | frame-rate independent via `1-(1-α)^(dt×60)`; **0.85 in bumper view** — a bonnet camera is bolted to the car, and lerping it makes the road swim |
 | Lerp lookAt | 0.22 | |
 | Base FOV | 70° | |
-| Max FOV boost | +14° | at 120 km/h |
-| Max horizontal distance | 5.2 m | soft clamp with lerp |
+| Max FOV boost | +21° | peaks at **80 km/h**, so 40–90 city speeds actually feel fast |
+| Max horizontal distance | 9.3 m | soft clamp; MUST stay above the widest rig's `dist + boost` or it caps the pull-back |
 | Min Y above car | 0.5 m | hard floor |
 
+### Bumper cam placement
+
+Read from `getBodyBounds()` — the post-centring bbox — every frame, not cached (bounds are null until
+the GLB resolves, and the mode can be restored from `sessionStorage` before the model exists). The eye
+sits `NOSE_CLEAR = 0.38 m` ahead of `max.z` and `NOSE_DROP = 0.30 m` below `max.y`, which puts the
+whole car **behind** the camera — correct by construction rather than by tuning. Fallbacks 3.05 m /
+0.95 m are used pre-load. A one-shot `[carCamera] nose cam —` census prints the measured placement and
+says `(OUTSIDE, correct)` or `(INSIDE THE BODYWORK — wrong)`; this camera landed inside the shell twice
+when the offsets were reasoned from `CHASSIS_BOX_OFFSET_Y` instead of measured.
+
+⚠ The bumper view has **no look target of its own** — it falls through to the shared chase look
+target, and that is what it is tuned against. A `_hoodLook` built from a 14 m `HOOD_LOOK` used to be
+computed here and read by nothing; both were deleted in V-15.
+
 ### Tunnel mode
-When `chassis.position.y < -1` (inside a tunnel): camera height drops to 1.0m, distance fixed at 4.0m.
+Driven by `isInTunnelZone(p.x, p.z)` — registered tunnel-corridor **XZ zones in the physics frame**,
+per-rig height/distance from the table above. ⚠ It is **NOT** an absolute-Y test: the old
+`p.y < -1` was a G-47 bug that put the camera permanently in tunnel mode on Montjuïc, where the car
+sits at Y ≈ −16 in the spawn frame.
 
 ### Reverse camera
-`_reverseBlend` smoothly rotates the "behind" direction 180° when speed < -3 km/h (reversing). Lerp rate: 2.5/s. This swings the camera to the front of the car during reverse.
+`_reverseBlend` rotates the "behind" direction 180° when reversing (lerp 2.5/s), swinging the camera
+to the front of the car.
 
-### Mouse orbit
-Mouse orbit code exists (`_orbitYaw`, `_orbitPitch`, `_mouseDown`) but `_onMouseMove` immediately returns without doing anything. The `mousemove` listener attachment is commented out. Mouse orbit is **disabled**.
+### Mouse orbit — **enabled**
+`pointermove` on the **canvas** (not `document`, so hovering the HUD does not hijack the camera), gated
+by `isInputBlocked()` for the ESC menu. Sensitivity 0.004 rad/px horizontal, 0.003 vertical; pitch
+clamped to −0.15…0.6 rad. After `RETURN_DELAY = 1.5 s` idle it eases back behind the car at 2.5/s.
+Orbit applies in every view, including the bumper cam.
 
-### FOV update
-```js
-fovTarget = 70 + 14 × min(1, speed/120)
-camera.fov += (fovTarget - camera.fov) × 0.05   // slow lerp
-camera.updateProjectionMatrix()
-```
+### Camera shake
+An impact punch on a sharp one-frame speed drop (`> 16 km/h`, capped at 0.20 m, guarded against
+recover-teleports by a position-jump test) plus a continuous rumble above 140 km/h. The punch was
+toned down once the underlying V-13 collision bug was fixed — the stacked shake users reported was a
+*symptom* of that, not a separate effect.
 
 ---
 

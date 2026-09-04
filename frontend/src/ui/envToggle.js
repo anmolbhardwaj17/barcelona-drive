@@ -25,6 +25,15 @@ const _nightModeCallbacks = [];
 /** Register a callback to be called on day/night toggle. cb(isNight: boolean) */
 export function onNightModeChange(cb) { _nightModeCallbacks.push(cb); }
 
+// ⚠ THE CALLBACK LIST ALONE IS NOT ENOUGH, and it took a marker coming up in the wrong profile to
+// show it. `onNightModeChange` only fires on a TOGGLE, so anything constructed after the player has
+// already switched to night gets no callback and starts in the day profile — game-mode markers are
+// built when a mode starts, which is minutes after boot. Anything with a day/night look must read
+// this at construction and subscribe for the changes after.
+let _isNightNow = false;
+/** Current day/night state. Read it at construction; subscribe with onNightModeChange for changes. */
+export function isNightMode() { return _isNightNow; }
+
 import { DAY, NIGHT } from './envPresets.js';
 
 
@@ -145,6 +154,7 @@ export function createEnvToggle(refs) {
     setBusStopNightMode(isNight);
     setFuelStationNightMode(isNight);
     setBridgePoleNightMode(isNight);
+    _isNightNow = !!isNight;
     for (const cb of _nightModeCallbacks) cb(isNight);
   }
 
@@ -204,7 +214,13 @@ export function createEnvToggle(refs) {
   const savedMode = (() => { try { return localStorage.getItem('dd_dayNight') || 'day'; } catch { return 'day'; } })();
   applyMode(savedMode, true);
 
-  // ── Day / night toggle — flat frosted icon button (art-of-rally chrome) ─────
+  // ── Day / night — KEYBOARD ONLY (N). ────────────────────────────────────────
+  // The frosted icon button that used to sit at top:14px;right:14px is gone: N was already bound and
+  // already listed in the on-screen controls strip, so the button was a second way to do a thing the
+  // player is being told about anyway — and it was occupying the one corner the game most wants for
+  // a HUD readout. The element is still BUILT (it carries the sun/moon icon and the click handler
+  // that `toggle()` reuses) but never appended, so nothing here has to be re-implemented to keep
+  // scripted callers working.
   injectUITheme();
   const toggle = document.createElement('div');
   toggle.id = 'env-toggle';
@@ -228,10 +244,12 @@ export function createEnvToggle(refs) {
     try { localStorage.setItem('dd_dayNight', newMode); } catch {}
   });
 
-  document.body.appendChild(toggle);
+  // NOT appended — see the note above.
 
   return {
     element: toggle,
+    /** Flip day↔night. Prefer this to `element.click()`: the element is no longer in the document. */
+    toggle: () => toggle.click(),
     isNight: () => mode === 'night',
     // Re-apply the current night state to all shared materials. Call once after the initial tiles have
     // built — at startup the callbacks fire before any tile material exists (no-ops), so loading straight

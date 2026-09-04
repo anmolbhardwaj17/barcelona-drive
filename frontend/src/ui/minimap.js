@@ -462,6 +462,11 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   const _mPerPx = (lat, zoom) => 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
 
   let _lastRedrawT = 0;
+  // Route state. DECLARED ABOVE redrawMap deliberately: the constructor calls redrawMap() while it
+  // is still running, so a `let` further down is a temporal-dead-zone ReferenceError on boot, not
+  // an undefined read. See setRoute() below for what these are.
+  let _route = null, _routeAlong = 0, _routePin = null;
+
   function redrawMap(force = false) {
     if (!customMap || !_mctx) return;
     const cssPx = Math.max(2, Math.round(mapDiv.clientWidth || MINIMAP_SIZE));
@@ -486,6 +491,12 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
     // Small circular map: skip building footprints only (hundreds of tiny polys, invisible at
     // 180px) — roads/names keep full LOD; the expanded fullscreen map keeps everything.
     try { customMap.drawTile(_mctx, bw, wb, Math.round(_zoom), 30, !expanded); } catch (e) { /* blank */ }
+    // Route on top of the city, in the SAME canvas — so the heading-up CSS rotation carries it and
+    // it can never drift against the streets beneath it (see customMap.drawRoute).
+    if (_route && _route.length > 1) {
+      try { customMap.drawRoute(_mctx, bw, wb, _route, { alongM: _routeAlong, pinColor: _routePin, cssSize: cssPx, width: expanded ? 6 : 4.5 }); }
+      catch (e) { /* a route is never worth losing the map over */ }
+    }
   }
 
   function zoomBy(delta) { _zoom = Math.max(13, Math.min(19, _zoom + delta)); redrawMap(true); }
@@ -796,10 +807,33 @@ export function createMinimap(spawnCenter = { x: 0, z: 0 }, customMap = null) {
   }
 
   /** Dash: show a marker to a checkpoint at world (wx, wz), or null to clear. */
+  // ── Route (game modes) ──────────────────────────────────────────────────────────────────────
+  // The objective dot answers "which bearing"; this answers "which way do I actually drive", which
+  // on a grid is a different question — the dot can read 180 m north-west while the only way there
+  // is 400 m round two blocks.
+  /**
+   * @param {{x:number,y:number}[]|null} pts  world polyline ({x: easting, y: northing}), or null
+   * @param {{alongM?:number, color?:string}} [o]
+   */
+  function setRoute(pts, o = {}) {
+    const had = !!(_route && _route.length);
+    _route = pts && pts.length > 1 ? pts : null;
+    _routeAlong = o.alongM || 0;
+    _routePin = o.color || null;
+    if (had || _route) redrawMap(true);
+  }
+  /** Cheap per-frame progress update — no redraw unless the drawn portion actually changed. */
+  function setRouteProgress(alongM) {
+    if (!_route) return;
+    if (Math.abs((alongM || 0) - _routeAlong) < 12) return;   // ~12 m of travel before a repaint
+    _routeAlong = alongM || 0;
+    redrawMap(true);
+  }
+
   function setObjectiveMarker(wx, wz) {
     if (wx == null || wz == null) { _objTarget = null; gateMarkerEl.style.display = 'none'; return; }
     _objTarget = worldToLatLon(wx, wz);
   }
 
-  return { update, setNightMode, setMarkerMode, setObjectiveMarker, setBlips };
+  return { update, setNightMode, setMarkerMode, setObjectiveMarker, setBlips, setRoute, setRouteProgress };
 }

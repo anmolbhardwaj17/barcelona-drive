@@ -12,8 +12,6 @@ import { isInTunnelZone } from '../tunnelZones.js';
 import { isInputBlocked } from '../inputGate.js';
 import { getBodyBounds } from './carModel.js';
 
-const BASE_CAM_DISTANCE   = 6.6;   // follow distance behind car (8.2→7.3→6.2, then 6.6 with the height fix below)
-const SPEED_DISTANCE_BOOST = 0.3;  // 0.6→0.3: camera drifted too far back at speed
 // ── WHY 2.5 AND NOT 1.9 ───────────────────────────────────────────────────────────────────────
 // At 1.9 the eye sat 0.7 m over a 1.2 m roofline, so the car was seen almost edge-on and became a
 // wall across the bottom of the frame. The arithmetic: rear roof edge 4 m away and 0.7 m below eye
@@ -21,13 +19,52 @@ const SPEED_DISTANCE_BOOST = 0.3;  // 0.6→0.3: camera drifted too far back at 
 // lower half-frame and hid the road directly ahead of it. The complaint reads as "too close" but
 // the distance was fine; the ANGLE was flat. At 2.5 m the same car spans 8.6..24.1 deg down = ~22%
 // of frame height, with open road visible over the roof. Raise height before pulling back.
-const BASE_CAM_HEIGHT     = 2.5;   // camera height above the chassis origin (roofline is ~1.2)
+//
+// ── V-15: THE TWO CHASE RIGS ARE A PARAMETER SET, NOT A SECOND CAMERA ─────────────────────────
+// Both chase views run the SAME update path — orbit, reverse flip, shake, soft distance clamp,
+// look-ahead, FOV boost — and differ only in the four numbers below. Forking the update is how two
+// chase cams drift apart: a fix lands in one and the other quietly keeps the bug.
+//
+// CLOSE is derived from WIDE by holding the ANGLES, not by scaling the numbers, because the comment
+// above is the whole reason WIDE is tuned the way it is. Rear roof edge sits ~1.2 m up and ~2.2 m
+// behind the chassis origin, so WIDE depresses it by atan(1.3 / 4.4) = 16.5 deg. At 4.5 m back the
+// gap is 2.3 m, and 2.05 m of height gives 20.3 deg — deliberately a shade steeper, so pulling the
+// camera in shows MORE road over the roof rather than less. Look-ahead is shortened to match: the
+// wide rig pitches 8.6 deg down to its target, and from a 2.05 m eye that is a 3.2 m target, not a
+// 4.0 m one. Leaving `look` at 4.0 with a shorter boom is exactly what flattens the view into the
+// roofline.
+const CHASE_RIGS = {
+  // dist/height/look are the at-rest values; the SPEED_* deltas below are shared by both rigs.
+  0 /* VIEW_CHASE */:       { dist: 6.6, height: 2.5,  look: 4.0, tunnelDist: 6.0, tunnelHeight: 1.95 },
+  1 /* VIEW_CHASE_CLOSE */: { dist: 4.5, height: 2.05, look: 3.2, tunnelDist: 4.1, tunnelHeight: 1.62 },
+};
+const SPEED_DISTANCE_BOOST = 0.3;  // 0.6→0.3: camera drifted too far back at speed
 const SPEED_HEIGHT_DROP   = 0.25;
-const BASE_LOOK_AHEAD     = 4.0;   // with the higher eye, a short target pitches the view into the roof
 const SPEED_LOOK_BOOST    = 3.0;
-const TUNNEL_CAM_HEIGHT   = 1.95;  // same flat-angle problem as BASE_CAM_HEIGHT, and worse for being lower
-const TUNNEL_CAM_DISTANCE = 6.0;   // follow distance in tunnel zones (was hardcoded 4.0 — too tight per user)
 const MIN_CAM_ABOVE_CAR   = 0.5;
+
+// ── V-16: SMOOTH VIEW TRANSITIONS, AND WHY THEY ARC ───────────────────────────────────────────
+// Cycling used to re-seat the camera (`_init = false`) — an instant cut. The comment defending it
+// was right about the hazard and wrong about the remedy: a straight lerp from a chase position 6.6 m
+// behind the car to a point on its bonnet passes THROUGH the bodywork, so for half a second you are
+// inside the shell looking at culled backfaces. A cut avoids that; it does not fix it.
+//
+// The fix is to blend in the car's own YAW-ONLY LOCAL FRAME and lift the path over the roof. Local,
+// because the transition then rides with the car — blend in world space and a car doing 90 km/h
+// leaves its own camera path behind. Lifted, because that is what clears the shell: the arc height
+// is scaled by how close the straight path passes to the car, so chase→bumper gets the full swoop
+// over the roof and chase→close (both behind the car, closest approach 4.5 m) gets none — no
+// pointless bob on a transition that never goes near the bodywork.
+//
+// Geometry, for the case that matters: local (0, 2.5, −6.6) → (0, 0.95, +3.05) crosses the car
+// centre at t ≈ 0.68, where the straight lerp is 1.44 m up — 24 cm over a 1.2 m roofline. That is
+// not clearance, it is a coin toss against wing mirrors and aerials. With the lift it is ~2.1 m.
+// 0.6 s, not 0.5: the longest move (wide chase ↔ bumper) is ~9.7 m, and smoothstep peaks at 1.5×
+// the mean rate, so 0.5 s puts 0.38 m between consecutive frames — 23 m/s of camera. Readable, but
+// it whips. 0.6 s brings the peak to ~0.32 m/frame and still clears in well under a second.
+const TRANSITION_TIME    = 0.6;   // s — long enough to read as a move, short enough not to annoy
+const TRANSITION_CLEAR_R = 2.6;   // m — car half-length plus margin; inside this the path needs lift
+const TRANSITION_LIFT    = 0.8;   // m of arc at the apex, scaled by how close the path passes
 const LOOK_ABOVE          = 0.9;   // lifted with the eye so the pitch-down stays ~8-9 deg
 const MAX_H_DIST          = 9.3;   // horizontal clamp — MUST stay above BASE_CAM_DISTANCE+SPEED_DISTANCE_BOOST or it caps the pull-back
 const LERP_POSITION       = 0.16;
@@ -55,9 +92,19 @@ const RETURN_SPEED         = 2.5;   // lerp speed for returning to default
 // A cockpit view is a MODEL problem, not a camera one; the enum has room for it, and the day a car
 // with an interior is the player's car it is a few lines here. The traffic hatchback already has
 // one (2,039 tris, 30% of that model), which is what makes this worth leaving room for.
+//
+// ORDER IS THE FEATURE: C walks the camera progressively INWARD — wide chase, close chase, bumper —
+// so the key has a direction rather than being a bag of views. Adding CLOSE in the middle moves
+// HOOD from 1 to 2; nothing outside this file refers to these by value (checked: `carDriver` and
+// `main.js` only forward `cycleView`/`getView`), and the sessionStorage restore is range-checked,
+// so a stored 1 from an older build now selects CLOSE instead of HOOD. That is a one-time surprise
+// on one reload, not a broken state.
 export const VIEW_CHASE = 0;
-export const VIEW_HOOD = 1;
-const VIEW_COUNT = 2;
+export const VIEW_CHASE_CLOSE = 1;
+export const VIEW_HOOD = 2;
+const VIEW_COUNT = 3;
+/** True for both chase rigs — i.e. "not the bumper cam". */
+export function isChaseView(mode) { return mode === VIEW_CHASE || mode === VIEW_CHASE_CLOSE; }
 
 // ── NOSE CAMERA — PLACED AGAINST MEASURED GEOMETRY, NOT AGAINST ARITHMETIC ────────────────────
 // This landed inside the bodywork TWICE (1.34 m fwd / 1.06 m up, then 1.05 / 1.46), both times
@@ -80,7 +127,6 @@ const NOSE_DROP    = 0.30;   // m below the measured roofline — bonnet-level, 
 // floats the eye in clear air, an under-long one puts it back inside the car.
 const HOOD_FORWARD = 3.05;
 const HOOD_HEIGHT  = 0.95;
-const HOOD_LOOK    = 14.0;   // look well down the road; a short target makes the view feel nose-down
 // Rigid, unlike the chase cam. A bonnet camera is BOLTED to the car — lerping it makes the road
 // swim under a nose that should be fixed, which reads as motion sickness rather than smoothness.
 const HOOD_LERP    = 0.85;
@@ -98,7 +144,6 @@ const _shakeOffset = new THREE.Vector3();
 export function createCarCamera(camera, domElement) {
   let _init = false;
   let _mode = VIEW_CHASE;
-  const _hoodLook = new THREE.Vector3();
 
   // Mouse orbit state — moving the mouse / trackpad swings the camera around the car (see it from the
   // front, rear or sides); after a short idle it auto-returns to the default chase position behind it.
@@ -123,6 +168,17 @@ export function createCarCamera(camera, domElement) {
 
   // Smooth reverse camera flip
   let _reverseBlend = 0; // 0 = behind car (forward), 1 = in front of car (reverse)
+
+  // View-transition state. `_transFrom` is in the car's yaw-only LOCAL frame, so the blend rides
+  // with the car. `_transPending` exists because cycleView() is called from a keypress and has no
+  // car transform to capture against — the capture happens on the next update.
+  let _transPending = false;
+  let _transT = 1;                 // 1 = settled
+  let _transFromMode = VIEW_CHASE;
+  let _transLift = 0;
+  const _transFrom = new THREE.Vector3();
+  const _transTo = new THREE.Vector3();
+  const _invYaw = new THREE.Quaternion();
 
   // Camera shake state (impact punch decays; high-speed rumble is continuous)
   let _shakeAmp = 0;
@@ -169,9 +225,16 @@ export function createCarCamera(camera, domElement) {
     // XZ-zone false positives (surface road directly above a tunnel) are brief and mild;
     // Phase 3 authored tunnels will refine this with a terrain-relative depth test.
     const inTunnel = isInTunnelZone(p.x, p.z);
-    const camHeight = inTunnel ? TUNNEL_CAM_HEIGHT : BASE_CAM_HEIGHT - speedFactor * SPEED_HEIGHT_DROP;
-    const camDist = inTunnel ? TUNNEL_CAM_DISTANCE : BASE_CAM_DISTANCE + speedFactor * SPEED_DISTANCE_BOOST;
-    const lookAhead = BASE_LOOK_AHEAD + speedFactor * SPEED_LOOK_BOOST;
+    // HOOD overrides the position outright below, but it still falls through to the shared look
+    // target, so it needs a rig — the wide one, which is what it has always effectively used.
+    const rig = CHASE_RIGS[_mode] || CHASE_RIGS[VIEW_CHASE];
+    const camHeight = inTunnel ? rig.tunnelHeight : rig.height - speedFactor * SPEED_HEIGHT_DROP;
+    const camDist = inTunnel ? rig.tunnelDist : rig.dist + speedFactor * SPEED_DISTANCE_BOOST;
+    // Look-ahead blends across the transition as well. `_smoothLookAt` would ease a step anyway, but
+    // at its own 0.22 rate rather than the transition's — so the frame would arrive before the aim did.
+    const fromLook = (CHASE_RIGS[_transFromMode] || CHASE_RIGS[VIEW_CHASE]).look;
+    const lookBase = _transT < 1 ? fromLook + (rig.look - fromLook) * _transT : rig.look;
+    const lookAhead = lookBase + speedFactor * SPEED_LOOK_BOOST;
 
     // Auto-return: after RETURN_DELAY of no pointer movement, ease the orbit back to behind the car.
     _idleTime += dt || 0.016;
@@ -208,9 +271,6 @@ export function createCarCamera(camera, domElement) {
     // car's pitch and roll. Coupling a head-height camera to chassis roll is what makes bonnet
     // views nauseating; the car leaning under you reads fine, the horizon leaning does not.
     if (_mode === VIEW_HOOD) {
-      // Orbit still applies, so the mouse can look around from the bonnet.
-      const lookX = _fwdDir.x * cosY - _fwdDir.z * sinY;
-      const lookZ = _fwdDir.x * sinY + _fwdDir.z * cosY;
       // Measured every frame rather than cached: the bounds are null until the GLB resolves, and
       // this view can be active across that boundary (the mode is restored from sessionStorage
       // before the model exists).
@@ -231,11 +291,49 @@ export function createCarCamera(camera, domElement) {
         p.y + eyeY,
         p.z + _fwdDir.z * fwd,
       );
-      _hoodLook.set(
-        p.x + lookX * HOOD_LOOK,
-        p.y + eyeY + _orbitPitch * HOOD_LOOK,
-        p.z + lookZ * HOOD_LOOK,
-      );
+      // ⚠ NO SEPARATE LOOK TARGET, and that is not an oversight — it is a correction. This block
+      // used to build a `_hoodLook` from an orbit-rotated forward and `HOOD_LOOK = 14 m` that
+      // **nothing ever read**: the bumper view has always fallen through to the shared chase look
+      // target below, and that is what it is actually tuned against. Deleted along with the
+      // constant, rather than left in place — dead code that looks live is how the next person
+      // concludes this camera aims somewhere it does not, and then "fixes" the wrong number.
+    }
+
+    // ── VIEW TRANSITION ───────────────────────────────────────────────────────────────────────
+    // Runs after every mode has had its say on `_idealPos`, so it blends toward wherever the ACTIVE
+    // view wants to be this frame — the target keeps tracking the moving car mid-transition.
+    let transitioning = false;
+    if (_init && (_transPending || _transT < 1)) {
+      _invYaw.copy(_yawOnly).invert();
+      if (_transPending) {
+        _transPending = false;
+        _transT = 0;
+        // Start from where the camera ACTUALLY is (shake removed), not from the old mode's ideal —
+        // the chase cam lags its ideal by design, and starting at the ideal would pop on frame one.
+        _transFrom.set(
+          camera.position.x - _shakeOffset.x - p.x,
+          camera.position.y - _shakeOffset.y - p.y,
+          camera.position.z - _shakeOffset.z - p.z,
+        ).applyQuaternion(_invYaw);
+        _transTo.set(_idealPos.x - p.x, _idealPos.y - p.y, _idealPos.z - p.z).applyQuaternion(_invYaw);
+        // Closest approach of the straight path to the car centre, in plan. Full lift when it runs
+        // over the car, none when it stays outside TRANSITION_CLEAR_R.
+        const dx = _transTo.x - _transFrom.x, dz = _transTo.z - _transFrom.z;
+        const L2 = dx * dx + dz * dz || 1;
+        const tc = Math.max(0, Math.min(1, -(_transFrom.x * dx + _transFrom.z * dz) / L2));
+        const closest = Math.hypot(_transFrom.x + dx * tc, _transFrom.z + dz * tc);
+        _transLift = Math.max(0, (TRANSITION_CLEAR_R - closest) / TRANSITION_CLEAR_R) * TRANSITION_LIFT;
+      }
+      _transT = Math.min(1, _transT + (dt || 0.016) / TRANSITION_TIME);
+      const te = _transT * _transT * (3 - 2 * _transT);           // smoothstep — no velocity step at either end
+      _transTo.set(_idealPos.x - p.x, _idealPos.y - p.y, _idealPos.z - p.z).applyQuaternion(_invYaw);
+      _idealPos.set(
+        _transFrom.x + (_transTo.x - _transFrom.x) * te,
+        _transFrom.y + (_transTo.y - _transFrom.y) * te + _transLift * Math.sin(Math.PI * te),
+        _transFrom.z + (_transTo.z - _transFrom.z) * te,
+      ).applyQuaternion(_yawOnly);
+      _idealPos.x += p.x; _idealPos.y += p.y; _idealPos.z += p.z;
+      transitioning = _transT < 1;
     }
 
     if (!_init) {
@@ -252,7 +350,12 @@ export function createCarCamera(camera, domElement) {
     camera.position.sub(_shakeOffset);
 
     // Smooth camera position — use stronger lerp to prevent lag/stutter
-    const ap = 1 - Math.pow(1 - (_mode === VIEW_HOOD ? HOOD_LERP : LERP_POSITION), dt * 60);
+    // During a transition the eased arc IS the smoothing, so follow it exactly. Lerping toward a
+    // moving blend point would drag the camera off the arc — and off its clearance over the roof —
+    // and the two rigs disagree on the rate anyway (0.85 bolted-on bumper vs 0.16 trailing chase),
+    // which is what would put a pop at the far end of an otherwise smooth move.
+    const ap = transitioning ? 1
+      : 1 - Math.pow(1 - (_mode === VIEW_HOOD ? HOOD_LERP : LERP_POSITION), dt * 60);
     camera.position.lerp(_idealPos, ap);
 
     // Soft clamp horizontal distance (lerp toward max instead of hard snap)
@@ -325,12 +428,15 @@ export function createCarCamera(camera, domElement) {
     camera.updateProjectionMatrix();
   }
 
-  /** Cycle CHASE -> HOOD. Lives here, not in controls, so the modes stay one concept. */
+  /** Cycle CHASE -> CHASE_CLOSE -> HOOD (progressively inward). Lives here, not in controls, so
+   *  the modes stay one concept. */
   function cycleView() {
+    // V-16: arc across, don't cut. `_transFromMode` is the view we are LEAVING — captured before the
+    // increment, and not overwritten if C is pressed again mid-transition, because the arc's start
+    // point is re-captured from the live camera position anyway.
+    _transFromMode = _mode;
     _mode = (_mode + 1) % VIEW_COUNT;
-    // Re-seat rather than lerp across the cut: interpolating from a chase position 6 m behind the
-    // car to a point on its bonnet sends the camera THROUGH the bodywork for half a second.
-    _init = false;
+    _transPending = true;
     try { sessionStorage.setItem('dd_view', String(_mode)); } catch { /* private mode */ }
     return _mode;
   }
@@ -343,6 +449,8 @@ export function createCarCamera(camera, domElement) {
     update,
     cycleView,
     getView: () => _mode,
+    /** 0..1 across a view change, 1 when settled. */
+    getViewBlend: () => _transT,
     dispose() { if (_target) _target.removeEventListener('pointermove', _onPointerMove); },
   };
 }

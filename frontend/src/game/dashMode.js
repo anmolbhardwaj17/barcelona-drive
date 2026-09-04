@@ -11,13 +11,18 @@
  * live in `scene` (physics frame) like the traffic, so they sit on the road.
  */
 import * as THREE from 'three';
-import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
+import { fxFlash, fxConfetti, fxEvent } from './gameFx.js';
+import { createStatCard, createResultCard, createCountdown } from './hudTheme.js';
+import { createObjectiveMarker } from './objectiveMarker.js';
+import { createObjectiveNav } from './objectiveNav.js';
+import { createObjectiveHud } from './objectiveHud.js';
 
 const N_CHECKPOINTS = 10;
 const MIN_GAP = 45, MAX_GAP = 120;   // metres between gates (closer + more of them)
 const HIT_RADIUS = 16;
 const RING_R = 5.0;
 
+const COL_DASH_CSS = '#35e0ff';
 const COL_NEXT = 0x35e0ff;   // active gate — cyan
 const COL_AFTER = 0xffc233;  // the one after — gold
 // Wide carriageways where a 10m checkpoint ring fits centred (no clipping into buildings). Fallback set
@@ -32,14 +37,6 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   let elapsed = 0;
   const gates = [];                 // parallel to route: gate group or null once cleared
 
-  // ── shared geometry ────────────────────────────────────────────────────────
-  const ringGeo = new THREE.TorusGeometry(RING_R, 0.36, 12, 44);         // solid ring you drive through
-  const haloGeo = new THREE.TorusGeometry(RING_R, 1.15, 8, 44);          // soft additive bloom hugging the ring
-  const groundRingGeo = new THREE.RingGeometry(RING_R * 0.3, RING_R * 1.4, 48); // light pooled on the road, centres the gate
-  const beamGeo = new THREE.CylinderGeometry(RING_R * 0.5, RING_R * 0.82, 90, 20, 1, true);
-
-  const _up = new THREE.Vector3(0, 1, 0);
-
   // ── coordinate helpers ────────────────────────────────────────────────────
   const sceneX = (wx) => -(wx - getOrigin().x);
   const sceneZ = (wz) => wz - getOrigin().z;
@@ -48,40 +45,26 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   // Start/Quit is driven by the shared game launcher (main.js), not a per-mode button.
   const btn = { style: {}, remove() {} };   // harmless stub for the internal label writes
 
-  const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:1290;' +
-    'font-family:Inter,system-ui,sans-serif;color:#fff;text-align:center;pointer-events:none;user-select:none;';
-  // Persistent live display (timer + counter) — updated via textContent each frame, NOT innerHTML,
-  // so the running HUD doesn't re-parse HTML + reflow 60×/s (that tanked FPS while a mode was active).
-  const liveWrap = document.createElement('div'); liveWrap.style.display = 'none';
-  const liveTimer = document.createElement('div');
-  liveTimer.style.cssText = "font-family:'Inter',sans-serif;font-size:34px;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)";
-  const liveCount = document.createElement('div');
-  liveCount.style.cssText = 'font-weight:700;font-size:15px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.7)';
-  liveWrap.appendChild(liveTimer); liveWrap.appendChild(liveCount);
-  const resultWrap = document.createElement('div'); resultWrap.style.display = 'none';
-  hud.appendChild(liveWrap); hud.appendChild(resultWrap);
-  document.body.appendChild(hud);
+  // ── Timer card + finish panel ────────────────────────────────────────────────────────────────
+  // Was two bare text divs floating on the sky with a drop-shadow, plus a finish screen built by
+  // reassigning `innerHTML` with six inline-styled spans. Shared cards now — see hudTheme.js.
+  const card = createStatCard({ label: 'TIME', color: COL_DASH_CSS, rail: true });
+  const result = createResultCard({ color: COL_DASH_CSS });
   const updateLiveHud = () => {
-    liveTimer.textContent = fmt(elapsed);
-    liveCount.textContent = `Checkpoint ${Math.min(activeIdx + 1, route.length)} / ${route.length}`;
+    card.set(fmt(elapsed), `Checkpoint ${Math.min(activeIdx + 1, route.length)} of ${route.length}`);
+    // A route bar: how much of the run is behind you. "3 / 9" is the same fact as a fraction you
+    // have to work out at 90 km/h.
+    card.meter(route.length ? activeIdx / route.length : 0,
+               `${route.length ? Math.round(activeIdx / route.length * 100) : 0}%`, COL_DASH_CSS);
   };
 
-  // ── Objective marker: a labelled compass pill (top-centre) + a tag that floats over the gate ──
-  const nav = document.createElement('div');
-  nav.style.cssText = 'position:fixed;top:150px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
-    'pointer-events:none;user-select:none;text-align:center;background:rgba(8,20,30,.72);border:2px solid #35e0ff;' +
-    'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
-  nav.innerHTML =
-    '<div class="nav-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
-    'border-right:8px solid transparent;border-bottom:30px solid #35e0ff;filter:drop-shadow(0 0 5px #35e0ff);transition:transform .12s"></div>' +
-    '<div style="font:800 11px Inter,sans-serif;letter-spacing:1px;color:#9fe9ff">NEXT CHECKPOINT</div>' +
-    '<div class="nav-dist" style="font-family:\'Inter\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
-  const navTri = nav.querySelector('.nav-tri');
-  const navDist = nav.querySelector('.nav-dist');
-  document.body.appendChild(nav);
+  // ── objective card + road routing ────────────────────────────────────────────────────────────
+  // The gate chain is laid along the road network already, so a route to the NEXT gate is a route
+  // the player can actually drive — the bearing arrow this replaces pointed through buildings.
+  const navHud = createObjectiveHud({ label: 'NEXT CHECKPOINT', color: '#35e0ff' });
+  const navRoute = createObjectiveNav({ getRoadSegments, getMinimap, color: '#35e0ff' });
+  let _nav = null, _navTarget = null;
 
-  // floating "NEXT ▾" tag pinned over the gate when it's on screen
   const gateTag = document.createElement('div');
   gateTag.style.cssText = 'position:fixed;z-index:1291;display:none;pointer-events:none;user-select:none;' +
     'transform:translate(-50%,-100%);text-align:center;font-family:Inter,sans-serif;';
@@ -92,18 +75,11 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   document.body.appendChild(gateTag);
 
   // big centre countdown (3·2·1·GO)
-  const countdownEl = document.createElement('div');
-  countdownEl.style.cssText = 'position:fixed;top:44%;left:50%;transform:translate(-50%,-50%);z-index:1300;' +
-    "display:none;pointer-events:none;user-select:none;font-family:'Inter',sans-serif;font-size:120px;" +
-    'color:#fff;text-shadow:0 4px 20px rgba(0,0,0,.6),0 0 30px rgba(53,224,255,.5);';
-  document.body.appendChild(countdownEl);
-  const cdStyle = document.createElement('style');
-  cdStyle.textContent = '@keyframes ddCdPop{0%{transform:translate(-50%,-50%) scale(.4);opacity:0}25%{transform:translate(-50%,-50%) scale(1.15);opacity:1}100%{transform:translate(-50%,-50%) scale(.85);opacity:.85}}';
-  document.head.appendChild(cdStyle);
+  const countdown = createCountdown({ color: COL_DASH_CSS });
 
   // contextual "Race again" — only on the finish screen (not a persistent button)
   const againBtn = document.createElement('button');
-  againBtn.textContent = '🏁 Race again';
+  againBtn.textContent = 'Race again';
   againBtn.style.cssText = 'position:fixed;top:236px;left:50%;transform:translateX(-50%);z-index:1295;display:none;cursor:pointer;' +
     'font-family:Inter,system-ui,sans-serif;font-weight:800;font-size:14px;color:#241a08;background:linear-gradient(#ffd23f,#f5a623);' +
     'border:none;border-radius:22px;padding:9px 20px;box-shadow:0 5px 0 #b9791a,0 8px 14px rgba(0,0,0,.35);';
@@ -112,10 +88,13 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
 
   function medalFor(ms, n) {
     const per = ms / Math.max(1, n);
-    if (per < 6500) return { emoji: '🥇', label: 'GOLD', color: '#ffd23f' };
-    if (per < 9000) return { emoji: '🥈', label: 'SILVER', color: '#d7dee8' };
-    if (per < 13000) return { emoji: '🥉', label: 'BRONZE', color: '#e0955a' };
-    return { emoji: '🏁', label: 'FINISHED', color: '#9fe9ff' };
+    // No `emoji` field any more — it was the only consumer of these glyphs and both call sites now
+    // use the label and the colour. A medal glyph is a different picture on every platform and
+    // brings the OS's palette into a screen that has its own.
+    if (per < 6500) return { label: 'GOLD', color: '#ffd23f' };
+    if (per < 9000) return { label: 'SILVER', color: '#d7dee8' };
+    if (per < 13000) return { label: 'BRONZE', color: '#e0955a' };
+    return { label: 'FINISHED', color: '#9fe9ff' };
   }
   let _medal = null, _newBest = false;
 
@@ -130,26 +109,29 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   // are updated by updateLiveHud() via textContent, so no innerHTML churn while a mode is running.
   function renderHud() {
     const active = state === 'running' || state === 'countdown';
-    liveWrap.style.display = active ? 'block' : 'none';
-    // Only show the result on the finish screen — NOT when idle. The old idle "Dash best …" teaser
-    // stayed painted at top-centre even while another mode (City Cab) was active → overlapping HUDs.
-    resultWrap.style.display = state === 'finished' ? 'block' : 'none';
+    card.show(active);
     if (active) {
       updateLiveHud();
+      result.hide();
     } else if (state === 'finished') {
       const best = getBest();
       const m = _medal || medalFor(elapsed, route.length);
-      resultWrap.innerHTML =
-        `<div style="font-size:52px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))">${m.emoji}</div>` +
-        `<div style="font-family:'Inter',sans-serif;font-size:22px;color:${m.color};letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${m.label}</div>` +
-        `<div style="font-family:'Inter',sans-serif;font-size:34px;text-shadow:0 2px 6px rgba(0,0,0,.6)">${fmt(elapsed)}</div>` +
-        (_newBest ? `<div style="font-weight:800;font-size:13px;color:#ffd23f;letter-spacing:1px;text-shadow:0 1px 3px rgba(0,0,0,.7)">★ NEW BEST!</div>`
-                  : `<div style="font-weight:700;font-size:13px;opacity:.85;text-shadow:0 1px 3px rgba(0,0,0,.7)">Best ${best != null ? fmt(best) : '—'}</div>`);
+      // The medal is a COLOUR and a WORD now, not an emoji: a medal glyph renders as a different
+      // picture on every platform and drags the OS palette into a screen that has its own.
+      result.show({
+        kicker: m.label,
+        value: fmt(elapsed),
+        color: m.color,
+        stats: [
+          { label: route.length === 1 ? 'checkpoint' : 'checkpoints', value: String(route.length) },
+          _newBest ? { label: 'personal best', value: 'NEW' }
+                   : { label: 'best', value: best != null ? fmt(best) : '—' },
+        ],
+      });
     } else {
-      const best = getBest();
-      resultWrap.innerHTML = best != null ? `<div style="font-weight:700;font-size:12px;opacity:.7;text-shadow:0 1px 3px rgba(0,0,0,.7)">Dash best ${fmt(best)}</div>` : '';
+      result.hide();
     }
-    nav.style.display = active ? 'block' : 'none';
+    navHud.show(active);
     if (!active) gateTag.style.display = 'none';
     againBtn.style.display = state === 'finished' ? 'block' : 'none';
   }
@@ -203,51 +185,35 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
     return { route: chosen, candCount: cand.length };
   }
 
+  // A gate is a shared objective halo, oriented to the direction you drive THROUGH it. This used to
+  // be four hand-rolled additive materials per gate — a drifted superset of taxi's and delivery's
+  // copies of the same idea, and the only one of the three with a bloom torus. See objectiveMarker.js.
   function makeGate(world, dirScene) {
-    const group = new THREE.Group();
-    const ringMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.98, fog: false });
-    const haloMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    const beamMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    const glowMat = new THREE.MeshBasicMaterial({ color: COL_AFTER, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dirScene.clone().normalize());
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    ringMesh.quaternion.copy(q);
-    ringMesh.position.y = RING_R + 0.4;
-    group.add(ringMesh);
-
-    const haloMesh = new THREE.Mesh(haloGeo, haloMat); // soft bloom behind the crisp ring
-    haloMesh.quaternion.copy(q);
-    haloMesh.position.y = RING_R + 0.4;
-    group.add(haloMesh);
-
-    const beamMesh = new THREE.Mesh(beamGeo, beamMat); beamMesh.position.y = 45; group.add(beamMesh);
-    const groundGlow = new THREE.Mesh(groundRingGeo, glowMat); groundGlow.rotation.x = -Math.PI / 2; groundGlow.position.y = 0.12; group.add(groundGlow);
-
+    const m = createObjectiveMarker(scene, { radius: RING_R, driveThrough: true });
     const gy = getGroundY ? (getGroundY(world.wx, world.wz) || 0) : 0;
-    group.position.set(sceneX(world.wx), gy, sceneZ(world.wz));
-    group.userData = { ringMat, haloMat, beamMat, glowMat, ringMesh, haloMesh, world };
-    scene.add(group);
-    return group;
+    // The ring faces along the route. Yaw only: a gate leaning with the road grade reads as broken,
+    // and you drive through its middle either way.
+    const face = Math.atan2(dirScene.x, dirScene.z);
+    m.place(sceneX(world.wx), gy, sceneZ(world.wz), COL_AFTER, face);
+    m.hide();                      // refreshGateColors decides which two are shown
+    m.group.userData.world = world;
+    return m;
   }
 
-  function setGateColor(g, hex, active) {
-    g.userData.ringMat.color.setHex(hex);
-    g.userData.haloMat.color.setHex(hex); g.userData.haloMat.opacity = active ? 0.34 : 0.16;
-    g.userData.beamMat.color.setHex(hex); g.userData.beamMat.opacity = active ? 0.18 : 0.09;
-    g.userData.glowMat.color.setHex(hex); g.userData.glowMat.opacity = active ? 0.6 : 0.3;
-  }
   function refreshGateColors() {
     for (let i = 0; i < gates.length; i++) {
       const g = gates[i]; if (!g) continue;
+      // Two gates only: the one you are driving at and the one after it, so the route reads as a
+      // direction rather than as a field of rings. The NEXT one is tinted and the one after is not.
       const show = i === activeIdx || i === activeIdx + 1;
-      g.visible = show;
-      setGateColor(g, i === activeIdx ? COL_NEXT : COL_AFTER, i === activeIdx);
+      if (!show) { g.hide(); continue; }
+      const p = g.group.position;
+      g.place(p.x, p.y, p.z, i === activeIdx ? COL_NEXT : COL_AFTER);
     }
     const t = route[activeIdx];
     getMinimap?.()?.setObjectiveMarker?.(t ? t.wx : null, t ? t.wz : null);
   }
-  function clearGates() { for (const g of gates) if (g) { scene.remove(g); const u = g.userData; u.ringMat.dispose(); u.haloMat.dispose(); u.beamMat.dispose(); u.glowMat.dispose(); } gates.length = 0; }
+  function clearGates() { for (const g of gates) if (g) g.dispose(); gates.length = 0; }
 
   function ding(freq) {
     try {
@@ -264,18 +230,20 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   // ── lifecycle ─────────────────────────────────────────────────────────────
   let _pendingStart = false;
   function start() { _pendingStart = true; state = 'running'; activeIdx = 0; elapsed = 0; renderHud(); }
-  function stop() { state = 'idle'; clearGates(); route = []; _pendingStart = false; countdownEl.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null); renderHud(); }
+  function stop() { state = 'idle'; clearGates(); route = []; _pendingStart = false; countdown.hide(); getMinimap?.()?.setObjectiveMarker?.(null); renderHud(); }
   function finish() {
     state = 'finished';
     const best = getBest();
     _newBest = (best == null || elapsed < best);
     if (_newBest) { try { localStorage.setItem(bestKey, String(Math.round(elapsed))); } catch {} }
     _medal = medalFor(elapsed, route.length);
-    clearGates(); nav.style.display = 'none'; gateTag.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
+    clearGates(); navHud.show(false); gateTag.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null); navRoute.clear(); _nav = null; _navTarget = null;
     ding(880); setTimeout(() => ding(1174), 140); renderHud();
     // celebration
-    const m = _medal || medalFor(elapsed, route.length);
-    fxBanner(`<div style="font-size:60px">${m.emoji}</div><div style="font-size:32px;color:${m.color}">FINISH!</div>`, { duration: 2200, top: '30%' });
+    // ⚠ NO finish BANNER. The result card already says FINISHED, the time, the checkpoint count
+    // and the best — and it lands in the same place, so the two drew on top of each other showing
+    // the same three facts twice. The card is the celebration; the confetti and the flash are the
+    // punctuation.
     fxConfetti(46, undefined, 0.38); fxFlash('rgba(255,210,63,.16)');
     // auto-clear the result after a while if the player just drives off
     setTimeout(() => { if (state === 'finished') stop(); }, 12000);
@@ -286,22 +254,24 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   function updateArrow(carPx, carPz) {
     const target = route[activeIdx];
     const g = gates[activeIdx];
-    if (!target || !g) { nav.style.display = 'none'; gateTag.style.display = 'none'; return; }
-    nav.style.display = 'block';
+    if (!target || !g) { navHud.show(false); gateTag.style.display = 'none'; return; }
+    navHud.show(true);
+    navHud.update(_nav, `Checkpoint ${Math.min(activeIdx + 1, route.length)} of ${route.length}`);
 
     const gx = sceneX(target.wx), gz = sceneZ(target.wz);
-    const dist = Math.hypot(carPx - gx, carPz - gz);
-    navDist.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
 
-    // rotating arrow in the CAMERA's frame (matches what's on screen — a world-bearing calc came out
-    // mirrored L/R because the visual world is X-mirrored). 0 = straight ahead, +cw = to the right.
+    // The gate tag still needs the CAMERA-frame bearing — a world-bearing calc came out mirrored
+    // L/R because the visual world is X-mirrored, and that mirror has not gone anywhere.
     _invQ.copy(camera.quaternion).invert();
     _camSpace.set(gx, camera.position.y, gz).sub(camera.position).applyQuaternion(_invQ);
     const rel = Math.atan2(_camSpace.x, -_camSpace.z);
-    navTri.style.transform = `rotate(${rel}rad)`;
 
     // floating "NEXT" tag over the gate when it's on screen
-    _v.set(gx, g.position.y + RING_R + 0.6, gz).project(camera);
+    // ⚠ `g` is an objectiveMarker API object, NOT a THREE.Group — its transform lives on `g.group`.
+    // This read was `g.position.y` after the M-1 conversion and threw EVERY FRAME inside `animate`,
+    // which killed the whole game loop: the car stopped responding and nothing else in the loop ran.
+    // A per-frame throw in a mode update is indistinguishable from a frozen game.
+    _v.set(gx, g.group.position.y + RING_R + 0.6, gz).project(camera);
     const inFront = Math.abs(rel) < Math.PI / 2;
     if (inFront && Math.abs(_v.x) < 0.95 && Math.abs(_v.y) < 0.95) {
       const sx = (_v.x * 0.5 + 0.5) * window.innerWidth;
@@ -332,7 +302,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
       refreshGateColors();
       // 3·2·1·GO — timer + hit-testing start at GO
       state = 'countdown'; _cd = 3.0; elapsed = 0;
-      countdownEl.style.display = 'block';
+      countdown.set(3);
       renderHud();   // once — show the live wrap
     }
 
@@ -342,13 +312,12 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
       _cd -= dt;
       const n = Math.ceil(_cd);
       if (_cd > 0) {
-        if (n !== prev) { ding(520); countdownEl.style.animation = 'none'; void countdownEl.offsetWidth; countdownEl.style.animation = 'ddCdPop .9s ease-out'; }
-        countdownEl.textContent = String(n);
+        if (n !== prev) { ding(520); countdown.set(n); }
       } else {
         state = 'running'; elapsed = 0;
-        countdownEl.textContent = 'GO!'; countdownEl.style.animation = 'none'; void countdownEl.offsetWidth; countdownEl.style.animation = 'ddCdPop .6s ease-out';
+        countdown.go();
         ding(1046);
-        setTimeout(() => { if (state === 'running') countdownEl.style.display = 'none'; }, 550);
+        setTimeout(() => { if (state === 'running') countdown.hide(); }, 900);
       }
       updateArrow(carPx, carPz);
       updateLiveHud();
@@ -357,16 +326,27 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
 
     elapsed += dt * 1000; _t += dt;
 
-    // pulse/spin the active gate
-    const g = gates[activeIdx];
-    if (g) { const s = 1 + Math.sin(_t * 4) * 0.07; g.userData.ringMesh.scale.set(s, s, s); g.userData.ringMesh.rotateZ(dt * 1.4); g.userData.haloMesh.scale.set(s, s, s); }
+    // Retarget only when the active checkpoint CHANGES — setTarget throws the plan away, so calling
+    // it every frame would replan continuously and never draw a stable line.
+    const tgt = route[activeIdx];
+    if (tgt && tgt !== _navTarget) { _navTarget = tgt; navRoute.setTarget(tgt.wx, tgt.wz); }
+    { const w = worldFromScene(carPx, carPz); _nav = navRoute.update(w.wx, w.wz, dt); }
+
+    // Animate the two visible gates. Both, not just the active one: the gate AFTER the next is what
+    // tells you which way the route turns, and a dead ring beside a live one reads as already cleared.
+    for (const i of [activeIdx, activeIdx + 1]) {
+      const g = gates[i];
+      if (!g || !g.visible) continue;
+      const p = g.group.position;
+      g.update(dt, Math.hypot(carPx - p.x, carPz - p.z));
+    }
 
     // hit test
     const target = route[activeIdx];
     if (target) {
       const gx = sceneX(target.wx), gz = sceneZ(target.wz);
       if (Math.hypot(carPx - gx, carPz - gz) < HIT_RADIUS) {
-        if (gates[activeIdx]) gates[activeIdx].visible = false;
+        gates[activeIdx]?.hide();
         activeIdx++;
         if (activeIdx >= route.length) { finish(); return; }
         ding(680 + activeIdx * 45);
@@ -382,9 +362,11 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   let _flash = null;
   function hudFlash(msg) {
     if (_flash) clearTimeout(_flash);
-    nav.style.display = 'none'; gateTag.style.display = 'none';
-    liveWrap.style.display = 'none'; resultWrap.style.display = 'block';
-    resultWrap.innerHTML = `<div style="font-weight:700;font-size:14px;background:rgba(0,0,0,.6);padding:9px 15px;border-radius:10px">${msg}</div>`;
+    navHud.show(false); gateTag.style.display = 'none';
+    card.show(false);
+    result.show({ kicker: 'Checkpoint Dash', value: '—', stats: [], color: COL_DASH_CSS });
+    result.el.querySelector('.ddr-value').textContent = msg;
+    result.el.querySelector('.ddr-value').style.font = '600 15px/1.35 Inter, sans-serif';
     _flash = setTimeout(() => { _flash = null; renderHud(); }, 2800);
   }
 
@@ -392,7 +374,7 @@ export function createDashMode({ scene, camera, getMinimap, getRoadSegments, get
   return {
     name: 'Checkpoint Dash', icon: '🏁', key: 'dash',
     update, start, stop,
-    dispose() { stop(); hud.remove(); nav.remove(); gateTag.remove(); countdownEl.remove(); againBtn.remove(); cdStyle.remove(); ringGeo.dispose(); haloGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); },
+    dispose() { stop(); card.remove(); result.remove(); navHud.remove(); gateTag.remove(); countdown.remove(); againBtn.remove(); },
     isRunning: () => state === 'running' || state === 'countdown',
   };
 }

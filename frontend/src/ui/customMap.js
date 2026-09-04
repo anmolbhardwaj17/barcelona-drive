@@ -418,5 +418,105 @@ export function createCustomMap() {
       .map(({ name, x, z, tier }) => ({ name, x, z, tier }));
   }
 
-  return { ingestTile, refresh, removeTile, hasTile, clear, setNight, setOnChange, drawTile, searchRoads, get tileCount() { return store.size; } };
+
+  // ── ROUTE OVERLAY ──────────────────────────────────────────────────────────────────────────────
+  //
+  // Drawn AFTER drawTile, into the same canvas, with the same projection — which is the reason it
+  // lives here rather than in minimap.js. The minimap's map div is CSS-rotated to heading-up, so a
+  // route painted into this canvas turns with the city for free; a route drawn in an overlay layer
+  // would have to re-derive the rotation and would drift against the streets under it.
+  //
+  // The look is deliberately the one everybody already reads: a dark CASING under a bright line, so
+  // the route survives both the pale day ground and the navy night one without changing colour, and
+  // a route BLUE that is nothing else on this map. Mode identity stays on the destination pin — a
+  // green route on a green park is a route nobody can see.
+  const ROUTE = {
+    day:   { casing: 'rgba(11,29,54,0.55)', line: '#2b7fff', done: 'rgba(120,150,185,0.55)', chevron: 'rgba(255,255,255,0.95)' },
+    night: { casing: 'rgba(0,0,0,0.62)',    line: '#59b0ff', done: 'rgba(120,140,170,0.45)', chevron: 'rgba(255,255,255,0.85)' },
+  };
+
+  /**
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} size    canvas backing size (px)
+   * @param {number[]} wb    [minX, minZ, maxX, maxZ] — the SAME bounds handed to drawTile
+   * @param {{x:number,y:number}[]} pts  route polyline, world coords
+   * @param {object} [o]
+   * @param {number} [o.alongM]   metres already driven — that much of the line is drawn as "done"
+   * @param {string} [o.pinColor] destination pin colour; defaults to the route blue
+   * @param {number} [o.width]    line width in CSS px (scaled by the canvas backing ratio)
+   */
+  function drawRoute(ctx, size, wb, pts, o = {}) {
+    if (!pts || pts.length < 2) return;
+    const S = _night ? ROUTE.night : ROUTE.day;
+    const [wMinX, wMinZ, wMaxX, wMaxZ] = wb;
+    const kx = size / (wMaxX - wMinX), kz = size / (wMaxZ - wMinZ);
+    const sx = (x) => (x - wMinX) * kx;
+    const sy = (y) => (wMaxZ - y) * kz;
+    // Width is given in CSS px but the canvas is retina-backed, so scale by the same factor drawTile
+    // works in. A route that ignores this is hairline on a 2x display.
+    const k = size / Math.max(1, o.cssSize || size);
+    const w = (o.width || 5) * k;
+
+    const path = (from, to) => {
+      ctx.beginPath();
+      ctx.moveTo(sx(pts[from].x), sy(pts[from].y));
+      for (let i = from + 1; i <= to; i++) ctx.lineTo(sx(pts[i].x), sy(pts[i].y));
+    };
+    ctx.save();
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+    // Casing under the WHOLE route, then the bright line — in that order, or every junction of the
+    // route shows the casing painted over the line it is supposed to be under.
+    path(0, pts.length - 1);
+    ctx.strokeStyle = S.casing; ctx.lineWidth = w + 3.2 * k; ctx.stroke();
+
+    // Split at the driven point so the part behind you reads as spent. Google does this and it is
+    // the single cue that tells you the line is tracking you rather than just sitting there.
+    let cut = 0;
+    if (o.alongM > 0) {
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        acc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        if (acc >= o.alongM) { cut = i; break; }
+      }
+    }
+    if (cut > 0) { path(0, cut); ctx.strokeStyle = S.done; ctx.lineWidth = w; ctx.stroke(); }
+    path(Math.max(0, cut), pts.length - 1);
+    ctx.strokeStyle = S.line; ctx.lineWidth = w; ctx.stroke();
+
+    // Direction chevrons, spaced along the line — which way the route GOES, not just where it runs.
+    const step = 34 * k;
+    let carry = step * 0.6;
+    ctx.fillStyle = S.chevron;
+    for (let i = Math.max(1, cut); i < pts.length; i++) {
+      const ax = sx(pts[i - 1].x), ay = sy(pts[i - 1].y);
+      const bx = sx(pts[i].x), by = sy(pts[i].y);
+      const seg = Math.hypot(bx - ax, by - ay);
+      if (seg < 1e-3) continue;
+      const ux = (bx - ax) / seg, uy = (by - ay) / seg;
+      for (let d = carry; d < seg; d += step) {
+        const cx = ax + ux * d, cy = ay + uy * d;
+        const s = w * 0.42, nx = -uy, ny = ux;
+        ctx.beginPath();
+        ctx.moveTo(cx + ux * s, cy + uy * s);
+        ctx.lineTo(cx - ux * s * 0.6 + nx * s, cy - uy * s * 0.6 + ny * s);
+        ctx.lineTo(cx - ux * s * 0.6 - nx * s, cy - uy * s * 0.6 - ny * s);
+        ctx.closePath(); ctx.fill();
+      }
+      carry = step - ((seg - carry) % step);
+    }
+
+    // Destination pin — the one thing that carries the MODE's colour.
+    const e = pts[pts.length - 1];
+    const ex = sx(e.x), ey = sy(e.y), r = w * 1.15;
+    ctx.beginPath(); ctx.arc(ex, ey, r + 2.2 * k, 0, Math.PI * 2);
+    ctx.fillStyle = S.casing; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2);
+    ctx.fillStyle = o.pinColor || S.line; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex, ey, r * 0.42, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.restore();
+  }
+
+  return { ingestTile, refresh, removeTile, hasTile, clear, setNight, setOnChange, drawTile, drawRoute, searchRoads, get tileCount() { return store.size; } };
 }

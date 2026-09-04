@@ -8,8 +8,12 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { worldToLatLon } from '../projection.js';
 import { CONFIG } from '../config.js';
 import { patchAoDarkening } from './aoSampler.js';
+import { TERRAIN_LIFT } from './groundLayers.js';
 
-const GREEN_OFFSET_Y = 0.01;
+// Z-1: was a local `0.01`, declared identically here AND in vegetationRenderer.js, with
+// areaFeaturesRenderer's own constant carrying the comment "above greens' 0.01" — a numeric
+// dependency on a value it could not see change. One definition now.
+const GREEN_OFFSET_Y = TERRAIN_LIFT.green;
 
 const TYPE_COLORS = {
   park: 0x33591b,

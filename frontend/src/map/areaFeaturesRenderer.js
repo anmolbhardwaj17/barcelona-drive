@@ -9,7 +9,7 @@
  * Polygon coords are parser-convention {x, y} world objects (y = world Z) — same frame as greens.
  */
 import * as THREE from 'three';
-import { applyGroundLayer } from './groundLayers.js';
+import { applyGroundLayer, TERRAIN_LIFT } from './groundLayers.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { worldToLatLon } from '../projection.js';
 import { CONFIG } from '../config.js';
@@ -33,7 +33,9 @@ const PLAZA_TEXTURE = typeof location === 'undefined'
 const PED_AREAS_ON = typeof location === 'undefined'
   || new URLSearchParams(location.search).get('pedareas') !== '0';
 
-const AREA_OFFSET_Y = 0.02;   // above greens' 0.01 so shared-edge coast strips don't z-race
+// Z-1: the comment used to read "above greens' 0.01" — true, and unenforceable from here. Both
+// values now sit in groundLayers.TERRAIN_LIFT, in the same order as their GROUND_LAYERS biases.
+const AREA_OFFSET_Y = TERRAIN_LIFT.area;
 
 // Mid-dark, desaturated bases — the rally grade multiplies saturation ×1.52 and brightens, so
 // palettes are tuned BELOW the target on-screen colour (same lesson as the roof palette).

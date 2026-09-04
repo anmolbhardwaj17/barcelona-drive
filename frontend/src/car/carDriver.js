@@ -100,6 +100,38 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
     b.velocity.set(0, 0, 0);
     b.angularVelocity.set(0, 0, 0);
   };
+  /**
+   * Hold the car inside the world boundary — the invisible wall.
+   *
+   * Called with the push already in the PHYSICS frame (main.js owns the world↔physics mirror, and
+   * this file should not learn it). Three things, in order, because any one alone feels wrong:
+   *   • CLAMP the chassis back to the plane — otherwise you keep creeping out under throttle.
+   *   • KILL THE OUTWARD velocity component only. Zeroing all of it makes the wall a brick; keeping
+   *     the tangential part lets you slide along the edge, which is what a wall does.
+   *   • TURN the car to face back inside. Without this you are left nose-first against nothing with
+   *     no cue about which way the world is.
+   *
+   * @param {number} px  inward push, physics X (metres)
+   * @param {number} pz  inward push, physics Z
+   * @returns {boolean} true if it actually did something (the caller uses this to throttle the notice)
+   */
+  const _holdInBounds = (px, pz) => {
+    const d = Math.hypot(px, pz);
+    if (d < 1e-3) return false;
+    const nx = px / d, nz = pz / d;          // unit, pointing INTO the world
+    const b = physics.chassisBody;
+    b.position.set(b.position.x + px, b.position.y, b.position.z + pz);
+    const v = b.velocity;
+    const outward = v.x * nx + v.z * nz;     // negative = heading out
+    if (outward < 0) v.set(v.x - outward * nx, v.y, v.z - outward * nz);
+    // Forward is +Z rotated by yaw (the same convention carCamera's `_fwdDir` uses), so the heading
+    // that faces the inward normal is atan2(nx, nz).
+    const h = Math.atan2(nx, nz);
+    b.quaternion.set(0, Math.sin(h / 2), 0, Math.cos(h / 2));
+    b.angularVelocity.set(0, 0, 0);
+    return true;
+  };
+
   const _onRecoverKey = (e) => {
     if (e.code !== 'KeyR' || _resetCooldown > 0 || isInputBlocked() || isTypingTarget()) return;
     _resetCooldown = 1.0;
@@ -335,5 +367,5 @@ export async function createCarDriver(scene, world, groundMesh, camera, spawnLoc
   function toggleSound() { sound.setMuted(!sound.isMuted()); return !sound.isMuted(); }
 
   return { update, getLocalPosition, getSpeedKmh, getHeadingDeg, applyTrafficImpact,
-           cycleView: () => carCam.cycleView?.(), getView: () => carCam.getView?.() ?? 0, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb };
+           cycleView: () => carCam.cycleView?.(), getView: () => carCam.getView?.() ?? 0, getCurrentGear, getCurrentRpm, getUpDot: () => physics.getUpDot(), dispose, toggleSound, setNight: (n) => { sound.setNight?.(n); model.setNight?.(n); effects.setNight?.(n); }, toggleHeadlights: () => model.toggleHeadlights?.(), recoverToCrumb: _recoverToCrumb, holdInBounds: _holdInBounds };
 }

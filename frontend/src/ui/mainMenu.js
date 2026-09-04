@@ -18,6 +18,8 @@
  * can replace those files without a code change.
  */
 import { uiSound } from './uiSound.js';
+import { playModeIntro } from '../game/modeIntro.js';
+import { SPAWN_POOL } from '../spawnConfig.js';
 import { setInputBlocked } from '../inputGate.js';
 import { createCarShowcase } from './carShowcase.js';
 import { wallet } from '../game/wallet.js';
@@ -205,16 +207,9 @@ const CSS = `
 }
 `;
 
-const PLACES = [
-  { name: 'Eixample', lat: 41.3920, lon: 2.1650 },
-  { name: 'Sagrada Família', lat: 41.4036, lon: 2.1744 },
-  { name: 'Passeig de Gràcia', lat: 41.3948, lon: 2.1602 },
-  { name: 'Barceloneta', lat: 41.3797, lon: 2.1899 },
-  { name: 'Port Olímpic', lat: 41.3875, lon: 2.1969 },
-  { name: 'Montjuïc', lat: 41.3641, lon: 2.1585 },
-  { name: 'Gothic Quarter', lat: 41.3833, lon: 2.1777 },
-  { name: 'Camp Nou', lat: 41.3809, lon: 2.1228 },
-];
+// Places come from spawnConfig's SPAWN_POOL — the same list the random start draws from, so the
+// picker can never offer somewhere the game will not actually start.
+const PLACES = SPAWN_POOL;
 
 function el(t, c, h) { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
 
@@ -446,14 +441,22 @@ export function createMainMenu(refs = {}) {
   }
 
   let open = false;
-  function drive() {
+  async function drive() {
     if (!open) return;
+    // Capture the pick NOW. `selected` is live and the intro is awaited, so reading it again on the
+    // other side of the await would start whatever the player last hovered, not what they pressed.
+    const pick = selected;
     uiSound.click();
-    try { sessionStorage.setItem('dd_mode', selected.key); } catch { /* private mode */ }
+    try { sessionStorage.setItem('dd_mode', pick.key); } catch { /* private mode */ }
     // One at a time — the same rule the ESC menu enforced.
-    for (const m of modes) if (m !== selected.mode) m.stop?.();
-    if (selected.mode?.start && !selected.mode.isRunning?.()) selected.mode.start();
+    for (const m of modes) if (m !== pick.mode) m.stop?.();
+    // ORDER: hub closes → title card over the city → mode starts. The card must not overlap the
+    // mode's own opening beat — Checkpoint Dash counts 3-2-1 from its first update, and the two
+    // would fight for the same 40% of the screen in different type. Free Roam has a card too; it
+    // just has no mode to start afterwards.
     setOpen(false);
+    await playModeIntro(pick.key, { name: pick.name, icon: pick.icon, blurb: MODE_BLURB[pick.key] || '' });
+    if (pick.mode?.start && !pick.mode.isRunning?.()) pick.mode.start();
   }
 
   function setOpen(v) {

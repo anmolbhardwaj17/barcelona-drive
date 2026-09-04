@@ -108,10 +108,16 @@ const DASH_GAP = 2.0;
 // Paint Y stack (2026-07-16 audit): baked road surface = base+0.07+bump(0.001-0.009), where
 // base = (elevation-offset) and getRoadPointHeights returns base+0.05. Families built via
 // buildFlatRibbonGeometry get a HIDDEN +ROAD_ZFIGHT_OFFSET(0.02) on top of their constant.
-// Target: paint 1.5-3cm above the surface. lane lines base+0.10 · crosswalks base+0.095 ·
-// arrows/pictos/zona30 base+0.095 · edge stripes base+0.105 · bike lanes base+0.09.
-const MARKING_Y_ABOVE_ROAD = 0.03; // +0.05(heights)+0.02(ribbon) = base+0.10 → 2.1-2.9cm above surface
-                                   // under bumps and vanished up close. 0.08 clears the noise + grazing z-fight.
+// Target: paint 1.5-3cm above the surface. Z-1 re-ordered the paint ladder so the depth bias and
+// the height agree; the numbers now live ONLY in groundLayers.GROUND_LIFT and are not restated here,
+// because a restated number is a number that goes stale.
+// Z-1: DERIVED, not copied. This was `0.03`, correct only because 0.03 + the ribbon's hidden 0.02
+// happened to equal GROUND_LIFT.marking. Four paint constants in this file duplicated that table's
+// values with the arithmetic spelled out in a comment — which is the "two references for one height,
+// kept in sync by hand until it isn't" failure groundLayers.js exists to end, sitting inside its
+// biggest client. Ribbon-built paint subtracts ROAD_ZFIGHT_OFFSET because buildFlatRibbonGeometry
+// adds it back; custom-quad paint (arrows) does not.
+const MARKING_Y_ABOVE_ROAD = groundLift('marking') - ROAD_ZFIGHT_OFFSET;
 
 const LANES_BY_TYPE = {
   motorway: 4, trunk: 3, primary: 2, secondary: 2, tertiary: 2,
@@ -1936,7 +1942,10 @@ async function buildOnewayArrows(roads, options, yieldFn) {
   const ARROW_SPACING = 30;    // metres between arrows
   const ARROW_LENGTH  = 0.75;  // half-length of triangle (tip to center)
   const ARROW_HALF_W  = 0.30;  // half-width of triangle base
-  const ARROW_Y_ABOVE = 0.045;  // custom quads (no ribbon +0.02): +0.05 = base+0.095 → clears the baked surface; 0.035 was 3.5-4.5cm BURIED (arrows invisible)
+  // Z-1: derived. Custom quads, so NO ROAD_ZFIGHT_OFFSET to subtract — the full stencil lift
+  // applies. (0.035 once left these 3.5-4.5 cm BURIED, i.e. arrows invisible; the table now owns
+  // the clearance and groundStack.test.js asserts it.)
+  const ARROW_Y_ABOVE = groundLift('stencil');
 
   // Skip road types where arrows would be redundant clutter (direction implied by divider)
   const SKIP_TYPES = new Set(['motorway', 'trunk', 'motorway_link', 'trunk_link']);
@@ -2450,7 +2459,7 @@ async function buildBikeLanes(roads, options, yieldFn) {
 
   const VALID_CYCLEWAY = new Set(['lane', 'opposite_lane', 'track', 'opposite_track']);
   const BIKE_W = BCN_DIMS.BIKE_LANE_WIDTH_ONEWAY; // 2.0m
-  const BIKE_Y_ABOVE = 0.02; // slight raise above asphalt
+  const BIKE_Y_ABOVE = groundLift('bikeLane') - ROAD_ZFIGHT_OFFSET;  // Z-1: derived (ribbon-built)
   // R-J2: tees included. Paint ran straight across 11,934 side-street mouths because the default
   // rule only sees places where two road ENDPOINTS meet, and at a T the through road passes through.
   const junctionPoints = getJunctionPoints(roads, JUNCTION_TOLERANCE, true);
@@ -2836,7 +2845,7 @@ function buildTactilePaving(roads, options) {
 
 const NO_STOP_VALUES  = new Set(['no_stopping']);
 const NO_PARK_VALUES  = new Set(['no_parking']);
-const STRIPE_Y_ABOVE  = 0.035;  // +0.05+0.02(ribbon) = base+0.105 — a hair above lane lines (base+0.10)
+const STRIPE_Y_ABOVE  = groundLift('parkingZone') - ROAD_ZFIGHT_OFFSET;  // Z-1: derived (ribbon-built)
 const STRIPE_W        = BCN_DIMS.LINE_WIDTH_LONGITUDINAL; // 0.10m
 
 let _noParkingMaterial = null;

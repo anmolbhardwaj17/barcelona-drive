@@ -18,6 +18,7 @@ import { getUrbanFeatureExclusionZones } from './urbanFeatureRenderer.js';
 import { worldToLatLon } from '../projection.js';
 import { isVegetationAllowed, isInsideOrNearBuilding } from './vegetationMask.js';
 import { rasterizeSegment } from './roadOccupancyGrid.js';
+import { TERRAIN_LIFT } from './groundLayers.js';
 
 // ---------------------------------------------------------------------------
 // Procedural low-poly tree variants
@@ -235,8 +236,12 @@ export function preloadTreeModels() {
   return Promise.resolve();
 }
 
-// Green area mesh
-const GREEN_OFFSET_Y = 0.01;
+// Green area mesh. Z-1: the second of two identical declarations of this constant — see
+// groundLayers.TERRAIN_LIFT. ⚠ This renderer's green-mesh path is the DEAD twin (N-12):
+// vegetationWorker skips runtime placement whenever a tile carries baked vegetation, which every
+// v10 tile does. Unified anyway — a dormant copy of a shared height is still a copy, and this one
+// wakes up on the fallback path.
+const GREEN_OFFSET_Y = TERRAIN_LIFT.green;
 let sharedGreenMaterial = null;
 
 // ---------------------------------------------------------------------------

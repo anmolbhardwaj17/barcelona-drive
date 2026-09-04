@@ -39,6 +39,34 @@ export const DEFAULT_SPAWN = {
 
 
 
+/**
+ * ── WHERE A FRESH LOAD STARTS ─────────────────────────────────────────────────────────────────
+ *
+ * One list, exported, and the hub's place picker reads THIS rather than keeping its own copy — a
+ * second list of the same nine coordinates is the duplicate-constant failure this codebase has been
+ * bitten by repeatedly (see groundLayers' TERRAIN_LIFT note).
+ *
+ * These are district centres, not surveyed kerbside points: `findRoadSpawn()` snaps to the nearest
+ * drivable non-tunnel road, so being 100 m off a street is fine and being outside the baked extent
+ * is not. `spawnAndEconomy.test.js` asserts every entry is inside SPAWN_BOUNDS — a coordinate that
+ * is not boots the player into a blank world with no tiles, which looks like a broken game and
+ * reads, in the console, like nothing at all.
+ */
+export const SPAWN_POOL = [
+  { name: 'Gran Via',           lat: 41.3866, lon: 2.1640 },
+  { name: 'Eixample',           lat: 41.3920, lon: 2.1650 },
+  { name: 'Sagrada Família',    lat: 41.4036, lon: 2.1744 },
+  { name: 'Passeig de Gràcia',  lat: 41.3948, lon: 2.1602 },
+  { name: 'Barceloneta',        lat: 41.3797, lon: 2.1899 },
+  { name: 'Port Olímpic',       lat: 41.3875, lon: 2.1969 },
+  { name: 'Montjuïc',           lat: 41.3641, lon: 2.1585 },
+  { name: 'Gothic Quarter',     lat: 41.3833, lon: 2.1777 },
+  { name: 'Camp Nou',           lat: 41.3809, lon: 2.1228 },
+  { name: 'Gràcia',             lat: 41.4045, lon: 2.1560 },
+  { name: 'Poblenou',           lat: 41.3990, lon: 2.1995 },
+  { name: 'Sants',              lat: 41.3755, lon: 2.1330 },
+];
+
 // Rough baked Barcelona map extent — a spawn outside this has no tiles (blank/broken world).
 const SPAWN_BOUNDS = { minLat: 41.28, maxLat: 41.47, minLon: 2.04, maxLon: 2.24 };
 export function isSpawnInBounds(lat, lon) {
@@ -68,15 +96,39 @@ export function resetSpawn() {
   _activeSpawn = { ...DEFAULT_SPAWN };
 }
 
-// URL override: ?spawn=lat,lon (the ESC-menu place search reloads with this). Applied at module load,
-// before main.js reads getActiveSpawn(), so the whole world inits at the chosen location.
+/**
+ * ── LOAD-TIME SPAWN RESOLUTION ────────────────────────────────────────────────────────────────
+ *
+ * Priority, highest first:
+ *   1. `?spawn=lat,lon`  — an explicit choice. The hub's place picker navigates with this, so
+ *                          picking a place always wins and holds for that session.
+ *   2. `?spawn=fixed`    — pin DEFAULT_SPAWN. For perf work: the v3 benchmark and `bench/benchRoute`
+ *                          both start at Gran Via, and a randomised start makes every drive report
+ *                          incomparable to the last one. Measure from the same place or do not
+ *                          compare the numbers.
+ *   3. RANDOM from SPAWN_POOL — the default. Every fresh load starts somewhere else.
+ *
+ * ⚠ This only moves `_activeSpawn`. `START_LAT`/`START_LON` stay pinned to DEFAULT_SPAWN because
+ * they are static re-exports and the projection origin must not move — the same reason `?spawn=`
+ * has always been safe.
+ */
 try {
   const sp = new URLSearchParams(globalThis.location?.search || '').get('spawn');
-  if (sp) {
+  if (sp === 'fixed') {
+    // stay on DEFAULT_SPAWN
+  } else if (sp) {
     const [la, lo] = sp.split(',').map(Number);
     // Reject out-of-area coords (e.g. ?spawn=0,0) — they'd boot into an empty world with no baked tiles.
     if (isSpawnInBounds(la, lo)) setActiveSpawn({ lat: la, lon: lo });
-    else if (sp) console.warn(`[spawn] ?spawn=${sp} is outside the Barcelona map area — using default spawn.`);
+    else console.warn(`[spawn] ?spawn=${sp} is outside the Barcelona map area — using default spawn.`);
+  } else {
+    const pick = SPAWN_POOL[Math.floor(Math.random() * SPAWN_POOL.length)];
+    if (pick && isSpawnInBounds(pick.lat, pick.lon)) {
+      setActiveSpawn({ lat: pick.lat, lon: pick.lon });
+      // Not gated behind ?debug: when a player says "it spawned me somewhere odd", this one line is
+      // the difference between reproducing it and guessing.
+      console.log(`[spawn] random start: ${pick.name} (${pick.lat}, ${pick.lon}) — ?spawn=fixed to pin`);
+    }
   }
 } catch { /* no window (SSR/worker) */ }
 

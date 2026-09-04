@@ -10,7 +10,12 @@
  * px=-(wx-ox), pz=wz-oz; the marker lives in `scene` with the traffic so it sits on the road.
  */
 import * as THREE from 'three';
-import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
+import { fxFlash, fxConfetti, fxEvent } from './gameFx.js';
+import { createStatCard, createResultCard } from './hudTheme.js';
+import { taxiFare } from './economy.js';
+import { createObjectiveMarker } from './objectiveMarker.js';
+import { createObjectiveNav } from './objectiveNav.js';
+import { createObjectiveHud } from './objectiveHud.js';
 import { loadPeopleWalkTemplates } from '../car/carModels.js';
 import { wallet } from './wallet.js';
 
@@ -22,6 +27,10 @@ const PICKUP_MIN = 120, PICKUP_MAX = 340;   // metres from the car to the next p
 const TRIP_MIN = 180, TRIP_MAX = 520;       // pickup → dropoff distance range
 const COL_PICKUP = 0x2ee06a;   // green
 const COL_DROP = 0xffc233;     // gold
+// CSS twins of the two marker colours. Named here rather than repeated as hex strings through the
+// HUD, so the card, the banner and the halo cannot drift apart.
+const COL_PICKUP_CSS = '#2ee06a';
+const COL_DROP_CSS = '#ffc233';
 
 export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, getGroundY, getOrigin, audio }) {
   let state = 'idle';           // idle | toPickup | toDropoff
@@ -34,25 +43,16 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   const sceneZ = (wz) => wz - getOrigin().z;
   const worldFromScene = (px, pz) => ({ wx: getOrigin().x - px, wz: pz + getOrigin().z });
 
-  // ── single reusable marker (ring + road glow + light pillar) ────────────
-  const ringGeo = new THREE.TorusGeometry(RING_R, 0.45, 8, 28);
-  const groundRingGeo = new THREE.RingGeometry(RING_R * 0.9, RING_R * 1.25, 32);
-  const beamGeo = new THREE.CylinderGeometry(RING_R * 0.55, RING_R * 0.9, 90, 18, 1, true);
-  const ringMat = new THREE.MeshBasicMaterial({ color: COL_PICKUP, transparent: true, opacity: 0.98, fog: false });
-  const glowMat = new THREE.MeshBasicMaterial({ color: COL_PICKUP, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, fog: false });
-  const beamMat = new THREE.MeshBasicMaterial({ color: COL_PICKUP, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-  const markerGroup = new THREE.Group();
-  const ringMesh = new THREE.Mesh(ringGeo, ringMat); ringMesh.position.y = RING_R + 0.4; markerGroup.add(ringMesh);
-  const beamMesh = new THREE.Mesh(beamGeo, beamMat); beamMesh.position.y = 45; markerGroup.add(beamMesh);
-  const groundGlow = new THREE.Mesh(groundRingGeo, glowMat); groundGlow.rotation.x = -Math.PI / 2; groundGlow.position.y = 0.15; markerGroup.add(groundGlow);
-  markerGroup.visible = false;
-  scene.add(markerGroup);
+  // ── objective halo ─────────────────────────────────────────────────────
+  // Was a local torus + RingGeometry + additive beam, byte-for-byte the same code as deliveryMode's
+  // and a drifted subset of dashMode's. All three are `objectiveMarker.js` now, which also gives
+  // this mode a day/night profile and a distance-faded beam it never had.
+  const marker = createObjectiveMarker(scene, { radius: RING_R });
+  const markerGroup = marker.group;
 
   function placeMarker(world, hex) {
-    ringMat.color.setHex(hex); glowMat.color.setHex(hex); beamMat.color.setHex(hex);
     const gy = getGroundY ? (getGroundY(world.wx, world.wz) || 0) : 0;
-    markerGroup.position.set(sceneX(world.wx), gy, sceneZ(world.wz));
-    markerGroup.visible = true;
+    marker.place(sceneX(world.wx), gy, sceneZ(world.wz), hex);
   }
 
   // ── Passenger character (walks to/from the car during the pickup / drop-off cinematics) ───────────────
@@ -87,9 +87,14 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
       baseAngle: h + Math.PI * 0.55,             // camera starts off to the side
     };
     state = mode === 'board' ? 'boarding' : 'alighting';
-    markerGroup.visible = false;
+    marker.hide();
     if (_pax) { _pax.mesh.visible = true; _pax.phase = 0; }
-    fxBanner(`<span style="font-size:24px;color:#8ef0b0">${mode === 'board' ? '🧍 Picking up…' : '🧍 Dropping off…'}</span>`, { duration: 1100, top: '28%' });
+    fxEvent({
+      kicker: `Fare ${fares + 1}`,
+      title: mode === 'board' ? 'Picking up' : 'Dropping off',
+      color: mode === 'board' ? COL_PICKUP_CSS : COL_DROP_CSS,
+      duration: 1200, top: '26%',
+    });
   }
 
   function updateCinematic(dt) {
@@ -125,11 +130,19 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
       const drop = pickRoad(target.wx, target.wz, TRIP_MIN, TRIP_MAX) || pickRoad(target.wx, target.wz, 80, 900);
       if (drop) {
         tripDist = Math.hypot(drop.wx - target.wx, drop.wz - target.wz);
-        fareBase = Math.round(3 + tripDist * 0.02);
+        fareBase = taxiFare(tripDist);
         expectT = Math.max(6, tripDist / 13); fareT = 0; tip = 0.6;
         target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
-        getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(720);
-        fxBanner('<span style="font-size:34px;color:#8ef0b0">🧍 PASSENGER ABOARD</span>', { duration: 1400, top: '32%' });
+        getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz);
+        navRoute.setTarget(drop.wx, drop.wz); ding(720);
+        // The kicker and sub carry what the player actually wants to know — how far, and what it is
+        // worth — instead of an emoji standing in front of two words.
+        fxEvent({
+          kicker: `Fare ${fares + 1}`,
+          title: 'Passenger aboard',
+          sub: `${tripDist >= 1000 ? `${(tripDist / 1000).toFixed(1)} km` : `${Math.round(tripDist)} m`} · $${fareBase} base · tip decays`,
+          color: COL_PICKUP_CSS, duration: 1700,
+        });
         fxConfetti(14, ['#2ee06a', '#8ef0b0', '#ffffff'], 0.4); fxFlash('rgba(46,224,106,.14)');
       } else { state = 'toPickup'; }
       renderHud();
@@ -139,8 +152,13 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
       const gold = tip > 0.45;
       total += payout; fares += 1;
       wallet.add(payout);   // → persistent balance you can spend in the colour shop
-      fxBanner(`<div style="font-size:30px;color:#8ef0b0">${gold ? '⭐ FARE COMPLETE!' : '✅ DELIVERED!'}</div>` +
-               `<div style="font-size:50px;color:#ffd23f;margin-top:2px">+$${payout}</div>`, { duration: 1900, top: '32%' });
+      fxEvent({
+        kicker: gold ? 'Great fare' : 'Delivered',
+        title: `Fare ${fares} complete`,
+        amount: `+$${payout}`,
+        sub: tip > 0.02 ? `$${fareBase} fare · +${Math.round(tip * 100)}% tip` : `$${fareBase} fare · no tip`,
+        color: COL_DROP_CSS, duration: 2100,
+      });
       fxConfetti(gold ? 40 : 26, undefined, 0.4); fxFlash(gold ? 'rgba(255,210,63,.2)' : 'rgba(255,210,63,.13)');
       ding(880); setTimeout(() => ding(1046), 110); if (gold) setTimeout(() => ding(1318), 220);
       newPickup(_lastPx, _lastPz);
@@ -156,57 +174,34 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   // Start/Quit is driven by the shared game launcher (main.js).
   const btn = { style: {}, remove() {} };   // harmless stub for the internal label writes
 
-  // ── Money / fare card — top-left corner (below the ☰ button), out of the compass + centre view ──
-  const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:92px;left:14px;z-index:1290;display:none;' +
-    'font-family:Inter,system-ui,sans-serif;color:#fff;pointer-events:none;user-select:none;';
-  const liveWrap = document.createElement('div');
-  liveWrap.style.cssText = 'display:none;background:linear-gradient(160deg,rgba(12,34,20,.92),rgba(8,22,14,.92));' +
-    'border:2px solid #2ee06a;border-radius:14px;padding:9px 15px 11px;box-shadow:0 4px 14px rgba(0,0,0,.45);min-width:120px;';
-  const moneyRow = document.createElement('div');
-  moneyRow.style.cssText = 'display:flex;align-items:center;gap:7px;';
-  const coin = document.createElement('div'); coin.textContent = '💵'; coin.style.cssText = 'font-size:19px;line-height:1;';
-  const liveTotal = document.createElement('div');
-  liveTotal.style.cssText = "font-family:'Inter',sans-serif;font-size:30px;line-height:1;color:#8ef0b0;text-shadow:0 2px 5px rgba(0,0,0,.6)";
-  moneyRow.appendChild(coin); moneyRow.appendChild(liveTotal);
-  const liveObj = document.createElement('div');
-  liveObj.style.cssText = 'font-weight:700;font-size:12px;letter-spacing:.3px;opacity:.85;margin-top:4px;';
-  const meterWrap = document.createElement('div');
-  meterWrap.style.cssText = 'margin-top:7px;width:100%;height:6px;background:rgba(255,255,255,.18);border-radius:3px;overflow:hidden;display:none';
-  const meterFill = document.createElement('div'); meterFill.style.cssText = 'height:100%;width:60%;background:#ffd23f;transition:width .2s'; meterWrap.appendChild(meterFill);
-  const tipLbl = document.createElement('div'); tipLbl.style.cssText = 'font-size:10px;opacity:.8;margin-top:2px;display:none';
-  liveWrap.appendChild(moneyRow); liveWrap.appendChild(liveObj); liveWrap.appendChild(meterWrap); liveWrap.appendChild(tipLbl);
-  hud.appendChild(liveWrap);
-  document.body.appendChild(hud);
-
-  // ── End-of-shift result — its own centred overlay (not the corner card) ──
-  const resultWrap = document.createElement('div');
-  resultWrap.style.cssText = 'position:fixed;top:34%;left:50%;transform:translate(-50%,-50%);z-index:1300;display:none;' +
-    'text-align:center;font-family:Inter,sans-serif;color:#fff;pointer-events:none;user-select:none;' +
-    'background:rgba(8,22,14,.92);border:2px solid #2ee06a;border-radius:18px;padding:16px 32px;box-shadow:0 6px 22px rgba(0,0,0,.55);';
-  document.body.appendChild(resultWrap);
+  // ── Earnings card (top-left) + end-of-shift panel ────────────────────────────────────────────
+  // Was a green-bordered panel with a 💵 emoji and a mint number. Three problems, all fixed by
+  // moving to the shared card (see hudTheme.js): the saturated all-round border is the browser's
+  // WARNING idiom so a readout read as an alert; green panel + green border + mint number over a
+  // park is invisible; and the emoji was doing no work the "$" in the number was not already doing.
+  // Top-RIGHT. Every mode readout now lives in the same column — the minimap owns bottom-left, the
+  // objective card owns top-centre, and the day/night button vacated this corner. A card in each
+  // corner is three places to look while driving.
+  const card = createStatCard({ label: 'EARNINGS', color: COL_PICKUP_CSS, rail: true });
+  const result = createResultCard({ color: COL_PICKUP_CSS });
 
   const updateLiveHud = () => {
-    liveTotal.textContent = `$${total}`;
-    liveObj.textContent = `Fare ${fares + 1} · ${state === 'toPickup' ? 'Pick up' : 'Drop off'}`;
     const drop = state === 'toDropoff';
-    meterWrap.style.display = drop ? 'block' : 'none';
-    tipLbl.style.display = drop ? 'block' : 'none';
-    if (drop) { meterFill.style.width = `${Math.round(tip / 0.6 * 100)}%`; tipLbl.textContent = `tip +${Math.round(tip * 100)}%`; }
+    // The sub-line no longer repeats the objective. It used to read "Fare 1 · Pick up" while the
+    // objective card two inches away said PICK UP in 10px caps — the same word, twice, at the same
+    // moment. The corner card's job is the MONEY; the centre card's job is where to go.
+    card.setLabel(drop ? 'FARE IN PROGRESS' : 'EARNINGS');
+    card.set(`$${total}`, drop ? `Fare ${fares + 1} · $${fareBase} base` : `${fares} completed`);
+    card.meter(drop ? tip / 0.6 : null, `+${Math.round(tip * 100)}% TIP`);
   };
 
-  // objective compass pill + on-marker tag
-  const nav = document.createElement('div');
-  nav.style.cssText = 'position:fixed;top:132px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
-    'pointer-events:none;user-select:none;text-align:center;background:rgba(8,26,16,.72);border:2px solid #2ee06a;' +
-    'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
-  nav.innerHTML =
-    '<div class="t-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
-    'border-right:8px solid transparent;border-bottom:30px solid #2ee06a;filter:drop-shadow(0 0 5px #2ee06a);transition:transform .12s"></div>' +
-    '<div class="t-lbl" style="font:800 11px Inter,sans-serif;letter-spacing:1px;color:#bff5d1">PICK UP</div>' +
-    '<div class="t-dist" style="font-family:\'Inter\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
-  const navTri = nav.querySelector('.t-tri'), navLbl = nav.querySelector('.t-lbl'), navDist = nav.querySelector('.t-dist');
-  document.body.appendChild(nav);
+  // ── objective card + road routing ────────────────────────────────────────────────────────────
+  // Was a hand-built pill with a CSS-triangle bearing arrow and a CROW-FLIES distance. On an
+  // Eixample grid that number climbs while you drive the correct route round a block. Now: the next
+  // turn, by name, over the distance remaining ALONG THE ROADS. See objectiveHud / objectiveNav.
+  const navHud = createObjectiveHud({ label: 'PICK UP', color: '#2ee06a' });
+  const navRoute = createObjectiveNav({ getRoadSegments, getMinimap, color: '#2ee06a' });
+  let _nav = null;
 
   const tag = document.createElement('div');
   tag.style.cssText = 'position:fixed;z-index:1291;display:none;pointer-events:none;user-select:none;transform:translate(-50%,-100%);text-align:center;font-family:Inter,sans-serif;';
@@ -234,18 +229,26 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   // State-change only (start/pickup/dropoff/end) — per-frame values go through updateLiveHud().
   function renderHud() {
     const active = state === 'toPickup' || state === 'toDropoff';
-    hud.style.display = active ? 'block' : 'none';
-    liveWrap.style.display = active ? 'block' : 'none';
-    resultWrap.style.display = state === 'ended' ? 'block' : 'none';
+    card.show(active);
     if (active) {
       updateLiveHud();
+      result.hide();
     } else if (state === 'ended') {
-      resultWrap.innerHTML =
-        `<div style="font-family:'Inter',sans-serif;font-size:24px;color:#8ef0b0">SHIFT OVER</div>` +
-        `<div style="font-family:'Inter',sans-serif;font-size:40px;text-shadow:0 2px 6px rgba(0,0,0,.6)">$${total}</div>` +
-        `<div style="font-weight:700;font-size:13px;opacity:.9">${fares} fares · best $${getBest()}</div>`;
+      const best = getBest();
+      result.show({
+        kicker: 'SHIFT OVER',
+        value: `$${total}`,
+        // "1 fares" shipped. A plural that is wrong exactly when the player has done the least is
+        // the one they are most likely to see.
+        stats: [
+          { label: fares === 1 ? 'fare' : 'fares', value: String(fares) },
+          { label: 'best shift', value: `$${Math.max(best, total)}` },
+        ],
+      });
+    } else {
+      result.hide();
     }
-    nav.style.display = active ? 'block' : 'none';
+    navHud.show(active);
     if (!active) tag.style.display = 'none';
   }
 
@@ -282,7 +285,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     if (fares > 0 || total > 0) { if (total > getBest()) { try { localStorage.setItem(bestKey, String(total)); } catch {} } state = 'ended'; setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 9000); }
     else state = 'idle';
     cine = null; if (_pax) _pax.mesh.visible = false;   // abort any in-progress cinematic cleanly
-    target = null; markerGroup.visible = false; getMinimap?.()?.setObjectiveMarker?.(null); renderHud();
+    target = null; marker.hide(); getMinimap?.()?.setObjectiveMarker?.(null); navRoute.clear(); _nav = null; renderHud();
   }
 
   const _v = new THREE.Vector3(), _camSpace = new THREE.Vector3(), _invQ = new THREE.Quaternion();
@@ -293,24 +296,27 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     if (!p) { flash('No roads nearby — drive into the city'); state = 'idle'; renderHud(); return; }
     target = p; state = 'toPickup'; placeMarker(p, COL_PICKUP);
     getMinimap?.()?.setObjectiveMarker?.(p.wx, p.wz);
+    navRoute.setTarget(p.wx, p.wz);
   }
   function updateMarkerUi(carPx, carPz) {
-    if (!target) { nav.style.display = 'none'; tag.style.display = 'none'; return; }
+    if (!target) { navHud.show(false); tag.style.display = 'none'; return; }
     const isPickup = state === 'toPickup';
     const col = isPickup ? '#2ee06a' : '#ffc233';
-    nav.style.borderColor = col; navTri.style.borderBottomColor = col; navTri.style.filter = `drop-shadow(0 0 5px ${col})`;
-    navLbl.textContent = isPickup ? 'PICK UP' : 'DROP OFF'; navLbl.style.color = isPickup ? '#bff5d1' : '#ffe6a8';
+    navHud.setLabel(isPickup ? 'PICK UP' : 'DROP OFF', col);
+    card.setAccent(col);
+    navHud.update(_nav, isPickup ? `Fare ${fares + 1}` : `Tip +${Math.round(tip * 100)}%`);
+
     const gx = sceneX(target.wx), gz = sceneZ(target.wz);
-    const dist = Math.hypot(carPx - gx, carPz - gz);
-    navDist.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
     _invQ.copy(camera.quaternion).invert();
     _camSpace.set(gx, camera.position.y, gz).sub(camera.position).applyQuaternion(_invQ);
     const rel = Math.atan2(_camSpace.x, -_camSpace.z);
-    navTri.style.transform = `rotate(${rel}rad)`;
-    // on-screen tag
+
+    // on-screen tag over the marker
     _v.set(gx, markerGroup.position.y + RING_R + 0.6, gz).project(camera);
     if (Math.abs(rel) < Math.PI / 2 && Math.abs(_v.x) < 0.95 && Math.abs(_v.y) < 0.95) {
-      tag.innerHTML = `<div style="display:inline-block;background:${col};color:#062;font-weight:800;font-size:11px;padding:3px 9px;border-radius:9px;box-shadow:0 2px 8px rgba(0,0,0,.45)">${isPickup ? 'PICK UP' : 'DROP OFF'}</div>` +
+      const km = _nav?.remainingM;
+      const dtxt = km == null ? '' : (km >= 1000 ? `${(km / 1000).toFixed(1)} km` : `${Math.round(km)} m`);
+      tag.innerHTML = `<div style="display:inline-block;background:${col};color:#062;font-weight:800;font-size:11px;padding:3px 9px;border-radius:9px;box-shadow:0 2px 8px rgba(0,0,0,.45)">${isPickup ? 'PICK UP' : 'DROP OFF'}${dtxt ? ` · ${dtxt}` : ''}</div>` +
         `<div style="width:0;height:0;margin:0 auto;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${col}"></div>`;
       tag.style.left = `${(_v.x * 0.5 + 0.5) * window.innerWidth}px`; tag.style.top = `${(-_v.y * 0.5 + 0.5) * window.innerHeight}px`;
       tag.style.display = 'block';
@@ -327,7 +333,14 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
     if (_pending) { _pending = false; newPickup(carPx, carPz); if (state === 'idle') return; }
 
     _t += dt;
-    if (markerGroup.visible) { const s = 1 + Math.sin(_t * 4) * 0.07; ringMesh.scale.set(s, s, s); ringMesh.rotateZ(dt * 1.4); }
+    // Route: the car's scene position back to world, because the router works in the world frame the
+    // road points are stored in — no mirror, no physics origin.
+    { const w = worldFromScene(carPx, carPz); _nav = navRoute.update(w.wx, w.wz, dt); }
+
+    // The halo breathes and fades its beam by RANGE — the beam is a locator, so it is what tells you
+    // the fare is behind that block, and it is in the way of the thing it points at once you arrive.
+    marker.update(dt, marker.visible
+      ? Math.hypot(carPx - markerGroup.position.x, carPz - markerGroup.position.z) : Infinity);
 
     if (state === 'toDropoff') { fareT += dt; tip = Math.max(0, 0.6 * (1 - fareT / (expectT * 1.4))); }
 
@@ -352,7 +365,7 @@ export function createTaxiMode({ scene, camera, getMinimap, getRoadSegments, get
   return {
     name: 'City Cab', icon: '🚕', key: 'taxi',
     update, start, stop, isCinematic,
-    dispose() { stop(); hud.remove(); nav.remove(); tag.remove(); pop.remove(); popStyle.remove(); toast.remove(); scene.remove(markerGroup); if (_pax) scene.remove(_pax.mesh); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    dispose() { stop(); card.remove(); result.remove(); navHud.remove(); tag.remove(); pop.remove(); popStyle.remove(); toast.remove(); marker.dispose(); if (_pax) scene.remove(_pax.mesh); },
     isRunning: () => state === 'toPickup' || state === 'toDropoff' || state === 'boarding' || state === 'alighting',
   };
 }

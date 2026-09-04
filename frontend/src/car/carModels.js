@@ -22,7 +22,7 @@
 import * as THREE from 'three';
 import { makeGLTFLoader } from '../loaders.js';
 import { registerMaterial } from '../map/materialRegistry.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { onCarEnvMap } from './carModel.js';   // V-2 — traffic reflects the same sky
 
 const _loader = makeGLTFLoader();
@@ -453,10 +453,19 @@ function bakePosedMesh(mesh) {
   out.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
   out.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   if (idx) out.setIndex(Array.from(idx.array));
-  const nono = out.toNonIndexed();
-  nono.computeVertexNormals();
-  return nono;
+  // ── SHADING: creased, not flat ────────────────────────────────────────────────────────────────
+  // `toNonIndexed()` + `computeVertexNormals()` gives every triangle its own normal, i.e. FLAT
+  // shading. On a 1,786-2,776 triangle human that is the whole reason they read as origami: the
+  // model is not especially low-poly for a background crowd, it was being lit as if it were faceted
+  // on purpose. `toCreasedNormals` averages normals across edges under the crease angle and keeps
+  // the hard ones, so a cheek and a shoulder round off while a collar, a cuff and a shoe sole stay
+  // sharp. Same triangles, same draw calls, same memory — only the normal attribute changes.
+  return toCreasedNormals(out, PED_CREASE_ANGLE);
 }
+
+// 55°: above a jacket seam, below the angle between a torso facet and an arm facet. At 60° (the
+// helper's default) the shoulders bled into the arms; below ~45° the head goes back to faceted.
+const PED_CREASE_ANGLE = (55 * Math.PI) / 180;
 
 /**
  * Walk-cycle FLIPBOOK: bake `frameCount` frames of the walk animation + one idle pose into static
@@ -489,7 +498,14 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
 
   const dur = walk ? walk.duration : 0;
   const frames = [];
-  for (let f = 0; f < frameCount; f++) frames.push(bakeAt(walk, (dur * f) / frameCount));
+  // YIELD between frames. Each bake is a full re-skin + creased-normal pass over the whole character,
+  // and there are now `frameCount` of them per variant; done in one synchronous loop that is a single
+  // multi-hundred-millisecond frame during load. Nothing waits on these — the crowd appears when it
+  // appears — so paying a macrotask per frame costs nothing and keeps the hitch out of the loop.
+  for (let f = 0; f < frameCount; f++) {
+    frames.push(bakeAt(walk, (dur * f) / frameCount));
+    if (f % 2 === 1) await new Promise((r) => setTimeout(r, 0));
+  }
   const idle = bakeAt(idleClip, 0);
   // near the end of the fall/death clip = fully collapsed on the ground
   let fall = fallClip ? bakeAt(fallClip, fallClip.duration * 0.92) : null;

@@ -53,3 +53,78 @@ export function fxBanner(html, { duration = 1800, top = '34%' } = {}) {
     { transform: 'translate(-50%,-62%) scale(1)', opacity: 0 },
   ], { duration, easing: 'ease-out' }).onfinish = () => b.remove();
 }
+
+// ── STRUCTURED CENTRE BANNER ──────────────────────────────────────────────────────────────────
+//
+// `fxBanner` takes an HTML string, so every call site invented its own type: 24px mint here, 34px
+// mint there, a 50px gold number below a 30px one, and an emoji standing in for an icon in all of
+// them. Emoji are the worst part — they render as a different picture on every platform, they carry
+// the OS's colour palette rather than the game's, and 🧍 in front of "Picking up…" is doing no work
+// that the words are not already doing.
+//
+// This gives the same three slots to everyone: a small KICKER for context ("FARE 3"), a big TITLE
+// for the event, and a quiet SUB for the detail. Copy stays in the caller; type does not.
+import { injectHudTheme } from './hudTheme.js';
+
+let _bannerStyle = false;
+function bannerStyle() {
+  if (_bannerStyle) return;
+  _bannerStyle = true;
+  injectHudTheme();
+  const st = document.createElement('style');
+  st.textContent = `
+.ddb { text-align:center; font-family:Inter, system-ui, sans-serif; color:#fff; white-space:nowrap;
+  text-shadow:0 4px 22px rgba(0,0,0,.75); }
+.ddb-kicker { font:800 11px/1 Inter, sans-serif; letter-spacing:.28em; text-transform:uppercase;
+  opacity:.9; }
+.ddb-title { font:800 40px/1.05 Inter, sans-serif; letter-spacing:.06em; text-transform:uppercase;
+  margin-top:9px; }
+.ddb-rule { height:2px; width:0; margin:11px auto 0; border-radius:1px; }
+.ddb-sub { font:600 13px/1.3 Inter, sans-serif; letter-spacing:.1em; text-transform:uppercase;
+  color:rgba(255,255,255,.7); margin-top:10px; }
+.ddb-amount { font:800 54px/1 Inter, sans-serif; font-variant-numeric:tabular-nums; margin-top:8px; }`;
+  document.head.appendChild(st);
+}
+
+/**
+ * @param {object} o
+ * @param {string} [o.kicker]  small caps line above — context ("FARE 3", "CHECKPOINT 4 OF 9")
+ * @param {string} [o.title]   the event, in caps
+ * @param {string} [o.amount]  a money/score figure, shown large under the title
+ * @param {string} [o.sub]     quiet detail line
+ * @param {string} [o.color]   accent for the kicker, rule and amount
+ * @param {number} [o.duration]
+ */
+export function fxEvent({ kicker = '', title = '', amount = '', sub = '', color = '#ffd23f', duration = 1900, top = '32%' } = {}) {
+  bannerStyle();
+  const b = document.createElement('div');
+  b.className = 'ddb';
+  b.style.cssText = `position:absolute;top:${top};left:50%;transform:translate(-50%,-50%);`;
+  b.innerHTML =
+    (kicker ? `<div class="ddb-kicker"></div>` : '') +
+    (title ? `<div class="ddb-title"></div>` : '') +
+    `<div class="ddb-rule"></div>` +
+    (amount ? `<div class="ddb-amount"></div>` : '') +
+    (sub ? `<div class="ddb-sub"></div>` : '');
+  // textContent for every caller-supplied string: these carry street names straight out of OSM data,
+  // and an apostrophe in "Carrer d'Aragó" has no business being parsed as markup.
+  const set = (sel, txt) => { const el = b.querySelector(sel); if (el) el.textContent = txt; };
+  set('.ddb-kicker', kicker); set('.ddb-title', title);
+  set('.ddb-amount', amount); set('.ddb-sub', sub);
+  const kEl = b.querySelector('.ddb-kicker'); if (kEl) kEl.style.color = color;
+  const aEl = b.querySelector('.ddb-amount'); if (aEl) aEl.style.color = color;
+  const rule = b.querySelector('.ddb-rule');
+  rule.style.background = `linear-gradient(90deg, transparent, ${color}, transparent)`;
+
+  layer().appendChild(b);
+  b.animate([
+    { transform: 'translate(-50%,-46%) scale(.94)', opacity: 0 },
+    { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.14 },
+    { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.78 },
+    { transform: 'translate(-50%,-58%) scale(1)', opacity: 0 },
+  ], { duration, easing: 'cubic-bezier(.16,.84,.34,1)' }).onfinish = () => b.remove();
+  // The rule wipes out from the centre — the one bit of motion that makes this read as a title card
+  // rather than a notification.
+  rule.animate([{ width: '0px' }, { width: '260px' }],
+    { duration: Math.min(700, duration * 0.4), delay: 90, easing: 'cubic-bezier(.16,.84,.34,1)', fill: 'both' });
+}

@@ -69,22 +69,76 @@ export const GROUND_LIFT = {
   // is above the asphalt at all. A "0.03 lift" is really 1-10 mm of clearance, which is what left
   // lane arrows buried wherever the surface bumped.
   //
-  // These values reproduce the audited stack exactly, so nothing shipped moves:
-  //   lane lines base+0.100 · parking stripes base+0.105 · crosswalks base+0.095
-  //   arrows/pictos/zona30 base+0.095 · bike lanes base+0.090
+  // ── Z-1 (2026-09-04): THE TWO TABLES USED TO ENCODE OPPOSITE ORDERS ──────────────────────────
   //
-  // NOTE the parking stripes sit ABOVE lane lines geometrically while their depth bias (-12) puts
-  // them UNDER lane paint (-14). That mismatch is shipped and audited, so it is reproduced rather
-  // than silently "corrected" here — but it is exactly the kind of disagreement that makes which
-  // surface wins depend on viewing angle, and it is a candidate for the next paint pass.
+  // The previous note here flagged ONE disagreement — parking stripes geometrically above lane
+  // lines while their depth bias put them under — and reproduced it rather than correcting it,
+  // calling it "a candidate for the next paint pass". Measured across all 21 pairs, it was not one
+  // straggler: the four PAINT classes were a **fully inverted block**, 5 inverted pairs, while the
+  // three non-paint classes (gore, drain, bikeLane) agreed. Bottom → top:
+  //
+  //     by depth bias:  gore < drain < bikeLane < parkingZone < marking < crossing < stencil
+  //     by height:      gore < drain < bikeLane < crossing < stencil < marking < parkingZone
+  //
+  // Both halves of the module were therefore correct in isolation and contradicted each other in
+  // exactly the region that matters, which is why nothing ever looked wrong enough to chase: the
+  // two orders swap over as the camera moves. `polygonOffset`'s slope term (`factor × m`) grows
+  // with the depth gradient, and road is viewed at a grazing angle from a chase camera — so the
+  // BIAS order wins down the street while the 5 mm of real separation wins under the bumper. Which
+  // paint is on top changes as you drive toward it.
+  //
+  // RESOLVED IN THE DIRECTION OF THE BIAS, for two reasons. The bias order encodes the art intent
+  // ("stencil = topmost paint") and it is physically right for the pair that actually overlaps on a
+  // real street: a zebra is painted ACROSS the lane lines, so `crossing` belongs over `marking`.
+  // And it is the order visible at the grazing angles road is mostly seen at, so matching the
+  // geometry to it is the change that moves the least on screen.
+  //
+  // ⚠ THE LADDER IS A 2 mm STEP AT THE FLOOR, AND THAT MATTERS — the first cut used 5 mm and held
+  // the base a step high "for margin", which nearly DOUBLED the zebra crossings' height above the
+  // asphalt (1.6 cm → 3.1 cm) and more than doubled the stencils (1.6 → 3.6). User, on a Sants
+  // crossing: *"they are pretty high in z axis and looks floating"* — correct. Paint does not need
+  // clearance to be ORDERED; it needs clearance not to be BURIED, and only the order was broken.
+  // Fixing an ordering bug by raising everything is fixing the wrong quantity.
+  //
+  // The order is unchanged and still asserted. The steps are now the smallest that keep it legible
+  // to the depth buffer, and the base is the lowest that clears MIN_PAINT_CLEARANCE over the drawn
+  // asphalt (deck + BAKED_SURFACE_ABOVE_ROAD_Y = deck + 0.029). Crossings sit 2.0 cm proud, against
+  // the 1.6 cm that shipped for months without complaint.
+  //
+  // ⚠ ADDING A PAINT CLASS? Its lift and its bias must AGREE. `groundStack.test.js` asserts it for
+  // every pair sharing a base — that assertion is the whole point of this note.
   gore:         0.005,
   drain:        0.020,
   bikeLane:     0.040,   // a SURFACE, not paint — sits under the lane paint
-  parkingZone:  0.055,   // blue-zone / no-parking stripes (roadRenderer STRIPE_Y_ABOVE) -> base+0.105
-  crossing:     0.045,   // zebra
-  stencil:      0.045,   // arrows / pictograms / zona30 — matches roadRenderer exactly
-  marking:      0.050,   // lane lines
+  parkingZone:  0.045,   // blue-zone / no-parking stripes (roadRenderer STRIPE_Y_ABOVE) -> 1.6 cm proud
+  marking:      0.047,   // lane lines                                                   -> 1.8 cm
+  crossing:     0.049,   // zebra — over the lane lines it is painted across             -> 2.0 cm
+  stencil:      0.051,   // arrows / pictograms / zona30 — topmost paint                 -> 2.2 cm
   tactile:      0.005,   // ⚠ sits on the SIDEWALK surface — use sidewalkSurfaceY(), not roadDeckY()
+};
+
+/**
+ * The classes whose GROUND_LIFT is measured from `roadDeckY()`, and which therefore share a base
+ * and can be compared. `tactile` is deliberately absent — it is measured from the SIDEWALK surface,
+ * so its 0.005 is not comparable with a paint lift and ordering it against one is meaningless.
+ */
+export const ROAD_BASED_LIFTS = ['gore', 'drain', 'bikeLane', 'parkingZone', 'marking', 'crossing', 'stencil'];
+
+// ── TERRAIN-RELATIVE LIFTS ───────────────────────────────────────────────────────────────────────
+//
+// Z-1: the same "one height, two references" failure, one layer down. `GREEN_OFFSET_Y = 0.01` was
+// declared **twice** — identically, in `greensRenderer.js` and `vegetationRenderer.js` — and
+// `areaFeaturesRenderer.js` carried `AREA_OFFSET_Y = 0.02` with the comment *"above greens' 0.01"*,
+// a numeric dependency on a constant it does not import and cannot see change. Three copies of one
+// ladder, kept in agreement by hand.
+//
+// Values are unchanged, so nothing on screen moves; what changes is that there is now one of them.
+// Ordering matches the GROUND_LAYERS biases (green -2 below beach -3 / pedArea -3.4), so the same
+// agreement assertion covers this table too.
+export const TERRAIN_LIFT = {
+  green: 0.010,   // parks / gardens / grass polygons, straight onto terrain
+  area:  0.020,   // beach / plaza / pedestrian-area fills — above greens so shared coast edges
+                  //  do not z-race along the strip where a park meets the sand
 };
 
 /**
@@ -124,6 +178,13 @@ export function sidewalkSurfaceY(normalisedY) {
  * of a height that must agree with the first, kept in sync by hand until it isn't.
  */
 export { CURB_HEIGHT };
+
+/** Lift for a terrain-relative ground class, in metres above the terrain mesh. */
+export function terrainLift(layerClass) {
+  const lift = TERRAIN_LIFT[layerClass];
+  if (lift === undefined) throw new Error(`groundLayers: no terrain lift for class '${layerClass}'`);
+  return lift;
+}
 
 /** Lift for a ground class, in metres above the drawn road surface. */
 export function groundLift(layerClass) {

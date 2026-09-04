@@ -13,7 +13,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GROUND_LAYERS, GROUND_LIFT, groundLift, roadDeckY, sidewalkSurfaceY, CURB_HEIGHT,
-         ROAD_VISUAL_ABOVE_TERRAIN, BAKED_SURFACE_ABOVE_ROAD_Y, MIN_PAINT_CLEARANCE }
+         ROAD_VISUAL_ABOVE_TERRAIN, BAKED_SURFACE_ABOVE_ROAD_Y, MIN_PAINT_CLEARANCE,
+         ROAD_BASED_LIFTS, TERRAIN_LIFT, terrainLift }
   from '../src/map/groundLayers.js';
 
 test('the drawn road surface sits above the road base by exactly the visual lift', () => {
@@ -44,16 +45,78 @@ test('every paint class clears the TOP OF THE ASPHALT, not just the road deck', 
   }
 });
 
-test('the shipped paint stack is reproduced exactly — these numbers were audited', () => {
-  // 2026-07-16 paint-stack audit. Changing any of these moves shipped art, so it must be a
-  // deliberate edit, not a side effect of refactoring the constants into a shared table.
+test('the shipped paint stack is pinned — these numbers move art, so they move deliberately', () => {
+  // 2026-07-16 paint-stack audit, RE-ORDERED by Z-1 (2026-09-04). Changing any of these moves
+  // shipped art, so it must be a deliberate edit, not a side effect of refactoring constants.
   // Tolerance: these are sums of binary floats, so exact equality fails on 0.105 alone.
+  //
+  // The audited 2026-07 values were marking 0.100 · crossing 0.095 · stencil 0.095 ·
+  // parkingZone 0.105. They encoded the EXACT REVERSE of the depth-bias order for all four paint
+  // classes, so which paint won depended on viewing angle.
+  //
+  // ⚠ Z-1 rebuilt the ladder in bias order at a 5 mm step held one step off the floor, and that was
+  // an over-correction: crossings went from 1.6 cm proud of the asphalt to 3.1 cm and read as
+  // FLOATING on screen. The order was the bug; the height was not. Now a 2 mm step at the lowest
+  // base that clears MIN_PAINT_CLEARANCE — every class sits within 6 mm of where it shipped.
   const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `expected ~${b}, got ${a}`);
-  near(roadDeckY(0) + groundLift('marking'), 0.10);              // lane lines
-  near(roadDeckY(0) + groundLift('crossing'), 0.095);            // crosswalks
-  near(roadDeckY(0) + groundLift('stencil'), 0.095);             // arrows / pictos / zona30
-  near(roadDeckY(0) + groundLift('parkingZone'), 0.105);         // blue-zone / no-parking stripes
-  near(roadDeckY(0) + groundLift('bikeLane'), 0.09);             // bike lane surface
+  near(roadDeckY(0) + groundLift('bikeLane'), 0.090);            // bike lane SURFACE (unchanged)
+  near(roadDeckY(0) + groundLift('parkingZone'), 0.095);         // blue-zone / no-parking stripes
+  near(roadDeckY(0) + groundLift('marking'), 0.097);             // lane lines
+  near(roadDeckY(0) + groundLift('crossing'), 0.099);            // crosswalks — over the lines
+  near(roadDeckY(0) + groundLift('stencil'), 0.101);             // arrows / pictos / zona30 — topmost
+});
+
+// ── Z-1: THE ASSERTION THIS WHOLE TASK EXISTS FOR ──────────────────────────────────────────────
+test('depth-bias order and physical order AGREE for every pair that shares a base', () => {
+  // groundLayers.js has two tables. Each was internally consistent and they encoded OPPOSITE orders
+  // for the four paint classes — 5 inverted pairs of 21. Nothing looked wrong enough to chase
+  // because the two orders swap over as the camera moves: polygonOffset's slope term grows with the
+  // depth gradient and road is seen at a grazing angle, so the BIAS order wins down the street while
+  // the few millimetres of real separation win under the bumper.
+  const inverted = [];
+  for (let i = 0; i < ROAD_BASED_LIFTS.length; i++) {
+    for (let j = i + 1; j < ROAD_BASED_LIFTS.length; j++) {
+      const a = ROAD_BASED_LIFTS[i], b = ROAD_BASED_LIFTS[j];
+      const dBias = GROUND_LAYERS[a] - GROUND_LAYERS[b];   // negative => a is drawn on top
+      const dLift = GROUND_LIFT[a] - GROUND_LIFT[b];       // positive => a is physically higher
+      if (dBias === 0 || dLift === 0) continue;            // a tie in either is broken by the other
+      if (Math.sign(dBias) === Math.sign(dLift)) {
+        inverted.push(`${a} vs ${b}: bias puts ${dBias < 0 ? a : b} on top, height puts ${dLift > 0 ? a : b} on top`);
+      }
+    }
+  }
+  assert.deepEqual(inverted, [], `\n  ${inverted.join('\n  ')}\n`);
+});
+
+test('no paint class floats — clearance has a CEILING as well as a floor', () => {
+  // The floor stops burial; this stops the opposite mistake, which shipped: Z-1 raised the whole
+  // ladder to fix an ORDERING bug and the zebra crossings visibly lifted off the road. Paint is
+  // paint — a couple of centimetres proud is a marking, four is a kerb.
+  const MAX_PAINT_CLEARANCE = 0.025;
+  for (const cls of ROAD_BASED_LIFTS) {
+    if (cls === 'gore' || cls === 'drain' || cls === 'bikeLane') continue;   // surfaces, not paint
+    const clearance = GROUND_LIFT[cls] - BAKED_SURFACE_ABOVE_ROAD_Y;
+    assert.ok(clearance <= MAX_PAINT_CLEARANCE,
+      `${cls} stands ${(clearance * 100).toFixed(1)}cm proud of the asphalt — that reads as floating`);
+  }
+});
+
+test('tactile is excluded from the comparison because it measures from a different base', () => {
+  // Its 0.005 is above the SIDEWALK, not the road deck. Ranking it against a paint lift compares
+  // two numbers that are not in the same coordinate — the exact mistake the module documents twice.
+  assert.ok(!ROAD_BASED_LIFTS.includes('tactile'));
+  assert.ok(GROUND_LIFT.tactile !== undefined);
+  assert.ok(sidewalkSurfaceY(0) > roadDeckY(0), 'the sidewalk is above the road deck');
+});
+
+test('terrain-relative lifts are ordered by their biases too, and exist exactly once', () => {
+  // GREEN_OFFSET_Y was declared identically in greensRenderer.js AND vegetationRenderer.js, and
+  // areaFeaturesRenderer carried "above greens' 0.01" as a comment rather than as an import.
+  assert.ok(TERRAIN_LIFT.green < TERRAIN_LIFT.area, 'greens sit under plaza/beach fills');
+  assert.ok(GROUND_LAYERS.green > GROUND_LAYERS.beach, 'and the bias must say the same');
+  assert.ok(GROUND_LAYERS.green > GROUND_LAYERS.pedArea);
+  assert.equal(terrainLift('green'), TERRAIN_LIFT.green);
+  assert.throws(() => terrainLift('nope'), /no terrain lift/);
 });
 
 test('lane arrows clear the road surface by enough to survive a crowned ribbon', () => {
@@ -105,14 +168,20 @@ test('a ribbon decal must subtract the ribbon bump so it LANDS on its class lift
   const whereItActuallyLands = roadDeckY(0) + crosswalkHandedToRibbon + RIBBON_BUMP;
   const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `expected ~${b}, got ${a}`);
   near(whereItActuallyLands, roadDeckY(0) + groundLift('crossing'));
-  near(whereItActuallyLands, 0.095);   // the audited shipped height — this must not move
+  // The absolute height is NOT restated here. It was (`0.095`), and Z-1's re-order broke this test
+  // for a reason that had nothing to do with what it tests — three tests each carried their own copy
+  // of the shipped stack, which is the same duplication the module exists to end, reproduced in the
+  // suite. One test owns the absolutes now: 'the shipped paint stack is pinned'.
 });
 
 test('quad decals take the FULL class lift — no ribbon bump to subtract', () => {
   // zona30 stencils and bike pictograms are custom quads, not ribbons. Subtracting the ribbon bump
   // here would bury them by 2 cm, the mirror image of the failure above.
+  // Relationship only — the absolute lives in 'the shipped paint stack is pinned', once.
   const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `expected ~${b}, got ${a}`);
-  near(roadDeckY(0) + groundLift('stencil'), 0.095);
+  near(roadDeckY(0) + groundLift('stencil'), roadDeckY(0) + GROUND_LIFT.stencil);
+  assert.ok(GROUND_LIFT.stencil > GROUND_LIFT.marking,
+    'a stencil is the topmost paint — if this flips, the bike pictograms go under the lane lines');
 });
 
 test('every road decal tracks a SLOPED road 1:1 — the done-when for P2-08', () => {

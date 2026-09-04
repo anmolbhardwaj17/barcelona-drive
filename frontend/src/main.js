@@ -49,8 +49,9 @@ import { updateTrafficLights } from './map/roadInfraRenderer.js';
 import { createRoadMeshes, setRendererAnisotropy } from './map/roadRenderer.js';
 import { setLampEmissiveIntensity } from './map/streetlightRenderer.js';
 import { updateTowerBeacons } from './map/urbanFeatureRenderer.js';
-import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M } from './map/worldBoundary.js';
+import { createBoundaryHaze, isInsidePlayArea, outOfBoundsM, BOUNDARY_GRACE_M, boundaryPush } from './map/worldBoundary.js';
 import { createEnvToggle, onNightModeChange, getPresetFogDensity } from './ui/envToggle.js';
+import { fxEvent } from './game/gameFx.js';   // the shared event banner — used by the world boundary
 import { createBuildingMeshes } from './map/buildingRenderer.js';
 import { preloadCardAtlases } from './map/cardMesh.js';
 import { preloadRoadTextures } from './map/roadTexturePack.js';
@@ -694,6 +695,9 @@ const bloomPass = new UnrealBloomPass(
   1.1,    // threshold — above sky/clouds (~1.0 max) but reachable by car light emissives
 );
 composer.addPass(bloomPass);
+// Speed blur / streak lines — see the note at the strength driver below. Off unless ?speedblur=1.
+const SPEED_BLUR_ON = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('speedblur') === '1';
 const radialBlurPass = createRadialBlurPass();
 composer.addPass(radialBlurPass);
 const colorGradePass = createColorGradePass();
@@ -821,6 +825,7 @@ let carDriver = null;
 let rapierAdapter = null;   // set when Rapier physics is active (default) — streams the collider working set around the car
 let boundaryHaze = null;    // world-edge haze curtains (worldBoundary.js)
 let _boundaryCooldown = 0;  // seconds until the next out-of-bounds teleport may fire
+let _boundaryNoticeT = 0;   // seconds until the wall may show its notice again
 
 // ── Live title screen ─────────────────────────────────────────────────────
 // Once the spawn area has built, the static title artwork crossfades away (#dd-title.live) and a slow
@@ -1194,7 +1199,7 @@ spawnTileReady.finally(() => {
 
     streetDisplay    = createStreetDisplay();
     speedDisplay     = createSpeedDisplay();
-    speedLines       = createSpeedLines();
+    speedLines       = SPEED_BLUR_ON ? createSpeedLines() : null;
     metricsPanel     = createMetricsPanel();
     minimap          = createMinimap(spawnCenter, customMap);
     // Background-load the whole city's 2D map data (roads/water/parks) a few seconds after spawn, so the
@@ -1629,6 +1634,22 @@ function armLightGrid() {
 // three increments a frame.
 const _ddFrames = { entered: 0, pastFpsCap: 0, pastTileGuard: 0, reachedTiles: 0 };
 if (typeof window !== 'undefined') window._ddFrames = () => ({ ..._ddFrames });
+// See the note at the mode-update call site: one throwing mode must not stop the car.
+// ⚠ MODULE SCOPE, not inside animate(). Declared in the loop body, `_modeFailed` is a fresh Set on
+// every frame, so a mode would be "disabled" for exactly one frame and then throw again forever —
+// the guard would log 60 errors a second and fix nothing, which is the failure it exists to end.
+const _modeFailed = new Set();
+function _tickMode(name, mode, ...args) {
+  if (!mode || _modeFailed.has(name)) return;
+  try {
+    mode.update(...args);
+  } catch (e) {
+    _modeFailed.add(name);
+    console.error(`[mode] ${name} threw and has been DISABLED for this session — the drive continues.`, e);
+    try { mode.stop?.(); } catch { /* a mode that throws on stop is already gone */ }
+  }
+}
+
 function animate(time = 0) {
   _ddFrames.entered++;
   requestAnimationFrame(animate);
@@ -1786,13 +1807,30 @@ function animate(time = 0) {
     // (breadcrumb teleport — same mechanism as the R key). Cooldown prevents rapid-fire loops.
     // ABSOLUTE world = HUD convention (−lx + originOffset) — v1 skipped the offset → respawn loop.
     _boundaryCooldown = Math.max(0, _boundaryCooldown - frameDt);
-    if (_boundaryCooldown === 0) {
+    {
       const _bo = getOriginOffset();
-      if (outOfBoundsM(-lp.lx + _bo.x, lp.lz + _bo.z) > BOUNDARY_GRACE_M) {
+      const _awx = -lp.lx + _bo.x, _awz = lp.lz + _bo.z;
+
+      // ── The invisible wall ──────────────────────────────────────────────────────────────────
+      // World +x is EAST and physics X is MIRRORED (worldGroup.scale.x = -1), so an inward push of
+      // +x in the world is −x in physics. Getting this backwards would shove the car OUT, i.e. build
+      // a wall that ejects you — the exact failure the CLAUDE.md danger note is about.
+      const push = boundaryPush(_awx, _awz);
+      if (push.depth > 0.01 && carDriver.holdInBounds?.(-push.x, push.z)) {
+        if (_boundaryNoticeT <= 0) {
+          _boundaryNoticeT = 4.0;
+          fxEvent({ kicker: 'Edge of the map', title: 'Game boundary',
+                    sub: 'Turning you around', color: '#ffd23f', duration: 1900 });
+        }
+      }
+      // Teleport stays as the BACKSTOP, not the boundary: the wall catches driving, this catches
+      // being flung or falling past it. It should now essentially never fire.
+      if (_boundaryCooldown === 0 && outOfBoundsM(_awx, _awz) > BOUNDARY_GRACE_M) {
         _boundaryCooldown = 2.5;
         carDriver.recoverToCrumb?.();
       }
     }
+    _boundaryNoticeT = Math.max(0, _boundaryNoticeT - frameDt);
     // Physics / scene X is mirrored relative to world/map X (worldGroup.scale.x = -1),
     // so convert back to world coordinates by negating X (same convention as free camera).
     viewerWx = -lp.lx;
@@ -1819,10 +1857,21 @@ function animate(time = 0) {
     if (pedestrians && !_paused) pedestrians.update(lp.lx, lp.lz, frameDt, speedKmh);
     if (contactShadows) contactShadows.commit();
     cpuTimer.lap('peds');
-    if (dashMode) dashMode.update(lp.lx, lp.lz, frameDt);
-    if (taxiMode) taxiMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
-    if (deliveryMode) deliveryMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
-    if (policeMode) policeMode.update(lp.lx, lp.lz, frameDt, speedKmh, carDriver.getHeadingDeg());
+    // ⚠ GAME MODES ARE FENCED OFF FROM THE LOOP, and this is not defensive padding — it is a fix.
+    // A one-line typo in dashMode (`g.position.y` where `g` had become a marker API object, not a
+    // THREE.Group) threw on EVERY frame from right here, and because these calls sat bare in
+    // `animate`, everything after them stopped running: car input, camera, the lot. The game read
+    // as completely frozen, and the cause was a HUD arrow. A side quest must not be able to take
+    // the car down.
+    //
+    // Fails LOUD then QUIET: the first throw per mode prints with its stack, then that mode is
+    // switched off for the session so the console is not 60 exceptions a second — which is what
+    // buried this one. The mode is dead, the drive continues.
+    const _hd = carDriver.getHeadingDeg();
+    _tickMode('dash', dashMode, lp.lx, lp.lz, frameDt);
+    _tickMode('taxi', taxiMode, lp.lx, lp.lz, frameDt, speedKmh, _hd);
+    _tickMode('delivery', deliveryMode, lp.lx, lp.lz, frameDt, speedKmh, _hd);
+    _tickMode('police', policeMode, lp.lx, lp.lz, frameDt, speedKmh, _hd);
     // Flipped-over hint (press R)
     if (recoverHint) {
       const upDot = carDriver.getUpDot?.() ?? 1;
@@ -1888,7 +1937,7 @@ function animate(time = 0) {
   } else {
     speedDisplay?.setSpeed(0, 1, 900);
   }
-  speedLines?.update(speedKmh);
+  if (SPEED_BLUR_ON) speedLines?.update(speedKmh);   // the streak canvas, same switch
   const { lat, lon } = worldToLatLon(worldWx, worldWz);
   // M-1: speed drives the drone view's tilt, look-ahead shift and pull-back.
   minimap?.update(worldWx, worldWz, -headingDeg, carDriver?.getSpeedKmh?.() ?? 0); // negate: physics X mirrored
@@ -1970,12 +2019,15 @@ function animate(time = 0) {
   // into sky / roadq / hud / ui so the next long frame names the subsystem instead of the group.
   cpuTimer.lap('ui'); // shadow-follow / infra / beacons / haze / wind — the remainder
 
-  // Radial edge blur scales with speed — skip the full-screen pass entirely below ~30 km/h (a free frame).
-  const blurSpd = Math.abs(speedKmh || 0);
-  // Top speed is now 110, so the cue is recalibrated into 30-95: it starts sooner and hits FULL strength by
-  // ~95 km/h, so the trimmed top end still reads as genuinely fast (bought-back sense of speed).
-  radialBlurPass.uniforms.strength.value = Math.max(0, Math.min(1, (blurSpd - 30) / 65));
-  radialBlurPass.enabled = blurSpd > 30;
+  // ── SPEED BLUR: OFF by default (2026-09-04) ─────────────────────────────────────────────────
+  // The radial edge blur + streak lines smeared the whole frame into green mush at any real speed —
+  // it reads as a smudged screenshot rather than as velocity, and it sat behind every result card
+  // and HUD panel the player is meant to be reading. `?speedblur=1` restores it; the pass is skipped
+  // entirely when off, which is a free frame rather than a shader that computes nothing.
+  const blurSpd = SPEED_BLUR_ON ? Math.abs(speedKmh || 0) : 0;
+  radialBlurPass.uniforms.strength.value = SPEED_BLUR_ON
+    ? Math.max(0, Math.min(1, (blurSpd - 30) / 65)) : 0;
+  radialBlurPass.enabled = SPEED_BLUR_ON && blurSpd > 30;
   renderer.info.reset();
   gpuTimer.poll();       // read back a previously-issued GPU timer query (async, resolves a few frames later)
   gpuTimer.begin();      // time the actual GPU work this frame → "capable FPS" even when vsync caps display at 60
@@ -2129,7 +2181,7 @@ function animate(time = 0) {
   // v3 P0-04: benchmark route — starts once the world is playable, drives itself, saves the JSON.
   if (_BENCH && _timeToDriveMs != null && carDriver) {
     if (!_benchRoute) {
-      if (envToggle && !envToggle.isNight()) envToggle.element.click();   // force NIGHT: the binding regime
+      if (envToggle && !envToggle.isNight()) envToggle.toggle();   // force NIGHT: the binding regime
       _benchRoute = startBenchRoute({
         latLonToWorld,
         getCarPos: () => { const lp = carDriver.getLocalPosition(); const o = getOriginOffset();
@@ -2240,7 +2292,7 @@ window.addEventListener('keydown', (e) => {
   // N — day/night. Dispatched as a CLICK on the toggle's own button rather than reaching into the
   // module: the button already owns the transition, the localStorage write and the material
   // callback fan-out, and a second entry point that re-implemented any of those would drift.
-  if (e.code === 'KeyN') { e.preventDefault(); envToggle?.element?.click(); return; }
+  if (e.code === 'KeyN') { e.preventDefault(); envToggle?.toggle?.(); return; }
   // V-14: CHASE ↔ HOOD. Not a cockpit view — bmw_m3.glb has no interior geometry at all, so a
   // camera inside the cabin would look at culled backfaces and see through the bodywork.
   if (e.code === 'KeyC') { e.preventDefault(); carDriver?.cycleView?.(); return; }

@@ -4,7 +4,19 @@
  * Each character is baked into N static walk-frames + one idle pose (carModels.loadPeopleWalkTemplates).
  * There's one InstancedMesh per (character × frame) and per (character, idle); each frame we route every
  * pedestrian into the InstancedMesh matching its current walk-cycle frame → legs actually move, while the
- * whole crowd stays instanced/cheap. A pool is assigned to sidewalk lines near the player and slides along.
+ * whole crowd stays instanced/cheap.
+ *
+ * ── P-1 (2026-09-04): people walked ONE ROAD SEGMENT and ping-ponged on it ────────────────────────
+ * The old assignment made a candidate out of every *sub-segment* of every road (4 m minimum) and put a
+ * pedestrian on it with `t ∈ [0,1]`, flipping `dir` at each end. On Eixample geometry a sub-segment is
+ * commonly 10–30 m, so the crowd was a field of people pacing back and forth over three car lengths and
+ * snapping through 180° at each end with no turn. That is what "they move randomly" looks like from the
+ * driver's seat: nobody is going anywhere.
+ *
+ * A pedestrian now walks a PATH — the full offset polyline of one side of one road, mitred at the
+ * corners and draped on the ground once — parameterised by ARC LENGTH, not by a per-segment 0..1. They
+ * traverse the whole street, round its bends, and turn at the end over ~half a second because the yaw
+ * is smoothed instead of assigned.
  *
  * Frame: physics frame (added to `scene`). World→physics: px = -(wx - origin.x), pz = wz - origin.z.
  */
@@ -21,14 +33,26 @@ const WALKABLE = new Set([
 // the width model now sizes and places explicitly — its inner edge is the kerb, and it is the same
 // kerb the rail and the parking bay hang off, so they cannot drift apart.
 
-const FRAMES       = 8;
+// Flipbook rate: a pedestrian's walk cycle is ~1.15 s, so FRAMES is literally the animation's frame
+// rate. At 8 it was 7 fps — stop-motion, and the single loudest "not smooth" signal. 12 buys 10-11 fps
+// for 12 more InstancedMeshes, which now cost nothing when empty (see the `visible` gate in update).
+const FRAMES       = 12;
 const PED_CAP      = 168;  // trimmed ~20% for perf (instanced flipbook)
 const CAP_PER_CELL = 45;   // per (variant × frame) InstancedMesh
 const RANGE        = 150;
 const REBUILD_DIST = 40;
 const SIDEWALK_PAD = 1.9;
+const MIN_PATH_LEN = 8;    // m — below this a pavement line is a stub, not a street worth walking
 const WALK_MIN = 0.9, WALK_MAX = 1.6;
-const IDLE_FRAC = 0.25;
+const PED_SPACING = 22;    // m of pavement per pedestrian — density, replacing "half the segment count"
+const STRIDE = 1.4;        // m of ground covered per walk cycle; ties the flipbook to real speed (no skating)
+const IDLE_FRAC = 0.18;    // fraction STANDING at any moment — it is now a STATE, not a life sentence
+const PAUSE_MIN = 2.5, PAUSE_MAX = 11;   // s standing before moving off again
+const LEG_MIN = 9, LEG_MAX = 45;         // s walking before the next pause
+const YAW_LERP = 7;        // rad-ish per s — a person turns, they do not teleport their facing
+const YAW_LERP_PANIC = 20; // bolting IS abrupt; keep it that way
+const WOBBLE_AMP = 0.16;   // m of lateral drift — nobody walks a surveyed line
+const WOBBLE_RATE = 0.55;  // Hz
 const YAXIS = new THREE.Vector3(0, 1, 0);
 const HIT_RADIUS = 2.6;    // m from the car centre that counts as a hit
 const HIT_MIN_KMH = 6;     // don't launch people when crawling
@@ -39,6 +63,95 @@ const DODGE_R2 = DODGE_R * DODGE_R;
 const DODGE_DIST = 2.6;    // m of lateral shove at closest range (clears the HIT_RADIUS if they react in time)
 const DODGE_LERP = 11;     // how fast the shove ramps in (per s) — a real jump-out-of-the-way
 const PANIC_TIME = 0.55;   // s the run animation + shove persist after the car has passed
+
+const TWO_PI = Math.PI * 2;
+/** Shortest signed angular difference b−a, in (−π, π]. */
+function angDelta(a, b) {
+  let d = (b - a) % TWO_PI;
+  if (d > Math.PI) d -= TWO_PI; else if (d < -Math.PI) d += TWO_PI;
+  return d;
+}
+
+/**
+ * ── PAVEMENT PATHS (module scope so they can be tested without a WebGL scene) ──────────────────
+ *
+ * A path is { p: Float32Array [px, y, pz] × n, cum: Float32Array (arc length at each vertex), len }
+ * in PHYSICS space. Pedestrians are parameterised by arc length along it.
+ */
+
+/**
+ * Both pavement polylines for one road's points, in PHYSICS space, or null if it is not walkable.
+ *
+ * The offset is MITRED at interior vertices (average of the two adjacent unit tangents, scaled by
+ * 1/cos(half-angle)) instead of offsetting each sub-segment on its own. Per-segment offsetting is
+ * what put a step in the pavement at every bend in the old build — the two offset sub-segments do
+ * not meet, and a walker teleported sideways across the gap.
+ *
+ * @param {{x:number,y:number}[]} pts  road centreline, WORLD (x = easting, y = northing)
+ * @param {number} off                 metres from the centreline to the walk line
+ * @param {(wx:number,wy:number)=>number|null} groundAt
+ * @param {{x:number,z:number}} origin physics origin
+ */
+export function buildPavementPaths(pts, off, groundAt, origin, minLen = 8) {
+  if (!pts || pts.length < 2) return null;
+  const n = pts.length;
+  const out = [];
+  for (const side of [1, -1]) {
+    const P = new Float32Array(n * 3);
+    const cum = new Float32Array(n);
+    let w = 0;
+    for (let i = 0; i < n; i++) {
+      let tx, ty, miter = 1;
+      if (i === 0) { tx = pts[1].x - pts[0].x; ty = pts[1].y - pts[0].y; }
+      else if (i === n - 1) { tx = pts[n - 1].x - pts[n - 2].x; ty = pts[n - 1].y - pts[n - 2].y; }
+      else {
+        const ax = pts[i].x - pts[i - 1].x, ay = pts[i].y - pts[i - 1].y;
+        const bx = pts[i + 1].x - pts[i].x, by = pts[i + 1].y - pts[i].y;
+        const al = Math.hypot(ax, ay) || 1, bl = Math.hypot(bx, by) || 1;
+        tx = ax / al + bx / bl; ty = ay / al + by / bl;
+        const tl0 = Math.hypot(tx, ty) || 1;
+        // cos(half-angle) between the averaged tangent and the incoming one; capped so a hairpin
+        // does not fling the pavement into the next street.
+        miter = Math.min(2.5, 1 / Math.max(0.4, (tx / tl0) * (ax / al) + (ty / tl0) * (ay / al)));
+      }
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const wx = pts[i].x + (-ty) * off * side * miter;
+      const wy = pts[i].y + (tx) * off * side * miter;
+      P[i * 3] = -(wx - origin.x);      // physics X is mirrored — see CLAUDE.md danger note
+      P[i * 3 + 1] = groundAt ? (groundAt(wx, wy) ?? 0) : 0;
+      P[i * 3 + 2] = wy - origin.z;
+      if (i > 0) w += Math.hypot(P[i * 3] - P[i * 3 - 3], P[i * 3 + 2] - P[i * 3 - 1]);
+      cum[i] = w;
+    }
+    if (w < minLen) continue;   // too short to walk — a stub, not a street
+    out.push({ p: P, cum, len: w, cx: (P[0] + P[n * 3 - 3]) / 2, cz: (P[2] + P[n * 3 - 1]) / 2 });
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * Position + unit tangent at arc length `s`. `out.i` is the walker's cached vertex index, so a step
+ * costs one compare rather than a search back through the polyline.
+ */
+export function samplePath(path, s, out) {
+  const cum = path.cum, n = cum.length;
+  let i = out.i | 0;
+  if (i > n - 2) i = n - 2;
+  if (i < 0) i = 0;
+  while (i > 0 && s < cum[i]) i--;
+  while (i < n - 2 && s > cum[i + 1]) i++;
+  const span = cum[i + 1] - cum[i] || 1;
+  const t = Math.min(1, Math.max(0, (s - cum[i]) / span));
+  const a = i * 3, b = a + 3, P = path.p;
+  out.x = P[a] + (P[b] - P[a]) * t;
+  out.y = P[a + 1] + (P[b + 1] - P[a + 1]) * t;
+  out.z = P[a + 2] + (P[b + 2] - P[a + 2]) * t;
+  let tx = P[b] - P[a], tz = P[b + 2] - P[a + 2];
+  const tl = Math.hypot(tx, tz) || 1;
+  out.tx = tx / tl; out.tz = tz / tl;
+  out.i = i;
+  return out;
+}
 
 export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigin, contactShadows }) {
   let variants = [];   // [{ walk:[InstancedMesh×FRAMES], idle:InstancedMesh }]
@@ -54,6 +167,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         // castShadow OFF: 45 shadow-casting instanced meshes tanked the shadow pass (FPS 30). Small
         // objects — grounding comes from the fake contact shadow instead.
         im.frustumCulled = false; im.castShadow = false; im.count = 0;
+        im.userData.type = 'pedestrian';   // N-18: an untagged mesh is invisible to every probe
         scene.add(im);
         return im;
       };
@@ -64,36 +178,63 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
 
   const peds = [];
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3();
+  const _hit = { i: 0, x: 0, y: 0, z: 0, tx: 0, tz: 0 };
   let _lastX = Infinity, _lastZ = Infinity, _time = 0;
 
-  function spawnPed(c) {
+  function newLeg(p) {
+    // Alternate walking and standing. IDLE_FRAC is the share of the crowd standing at any moment,
+    // and it is now a rolling state — the old build froze a quarter of every crowd as permanent
+    // statues, which reads as broken rather than as people waiting for something.
+    if (p.state === 'walk') {
+      p.state = 'pause'; p.speed = 0;
+      p.stateT = PAUSE_MIN + Math.random() * (PAUSE_MAX - PAUSE_MIN);
+    } else {
+      p.state = 'walk';
+      p.speed = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
+      p.stateT = LEG_MIN + Math.random() * (LEG_MAX - LEG_MIN);
+      if (Math.random() < 0.3) p.dir = -p.dir;   // turned around while they stood there
+    }
+  }
+
+  function spawnPed(path, s) {
     const idle = Math.random() < IDLE_FRAC;
-    peds.push({
-      ax: c.ax, az: c.az, bx: c.bx, bz: c.bz, len: c.len, y0: c.y0, y1: c.y1,
-      t: Math.random(), dir: Math.random() < 0.5 ? 1 : -1,
-      speed: idle ? 0 : WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN),
-      cyc: Math.random(), yaw: Math.random() * Math.PI * 2,
+    const p = {
+      path, s, i: 0,
+      dir: Math.random() < 0.5 ? 1 : -1,
+      state: idle ? 'pause' : 'walk',
+      speed: 0,
+      stateT: idle ? PAUSE_MIN + Math.random() * (PAUSE_MAX - PAUSE_MIN)
+                   : LEG_MIN + Math.random() * (LEG_MAX - LEG_MIN),
+      cyc: Math.random(), yaw: Math.random() * TWO_PI,
+      wob: Math.random() * TWO_PI,
+      cx: 0, cz: 0,
       variant: (Math.random() * nVar) | 0,
-    });
+    };
+    if (!idle) p.speed = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
+    peds.push(p);
   }
 
   // Incremental reassignment: keep people who are still in range (so a pedestrian you're driving toward
   // stays put instead of being wiped and replaced), cull only those who've left range, and top up new
   // ones out in the distance. Full wipe-and-respawn was the cause of pedestrians vanishing on approach.
   const NEAR_SPAWN_2 = 30 * 30; // don't spawn newcomers within 30m of the player (avoids pop-in nearby)
-  // Cache a segment's invariant walk metadata once (on seg._pedMeta). null = not walkable.
-  function computePedMeta(seg) {
+
+  /**
+   * The two pavement walk lines for one road segment.
+   *
+   * Cached against the ORIGIN it was built for: the physics origin is fixed in practice, but a stale
+   * path is a crowd standing in the wrong postcode, and that is not a failure anyone would diagnose.
+   */
+  function computePedPaths(seg, origin) {
     if (!WALKABLE.has(seg.highwayType) || !seg.points || seg.points.length < 2) return null;
     // Walk down the MIDDLE of the sidewalk: kerb + half the sidewalk. Where there is no sidewalk
     // (a shared-surface living_street, a footway that IS the path), fall back to a small pad off
     // the kerb rather than inventing a width.
-    const kerb = kerbOffset(seg);
     const sw = sidewalkWidth(seg);
-    const off = sw > 0.5 ? kerb + sw / 2 : kerb + SIDEWALK_PAD;
-    let minWx = Infinity, maxWx = -Infinity, minWy = Infinity, maxWy = -Infinity;
-    for (const p of seg.points) { if (p.x < minWx) minWx = p.x; if (p.x > maxWx) maxWx = p.x; if (p.y < minWy) minWy = p.y; if (p.y > maxWy) maxWy = p.y; }
-    return { off, minWx, maxWx, minWy, maxWy };
+    const off = sw > 0.5 ? kerbOffset(seg) + sw / 2 : kerbOffset(seg) + SIDEWALK_PAD;
+    return buildPavementPaths(seg.points, off, getGroundY, origin, MIN_PATH_LEN);
   }
+
   function reassign(playerPx, playerPz) {
     const segs = getRoadSegments?.();
     if (!segs || !nVar) return;   // keep existing crowd if road data is momentarily unavailable
@@ -104,49 +245,44 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     for (let i = peds.length - 1; i >= 0; i--) {
       const p = peds[i];
       if (p.thrown) continue;
-      const cx = p.ax + (p.bx - p.ax) * p.t;
-      const cz = p.az + (p.bz - p.az) * p.t;
-      if ((cx - playerPx) ** 2 + (cz - playerPz) ** 2 > R2) peds.splice(i, 1);
+      if ((p.cx - playerPx) ** 2 + (p.cz - playerPz) ** 2 > R2) peds.splice(i, 1);
     }
 
-    // Player in world frame (roads stored world-frame). Once, not per segment.
-    const pwx = origin.x - playerPx, pwy = playerPz + origin.z;
     const cand = [];
+    let totalLen = 0;
     for (const seg of segs) {
-      // Cache the segment's invariant walkability + sidewalk offset + world bbox (roads don't move), so a
-      // far segment costs only the cheap cached-bbox test — not a full point-walk + getGroundY calls every
-      // 40 m. This was the twin of the parked-car `ent` stutter.
-      let meta = seg._pedMeta;
-      if (meta === undefined) { meta = computePedMeta(seg); seg._pedMeta = meta; }
-      if (!meta) continue;
-      const cddx = Math.max(meta.minWx - pwx, 0, pwx - meta.maxWx);
-      const cddy = Math.max(meta.minWy - pwy, 0, pwy - meta.maxWy);
-      if (cddx * cddx + cddy * cddy > R2) continue;
-      const off = meta.off;
-      for (let s = 0; s < seg.points.length - 1; s++) {
-        const ax = -(seg.points[s].x - origin.x), az = seg.points[s].y - origin.z;
-        const bx = -(seg.points[s + 1].x - origin.x), bz = seg.points[s + 1].y - origin.z;
-        if (((ax + bx) / 2 - playerPx) ** 2 + ((az + bz) / 2 - playerPz) ** 2 > R2) continue;
-        let dx = bx - ax, dz = bz - az; const len = Math.hypot(dx, dz);
-        if (len < 4) continue;
-        dx /= len; dz /= len;
-        const rx = dz, rz = -dx;
-        const cy0 = getGroundY ? (getGroundY(seg.points[s].x, seg.points[s].y) ?? 0) : 0;
-        const cy1 = getGroundY ? (getGroundY(seg.points[s + 1].x, seg.points[s + 1].y) ?? 0) : 0;
-        cand.push({ ax: ax + rx * off, az: az + rz * off, bx: bx + rx * off, bz: bz + rz * off, len, y0: cy0, y1: cy1 });
-        cand.push({ ax: ax - rx * off, az: az - rz * off, bx: bx - rx * off, bz: bz - rz * off, len, y0: cy0, y1: cy1 });
+      // Cache the segment's pavement polylines (roads don't move), so a far segment costs one
+      // cached-centre test — not a full point-walk + getGroundY calls every 40 m. This was the twin
+      // of the parked-car `ent` stutter.
+      if (seg._pedPathOrigin !== origin.x || seg._pedPathOriginZ !== origin.z) {
+        seg._pedPaths = computePedPaths(seg, origin);
+        seg._pedPathOrigin = origin.x; seg._pedPathOriginZ = origin.z;
+      }
+      const paths = seg._pedPaths;
+      if (!paths) continue;
+      for (const path of paths) {
+        // Centre test with the path's own half-length as slack, so a long road that merely PASSES
+        // near the player still qualifies.
+        const reach = RANGE + path.len / 2;
+        if ((path.cx - playerPx) ** 2 + (path.cz - playerPz) ** 2 > reach * reach) continue;
+        cand.push(path);
+        totalLen += Math.min(path.len, RANGE * 2);
       }
     }
     if (!cand.length) return;
 
-    // Prefer far candidates for newcomers so they appear in the distance, not right next to the car.
-    const farCand = cand.filter((c) => ((c.ax + c.bx) / 2 - playerPx) ** 2 + ((c.az + c.bz) / 2 - playerPz) ** 2 > NEAR_SPAWN_2);
-    const pool = farCand.length ? farCand : cand;
-
-    const target = Math.min(PED_CAP, Math.max(0, Math.round(cand.length * 0.5)));
+    // Density, not segment count: one pedestrian per PED_SPACING metres of pavement in range. The old
+    // `candidates × 0.5` was a count of geometry vertices, so a finely-noded street got a mob and a
+    // straight one got nobody.
+    const target = Math.min(PED_CAP, Math.round(totalLen / PED_SPACING));
     let guard = 0;
-    while (peds.length < target && guard++ < target * 3) {
-      spawnPed(pool[(Math.random() * pool.length) | 0]);
+    while (peds.length < target && guard++ < target * 4) {
+      const path = cand[(Math.random() * cand.length) | 0];
+      const s = Math.random() * path.len;
+      samplePath(path, s, _hit);
+      // Prefer far spots for newcomers so they appear in the distance, not right next to the car.
+      if ((_hit.x - playerPx) ** 2 + (_hit.z - playerPz) ** 2 < NEAR_SPAWN_2 && guard < target * 2) continue;
+      spawnPed(path, s);
     }
   }
 
@@ -195,11 +331,27 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         continue;
       }
 
-      // ── walking / idle ──
-      let yaw = p.yaw, im;
-      const onLine_x = p.ax + (p.bx - p.ax) * p.t;
-      const onLine_z = p.az + (p.bz - p.az) * p.t;
-      const y = p.y0 + (p.y1 - p.y0) * p.t;
+      // ── walk / stand state machine ──
+      p.stateT -= d;
+      if (p.stateT <= 0) newLeg(p);
+
+      // ── advance along the pavement path ──
+      if (p.state === 'walk') {
+        p.s += p.dir * p.speed * d;
+        if (p.s > p.path.len) { p.s = p.path.len; p.dir = -1; }
+        else if (p.s < 0) { p.s = 0; p.dir = 1; }
+      }
+      _hit.i = p.i;
+      samplePath(p.path, p.s, _hit);
+      p.i = _hit.i;
+      // Lateral wobble along the path normal — nobody walks a surveyed line, and a column of people
+      // on the exact same offset is the other half of "they look fake".
+      // Only while WALKING — applied to a stander it becomes a 32 cm sway on the spot.
+      const wob = p.state === 'walk' ? Math.sin(_time * WOBBLE_RATE * TWO_PI + p.wob) * WOBBLE_AMP : 0;
+      const onLine_x = _hit.x + (-_hit.tz) * wob;
+      const onLine_z = _hit.z + (_hit.tx) * wob;
+      const y = _hit.y;
+      let targetYaw = Math.atan2(_hit.tx * p.dir, _hit.tz * p.dir);
 
       // ── dodge: bolt out of the way of an approaching car ──
       p.dodgeX = p.dodgeX || 0; p.dodgeZ = p.dodgeZ || 0; p.panic = p.panic || 0;
@@ -221,22 +373,28 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         if (Math.abs(p.dodgeX) < 0.01) p.dodgeX = 0;
         if (Math.abs(p.dodgeZ) < 0.01) p.dodgeZ = 0;
       }
+      if (panicking && (p.dodgeX || p.dodgeZ)) targetYaw = Math.atan2(p.dodgeX, p.dodgeZ);
 
-      if (p.speed > 0 || panicking) {
-        if (!panicking) {
-          p.t += (p.dir * p.speed * d) / p.len;
-          if (p.t > 1) { p.t = 1; p.dir = -1; } else if (p.t < 0) { p.t = 0; p.dir = 1; }
-          yaw = Math.atan2((p.bx - p.ax) * p.dir, (p.bz - p.az) * p.dir);
-        } else if (p.dodgeX || p.dodgeZ) {
-          yaw = Math.atan2(p.dodgeX, p.dodgeZ); // face the way they're bolting
-        }
-        const cycRate = panicking ? 2.6 : (p.speed / 1.4); // run-cadence flipbook while panicking
+      // ── facing: TURN, don't teleport ──
+      // The old build assigned yaw outright, so reaching the end of a segment or catching sight of the
+      // car flipped a person through 180° in one frame. Smoothing this is the cheapest single thing
+      // that makes the crowd read as people instead of as sprites being re-parented.
+      const rate = panicking ? YAW_LERP_PANIC : YAW_LERP;
+      if (p.state === 'walk' || panicking) {
+        p.yaw += angDelta(p.yaw, targetYaw) * Math.min(1, rate * d);
+      }
+
+      let im;
+      if (p.state === 'walk' || panicking) {
+        // Cadence from GROUND SPEED, so the feet match the distance covered instead of drifting.
+        const cycRate = panicking ? 2.6 : Math.max(0.45, p.speed / STRIDE);
         p.cyc = (p.cyc + cycRate * d) % 1;
         im = V.walk[Math.min(FRAMES - 1, (p.cyc * FRAMES) | 0)];
       } else { im = V.idle; }
 
       const x = onLine_x + p.dodgeX;
       const z = onLine_z + p.dodgeZ;
+      p.cx = x; p.cz = z;
 
       // ── hit by the car? (checked at the DODGED position — a ped who clears in time escapes) ──
       if (canHit && (x - playerPx) ** 2 + (z - playerPz) ** 2 < HIT_RADIUS * HIT_RADIUS) {
@@ -247,12 +405,12 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         p.x = x; p.y = y; p.z = z; p.gy = y;
         p.vx = (dx / dl) * (mps * 0.55 + 2); p.vz = (dz / dl) * (mps * 0.55 + 2); p.vy = 3 + mps * 0.22;
         p.axis = new THREE.Vector3(Math.random() - 0.5, 0.25, Math.random() - 0.5).normalize();
-        p.spin = 6 + Math.random() * 7; p.ang = 0; p.restYaw = Math.random() * Math.PI * 2;
+        p.spin = 6 + Math.random() * 7; p.ang = 0; p.restYaw = Math.random() * TWO_PI;
         continue;
       }
 
       if (im.count >= CAP_PER_CELL) continue;
-      _q.setFromAxisAngle(YAXIS, yaw);
+      _q.setFromAxisAngle(YAXIS, p.yaw);
       _p.set(x, y, z);
       _m.compose(_p, _q, _s);
       im.setMatrixAt(im.count++, _m);
@@ -260,19 +418,22 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     }
     if (anyDead) for (let i = peds.length - 1; i >= 0; i--) if (peds[i].dead) peds.splice(i, 1);
 
+    // An InstancedMesh with count 0 is still submitted by the renderer, and with FRAMES cells per
+    // variant most of them are empty on any given frame. Gating on `visible` is what makes a longer
+    // flipbook free: 12 frames × 3 variants is 39 meshes but only ~10-14 ever hold anyone.
     for (const v of variants) {
-      for (const im of v.walk) if (im.count) im.instanceMatrix.needsUpdate = true;
-      if (v.idle.count) v.idle.instanceMatrix.needsUpdate = true;
-      if (v.fall && v.fall.count) v.fall.instanceMatrix.needsUpdate = true;
+      for (const im of v.walk) { im.visible = im.count > 0; if (im.count) im.instanceMatrix.needsUpdate = true; }
+      v.idle.visible = v.idle.count > 0; if (v.idle.count) v.idle.instanceMatrix.needsUpdate = true;
+      if (v.fall) { v.fall.visible = v.fall.count > 0; if (v.fall.count) v.fall.instanceMatrix.needsUpdate = true; }
     }
   }
 
   function setEnabled(on) {
     _enabled = on;
     for (const v of variants) {
-      for (const im of v.walk) { im.visible = on; if (!on) im.count = 0; }
-      v.idle.visible = on; if (!on) v.idle.count = 0;
-      if (v.fall) { v.fall.visible = on; if (!on) v.fall.count = 0; }
+      for (const im of v.walk) { im.visible = on && im.count > 0; if (!on) im.count = 0; }
+      v.idle.visible = on && v.idle.count > 0; if (!on) v.idle.count = 0;
+      if (v.fall) { v.fall.visible = on && v.fall.count > 0; if (!on) v.fall.count = 0; }
     }
     if (!on) peds.length = 0;
   }

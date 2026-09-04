@@ -9,7 +9,9 @@
  * the physics/scene frame (lp.lx, lp.lz); cops live in `scene` at that frame.
  */
 import * as THREE from 'three';
-import { fxFlash, fxBanner, fxConfetti } from './gameFx.js';
+import { fxFlash, fxEvent, fxConfetti } from './gameFx.js';
+import { createStatCard, createResultCard } from './hudTheme.js';
+import { pursuitPay } from './economy.js';
 import { wallet } from './wallet.js';
 import { loadCityCarTemplates } from '../car/carModels.js';
 
@@ -64,59 +66,60 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
     return { group: g, x: 0, z: 0, yaw: 0, speed: 0 };
   }
 
-  // ── HUD ──
-  const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Inter,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:9px 12px;border-radius:10px;display:none;min-width:190px;';
-  document.body.appendChild(hud);
+  // ── HUD ────────────────────────────────────────────────────────────────────────────────────
+  // Was a `rgba(0,0,0,.5)` box at top-left reading `🚨 WANTED ★★★☆☆` over `⏱️ 12s  🚓 3  20m` — four
+  // emoji doing the work of labels, a star rating spelled out in ★/☆ code points, and a centre
+  // banner in a fifth style. Shared cards now, in the same top-right rail as every other mode.
+  const COL_HEAT = '#ff5a5a';
+  const card = createStatCard({ label: 'WANTED', color: COL_HEAT, rail: true });
+  const result = createResultCard({ color: COL_HEAT });
+
+  // The bust/escape countdown keeps its own centre slot: it is a LIVE timer, not an event, so it
+  // cannot go through fxEvent (which plays once and leaves).
   const banner = document.createElement('div');
-  banner.style.cssText = 'position:fixed;top:86px;left:50%;transform:translateX(-50%);z-index:1000;font:800 26px Inter,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;text-align:center;';
+  banner.style.cssText = 'position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
+    'font:800 13px/1 Inter,system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;text-align:center;' +
+    'padding:10px 18px;border-radius:14px;pointer-events:none;user-select:none;' +
+    'background:linear-gradient(168deg,rgba(14,18,26,.93),rgba(9,12,18,.93));' +
+    'border:1px solid rgba(255,255,255,.13);box-shadow:0 10px 30px rgba(0,0,0,.5);';
   document.body.appendChild(banner);
 
   function renderHud() {
     const active = state === 'chase';
-    hud.style.display = active || state === 'ended' ? 'block' : 'none';
+    card.show(active);
     banner.style.display = 'none';
     if (state === 'ended') {
-      hud.innerHTML = `<div style="font-size:15px;color:#ff5a5a;font-weight:800">🚨 Pursuit over</div>` +
-        `<div style="margin-top:3px">best escape ${Math.round(best)}s</div>`;
+      result.show({
+        kicker: 'Pursuit over',
+        value: `${Math.round(elapsed)}s`,
+        stats: [
+          { label: 'peak wanted', value: `${stars(peakWanted)}/5` },
+          { label: 'best escape', value: `${Math.round(Math.max(best, elapsed))}s` },
+        ],
+      });
+    } else {
+      result.hide();
     }
   }
 
-  function pips(v) { const n = Math.round(v / 20); return '★'.repeat(n) + '☆'.repeat(5 - n); }
-
-  // v3 P1-23: the live HUD is BUILT ONCE and updated through cached nodes. This used to reassign
-  // hud.innerHTML every frame of a pursuit — parsing HTML and rebuilding four elements 60x a second,
-  // in the one mode where the player is also being chased and the frame budget is tightest.
-  // dashMode already did it this way; police and delivery never got the treatment.
-  let _hudBuilt = false, _nWanted = null, _nBarFill = null, _nStats = null;
-  function buildHudOnce() {
-    if (_hudBuilt) return;
-    _hudBuilt = true;
-    hud.textContent = '';
-    _nWanted = document.createElement('div');
-    _nWanted.style.cssText = 'font-weight:800;color:#ff5a5a';
-    const barWrap = document.createElement('div');
-    barWrap.style.cssText = 'margin-top:5px;height:8px;width:100%;background:rgba(255,255,255,.15);border-radius:4px;overflow:hidden';
-    _nBarFill = document.createElement('div');
-    _nBarFill.style.cssText = 'height:100%;background:linear-gradient(90deg,#ffb347,#ff3b3b)';
-    barWrap.appendChild(_nBarFill);
-    _nStats = document.createElement('div');
-    _nStats.style.cssText = 'margin-top:6px;opacity:.9';
-    hud.append(_nWanted, barWrap, _nStats);
-  }
+  /** Wanted level 0-5 as a NUMBER, not a string of ★/☆ code points in whatever font the OS picks. */
+  function stars(v) { return Math.round(v / 20); }
 
   function updateHud(nearest) {
     if (state !== 'chase') return;
-    buildHudOnce();
-    _nWanted.textContent = `🚨 WANTED ${pips(wanted)}`;
-    _nBarFill.style.width = `${Math.round(wanted)}%`;
-    _nStats.textContent = `⏱️ ${elapsed.toFixed(0)}s   🚓 ${cops.length}   ${Math.round(nearest)}m`;
+    const n = stars(wanted);
+    // The label IS the rating — "WANTED 3/5" — and the meter under it is the heat bar those five
+    // ★/☆ glyphs were approximating.
+    card.setLabel(`WANTED ${n}/5`);
+    card.set(`${elapsed.toFixed(0)}s`, `${cops.length} ${cops.length === 1 ? 'unit' : 'units'} · nearest ${Math.round(nearest)} m`);
+    card.meter(wanted / 100, `${Math.round(wanted)}%`, n >= 4 ? '#ff3b3b' : n >= 2 ? '#ffb347' : '#ffd23f');
+
     if (bustT > 0.3) {
-      banner.style.display = 'block'; banner.style.color = '#ff4444';
-      banner.textContent = `🚨 BUSTED IN ${Math.max(0, BUST_HOLD - bustT).toFixed(1)}s`;
+      banner.style.display = 'block'; banner.style.color = COL_HEAT;
+      banner.textContent = `Busted in ${Math.max(0, BUST_HOLD - bustT).toFixed(1)}s`;
     } else if (escapeT > 0.3) {
-      banner.style.display = 'block'; banner.style.color = '#8ef0b0';
-      banner.textContent = `🏁 LOSING THEM… ${Math.max(0, ESCAPE_HOLD - escapeT).toFixed(1)}s`;
+      banner.style.display = 'block'; banner.style.color = '#2ee06a';
+      banner.textContent = `Losing them — ${Math.max(0, ESCAPE_HOLD - escapeT).toFixed(1)}s`;
     } else banner.style.display = 'none';
   }
 
@@ -173,18 +176,19 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
   }
 
   function escaped() {
-    const payout = Math.round(25 + elapsed * 1.6 + peakWanted * 0.8);
+    const payout = pursuitPay(elapsed, peakWanted);
     wallet.add(payout);
     if (elapsed > best) { best = elapsed; try { localStorage.setItem(bestKey, String(Math.round(best))); } catch {} }
-    fxBanner(`<div style="font-size:30px;color:#8ef0b0">🏁 ESCAPED!</div>` +
-             `<div style="font-size:46px;color:#ffd23f;margin-top:2px">+$${payout}</div>` +
-             `<div style="font-size:16px;opacity:.85">${elapsed.toFixed(0)}s · wanted ${pips(peakWanted)}</div>`, { duration: 2200, top: '30%' });
+    fxEvent({ kicker: 'Escaped', title: 'You lost them', amount: `+$${payout}`,
+              sub: `${elapsed.toFixed(0)}s on the run · peak wanted ${stars(peakWanted)}/5`,
+              color: '#2ee06a', duration: 2300 });
     fxConfetti(34, ['#8ef0b0', '#ffd23f', '#ffffff'], 0.4); fxFlash('rgba(46,224,106,.16)'); ding(880);
     clearCops();
     setTimeout(() => { if (state === 'chase') { _pending = true; wanted = 0; peakWanted = 0; elapsed = 0; escapeT = 0; bustT = 0; } }, 1600);
   }
   function busted() {
-    fxBanner('<div style="font-size:34px;color:#ff4444">🚨 BUSTED!</div>', { duration: 2000, top: '32%' });
+    fxEvent({ kicker: 'Pursuit over', title: 'Busted', sub: `${elapsed.toFixed(0)}s on the run`,
+              color: COL_HEAT, duration: 2200 });
     fxFlash('rgba(255,50,50,.25)'); ding(180, 0.22);
     clearCops();
     setTimeout(() => { if (state === 'chase') { _pending = true; wanted = 0; peakWanted = 0; elapsed = 0; escapeT = 0; bustT = 0; } }, 1800);
@@ -192,7 +196,7 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
 
   function update(playerPx, playerPz, dt, speedKmh, headingDeg) {
     if (state !== 'chase') return;
-    if (_pending) { _pending = false; spawnCops(playerPx, playerPz, headingDeg); fxBanner('<span style="font-size:30px;color:#ff5a5a">🚨 BUSTED? NOT YET — RUN!</span>', { duration: 1500, top: '30%' }); ding(440); }
+    if (_pending) { _pending = false; spawnCops(playerPx, playerPz, headingDeg); fxEvent({ kicker: 'Heat', title: 'Police on you', sub: 'Lose them', color: COL_HEAT, duration: 1600 }); ding(440); }
     _t += dt; elapsed += dt;
     if (!cops.length) { if (_siren) { const c = audio.ctx(); _siren.g.gain.setTargetAtTime(0.015, c.currentTime, 0.2); } return; }
 
@@ -256,7 +260,7 @@ export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, aud
   return {
     name: 'Heat', icon: '🚨', key: 'police',
     update, start, stop,
-    dispose() { stop(); hud.remove(); banner.remove(); fallbackMat.dispose(); redLightMat.dispose(); blueLightMat.dispose(); barGeo.dispose(); },
+    dispose() { stop(); card.remove(); result.remove(); banner.remove(); fallbackMat.dispose(); redLightMat.dispose(); blueLightMat.dispose(); barGeo.dispose(); },
     isRunning: () => state === 'chase',
   };
 }

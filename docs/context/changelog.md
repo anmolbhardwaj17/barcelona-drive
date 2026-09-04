@@ -2,6 +2,532 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — C-2: the sea was still over Diagonal Mar — the HAND TRACE was 310-500 m inland
+
+C-1 fixed a bad OSM chain being adopted. The user re-checked at Passeig Marítim de la Mar Bella and
+the street grid was still under water. C-1 was a real fix for a real bug; it was not THIS bug.
+
+- **⚠ THE GUARD HAD A HOLE THE SHAPE OF ITS OWN FALLBACK.** C-1's land anchors were applied only to
+  a CANDIDATE OSM chain. The hand trace — the fallback, the thing that runs whenever a candidate is
+  rejected, i.e. the thing that was running — was never checked against anything at all.
+- **MEASURED, NOT NUDGED.** `coastline.js` says "nudge points when a screenshot shows the waterline
+  off", and that instruction is how it got wrong. New `backend/tools/coastlineProbe.mjs` reads
+  `natural=coastline` straight out of the baked tiles — **34.65 km across 32 ways in 48 tiles, the
+  data was there all along** — and prints the distance from each hand point to the real shore:
+  Besòs 1204 m · Llevant 503 m · Mar Bella 386 m · Bogatell 432 m · Nova Icària 310 m, then ≤150 m
+  everywhere south of Port Olímpic. **The 310-500 m run is exactly the stretch that flooded.**
+  The NE points are now the probe's measured vertices; the southern ones are untouched.
+- ⚠ **OSM's coastline ENDS at 41.3382,2.1695.** The four Zona Franca points are unverified hand
+  guesses with nothing to correct them against — the probe finds nothing within 0.9-3.9 km. Labelled
+  in the file: do not "fix" them by eye.
+- **The length gate went 12 km → 5 km**, and is now explicitly only a sanity floor. The tiles'
+  longest single coastline way is **6.19 km** (probe), so C-1's 12 km threshold would have refused
+  every chain that failed to stitch — a guard that can never pass is not a guard. `seaIsSane()` is
+  the real test, exactly as C-1's own comment argued.
+- ⚠ **The probe itself was wrong first, in this codebase's signature way.** It read the water
+  polygons as world coordinates and reported the Barcelona coastline at **14°S**. They are stored as
+  ABSOLUTE MERCATOR — `readFloat32Pairs` subtracts the tile origin only because the worker passes it
+  ox/oy. Same class as N-7 and N-25. It now inverts Mercator directly, so there is no origin left to
+  get wrong. (It also first reported "NO COASTLINE IN THE TILES" from a flat `readdir` that found one
+  file — the tiles are nested z/x/y.)
+- Land anchors added for the reported area (Diagonal Mar, Mar Bella blocks, Rambla de Prim) and the
+  baseline test renamed to say what it is now guarding: **the fallback is checked too.** 510 pass.
+
+Verified after the fix: Mar Bella blocks, Diagonal Mar, Rambla de Prim, Passeig Marítim, Bogatell
+and Carrer del Gas all read LAND; the water off Mar Bella, off Bogatell and the open Mediterranean
+all read SEA.
+
+
+## 2026-09-04 — C-1: the sea was drawn over Poblenou (a runtime bug, not a bake bug)
+
+User: *"there is some baking issue as why is sea coming where the buildings are"* — screenshot at
+Carrer del Gas, buildings and streets standing in blue water behind a dead-straight diagonal
+waterline. ⚠ **Not the bake.** No re-bake, frontend only.
+
+- **CAUSE: `ingestCoastline` was first-tile-wins.** It stitched whatever `natural=coastline` ways
+  were in the FIRST tile that carried any — and `noClipTileStrategy` hands a tile the full geometry
+  of every way touching it, so one tile cleared the 3 km sanity check with a chain covering a
+  fraction of the coast. The sea polygon closes 30 km offshore **from that chain's two ends**, so a
+  chain stopping mid-city closes with a straight line *through* the city, sea on one side. The
+  straight diagonal in the screenshot was that closure edge.
+- **Segments now ACCUMULATE across tiles** (deduped by endpoint pair, because the no-clip strategy
+  hands the same way to every tile it touches) and a longer chain is adopted as the player drives.
+- **⚠ A LENGTH GATE CANNOT DECIDE THIS, and that is the point.** The threshold went 3 km → 12 km,
+  but a wrong 15 km chain still floods the city. The candidate is now tested against the thing that
+  actually matters: **known inland landmarks must not come out as sea** (Plaça Catalunya, Sagrada
+  Família, Camp Nou, Plaça d'Espanya, Park Güell, Glòries), and known offshore points must. A
+  polygon that floods Sagrada Família is rejected however many kilometres it is, and the hand trace
+  is kept — a slightly wrong waterline and the city under water are not comparable failures.
+- `closeSea()` is now shared between the ingest-time validation and `build()`, so **the polygon that
+  is tested is the polygon that is used**. Two implementations of "which side is the water on" would
+  be two chances to get it backwards.
+- New: `frontend/test/coastline.test.js` — 5 tests. The bug itself is one assertion: feed a ~1 km
+  Poblenou fragment and every land anchor must still be land. A second test feeds a *long* (15 km)
+  but inland-running chain, which is the case a length threshold passes and the anchors catch.
+  **510 tests pass.**
+
+⚠ Still true, and worth knowing before anyone reaches for this again: the underlying weakness is that
+the bake ships **no open-sea signal at all** — no OSM water polygons for the sea, and Copernicus
+GLO-30 puts the sea at 2–5.8 m here, overlapping real street elevations. The proper fix stays
+bake-side (stitch `natural=coastline` and sink sea cells in the elevation grid), as coastline.js has
+said since it was written.
+
+
+## 2026-09-04 — Z-2: the paint ladder came back down (Z-1 over-corrected)
+
+User, on a Carrer de Sants crossing: *"these big horizontal line groups … they are pretty high in z
+axis and looks floating"*. Correct, and it was mine.
+
+- **Z-1 fixed an ORDERING bug by raising everything.** The depth-bias table and the height table
+  encoded opposite orders; the fix only needed the order. Instead the ladder was rebuilt at a 5 mm
+  step held one step off the floor "for margin", which took **zebra crossings from 1.6 cm proud of
+  the asphalt to 3.1 cm** and stencils from 1.6 to 3.6. At the grazing angle a road is driven at,
+  3 cm of lift on a wide white band reads as a decal hovering over the street.
+- **Fixing an ordering bug by changing heights is fixing the wrong quantity.** Paint does not need
+  clearance to be *ordered* — the depth bias does that — it needs clearance not to be *buried*. Now a
+  **2 mm step at the lowest base that clears `MIN_PAINT_CLEARANCE`**: parkingZone 1.6 cm, marking
+  1.8, crossing 2.0, stencil 2.2. Every class is within 6 mm of what shipped for months without
+  complaint, and **inverted pairs stay at 0** — the Z-1 invariant is untouched.
+- **New guard: clearance now has a CEILING as well as a floor.** `groundStack.test.js` asserts no
+  paint class stands more than 2.5 cm proud. The floor stops burial; without the ceiling nothing
+  stopped the opposite mistake, which is the one that actually shipped. A couple of centimetres proud
+  is a marking; four is a kerb. **505 tests pass.**
+
+⚠ Still open, reported but NOT changed: in the same screenshot the zebra banding covers a very long
+stretch of Carrer de Sants rather than a junction's width. That is a data/extent question, not a
+height one, and diagnosing it from one screenshot is how three earlier guesses this session went
+wrong. It needs `_ddPick` on a stripe, or a count of crossing ways and their lengths in that tile.
+
+
+## 2026-09-04 — M-7: an invisible wall at the world boundary
+
+User: *"in boundry of our bake add a invisble wall so they cant go past that … on hit it should say
+gaem boundry please move back or roate car as well to opposite direction"*.
+
+- **What was there before, described honestly:** haze curtains that say "edge", and a breadcrumb
+  teleport 45 m past them. Nothing in between actually STOPPED you — so the behaviour was "drive
+  into the void for 45 m, then get yanked somewhere else". A teleport is a punishment for something
+  the game never prevented.
+- **`boundaryPush(wx, wz)`** returns the world-axis displacement back inside, and
+  `carDriver.holdInBounds(px, pz)` applies it. Three things in order, because any one alone feels
+  wrong: **clamp** the chassis to the plane (or you creep out under throttle); **kill the OUTWARD
+  velocity component only** (zeroing all of it makes the wall a brick — keeping the tangential part
+  lets you slide along the edge, which is what a wall does); and **turn the car to face back inside**,
+  or you are left nose-first against nothing with no cue which way the world is.
+- **Not a collider, deliberately.** Four static Rapier boxes would have to be re-placed as the physics
+  origin moves and be tall enough that nothing jumps them. A position constraint gives the same felt
+  result — you cannot pass — for no colliders and no streaming. **The teleport stays as the backstop**
+  for a physics fling or a fall; it should now essentially never fire.
+- The notice uses the shared `fxEvent` banner ("Edge of the map / Game boundary / Turning you
+  around"), throttled to once per 4 s.
+- ⚠ **A test caught a real error in the first cut.** It converted degrees to metres by hand
+  (`111320 · cos(lat)`) and the push landed **0.69 m short every time** — that formula describes the
+  GROUND, while the projection describes world units, and the two differ by the Mercator scale at
+  this latitude. The wall is now a world-space box projected from the same corners the haze curtains
+  use: exact by construction, and it drops a `worldToLatLon()` from the per-frame path.
+- New: `frontend/test/worldBoundaryWall.test.js` — 6 tests. The one that matters most asserts the
+  push points **back into** the world on every edge: world +x is east and physics X is mirrored, so a
+  sign error here builds a wall that **ejects** you, which is exactly the class of bug the CLAUDE.md
+  danger note is about. Also pinned: one application clears the boundary exactly (a push that only
+  gets halfway is a wall you can lean through), corners push on both axes, and **the wall engages
+  before the teleport arms** — otherwise it would be decorative and the player would still get yanked.
+  ⚠ Two of my own test premises were wrong first (a 0.5 m tolerance hiding the 0.69 m bug, and a walk
+  too short to reach the edge, which concluded "the wall never engaged"). **504 pass.**
+
+
+## 2026-09-04 — M-6: Heat on the shared HUD, a rail that closes its own gaps, random spawn, one economy
+
+- **Heat (`policeMode`) was the last mode on the old style.** A `rgba(0,0,0,.5)` box reading
+  `🚨 WANTED ★★★☆☆` over `⏱️ 12s  🚓 3  20m` — four emoji standing in for labels and a star rating
+  spelled out in ★/☆ code points at five steps. The label IS the rating now (`WANTED 3/5`) and the
+  heat bar is a real meter that goes yellow → amber → red. Its bust/escape countdown keeps a centre
+  slot because it is a LIVE timer, not an event, so it cannot go through `fxEvent` (which plays once
+  and leaves) — but it now wears the same panel as everything else.
+- **⚠ THE RAIL, and the bug that forced it.** Rush Hour has two top-right cards and only shows the
+  countdown during a drop-off, so with hard-coded offsets the cargo card kept its `top:106px` and hung
+  in mid-air with the timer's empty slot above it. Magic offsets cannot express "stack, and close the
+  gap when one hides". `hudRail()` is a flex column; `display:none` leaves the layout instead of
+  leaving a hole, and CSS `order` sets the sequence so a card's position does not depend on when it
+  was constructed. All five cards across four modes are railed.
+- ⚠ **A backtick in a CSS comment closed the template literal it lived in** and broke `hudTheme.js`
+  on the first attempt. The note in that comment now says so.
+- **RANDOM SPAWN — asked for three times before it got done.** Every fresh load starts somewhere in
+  `SPAWN_POOL` (12 districts). `?spawn=lat,lon` still wins, so the hub's place picker holds; new
+  `?spawn=fixed` pins Gran Via, which **perf work must use** — the v3 benchmark and `bench/benchRoute`
+  both start there, and a randomised start makes every drive report incomparable to the last one. Only
+  `_activeSpawn` moves: `START_LAT`/`START_LON` stay pinned because the projection origin must not,
+  which is the same reason `?spawn=` has always been safe. The hub's `PLACES` is now `SPAWN_POOL`
+  itself rather than a second copy of the same coordinates — the picker cannot offer somewhere the
+  game will not start.
+- **ONE ECONOMY (`game/economy.js`).** Three payout formulas were inlined at three points of payment,
+  paying into the same wallet — so "money comes in too fast" was a statement about a SUM that no single
+  file could answer, and retuning meant finding three literals and hoping they were the only ones.
+  `RATE = 0.45` is the single dial. Roughly a 55% cut, weighted toward **distance**: the old rates paid
+  a flat opening fee big enough that chaining short hops beat driving anywhere, which is the mechanism
+  that made the balance climb. A 350 m fare was $10 before tip; it is $5. Rush Hour's streak cap goes
+  ×2.5 → ×1.8, because a multiplier on a base that already scales with distance compounds.
+- New: `frontend/test/spawnAndEconomy.test.js` — 8 tests. Every pool entry is inside the baked extent
+  (outside it the player boots into a blank world, which looks like a broken game and logs nothing);
+  no duplicate coordinates; payouts scale with distance faster than with the flat part; the retune is
+  pinned **against the old formulas**, so raising `RATE` back fails the suite; and no payout can be
+  zero, because a completed job that pays nothing reads as a bug. **498 pass.**
+- `TODO.md`: multiplayer added as a programme, with the part that actually blocks it written down —
+  nothing in this game is authoritative. Physics is client-side, traffic and pedestrians are seeded by
+  nothing, and the spawn is now randomised per client, so two players would see different cars, crowds
+  and starting places in the same city. Cheapest honest first slice: ghost cars.
+
+
+## 2026-09-04 — M-5: the accent bar is gone, and every readout moves to one corner
+
+- **No accent bar on any card.** The 3px coloured rule down the left edge was M-3's replacement for
+  the old warning-style outline, and it was furniture in its own right: a hard vertical line against
+  a rounded panel fights the corner radius it sits inside. The cards already carry the mode's colour
+  where it means something — the turn glyph, the label, the distance — so the bar was an accent doing
+  no work. Removed from `statCard` and `objectiveHud`; `setAccent()` now only re-tints the label,
+  which is all any caller needed.
+- **One column for mode readouts: TOP-RIGHT.** City Cab's earnings and Rush Hour's cargo card moved
+  off the left; Checkpoint Dash's clock and Rush Hour's countdown were already there. The minimap
+  owns bottom-left and the objective card owns top-centre, so a card in each corner was three places
+  to look while driving. Rush Hour stacks its cargo card under its clock rather than opening a fourth
+  position.
+
+
+## 2026-09-04 — M-4: speed blur off, timers to the top-right, day/night is keyboard-only
+
+- **The green mush behind every card was the RADIAL SPEED BLUR** (`ui/radialBlurPass.js` +
+  `ui/speedLines.js`), not anything new — it ramps from 30 km/h and smears the whole frame, and it
+  sat behind exactly the result panels the player is meant to be reading. **Off by default**;
+  `?speedblur=1` restores it. Off, the pass is skipped and the streak canvas is never created, so it
+  is a free frame rather than a shader computing nothing.
+- **Checkpoint Dash printed its finish twice.** `fxEvent` fired a FINISHED banner at `top:32%` while
+  the result card showed FINISHED, the time, the checkpoint count and the best at `top:34%` — the
+  same three facts, on top of each other. The banner is gone; the card is the celebration and the
+  confetti is the punctuation.
+- **Timers moved to the TOP-RIGHT** (Dash's clock and Rush Hour's countdown). Top-centre is where the
+  result card lands, which is how a timer ended up drawn under a summary panel; the corner was free
+  because —
+- **The day/night button is gone.** `N` was already bound and already listed in the on-screen controls
+  strip, so the frosted icon button was a second way to do a thing the player is already told about,
+  occupying the one corner the HUD wants. The element is still constructed (it owns the icon and the
+  click handler) but never appended, and `envToggle.toggle()` is the API now — `element.click()` on a
+  detached node still works, but nothing should depend on that.
+
+⚠ Documented for the next person: **the "what is that behind the card" question took three exchanges
+to answer** — the speed blur, the timer card and the duplicate banner were three separate things
+stacked in the same place, and each looked like the others from a screenshot.
+
+
+## 2026-09-04 — M-3: one HUD, and a per-frame throw that froze the game
+
+### ⚠ FIRST: the crash I introduced, and why it was worse than a typo
+User: *"game feels stuck not able to move the car after these chnages"*. `gates[i]` used to be a
+`THREE.Group`; M-1's shared marker made it an API object whose transform lives on `.group`. So
+`g.position.y` in `dashMode.updateArrow` read `undefined.y` and **threw on every frame from inside
+`animate`** — everything after that line stopped running: car input, camera, the lot. The game read
+as completely frozen and the cause was a HUD arrow.
+- Fixed (`g.group.position.y`), **and fenced**: the four `xxxMode.update()` calls sat bare in the
+  loop, so a typo in a side quest could take the car down. `_tickMode()` now catches per mode —
+  first throw prints with its stack, then that mode is disabled for the session and the drive
+  continues. Loud once, then quiet: 60 exceptions a second is what buried this one.
+- ⚠ I put the guard INSIDE `animate` on the first pass, where `_modeFailed` is a fresh `Set` every
+  frame — a mode would be "disabled" for exactly one frame and throw again forever. Hoisted to
+  module scope.
+
+### M-3: `hudTheme.js` — one panel for every card
+User, on the City Cab money card: *"this can be improed"*, then the shift-over panel (*"should fade
+away smoothly"*), the banners, and the 3-2-1.
+- **THE DEFECT WAS TWO DESIGN LANGUAGES ON SCREEN AT ONCE**: a green-bordered money panel in the
+  corner and the dark objective card in the middle, at the same moment, in the same game. Each mode
+  also had its own copy of the CSS, so it could only diverge further.
+- **What the green border was actually doing:** a 2px saturated outline all round a panel is the
+  browser's WARNING-dialog idiom, so a readout read as an alert. Worse — green panel, green border,
+  mint number, and City Cab's objectives sit in parks: over foliage the card vanished into what it
+  was drawn over. Now a neutral dark panel with the mode colour as a 3px **bar** down one edge, and
+  a **white** value, which is the only thing that reads over both night asphalt and a sunlit hedge.
+- **Emoji removed from every HUD surface** — 💵 in front of a number that already starts with `$`,
+  🧍 in front of "Picking up", 📦/🔥/⏱️/✨ through Rush Hour, and the 🥇🥈🥉 medals. They render as a
+  different picture on every platform and drag the OS palette into a screen with its own. The medal
+  is a colour and a word now; `medalFor`'s `emoji` field is deleted, not orphaned.
+- **Copy that says something.** "Fare 1 · Pick up" repeated the objective card two inches away, in
+  the same 10px caps, at the same moment — the corner card is about MONEY, the centre card is about
+  where to go. "PASSENGER ABOARD" now carries the trip length and base fare; "DELIVERED" carries the
+  fare and the tip. `fxEvent()` gives every banner the same three slots (kicker / title / sub) so
+  copy stays in the caller and type does not; `fxBanner`'s HTML-string API is gone from all callers.
+- **`1 fares`** — a plural that was wrong exactly when the player had done the least, i.e. the one
+  they were most likely to see.
+- **The result panel FADES.** It was `display:none` on a `setTimeout`, so after nine seconds it
+  vanished between one frame and the next, which reads as a bug rather than an ending. `hide()`
+  returns a promise that settles when it has actually gone, with a timeout so a cancelled animation
+  can never leave a panel stuck on screen.
+- **The countdown has a ring.** The old digit ended its keyframe at `scale(.85); opacity:.85` — each
+  number finished *shrunk and dimmed* and sat there until the next replaced it, so the tension leaked
+  out of exactly the moment it should build into. Now a ring sweeps once per second around the digit,
+  which is the affordance a countdown actually has: you can see the second running out.
+- **Meters instead of glyph art.** Rush Hour drew parcel condition as `'▮'.repeat(f) + '▯'.repeat(5-f)`
+  — a five-step bar made of text in whatever font the OS picked for those code points. It is a real
+  meter now, and it colours green → amber → red. The timer card turns red *whole* under five seconds,
+  not just its digits: you read the colour long before the number. Checkpoint Dash gained a progress
+  bar, because "3 / 9" is a fraction you have to work out at 90 km/h.
+- Caller strings go through `textContent`, never `innerHTML` — these carry OSM street names, and the
+  apostrophe in *Carrer d'Aragó* has no business being parsed as markup.
+- 490 tests pass; production build clean.
+
+
+## 2026-09-04 — M-1: mode title cards, one objective halo, and real road directions
+
+User brief: a logo card when a mode starts; better pick-up/drop-off UI; halos that "match the current
+game vibe and look good in day and night properly"; and directions on the map "proper like google
+maps" for Checkpoint Dash, City Cab and Rush Hour. Full write-up: **[game-modes.md](game-modes.md)**.
+Frontend only, no re-bake. 490 tests pass; production build clean.
+
+### Title cards (`game/modeIntro.js`)
+- Five logos supplied and installed. **ORDER IS THE DESIGN: hub closes → card over the city → mode
+  starts.** `playModeIntro()` returns a promise and `mainMenu.drive()` awaits it, because Checkpoint
+  Dash counts 3-2-1 from its first update and the two would fight for the same 40% of the screen in
+  different type. Free Roam gets a card too; it just has no mode to start afterwards.
+- The scrim is a radial dim, not a black-out — a title over a shot, not a loading screen. The card
+  scales UP on the way out: shrinking away reads as cancelled, drifting past reads as getting out of
+  the way. Honours `prefers-reduced-motion`. Falls back to icon + name, laid out properly, if a logo
+  is missing — that is what ships if art never arrives.
+- ⚠ **Budget.** The supplied PNGs were 1.4-2.1 MB **each, ~9 MB for five** — three times what v3
+  P0-11 deleted two pedestrian variants to save. Shipped as alpha-trimmed 1200 px WebP: **633 KB for
+  all five**, trimmed to the ink first or the card is mostly empty margin.
+- `drive()` now captures the pick before the await. `selected` is live, so reading it on the other
+  side would start whatever the player last hovered rather than what they pressed.
+
+### One objective halo (`game/objectiveMarker.js`)
+- Three modes each built their own from the same four primitives and had drifted: dash had a bloom
+  torus and a 48-segment ground ring, taxi and delivery had neither, and the beam sat at a different
+  opacity in each. One implementation now.
+- **Why they looked wrong, measured rather than guessed: every part was a flat `MeshBasicMaterial` at
+  fixed opacity and the beam was `AdditiveBlending` at 0.16 — a NIGHT-ONLY recipe shipped into a
+  day/night game.** Additive adds to what is there: against night asphalt (~0.05 luminance) the beam
+  is the whole signal; against a sunlit street (~0.55) it adds 0.16 to something already near white,
+  which is mathematically invisible and blew the sky out where it did register. Plus a hard-edged
+  column ending in a straight line 90 m up, a `RingGeometry` annulus at constant alpha (a decal *of*
+  a ring, not light on a road), and no distance behaviour at all on a part whose entire job is
+  long-range locating.
+- Now: gradient `CanvasTexture`s throughout, and a day/night profile that **changes BLENDING, not
+  just opacity** — alpha + a deepened hue by day, additive + a brighter core at night. The beam
+  smoothsteps in over 55→150 m and is off under the bumper; the ground pool strengthens as you
+  arrive, so there is never a moment without a mark on the ground.
+- ⚠ **Two traps found on the way.** (1) `onNightModeChange` fires only on a TOGGLE, so a marker built
+  when a mode starts — minutes after boot — came up in the day profile; added `isNightMode()` to
+  `envToggle` and read it at construction. (2) That API has **no unsubscribe** and dash builds a
+  marker per gate per run, so a per-marker subscription is a leak that grows with play time — one
+  module-level subscription and a registry `dispose()` actually removes from.
+
+### Road directions (`game/router.js` + `objectiveNav.js` + `objectiveHud.js` + map)
+- **The defect: every mode pointed with a BEARING.** On an Eixample grid the marker reads 180 m
+  north-west while the only way there is 400 m round two blocks — and the number on screen goes UP as
+  you drive the correct route. Replaced with A* over the loaded road network.
+- **Routes on TIME, not distance** (per-class speed table), so it prefers Gran Via to a shorter
+  service lane. The heuristic uses the table's FASTEST speed — an average overestimates the remaining
+  cost and silently returns non-optimal routes, which looks like "the nav sends me the long way" and
+  is never traced back to the heuristic.
+- **The graph is clipped to the TRIP, not the resident city**: 9-18 tiles is ~10⁵ nodes and tens of ms
+  on the main thread, to plan a 300 m fare.
+- ⚠ **A test caught a real hole in the first cut.** Clipping on "either endpoint inside the box" drops
+  an arterial that CROSSES a 700 m trip box with its next node a kilometre away — so the route would
+  detour around the one street that goes there. Now an AABB-overlap test. Also pinned: a **1 m node
+  snap**, without which tile-clipping leaves each tile a disconnected island and every route dies at
+  a boundary.
+- ⚠ **The graph is UNDIRECTED and ignores oneway, deliberately** — this routes a player, who turns
+  around, and a one-way graph over tile-clipped OSM strands the goal behind an unreachable kerb often
+  enough to be worse than an occasional wrong-way leg. Revisit when the network is proven connected.
+- Turns carry **street names** ("Turn left onto Carrer d'Aragó") — already in the tiles, and per
+  CLAUDE.md's census otherwise discarded. A <28° kink is a bend, not an instruction.
+- `objectiveHud` replaces **three** hand-built pills (three inline `cssText` blocks, three `top:`
+  values, three CSS triangles made of `border-left:8px solid transparent`). Shows the next maneuver
+  over distance-remaining-along-the-roads, and has an honest "Direct / No road route yet" state
+  instead of inventing a turn while the far end is still streaming.
+- Map: `customMap.drawRoute` + `minimap.setRoute`. Drawn **into the map canvas after `drawTile` with
+  the same projection**, so the heading-up CSS rotation carries it — an overlay layer would drift
+  against the streets under it. Dark casing under a bright line (survives the pale day ground and the
+  navy night one without changing colour), route BLUE with the mode colour on the pin (a green route
+  on a green park is invisible), the driven part dimmed, and direction chevrons.
+- ⚠ `_route` is declared ABOVE `redrawMap` in `minimap.js`: the constructor calls `redrawMap()` while
+  still running, so a `let` further down is a temporal-dead-zone throw on boot, not an undefined read.
+
+### Not done
+Heat has a title card but no halo or routing (no fixed objective). No ETA surfaced (the router
+computes travel time internally). No chime on a turn. No lane guidance or roundabout exits. Planning
+is on the main thread — bounded and throttled, no hitch measured, but not yet measured on a 500 m
+trip through the densest tiles.
+
+
+## 2026-09-04 — Z-1: the two ground-layer tables encoded OPPOSITE orders
+
+Road/surface Z-layering, from `TODO.md`. Full audit: **[ground-layering.md](ground-layering.md)**.
+Frontend only, no re-bake. 478 tests pass.
+
+⚠ **The TODO's premise was stale.** It asked to design "ONE layering scheme" to replace ad-hoc
+Y-offsets — that scheme already existed as `map/groundLayers.js`, and the audit found **zero**
+violations: all 7 `polygonOffset` sites outside `applyGroundLayer()` are transparent `depthWrite:false`
+decals, which the module's own RULES exempt, and the `assertGroundLayers` dev guard is wired into every
+mesh via `tileManager.js:150`. The depth-bias half is done. Everything below is the other half.
+
+- **THE FINDING: the bias table and the height table encoded opposite orders for every paint class.**
+  The module flagged ONE disagreement (parking stripes above lane lines geometrically, under them by
+  bias) and reproduced it as "a candidate for the next paint pass". Measured across all 21 pairs it is
+  **5 inverted pairs, and every one is paint** — the three non-paint classes agreed.
+  `bias: parkingZone < marking < crossing < stencil` vs `height: crossing < stencil < marking < parkingZone`.
+- **Why it never got chased:** both tables are internally consistent and each is right in a different
+  regime, so the order **swaps as the camera moves**. `polygonOffset = factor × m + units × r`, and road
+  is seen at a grazing angle from a chase cam, so `m` is large and the BIAS order wins down the street;
+  under the bumper the surface is face-on, `m` collapses, and the 5 mm of real separation wins. With
+  `near = 1, far = 50000` depth resolution is `≈ z²/16.8e6` — 0.6 mm at 100 m, 5.4 mm at 300 m — so even
+  the constant term crosses the geometric gap inside the drawn road distance. **No camera position sees
+  a consistent street.**
+- **Resolved toward the BIAS**, on three agreeing grounds: it encodes the art intent the table was
+  written with; it is physically right for the pair that actually overlaps (a zebra is painted ACROSS
+  the lane lines, so `crossing` belongs over `marking` — the height table had that backwards); and it is
+  what is visible at the angles road is mostly viewed at, so matching geometry to it moves least on
+  screen. New ladder, 5 mm steps in bias order: parkingZone base+0.100 · marking base+0.105 · crossing
+  base+0.110 · stencil base+0.115. Nothing moves more than 2 cm. **Inverted pairs 5 → 0.** Held one step
+  above the old floor so the lowest paint class keeps **2.1 cm** over the drawn asphalt instead of 1.6 cm
+  — `MIN_PAINT_CLEARANCE` is 1.5 cm and burial is this module's documented failure mode, so 1 mm of
+  margin is not margin.
+- **Z-1b: four `roadRenderer` paint constants duplicated the table** (`MARKING_Y_ABOVE_ROAD`,
+  `STRIPE_Y_ABOVE`, `BIKE_Y_ABOVE`, `ARROW_Y_ABOVE`), with the arithmetic spelled out in comments. All
+  four AGREED with the table — which is exactly what makes it the "two references for one height, kept in
+  sync by hand until it isn't" failure the module exists to end, inside its biggest client. Four other
+  classes already derived, so the file was half-converted. Now all derive. The real subtlety is kept:
+  `buildFlatRibbonGeometry` adds a **hidden +0.02** to every vertex, so ribbon paint is handed
+  `groundLift(cls) − ROAD_ZFIGHT_OFFSET` and custom-quad paint (arrows) takes the full lift — **verified
+  at each call site, not read off the comments.**
+- **Z-1c: `GREEN_OFFSET_Y = 0.01` was declared twice**, identically, in `greensRenderer.js` and
+  `vegetationRenderer.js`, while `areaFeaturesRenderer` carried `AREA_OFFSET_Y = 0.02 // "above greens'
+  0.01"` — a numeric dependency on a constant it cannot see change. Three copies of one ladder. Now
+  `TERRAIN_LIFT`, values unchanged. (`vegetationRenderer`'s copy is the N-12 dead twin; unified anyway.)
+- **New invariant, and it is the actual deliverable:** `groundStack.test.js` asserts that depth-bias
+  order and physical order agree for every pair sharing a base. `ROAD_BASED_LIFTS` names the comparable
+  set — `tactile` is excluded because its 0.005 is measured from the SIDEWALK, and ranking it against a
+  paint lift compares two numbers that are not in the same coordinate.
+- ⚠ **The suite had the same duplication it was testing for:** three tests each carried their own copy
+  of the shipped absolute stack, so re-ordering broke two of them for reasons unrelated to what they
+  test. One test owns the absolutes now; the other two assert relationships.
+- **Still open, `TODO.md` narrowed rather than closed:** Z-2 (parking lots, bus stops, tram rails,
+  tunnel approaches and blend strips are outside the scheme entirely — `parkingRenderer` lands at 0.06
+  against the road deck's 0.05), Z-3 (building-wall z-fighting — a DATA problem for the OSM repair
+  layer, not a ground-layer one), Z-4 (`gore`/`drain` sit BELOW the drawn asphalt and are exempted from
+  the clearance assertion; plausible for a drain cover, doubtful for a gore fill, never checked on screen).
+
+
+## 2026-09-04 — V-16: C blends between camera modes instead of cutting
+
+User: *"i want smooth camera transition in all"* (camera modes). All three view changes now arc.
+
+- **The blend runs in the car's yaw-only LOCAL frame.** In world space a car at 90 km/h leaves its own
+  camera path behind mid-transition; in the local frame the arc rides with the car.
+- **The path is lifted over the roof**, `TRANSITION_LIFT × sin(πt)`, scaled by how close the straight
+  path passes to the car centre in plan. The old code cut deliberately, with a comment saying a straight
+  lerp from 6.6 m behind to a point on the bonnet goes **through the bodywork** — right diagnosis, wrong
+  remedy: a cut avoids that rather than solving it. Measured, the straight path crosses the car centre
+  **24 cm** over a 1.2 m roofline (a coin toss against mirrors and aerials); the arc makes it **~0.6 m**.
+- **The lift is scaled, not blanket.** wide → close keeps both rigs behind the car (closest approach
+  4.5 m) and gets **zero** lift — a fixed one would hop the camera for nothing on every press. Measured
+  apex: wide→close 2.50 m (= its own start height, no bob), close→bumper 2.38 m, bumper→wide 2.68 m.
+- **Starts from the live camera position, not the outgoing rig's ideal** — the chase cam lags its ideal
+  by design (`LERP_POSITION = 0.16`), so starting at the ideal pops on frame one. **`ap = 1` while
+  transitioning**: the eased arc *is* the smoothing, and lerping toward a moving blend point would drag
+  the camera off its clearance — the two rigs disagree on the rate anyway (0.85 bumper vs 0.16 chase),
+  which is what would put a pop at the far end of an otherwise smooth move.
+- **0.6 s, not 0.5.** Smoothstep peaks at 1.5× its mean rate, so the ~9.7 m wide↔bumper move at 0.5 s
+  puts 0.38 m between consecutive frames — 23 m/s of camera. It reads, but it whips. At 0.6 s the worst
+  measured step is 0.408 m across all three transitions.
+- Look-ahead blends across the transition too (leaving it to `_smoothLookAt` eases at 0.22 — its own
+  rate, not the transition's, so the frame would arrive before the aim did). Pressing C mid-transition
+  re-captures the arc start from the live position. New `getViewBlend()` reports 0…1.
+- Tests: 6 more in `cameraViews.test.js`, **475 pass.** The continuity test asserts a **ratio**
+  (worst step ÷ mean step < 2.0) rather than a distance — smoothstep peaks at exactly 1.5× its own mean
+  while a cut is of order N, so the test holds whatever `TRANSITION_TIME` becomes. The one that matters:
+  **no frame of any transition, including C spammed mid-arc, puts the camera inside the shell.**
+  ⚠ One test threshold was wrong on the first run and the code was right — "clears the roofline" measured
+  over the whole 4.4 m box, but past the windscreen the bodywork drops to the bonnet and the bumper cam's
+  whole job is to end up down there. Narrowed to the cabin (|z| < 1.2 m).
+
+
+## 2026-09-04 — V-15: a third camera mode, and the camera doc was stale in every row
+
+**C now cycles three views, progressively inward: wide chase → close chase → bumper.** `VIEW_CHASE = 0`,
+new `VIEW_CHASE_CLOSE = 1`, `VIEW_HOOD` moves 1 → 2, `VIEW_COUNT = 3`. Nothing outside `carCamera.js`
+refers to these by value (checked: `carDriver` and `main.js` only forward `cycleView`/`getView`), and the
+`sessionStorage['dd_view']` restore is range-checked — so a stored `1` from an older build now selects
+CLOSE instead of HOOD, a one-time surprise on one reload rather than a broken state.
+
+- **The two chase rigs are a PARAMETER SET, not a second camera.** `CHASE_RIGS` replaces the single
+  `BASE_CAM_*` / `TUNNEL_CAM_*` constants; both views run the identical update path (orbit, reverse flip,
+  shake, soft clamp, look-ahead, FOV). A forked update is how two chase cams drift apart — a fix lands in
+  one and the other quietly keeps the bug.
+- **CLOSE was derived by holding the ANGLES, not by scaling the numbers**, because the flat-angle comment
+  on `BASE_CAM_HEIGHT` is the whole reason WIDE is tuned as it is. Rear roof edge ~1.2 m up / ~2.2 m back
+  → wide depresses it 16.5°; at 4.5 m back with 2.05 m of height, close depresses it **20.3°**, a shade
+  steeper on purpose so pulling in shows MORE road over the roof. Look-ahead 4.0 → **3.2 m** to match: at
+  a 2.05 m eye, 4.0 m is what would have flattened the view into the roofline — the trap the TODO named.
+  Measured, settled: wide 6.60 m / 2.50 m / 16.5°, close 4.50 m / 2.05 m / 20.3°.
+- **Deleted dead code the change would otherwise have enshrined:** the bumper view computed a `_hoodLook`
+  target from an orbit-rotated forward and `HOOD_LOOK = 14 m` that **nothing ever read** — it has always
+  fallen through to the shared chase look target, which is what it is actually tuned against. Removed the
+  vector, the constant and the two locals, with a comment saying so. Zero behaviour change. Dead code that
+  looks live is how the next person "fixes" the wrong number.
+- New: `frontend/test/cameraViews.test.js` — 6 tests that DRIVE the real `update()` against a stub chassis
+  rather than pinning constants, so a rig wired but never read still fails. Notably: close must settle
+  >1 m nearer than wide, must not fall below `MIN_CAM_ABOVE_CAR`, must not flatten the roofline angle, and
+  every mode must produce a finite position (a missing rig-table entry is otherwise silent). **469 pass.**
+- ⚠ **`vehicle-system.md` §Camera was stale in essentially every row** and is rewritten: it claimed base
+  distance 4.8 m (is 6.6), height 1.4 m (2.5), look-ahead 2.5 m (4.0), max FOV +14° at 120 km/h (+21° at
+  80), max horizontal 5.2 m (9.3), a `chassis.position.y < -1` tunnel test (that is the G-47 bug, long
+  replaced by `isInTunnelZone` XZ zones), and **"Mouse orbit is disabled"** when it has been live on the
+  canvas for some time. Now documents the rig table, the derivation, the bumper-cam bounds measurement and
+  the shake.
+
+
+## 2026-09-04 — Pedestrians P-1: they walk streets, they turn, and they are not flat-shaded
+
+User report: *"they are again too low poly and they dont have much to do also they move randomly not
+smooth"*. All three measured before touching anything; see **[pedestrian-system.md](pedestrian-system.md)**
+for the full diagnosis. Frontend only — no tile format change, no re-bake.
+
+- **"Too low poly" is mostly a SHADING bug.** `bakePosedMesh` ended in `toNonIndexed()` +
+  `computeVertexNormals()`, i.e. every triangle got its own normal: the whole crowd was lit **flat**.
+  At 1,852 / 2,776 / 1,786 triangles these models are not thin for a background figure — they were
+  faceted on purpose. Now `toCreasedNormals(geo, 55°)`. Same triangles, same draw calls, same memory.
+  What *is* genuinely thin and is NOT fixed: all three GLBs ship **zero textures** (`images = 0`).
+- **"Nothing to do" — 8 of the 11 clips in every GLB are unused.** `Sitting`, `Standing`, `Clapping`
+  and `Run` ship in the page weight and never appear; the game uses `Walk`, `Idle`, `Death`. Logged as
+  P-3. What did land: standing is now a **state** with a 2.5–11 s duration, not a life sentence —
+  `IDLE_FRAC = 0.25` had been freezing a quarter of every crowd as permanent statues.
+- **"Moves randomly" was three defects.** (1) A person's whole world was one road **sub-segment**,
+  commonly 10–30 m, paced back and forth — nobody was going anywhere. They now walk a **path**: the
+  full mitred offset polyline of one side of a road, parameterised by arc length, so they traverse
+  whole streets and round the bends. (2) Yaw was **assigned**, so an end-of-segment flip or the sight
+  of the car snapped a person through 180° in one frame; it is now smoothed (7/s walking, 20/s
+  panicking). (3) The flipbook ran at **~7 fps** (`FRAMES = 8` against a ~1.15 s cycle); `FRAMES` is
+  now 12 and the cadence comes from ground speed (`speed / STRIDE`), so the feet stop skating.
+- **The longer flipbook is free, and net draw calls go DOWN.** A zero-count `InstancedMesh` was still
+  being submitted every frame; `im.visible = im.count > 0` skips them. 39 meshes exist, ~10–14 hold
+  anyone on any given frame.
+- **Crowd size is now a DENSITY** — in-range pavement length ÷ 22 m. The old `candidates × 0.5` counted
+  *geometry vertices*, so a finely-noded street got a mob and a straight one got nobody.
+- Also: ground is sampled at the **offset** point (centreline sampling buries the uphill pavement on a
+  cross-slope), ±0.16 m per-person lateral wobble, `userData.type = 'pedestrian'` on every mesh (N-18),
+  and the frame bake yields a macrotask every 2 frames so 36 re-skins don't land in one load frame.
+- New: `frontend/test/pedestrianPaths.test.js` — 7 tests, notably **the corner case**: a 90° bend walked
+  in 0.5 m steps must never jump more than 0.6 m (per-sub-segment offsetting left a 5 m lateral step
+  there). 463 tests pass.
+- ⚠ **P-2 is blocked on a whitelist, not on design.** The bake already flags marked crossings and the
+  parser reads them, but `tileManager.getLoadedRoadSegments()` is a **projection whitelist** and
+  `crossing` is not in it — so it does not exist downstream, silently, as `undefined`. Add the field and
+  prove it arrives before building crossing behaviour on it.
+- ⚠ **P-3/P-5 contradict the v3 ruling** that cuts the pedestrian art pass and drops `PED_CAP` 168→60.
+  P-1 spends none of that budget (no assets, fewer draw calls); the art phases need the user to overturn
+  it first.
+
+**TODO added (not implemented):** a third camera mode — `C` should cycle bumper → **close chase** → wide
+chase. `carCamera.js` has `VIEW_COUNT = 2` today. See `TODO.md`.
+
+
 Format: `YYYY-MM-DD — description`
 
 ## 2026-08-27 — P4-17a: 206 Indian toilet complexes removed from Barcelona

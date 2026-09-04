@@ -1653,7 +1653,9 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     const { roads, buildings, railways, vegetation, water, greens, elevation, roadOnlyMode, junctions } = data;
     const skipNonRoad = CONFIG.ROAD_ONLY_DEBUG || roadOnlyMode;
     // Upgrade the coastline to the REAL OSM shore (tiles carry natural=coastline polylines) BEFORE
-    // any terrain paints — first tile wins, no-op afterwards. See coastline.js.
+    // any terrain paints. Segments ACCUMULATE across tiles and a longer chain is adopted only if it
+    // still passes the land-anchor check — "first tile wins" is what put the sea over Poblenou.
+    // See coastline.js.
     try { ingestCoastline(water); } catch {}
     let getElevationAt = null;
     let terrainMesh = null;

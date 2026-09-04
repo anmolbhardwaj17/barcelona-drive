@@ -9,13 +9,20 @@
  * px=-(wx-ox), pz=wz-oz; the marker lives in `scene` with the traffic.
  */
 import * as THREE from 'three';
-import { fxFlash, fxConfetti, fxBanner } from './gameFx.js';
+import { fxFlash, fxConfetti, fxEvent } from './gameFx.js';
+import { createStatCard, createResultCard } from './hudTheme.js';
+import { deliveryBasePay, streakMultiplier } from './economy.js';
+import { createObjectiveMarker } from './objectiveMarker.js';
+import { createObjectiveNav } from './objectiveNav.js';
+import { createObjectiveHud } from './objectiveHud.js';
 import { wallet } from './wallet.js';
 
 const HIT_RADIUS = 15;
 const PICKUP_MIN = 90, PICKUP_MAX = 260;
 const TRIP_MIN = 160, TRIP_MAX = 480;
 const RING_R = 5.0;
+const COL_PICK_CSS = '#35b0ff';
+const COL_DROP_CSS = '#ff8a33';
 const COL_PICK = 0x35b0ff;   // blue depot
 const COL_DROP = 0xff8a33;   // orange drop-off
 const CRASH_DROP = 26;       // km/h lost in one frame ⇒ a hard hit (damages the parcel)
@@ -32,111 +39,112 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
   const sceneX = (wx) => -(wx - getOrigin().x);
   const sceneZ = (wz) => wz - getOrigin().z;
   const worldFromScene = (px, pz) => ({ wx: getOrigin().x - px, wz: pz + getOrigin().z });
-  const streakMult = () => 1 + Math.min(1.5, streak * 0.15);   // up to ×2.5
+  const streakMult = () => streakMultiplier(streak);   // economy.js owns the curve
 
-  // ── marker (ring + road glow + light pillar) ──
-  const ringGeo = new THREE.TorusGeometry(RING_R, 0.45, 8, 28);
-  const groundRingGeo = new THREE.RingGeometry(RING_R * 0.9, RING_R * 1.25, 32);
-  const beamGeo = new THREE.CylinderGeometry(RING_R * 0.55, RING_R * 0.9, 90, 18, 1, true);
-  const ringMat = new THREE.MeshBasicMaterial({ color: COL_PICK, transparent: true, opacity: 0.98, fog: false });
-  const glowMat = new THREE.MeshBasicMaterial({ color: COL_PICK, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, fog: false });
-  const beamMat = new THREE.MeshBasicMaterial({ color: COL_PICK, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-  const markerGroup = new THREE.Group();
-  const ringMesh = new THREE.Mesh(ringGeo, ringMat); ringMesh.position.y = RING_R + 0.4; markerGroup.add(ringMesh);
-  const beamMesh = new THREE.Mesh(beamGeo, beamMat); beamMesh.position.y = 45; markerGroup.add(beamMesh);
-  const groundGlow = new THREE.Mesh(groundRingGeo, glowMat); groundGlow.rotation.x = -Math.PI / 2; groundGlow.position.y = 0.15; markerGroup.add(groundGlow);
-  markerGroup.visible = false;
-  scene.add(markerGroup);
+  // ── objective halo ─────────────────────────────────────────────────────
+  // Was a local torus + RingGeometry + additive beam, byte-for-byte the same code as deliveryMode's
+  // and a drifted subset of dashMode's. All three are `objectiveMarker.js` now, which also gives
+  // this mode a day/night profile and a distance-faded beam it never had.
+  const marker = createObjectiveMarker(scene, { radius: RING_R });
+  const markerGroup = marker.group;
+
   function placeMarker(world, hex) {
-    ringMat.color.setHex(hex); glowMat.color.setHex(hex); beamMat.color.setHex(hex);
     const gy = getGroundY ? (getGroundY(world.wx, world.wz) || 0) : 0;
-    markerGroup.position.set(sceneX(world.wx), gy, sceneZ(world.wz));
-    markerGroup.visible = true;
+    marker.place(sceneX(world.wx), gy, sceneZ(world.wz), hex);
   }
 
   // ── HUD (top-left card + big centre countdown + direction arrow) ──
-  const hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;top:112px;left:12px;z-index:1000;font:600 13px Inter,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:10px;display:none;min-width:160px;';
-  document.body.appendChild(hud);
-  const timerEl = document.createElement('div');
-  timerEl.style.cssText = 'position:fixed;top:76px;left:50%;transform:translateX(-50%);z-index:1000;font:800 44px Inter,system-ui,sans-serif;text-shadow:0 3px 12px rgba(0,0,0,.5);display:none;';
-  document.body.appendChild(timerEl);
+  // ── Cargo card + countdown + result panel ────────────────────────────────────────────────────
+  // Was a `rgba(0,0,0,.5)` box with five text rows built from emoji — 📦 RUSH HOUR / 🔥 Streak /
+  // 📦 Parcel ▮▮▮▯▯ — plus a bare 44px timer floating on the sky. Shared cards now (hudTheme.js);
+  // the parcel's condition is a meter rather than a row of block characters, which is what those
+  // ▮▯ glyphs were pretending to be.
+  // Right-hand column, stacked under the clock — same corner as City Cab's earnings and Checkpoint
+  // Dash's timer, so "how am I doing" is always in one place.
+  const card = createStatCard({ label: 'DELIVERY', color: COL_PICK_CSS, rail: true, order: 1 });
+  // Top-RIGHT, same corner as Checkpoint Dash's clock — one place for "how long have you got", now
+  // that the day/night button has vacated it. A timer under the compass in the middle also sits
+  // exactly where the result card lands, which is how the two ended up drawn over each other.
+  const timerCard = createStatCard({ label: 'TIME LEFT', color: COL_DROP_CSS, rail: true, order: 0 });
+  const result = createResultCard({ color: COL_DROP_CSS });
 
-  // Direction arrow + distance (rotates in the camera's frame toward the objective).
-  const nav = document.createElement('div');
-  nav.style.cssText = 'position:fixed;top:150px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
-    'pointer-events:none;user-select:none;text-align:center;background:rgba(8,18,30,.72);border:2px solid #35b0ff;' +
-    'border-radius:16px;padding:8px 14px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4)';
-  nav.innerHTML =
-    '<div class="d-tri" style="width:0;height:0;margin:0 auto 5px;border-left:8px solid transparent;' +
-    'border-right:8px solid transparent;border-bottom:30px solid #35b0ff;filter:drop-shadow(0 0 5px #35b0ff);transition:transform .12s"></div>' +
-    '<div class="d-lbl" style="font:800 11px Inter,sans-serif;letter-spacing:1px;color:#bfe4ff">PICK UP</div>' +
-    '<div class="d-dist" style="font-family:\'Inter\',sans-serif;font-size:19px;color:#fff;line-height:1.1">0 m</div>';
-  const navTri = nav.querySelector('.d-tri'), navLbl = nav.querySelector('.d-lbl'), navDist = nav.querySelector('.d-dist');
-  document.body.appendChild(nav);
+  // ── objective card + road routing ────────────────────────────────────────────────────────────
+  // Was a hand-built pill: a CSS-triangle bearing arrow and a crow-flies distance that climbs while
+  // you drive the correct way round a block. Shared card, real route. See objectiveHud/objectiveNav.
+  const navHud = createObjectiveHud({ label: 'PICK UP', color: '#35b0ff' });
+  const navRoute = createObjectiveNav({ getRoadSegments, getMinimap, color: '#35b0ff' });
+  let _nav = null;
   const _v = new THREE.Vector3(), _camSpace = new THREE.Vector3(), _invQ = new THREE.Quaternion();
   function updateNav(carPx, carPz) {
-    if (!target || (state !== 'toPickup' && state !== 'toDropoff')) { nav.style.display = 'none'; return; }
+    if (!target || (state !== 'toPickup' && state !== 'toDropoff')) { navHud.show(false); return; }
     const isPick = state === 'toPickup';
-    const col = isPick ? '#35b0ff' : '#ff8a33';
-    nav.style.display = 'block';
-    nav.style.borderColor = col; navTri.style.borderBottomColor = col; navTri.style.filter = `drop-shadow(0 0 5px ${col})`;
-    navLbl.textContent = isPick ? 'PICK UP' : 'DELIVER'; navLbl.style.color = isPick ? '#bfe4ff' : '#ffd9b0';
-    const gx = sceneX(target.wx), gz = sceneZ(target.wz);
-    const dist = Math.hypot(carPx - gx, carPz - gz);
-    navDist.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
-    if (camera) {
-      _invQ.copy(camera.quaternion).invert();
-      _camSpace.set(gx, camera.position.y, gz).sub(camera.position).applyQuaternion(_invQ);
-      navTri.style.transform = `rotate(${Math.atan2(_camSpace.x, -_camSpace.z)}rad)`;
-    }
+    navHud.show(true);
+    navHud.setLabel(isPick ? 'PICK UP' : 'DELIVER', isPick ? '#35b0ff' : '#ff8a33');
+    navHud.update(_nav, isPick ? 'Parcel waiting' : `Integrity ${Math.round(integrity * 100)}%`);
   }
+
   const bestKey = 'dd_deliveryBest';
   best = (() => { const v = parseFloat(localStorage.getItem(bestKey)); return Number.isFinite(v) ? v : 0; })();
 
   function renderHud() {
     const active = state === 'toPickup' || state === 'toDropoff';
-    hud.style.display = active || state === 'ended' ? 'block' : 'none';
-    timerEl.style.display = state === 'toDropoff' ? 'block' : 'none';
-    if (state === 'ended') {
-      hud.innerHTML = `<div style="font-size:15px;color:#ff8a33;font-weight:800">📦 Shift over</div>` +
-        `<div style="margin-top:3px">${deliveries} deliveries · $${earned}</div>` +
-        `<div style="opacity:.8;font-size:12px">best streak ${best}</div>`;
+    card.show(active);
+    timerCard.show(state === 'toDropoff');
+    if (active) {
+      updateLiveHud();
+      result.hide();
+    } else if (state === 'ended') {
+      result.show({
+        kicker: 'Shift over',
+        value: `$${earned}`,
+        stats: [
+          { label: deliveries === 1 ? 'delivery' : 'deliveries', value: String(deliveries) },
+          { label: 'best streak', value: String(best) },
+        ],
+      });
+    } else {
+      result.hide();
     }
   }
-  // v3 P1-23: built once, updated via cached nodes — see the same fix in policeMode. This ran
-  // hud.innerHTML on every frame of a delivery, rebuilding five elements 60x a second.
-  let _dBuilt = false, _dTitle = null, _dObj = null, _dStreak = null, _dParcel = null, _dCash = null;
-  function buildLiveHudOnce() {
-    if (_dBuilt) return;
-    _dBuilt = true;
-    hud.textContent = '';
-    const mk = (css) => { const d = document.createElement('div'); d.style.cssText = css; return d; };
-    _dTitle  = mk('font-weight:800;color:#ff8a33');
-    _dObj    = mk('margin-top:3px');
-    _dStreak = mk('margin-top:4px;opacity:.9');
-    _dParcel = mk('opacity:.9');
-    _dCash   = mk('opacity:.75;font-size:12px;margin-top:2px');
-    _dTitle.textContent = '📦 RUSH HOUR';
-    hud.append(_dTitle, _dObj, _dStreak, _dParcel, _dCash);
-  }
-
   function updateLiveHud() {
     if (state !== 'toPickup' && state !== 'toDropoff') return;
-    buildLiveHudOnce();
-    const f = Math.round(integrity * 5);
-    const bars = '▮'.repeat(f) + '▯'.repeat(5 - f);
-    _dObj.textContent = state === 'toPickup' ? 'Grab the parcel' : 'Deliver!';
-    _dStreak.textContent = `🔥 Streak ${streak}${streak > 1 ? ` ×${streakMult().toFixed(1)}` : ''}`;
-    _dParcel.textContent = state === 'toDropoff' ? `📦 Parcel ${bars}` : '';
-    _dParcel.style.display = state === 'toDropoff' ? '' : 'none';
-    _dCash.textContent = `$${earned}`;
-    if (state === 'toDropoff') {
-      timerEl.textContent = Math.max(0, timeLeft).toFixed(1);
-      timerEl.style.color = timeLeft < 5 ? '#ff5a5a' : '#fff';
+    const drop = state === 'toDropoff';
+    card.setLabel(drop ? 'CARGO' : 'DELIVERY');
+    card.setAccent(drop ? COL_DROP_CSS : COL_PICK_CSS);
+    card.set(`$${earned}`, streak > 1 ? `${streak} in a row · ×${streakMult().toFixed(1)}` : `${deliveries} completed`);
+    // Parcel condition as a real bar. It was `'▮'.repeat(f) + '▯'.repeat(5 - f)` — a meter drawn out
+    // of text glyphs, at five levels, in whatever font the OS picked for those code points.
+    card.meter(drop ? integrity : null, `${Math.round(integrity * 100)}%`,
+               integrity > 0.6 ? '#2ee06a' : integrity > 0.3 ? '#ffd23f' : '#ff5a5a');
+    if (drop) {
+      timerCard.set(`${Math.max(0, timeLeft).toFixed(1)}s`, timeLeft < 5 ? 'Hurry' : 'Remaining');
+      // The whole card goes red under five seconds, not just the digits — at a glance you read the
+      // colour long before you read the number.
+      timerCard.setAccent(timeLeft < 5 ? '#ff5a5a' : COL_DROP_CSS);
     }
   }
 
+
+  function renderHud() {
+    const active = state === 'toPickup' || state === 'toDropoff';
+    card.show(active);
+    timerCard.show(state === 'toDropoff');
+    if (active) {
+      updateLiveHud();
+      result.hide();
+    } else if (state === 'ended') {
+      result.show({
+        kicker: 'Shift over',
+        value: `$${earned}`,
+        stats: [
+          { label: deliveries === 1 ? 'delivery' : 'deliveries', value: String(deliveries) },
+          { label: 'best streak', value: String(best) },
+        ],
+      });
+    } else {
+      result.hide();
+    }
+  }
   function pickRoad(fromWx, fromWz, minD, maxD) {
     const segs = getRoadSegments ? (getRoadSegments() || []) : [];
     const cand = [];
@@ -167,7 +175,7 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     if (deliveries > 0) { state = 'ended'; renderHud(); setTimeout(() => { if (state === 'ended') { state = 'idle'; renderHud(); } }, 8000); }
     else { state = 'idle'; renderHud(); }
     cine = null; parcelMesh.visible = false;
-    target = null; markerGroup.visible = false; nav.style.display = 'none'; getMinimap?.()?.setObjectiveMarker?.(null);
+    target = null; marker.hide(); navHud.show(false); getMinimap?.()?.setObjectiveMarker?.(null); navRoute.clear(); _nav = null;
   }
 
   function newPickup(carPx, carPz) {
@@ -175,12 +183,12 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     const p = pickRoad(w.wx, w.wz, PICKUP_MIN, PICKUP_MAX) || pickRoad(w.wx, w.wz, 40, 900);
     if (!p) { state = 'idle'; renderHud(); return; }
     target = p; state = 'toPickup'; integrity = 1;
-    placeMarker(p, COL_PICK); getMinimap?.()?.setObjectiveMarker?.(p.wx, p.wz); renderHud();
+    placeMarker(p, COL_PICK); getMinimap?.()?.setObjectiveMarker?.(p.wx, p.wz); navRoute.setTarget(p.wx, p.wz); renderHud();
   }
 
   function failDelivery(carPx, carPz) {
     streak = 0;
-    fxBanner('<span style="font-size:30px;color:#ff5a5a">⏱️ TOO LATE!</span>', { duration: 1400, top: '30%' });
+    fxEvent({ kicker: 'Out of time', title: 'Parcel lost', sub: 'Streak reset', color: '#ff5a5a', duration: 1700 });
     fxFlash('rgba(255,60,60,.2)'); ding(160);
     newPickup(carPx, carPz);
   }
@@ -202,8 +210,9 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     cine = { mode, t: 0, dur: 2.5, carX: carPx, carZ: carPz, carGY,
              dropX: carPx + side.x * 2.4, dropZ: carPz + side.z * 2.4, baseAngle: h + Math.PI * 0.5 };
     state = mode === 'load' ? 'loading' : 'unloading';
-    markerGroup.visible = false; nav.style.display = 'none'; parcelMesh.visible = true;
-    fxBanner(`<span style="font-size:26px;color:${mode === 'load' ? '#35b0ff' : '#ff8a33'}">📦 ${mode === 'load' ? 'Loading parcel…' : 'Delivering…'}</span>`, { duration: 1100, top: '28%' });
+    marker.hide(); navHud.show(false); parcelMesh.visible = true;
+    fxEvent({ kicker: `Run ${deliveries + 1}`, title: mode === 'load' ? 'Loading' : 'Delivering',
+              color: mode === 'load' ? COL_PICK_CSS : COL_DROP_CSS, duration: 1200, top: '26%' });
   }
   function updateCine(dt) {
     const c = cine; c.t += dt;
@@ -227,17 +236,18 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     if (mode === 'load') beginDropoff(); else payoutDelivery();
   }
   function isCinematic() { return state === 'loading' || state === 'unloading'; }
-  function hintSlow() { if (_t - _hintT < 2.5) return; _hintT = _t; fxBanner('<span style="font-size:20px;color:#ffd23f">Slow to a stop</span>', { duration: 900, top: '30%' }); }
+  function hintSlow() { if (_t - _hintT < 2.5) return; _hintT = _t; fxEvent({ title: 'Slow to a stop', color: '#ffd23f', duration: 1000, top: '28%' }); }
 
   function beginDropoff() {
     const drop = pickRoad(target.wx, target.wz, TRIP_MIN, TRIP_MAX) || pickRoad(target.wx, target.wz, 60, 900);
     if (drop) {
       tripDist = Math.hypot(drop.wx - target.wx, drop.wz - target.wz);
       deadline = Math.max(10, tripDist / SPEED_FACTOR); timeLeft = deadline;
-      basePay = Math.round(5 + tripDist * 0.03); integrity = 1;
+      basePay = deliveryBasePay(tripDist); integrity = 1;
       target = drop; state = 'toDropoff'; placeMarker(drop, COL_DROP);
-      getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); ding(680);
-      fxBanner('<span style="font-size:30px;color:#35b0ff">📦 PARCEL LOADED — GO!</span>', { duration: 1300, top: '30%' });
+      getMinimap?.()?.setObjectiveMarker?.(drop.wx, drop.wz); navRoute.setTarget(drop.wx, drop.wz); ding(680);
+      fxEvent({ kicker: `Run ${deliveries + 1}`, title: 'Parcel loaded',
+                sub: `${Math.round(timeLeft)} s to deliver`, color: COL_PICK_CSS, duration: 1500 });
     } else { state = 'toPickup'; }
     renderHud();
   }
@@ -247,9 +257,13 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     if (streak > best) { best = streak; try { localStorage.setItem(bestKey, String(best)); } catch {} }
     wallet.add(payout);
     const perfect = integrity > 0.95;
-    fxBanner(`<div style="font-size:28px;color:#8ef0b0">${perfect ? '✨ PERFECT DELIVERY' : '📦 DELIVERED'}</div>` +
-             `<div style="font-size:46px;color:#ffd23f;margin-top:2px">+$${payout}</div>` +
-             (streak > 1 ? `<div style="font-size:18px;color:#ff8a33">🔥 ${streak} streak ×${streakMult().toFixed(1)}</div>` : ''), { duration: 1700, top: '30%' });
+    fxEvent({
+      kicker: perfect ? 'Perfect delivery' : 'Delivered',
+      title: `Run ${deliveries} complete`,
+      amount: `+$${payout}`,
+      sub: streak > 1 ? `${streak} in a row · ×${streakMult().toFixed(1)}` : `${Math.round(integrity * 100)}% intact`,
+      color: COL_DROP_CSS, duration: 1900,
+    });
     fxConfetti(perfect ? 34 : 22, ['#ffd23f', '#8ef0b0', '#ffffff'], 0.4);
     fxFlash('rgba(255,210,63,.14)'); ding(880); setTimeout(() => ding(1046), 100);
     renderHud(); newPickup(_lastPx, _lastPz);
@@ -261,7 +275,12 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
     if (state !== 'toPickup' && state !== 'toDropoff') return;
     if (_pending) { _pending = false; newPickup(carPx, carPz); if (state === 'idle') return; }
     _t += dt;
-    if (markerGroup.visible) { const s = 1 + Math.sin(_t * 4) * 0.07; ringMesh.scale.set(s, s, s); ringMesh.rotateZ(dt * 1.4); }
+    { const w = worldFromScene(carPx, carPz); _nav = navRoute.update(w.wx, w.wz, dt); }
+
+    // The halo breathes and fades its beam by RANGE — the beam is a locator, so it is what tells you
+    // the fare is behind that block, and it is in the way of the thing it points at once you arrive.
+    marker.update(dt, marker.visible
+      ? Math.hypot(carPx - markerGroup.position.x, carPz - markerGroup.position.z) : Infinity);
 
     if (state === 'toDropoff') {
       if ((lastSpeed || 0) - (speedKmh || 0) > CRASH_DROP) { integrity = Math.max(0.15, integrity - 0.2); ding(200); fxFlash('rgba(255,80,80,.14)'); }
@@ -285,7 +304,7 @@ export function createDeliveryMode({ scene, camera, getMinimap, getRoadSegments,
   return {
     name: 'Rush Hour', icon: '📦', key: 'delivery',
     update, start, stop, isCinematic,
-    dispose() { stop(); hud.remove(); timerEl.remove(); nav.remove(); scene.remove(markerGroup); scene.remove(parcelMesh); parcelGeo.dispose(); parcelMat.dispose(); ringGeo.dispose(); groundRingGeo.dispose(); beamGeo.dispose(); ringMat.dispose(); glowMat.dispose(); beamMat.dispose(); },
+    dispose() { stop(); card.remove(); timerCard.remove(); result.remove(); navHud.remove(); marker.dispose(); scene.remove(parcelMesh); parcelGeo.dispose(); parcelMat.dispose(); },
     isRunning: () => state === 'toPickup' || state === 'toDropoff' || state === 'loading' || state === 'unloading',
   };
 }
