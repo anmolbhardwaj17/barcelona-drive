@@ -1,6 +1,6 @@
 # Pedestrian system — what it is, what is wrong with it, and the plan
 
-Status: **P-1 shipped 2026-09-04. P-2 … P-6 open.**
+Status: **P-1 shipped 2026-09-04. P-2 shipped 2026-09-05. P-3 … P-6 open.**
 Code: `frontend/src/car/pedestrians.js`, baked by `frontend/src/car/carModels.js`
 (`loadWalkFramesTemplate` / `loadPeopleWalkTemplates`). Wired in `main.js:1133`, ticked at
 `main.js:1819`. Flag: `CONFIG.ENABLE_PEDESTRIANS` (default true).
@@ -113,21 +113,37 @@ FPS to 30 once already).
 
 ## 3. Open plan
 
-### P-2 — crossings and kerbs (the biggest "something to do" per line of code)
-The bake **already flags marked crossings**: `buildRegion.js` collects `footway=crossing` /
-`crossing=*` into `crossingIds`, and `convertToBinary.js` writes `entry.crossing = true`. The parser
-reads it (`tileParserWorker.js:366`).
+### ~~P-2 — crossings and kerbs~~ ✅ **SHIPPED 2026-09-05**
 
-⚠ **It does not reach the entity systems.** `tileManager.getLoadedRoadSegments()` is a **whitelist
-projection** — a field not copied there simply does not exist downstream, silently, as `undefined`.
-`crossing` is not in the list. The file's own comment calls this the seventh copy-site and warns
-about exactly this; adding `crossing` would be the eighth. **Add the field first, prove it arrives,
-then build on it** (D-23: a counter at the point of decision does not prove the decision reached the
-output).
+**The blocker was one line, and it had been there since v8.** The bake flags marked crossings
+(`buildRegion.js` → `crossingIds`) and `tileParserWorker` reads them — but
+`tileManager.getLoadedRoadSegments()` is a **whitelist projection**, and `crossing` was not in it. A
+field not copied there does not exist downstream, silently, as `undefined`. The file's own comment
+warns about exactly this and calls itself the seventh copy-site; adding `crossing` made it the eighth.
 
-With it: a pedestrian whose path passes a crossing can choose to take it — walk to the kerb, pause,
-look, cross to the far pavement, and continue on the path on the other side. That single behaviour
-is what makes a city street read as populated rather than as two conveyor belts.
+**Population, measured before wiring anything to it** (`backend/tools/crossingCount.mjs`):
+**11,325 crossings** across 217 of 444 tiles — `footway` 10,011 · `cycleway` 1,302 · a handful else.
+Median length **14.5 m**, p90 26.5 m: a road's width, which is what a crossing is.
+
+**Runtime proof** (D-23 — a counter at the point of decision does not prove the decision reached the
+output): `window._ddCrossings()` reports how many the *entity systems* can see, and flags any segment
+where the field is `undefined` — i.e. it fails loudly if the whitelist ever drops it again.
+
+**The behaviour.** A crossing is a walkable polyline; each end that lands within 7 m of a pavement is
+stored as a **hook** at an arc-length position on that pavement. The expensive question ("is there a
+crossing near me") is therefore answered once per pavement, not per pedestrian per frame — a walker
+compares its own `s` against a few numbers. On reaching a hook, 35% of walkers commit; they **wait at
+the kerb** for 0.5–2.2 s, cross, and re-join the nearest pavement on the far side, then ignore
+crossings for 12 s. The kerb wait is the part that makes it read as a decision rather than a teleport.
+
+⚠ **Fallbacks that matter:** a crossing whose far side has not streamed in (or that lands on a plaza)
+finds no pavement to re-join, so the walker turns round and walks back rather than standing in the
+road forever. And `newLeg()` is gated off the crossing states, or the walk/stand timer would yank
+somebody out of the road halfway across.
+
+⚠ **Not done in P-2:** they do not look for traffic. The wait is a fixed random interval, not a gap
+acceptance — a pedestrian will step out in front of you. That is the next increment, and it wants the
+`dodge` code that already exists rather than a new system.
 
 ### P-3 — use the clips that are already on disk
 Bake `Standing`, `Sitting` and `Clapping` as extra static poses and `Run` as a second flipbook.

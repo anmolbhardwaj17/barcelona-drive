@@ -22,7 +22,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 
 | stream | done | open |
 |---|---|---|
-| Pedestrians | P-1 | P-2, P-3, P-4, P-5, P-6 |
+| Pedestrians | P-1, **P-2** | P-3, P-4, P-5, P-6 |
 | Ground layering | Z-1, Z-1b (the correction) | Z-2, Z-4 · **Z-3 dropped** |
 | Game modes | M-1 … M-7 | M-8, M-9, M-10 |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
@@ -44,17 +44,13 @@ correction is **Z-1b** from here on; **Z-2** is only the un-enrolled surfaces.
 
 ## Open tickets, in the order they should be done
 
-### P-2 · crossings and kerbs — **do this first**
-*Biggest gameplay-per-line on the board, and the smallest unblock.*
-Bake flags `crossing` and the parser reads it, but **`getLoadedRoadSegments()` is a whitelist
-projection and `crossing` is not in it — verified, 0 occurrences.** A field not copied there does not
-exist downstream, silently, as `undefined`. Add it, **prove it arrives** (a counter at the point of
-decision does not prove the decision reached the output — D-23), then: walk to the kerb, pause, cross,
-continue on the far pavement.
-**Done when** a pedestrian is observed crossing a marked crossing, and a probe reports a non-zero
-count of segments carrying `crossing === true`.
+### ~~P-2 · crossings~~ ✅ **done 2026-09-05**
+One missing line in the `getLoadedRoadSegments()` whitelist, unblocking 11,325 baked crossings.
+Pedestrians now wait at the kerb, cross, and re-join the far pavement. `window._ddCrossings()` is the
+runtime proof; `backend/tools/crossingCount.mjs` is the offline population. ⚠ **They do not yet look
+for traffic** — the kerb wait is a fixed interval, not gap acceptance. Follow-up folded into P-6.
 
-### M-8 · Heat has no objective marker or routing
+### M-8 · Heat has no objective marker or routing — **next**
 Verified: `policeMode.js` references neither `objectiveNav` nor `createObjectiveMarker`. It is the
 only mode still without them. It has no *fixed* objective, so the honest version is a **flee** cue —
 distance/bearing away from the nearest unit — not a route to a point.

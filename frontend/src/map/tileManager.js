@@ -3723,6 +3723,12 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
           isRamp: road.isRamp === true,
           layer: road.layer ?? null,
           crossesTrench: road.crossesTrench === true,
+          // P-2: a marked crossing (footway=crossing / cycleway=crossing). The bake has flagged these
+          // since bake-surface-clipping Phase 1 and the parser has read them since v8 — but this
+          // projection is a WHITELIST, so for that entire time the flag did not exist downstream,
+          // silently, as `undefined`. 11,325 of them in the baked tiles (backend/tools/crossingCount.mjs),
+          // median 14.5 m — a road's width, which is what a crossing is.
+          crossing: road.crossing === true,
           // R-W1 width section. I added the four flags above with a comment warning that this
           // projection is a whitelist, then shipped a width model whose fields it does not copy —
           // so parked cars and pedestrians silently fell back to the class table and lost every

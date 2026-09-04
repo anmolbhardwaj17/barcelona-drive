@@ -91,3 +91,78 @@ test('ground height is sampled at the OFFSET point, not at the centreline', () =
   const ys = paths.map((p) => p.p[1]).sort((a, b) => a - b);
   assert.deepEqual(ys.map((v) => +v.toFixed(2)), [-1.2, 1.2]);
 });
+
+// ── P-2: marked crossings ──────────────────────────────────────────────────────────────────────
+// Pedestrians could not leave the pavement they spawned on, so a street was two conveyor belts
+// facing each other. The blocker was one missing field in a whitelist projection, not a design.
+import { buildCrossingPath, attachCrossings, nearestPathPoint } from '../src/car/pedestrians.js';
+
+/** Two pavements either side of a N-S street, and a crossing between them. */
+function street() {
+  const road = [{ x: 1000, y: 2000 }, { x: 1000, y: 2200 }];
+  const paths = buildPavementPaths(road, 6, flat, ORIGIN);          // ±6 m either side
+  const crossPts = [{ x: 994, y: 2100 }, { x: 1006, y: 2100 }];     // straight across, 12 m
+  const cross = buildCrossingPath(crossPts, flat, ORIGIN);
+  return { paths, cross };
+}
+
+test('a crossing becomes a walkable polyline of the right length', () => {
+  const { cross } = street();
+  assert.ok(cross, 'no crossing path built');
+  assert.ok(Math.abs(cross.len - 12) < 1e-3, `len ${cross.len}`);
+});
+
+test('crossings that are stubs or absurdly long are refused', () => {
+  // The baked tiles hold crossings from 0.9 m to 101 m (backend/tools/crossingCount.mjs). The short
+  // ones are kerb ramps and the long ones are not a crossing of anything.
+  assert.equal(buildCrossingPath([{ x: 1000, y: 2000 }, { x: 1000.9, y: 2000 }], flat, ORIGIN), null);
+  assert.equal(buildCrossingPath([{ x: 1000, y: 2000 }, { x: 1101, y: 2000 }], flat, ORIGIN), null);
+});
+
+test('BOTH pavements pick the crossing up, one hook each', () => {
+  // A pedestrian may arrive at either kerb, so each side must see its own end of it.
+  const { paths, cross } = street();
+  assert.equal(paths.length, 2);
+  for (const p of paths) {
+    const hooks = attachCrossings(p, [cross], 1);
+    assert.equal(hooks.length, 1, 'a pavement should hook the near end only, not both');
+    // It meets the pavement halfway along its 200 m length.
+    assert.ok(Math.abs(hooks[0].s - 100) < 1.5, `hook at ${hooks[0].s.toFixed(1)} m, expected ~100`);
+  }
+  // The two sides must take OPPOSITE ends, or everyone walks the same way and lands where they were.
+  const a = attachCrossings(paths[0], [cross], 2)[0];
+  const b = attachCrossings(paths[1], [cross], 2)[0];
+  assert.notEqual(a.fromStart, b.fromStart);
+});
+
+test('hooks are cached against a version, not recomputed every frame', () => {
+  const { paths, cross } = street();
+  const first = attachCrossings(paths[0], [cross], 7);
+  const again = attachCrossings(paths[0], [cross], 7);
+  assert.equal(first, again, 'same version should return the identical array');
+  assert.notEqual(attachCrossings(paths[0], [], 8), first, 'a new version must recompute');
+});
+
+test('a crossing that touches nothing attaches nowhere', () => {
+  const { paths } = street();
+  const far = buildCrossingPath([{ x: 1500, y: 2100 }, { x: 1512, y: 2100 }], flat, ORIGIN);
+  assert.equal(attachCrossings(paths[0], [far], 3).length, 0);
+});
+
+test('stepping off a crossing finds the pavement on the FAR side', () => {
+  // The end of the walk must re-join the other pavement, not the one just left — otherwise crossing
+  // is an animation that returns you to where you started.
+  const { paths, cross } = street();
+  const out = { i: 0 };
+  samplePath(cross, cross.len, out);
+  const hit = nearestPathPoint(paths, out.x, out.z);
+  assert.ok(hit, 'no pavement found at the far kerb');
+  samplePath(cross, 0, out);
+  const back = nearestPathPoint(paths, out.x, out.z);
+  assert.ok(back && back.path !== hit.path, 'both ends resolved to the same pavement');
+});
+
+test('nearestPathPoint refuses a match beyond its radius', () => {
+  const { paths } = street();
+  assert.equal(nearestPathPoint(paths, 999999, 999999), null);
+});

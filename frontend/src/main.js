@@ -485,6 +485,43 @@ window._ddNoGround = (maxSamples = 4000) => {
   return rows;
 };
 
+/**
+ * P-2 proof: does `crossing` actually REACH the entity systems?
+ *
+ * ⚠ THE WHOLE POINT. The bake has flagged marked crossings since bake-surface-clipping Phase 1 and
+ * `tileParserWorker` has read them since v8 — and for that entire time `getLoadedRoadSegments()`
+ * dropped the field on the floor, because that projection is a whitelist and nothing warns you when
+ * a property is missing from it. D-23: a counter at the point of DECISION does not prove the
+ * decision reached the OUTPUT. `backend/tools/crossingCount.mjs` measures the population in the
+ * baked tiles; this measures what the game can actually see.
+ */
+window._ddCrossings = () => {
+  const segs = tileManager?.getLoadedRoadSegments?.() || [];
+  const cross = segs.filter((s) => s.crossing === true);
+  const undef = segs.filter((s) => s.crossing === undefined).length;
+  const lenOf = (s) => {
+    let L = 0;
+    for (let i = 1; i < (s.points?.length || 0); i++) {
+      L += Math.hypot(s.points[i].x - s.points[i - 1].x, s.points[i].y - s.points[i - 1].y);
+    }
+    return L;
+  };
+  const lens = cross.map(lenOf).sort((a, b) => a - b);
+  const byType = {};
+  for (const c of cross) byType[c.highwayType] = (byType[c.highwayType] || 0) + 1;
+  const out = {
+    segments: segs.length,
+    crossings: cross.length,
+    undefinedField: undef,          // >0 means the whitelist is dropping it again
+    medianLenM: lens.length ? +lens[Math.floor(lens.length / 2)].toFixed(1) : 0,
+    byType,
+  };
+  console.log('[crossings]', out.crossings, 'of', out.segments, 'segments · median',
+    out.medianLenM, 'm ·', JSON.stringify(byType),
+    out.undefinedField ? `\n  ⚠ ${out.undefinedField} segments have crossing === undefined — the whitelist dropped it` : '');
+  return out;
+};
+
 window._ddGround = () => {
   const by = new Map();
   scene.traverse((o) => {

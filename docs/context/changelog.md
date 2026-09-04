@@ -2,6 +2,34 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — P-2: pedestrians cross the road (one line had blocked 11,325 crossings)
+
+- **THE BLOCKER WAS A WHITELIST, NOT A DESIGN.** The bake has flagged `footway=crossing` since
+  bake-surface-clipping Phase 1 and `tileParserWorker` has read it since v8 — but
+  `getLoadedRoadSegments()` is a projection whitelist and `crossing` was not in it, so for that whole
+  time the flag did not exist downstream, silently, as `undefined`. The file's own comment warns
+  about this and calls itself the seventh copy-site. This is the eighth.
+- **Measured the population before wiring anything to it** — new `backend/tools/crossingCount.mjs`:
+  **11,325 crossings in 217 of 444 tiles**, footway 10,011 · cycleway 1,302, median **14.5 m** and
+  p90 26.5 m. A road's width, which is the right shape for the thing.
+- **Runtime proof, per D-23:** `window._ddCrossings()` reports what the ENTITY SYSTEMS can see, not
+  what the parser produced, and flags any segment whose `crossing` is `undefined` — so it fails loudly
+  if the whitelist drops it again.
+- **Behaviour:** each crossing end within 7 m of a pavement becomes a **hook** at an arc-length
+  position on it, so "is there a crossing near me" is answered once per pavement rather than per
+  pedestrian per frame. 35% of walkers reaching a hook commit; they **wait at the kerb** 0.5-2.2 s,
+  cross, re-join the nearest pavement on the far side, then ignore crossings for 12 s. The wait is
+  what makes it read as a decision instead of a teleport.
+- ⚠ Fallbacks: a crossing whose far side has not streamed in finds no pavement to re-join, so the
+  walker turns round rather than standing in the road forever; and `newLeg()` is gated off the
+  crossing states, or the walk/stand timer would pull someone out of the road halfway across.
+- ⚠ **They do not look for traffic.** The kerb wait is a fixed random interval, not gap acceptance —
+  a pedestrian will step out in front of you. Named in the docs as the next increment.
+- 7 new tests (**517 pass**), including the two that would have made this pointless if wrong: both
+  pavements hook **opposite ends** of the same crossing, and stepping off one end re-joins the pavement
+  on the **far** side — otherwise crossing is an animation that returns you where you started.
+
+
 ## 2026-09-05 — One board (`backlog.md`), and three of my own status claims corrected
 
 The open tickets were spread across `TODO.md`, three subsystem docs and the v3 tracker. Consolidated

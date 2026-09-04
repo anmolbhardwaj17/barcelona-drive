@@ -53,6 +53,13 @@ const YAW_LERP = 7;        // rad-ish per s — a person turns, they do not tele
 const YAW_LERP_PANIC = 20; // bolting IS abrupt; keep it that way
 const WOBBLE_AMP = 0.16;   // m of lateral drift — nobody walks a surveyed line
 const WOBBLE_RATE = 0.55;  // Hz
+// P-2 crossing behaviour. A pedestrian who crossed every crossing would spend the day zigzagging,
+// so most walk on by; the ones who do cross wait at the kerb first, which is what makes it read as
+// a decision rather than as a teleport to the other pavement.
+const CROSS_TRIGGER_M = 2.5;   // arc distance to a hook that counts as "arriving at it"
+const CROSS_CHANCE = 0.35;     // of the walkers who reach a kerb
+const CROSS_COOLDOWN_S = 12;   // before the same person considers another crossing
+const KERB_WAIT_MIN = 0.5, KERB_WAIT_MAX = 2.2;
 const YAXIS = new THREE.Vector3(0, 1, 0);
 const HIT_RADIUS = 2.6;    // m from the car centre that counts as a hit
 const HIT_MIN_KMH = 6;     // don't launch people when crawling
@@ -124,15 +131,120 @@ export function buildPavementPaths(pts, off, groundAt, origin, minLen = 8) {
       cum[i] = w;
     }
     if (w < minLen) continue;   // too short to walk — a stub, not a street
-    out.push({ p: P, cum, len: w, cx: (P[0] + P[n * 3 - 3]) / 2, cz: (P[2] + P[n * 3 - 1]) / 2 });
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const x = P[i * 3], z = P[i * 3 + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    out.push({
+      p: P, cum, len: w, minX, maxX, minZ, maxZ,
+      cx: (P[0] + P[n * 3 - 3]) / 2, cz: (P[2] + P[n * 3 - 1]) / 2,
+      hooks: null, hookVer: -1,   // P-2: crossings attached to this pavement, see attachCrossings()
+    });
   }
   return out.length ? out : null;
+}
+
+/**
+ * ── P-2: MARKED CROSSINGS ─────────────────────────────────────────────────────────────────────
+ *
+ * A crossing is an OSM way ACROSS the carriageway (`footway=crossing`, mostly — 10,011 of 11,325 in
+ * the baked tiles, median 14.5 m, which is a road's width). Pedestrians used to be unable to leave
+ * the pavement they spawned on, so a street was two conveyor belts facing each other.
+ *
+ * The expensive part is "is there a crossing near me", and it is answered ONCE PER PAVEMENT rather
+ * than per pedestrian per frame: each crossing endpoint that lands near a path is stored as a HOOK
+ * at an arc-length position on it. A walker then only compares its own `s` against a few numbers.
+ */
+const CROSS_SNAP_M = 7;      // how close a crossing end must be to a pavement to belong to it
+
+/** Physics-space polyline for a crossing way (no pavement offset — you walk down its middle). */
+export function buildCrossingPath(pts, groundAt, origin) {
+  if (!pts || pts.length < 2) return null;
+  const n = pts.length;
+  const P = new Float32Array(n * 3);
+  const cum = new Float32Array(n);
+  let w = 0;
+  for (let i = 0; i < n; i++) {
+    P[i * 3] = -(pts[i].x - origin.x);
+    P[i * 3 + 1] = groundAt ? (groundAt(pts[i].x, pts[i].y) ?? 0) : 0;
+    P[i * 3 + 2] = pts[i].y - origin.z;
+    if (i > 0) w += Math.hypot(P[i * 3] - P[i * 3 - 3], P[i * 3 + 2] - P[i * 3 - 1]);
+    cum[i] = w;
+  }
+  if (w < 2 || w > 60) return null;   // 0.9 m stubs and 100 m "crossings" are not what this is for
+  return { p: P, cum, len: w };
+}
+
+/**
+ * Attach every crossing that touches `path` as a hook at the arc length where it meets.
+ *
+ * @param {object} path
+ * @param {object[]} crossings  {p, cum, len} in physics space
+ * @param {number} ver          bumped when the crossing set changes; hooks are cached against it
+ */
+export function attachCrossings(path, crossings, ver) {
+  if (path.hookVer === ver) return path.hooks;
+  path.hookVer = ver;
+  const hooks = [];
+  const n = path.cum.length;
+  for (const c of crossings) {
+    // Both ends are candidates: a pedestrian may arrive at either side of the road.
+    for (const endIdx of [0, c.cum.length - 1]) {
+      const ex = c.p[endIdx * 3], ez = c.p[endIdx * 3 + 2];
+      if (ex < path.minX - CROSS_SNAP_M || ex > path.maxX + CROSS_SNAP_M
+       || ez < path.minZ - CROSS_SNAP_M || ez > path.maxZ + CROSS_SNAP_M) continue;
+      // Nearest point on the pavement, by vertex then by the segment either side of it.
+      let best = Infinity, bestS = 0;
+      for (let i = 0; i < n - 1; i++) {
+        const ax = path.p[i * 3], az = path.p[i * 3 + 2];
+        const bx = path.p[i * 3 + 3], bz = path.p[i * 3 + 5];
+        const dx = bx - ax, dz = bz - az;
+        const L2 = dx * dx + dz * dz || 1;
+        let t = ((ex - ax) * dx + (ez - az) * dz) / L2;
+        t = Math.max(0, Math.min(1, t));
+        const px = ax + dx * t, pz = az + dz * t;
+        const d2 = (ex - px) ** 2 + (ez - pz) ** 2;
+        if (d2 < best) { best = d2; bestS = path.cum[i] + Math.sqrt(L2) * t; }
+      }
+      if (best > CROSS_SNAP_M * CROSS_SNAP_M) continue;
+      hooks.push({ s: bestS, cross: c, fromStart: endIdx === 0 });
+    }
+  }
+  hooks.sort((a, b) => a.s - b.s);
+  path.hooks = hooks;
+  return hooks;
 }
 
 /**
  * Position + unit tangent at arc length `s`. `out.i` is the walker's cached vertex index, so a step
  * costs one compare rather than a search back through the polyline.
  */
+/**
+ * Nearest point on any of `paths` to (x, z), as {path, s}. Used once, when someone steps off a
+ * crossing — a linear scan is fine at that rate and a spatial index would be a structure to keep
+ * correct for no measured gain.
+ */
+export function nearestPathPoint(paths, x, z, maxD = 12) {
+  let best = maxD * maxD, hit = null;
+  for (const path of paths) {
+    if (x < path.minX - maxD || x > path.maxX + maxD || z < path.minZ - maxD || z > path.maxZ + maxD) continue;
+    const n = path.cum.length;
+    for (let i = 0; i < n - 1; i++) {
+      const ax = path.p[i * 3], az = path.p[i * 3 + 2];
+      const bx = path.p[i * 3 + 3], bz = path.p[i * 3 + 5];
+      const dx = bx - ax, dz = bz - az;
+      const L2 = dx * dx + dz * dz || 1;
+      let t = ((x - ax) * dx + (z - az) * dz) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const d2 = (x - (ax + dx * t)) ** 2 + (z - (az + dz * t)) ** 2;
+      if (d2 < best) { best = d2; hit = { path, s: path.cum[i] + Math.sqrt(L2) * t }; }
+    }
+  }
+  return hit;
+}
+
 export function samplePath(path, s, out) {
   const cum = path.cum, n = cum.length;
   let i = out.i | 0;
@@ -180,6 +292,8 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3();
   const _hit = { i: 0, x: 0, y: 0, z: 0, tx: 0, tz: 0 };
   let _lastX = Infinity, _lastZ = Infinity, _time = 0;
+  let _paths = [];      // in-range pavements — a pedestrian stepping off a crossing re-joins one
+  let _crossVer = 0;    // bumped when the crossing set is rebuilt; path hooks cache against it
 
   function newLeg(p) {
     // Alternate walking and standing. IDLE_FRAC is the share of the crowd standing at any moment,
@@ -248,6 +362,21 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       if ((p.cx - playerPx) ** 2 + (p.cz - playerPz) ** 2 > R2) peds.splice(i, 1);
     }
 
+    // ── P-2: the marked crossings in range, rebuilt when the tile set changes ──
+    const cross = [];
+    for (const seg of segs) {
+      if (!seg.crossing || !seg.points || seg.points.length < 2) continue;
+      const c0 = seg.points[0];
+      if ((-(c0.x - origin.x) - playerPx) ** 2 + ((c0.y - origin.z) - playerPz) ** 2 > R2) continue;
+      let cp = seg._pedCross;
+      if (cp === undefined || seg._pedCrossOrigin !== origin.x) {
+        cp = buildCrossingPath(seg.points, getGroundY, origin);
+        seg._pedCross = cp; seg._pedCrossOrigin = origin.x;
+      }
+      if (cp) cross.push(cp);
+    }
+    _crossVer++;
+
     const cand = [];
     let totalLen = 0;
     for (const seg of segs) {
@@ -265,11 +394,13 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         // near the player still qualifies.
         const reach = RANGE + path.len / 2;
         if ((path.cx - playerPx) ** 2 + (path.cz - playerPz) ** 2 > reach * reach) continue;
+        attachCrossings(path, cross, _crossVer);
         cand.push(path);
         totalLen += Math.min(path.len, RANGE * 2);
       }
     }
     if (!cand.length) return;
+    _paths = cand;
 
     // Density, not segment count: one pedestrian per PED_SPACING metres of pavement in range. The old
     // `candidates × 0.5` was a count of geometry vertices, so a finely-noded street got a mob and a
@@ -332,26 +463,72 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       }
 
       // ── walk / stand state machine ──
-      p.stateT -= d;
-      if (p.stateT <= 0) newLeg(p);
+      // 'kerb' and 'crossing' run their own clocks below; newLeg() would yank someone out of the
+      // road halfway across.
+      if (p.state === 'walk' || p.state === 'pause') {
+        p.stateT -= d;
+        if (p.stateT <= 0) newLeg(p);
+      }
 
-      // ── advance along the pavement path ──
-      if (p.state === 'walk') {
+      // ── P-2: crossing the road ────────────────────────────────────────────────────────────
+      p.crossCd = Math.max(0, (p.crossCd || 0) - d);
+
+      if (p.state === 'kerb') {
+        // Waiting at the kerb. Standing still is the whole point — it is what turns "teleported to
+        // the other pavement" into "decided to cross".
+        p.stateT -= d;
+        if (p.stateT <= 0) { p.state = 'crossing'; p.crossS = p.crossDir > 0 ? 0 : p.cross.len; }
+      } else if (p.state === 'crossing') {
+        p.crossS += p.crossDir * p.speed * d;
+        const done = p.crossDir > 0 ? p.crossS >= p.cross.len : p.crossS <= 0;
+        if (done) {
+          // Re-join the nearest pavement to where we stepped off. If there is none in range (the
+          // far side has not streamed in, or the crossing lands on a plaza) fall back to walking
+          // BACK the way we came rather than standing in the road forever.
+          _hit.i = 0;
+          samplePath(p.cross, p.crossDir > 0 ? p.cross.len : 0, _hit);
+          const j = nearestPathPoint(_paths, _hit.x, _hit.z);
+          if (j) { p.path = j.path; p.s = j.s; p.i = 0; p.dir = Math.random() < 0.5 ? 1 : -1; }
+          else { p.crossDir = -p.crossDir; }
+          p.state = 'walk';
+          p.crossCd = CROSS_COOLDOWN_S;
+          p.cross = null;
+        }
+      } else if (p.state === 'walk') {
         p.s += p.dir * p.speed * d;
         if (p.s > p.path.len) { p.s = p.path.len; p.dir = -1; }
         else if (p.s < 0) { p.s = 0; p.dir = 1; }
+        // Arrived at a crossing? Only a fraction take it, or the street becomes a zigzag.
+        if (p.crossCd === 0 && p.path.hooks) {
+          for (const h of p.path.hooks) {
+            if (Math.abs(h.s - p.s) > CROSS_TRIGGER_M) continue;
+            p.crossCd = CROSS_COOLDOWN_S;               // considered it either way
+            if (Math.random() > CROSS_CHANCE) break;
+            p.cross = h.cross;
+            p.crossDir = h.fromStart ? 1 : -1;
+            p.crossS = h.fromStart ? 0 : h.cross.len;
+            p.state = 'kerb';
+            p.stateT = KERB_WAIT_MIN + Math.random() * (KERB_WAIT_MAX - KERB_WAIT_MIN);
+            break;
+          }
+        }
       }
-      _hit.i = p.i;
-      samplePath(p.path, p.s, _hit);
-      p.i = _hit.i;
+
+      // Sample from whichever polyline this person is currently on.
+      const onCross = p.state === 'crossing' || p.state === 'kerb';
+      _hit.i = onCross ? 0 : p.i;
+      samplePath(onCross ? p.cross : p.path, onCross ? p.crossS : p.s, _hit);
+      if (!onCross) p.i = _hit.i;
       // Lateral wobble along the path normal — nobody walks a surveyed line, and a column of people
       // on the exact same offset is the other half of "they look fake".
       // Only while WALKING — applied to a stander it becomes a 32 cm sway on the spot.
-      const wob = p.state === 'walk' ? Math.sin(_time * WOBBLE_RATE * TWO_PI + p.wob) * WOBBLE_AMP : 0;
+      const wob = (p.state === 'walk' || p.state === 'crossing')
+        ? Math.sin(_time * WOBBLE_RATE * TWO_PI + p.wob) * WOBBLE_AMP : 0;
       const onLine_x = _hit.x + (-_hit.tz) * wob;
       const onLine_z = _hit.z + (_hit.tx) * wob;
       const y = _hit.y;
-      let targetYaw = Math.atan2(_hit.tx * p.dir, _hit.tz * p.dir);
+      const moveDir = p.state === 'crossing' ? p.crossDir : p.dir;
+      let targetYaw = Math.atan2(_hit.tx * moveDir, _hit.tz * moveDir);
 
       // ── dodge: bolt out of the way of an approaching car ──
       p.dodgeX = p.dodgeX || 0; p.dodgeZ = p.dodgeZ || 0; p.panic = p.panic || 0;
@@ -380,12 +557,12 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       // car flipped a person through 180° in one frame. Smoothing this is the cheapest single thing
       // that makes the crowd read as people instead of as sprites being re-parented.
       const rate = panicking ? YAW_LERP_PANIC : YAW_LERP;
-      if (p.state === 'walk' || panicking) {
+      if (p.state === 'walk' || p.state === 'crossing' || panicking) {
         p.yaw += angDelta(p.yaw, targetYaw) * Math.min(1, rate * d);
       }
 
       let im;
-      if (p.state === 'walk' || panicking) {
+      if (p.state === 'walk' || p.state === 'crossing' || panicking) {
         // Cadence from GROUND SPEED, so the feet match the distance covered instead of drifting.
         const cycRate = panicking ? 2.6 : Math.max(0.45, p.speed / STRIDE);
         p.cyc = (p.cyc + cycRate * d) % 1;
