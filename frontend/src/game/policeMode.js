@@ -11,7 +11,6 @@
 import * as THREE from 'three';
 import { fxFlash, fxEvent, fxConfetti } from './gameFx.js';
 import { createStatCard, createResultCard } from './hudTheme.js';
-import { createObjectiveHud } from './objectiveHud.js';
 import { pursuitPay } from './economy.js';
 import { wallet } from './wallet.js';
 import { loadCityCarTemplates } from '../car/carModels.js';
@@ -30,7 +29,7 @@ const TURN_RATE = 2.6;       // rad/s max steering — cops can only drive FORWA
 const ACCEL = 3.0;           // how fast a cop's speed eases to its target
 const SPAWN_BEHIND = 42, SPAWN_SPREAD = 14;
 
-export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOrigin, audio }) {
+export function createPoliceMode({ scene, getMinimap, getGroundY, getOrigin, audio }) {
   let state = 'idle';          // idle | chase | ended
   let cops = [];
   let wanted = 0, peakWanted = 0, elapsed = 0, escapeT = 0, bustT = 0;
@@ -75,22 +74,17 @@ export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOri
   const card = createStatCard({ label: 'WANTED', color: COL_HEAT, rail: true });
   const result = createResultCard({ color: COL_HEAT });
 
-  // ── M-8: the centre card, the same family the other three modes use ──────────────────────────
-  // Heat has no destination, so there is no route and `update(nav)` has nothing to say. The
-  // objective here is AWAY, which a router cannot express — hence `setInstruction`.
-  //
-  // ⚠ It must not repeat the corner card. The corner used to end "· nearest 20 m" and this card owns
-  // that number now; printing the same fact twice, ten inches apart, is the mistake City Cab shipped
-  // with "Fare 1 · Pick up" beside a card already reading PICK UP.
-  const navHud = createObjectiveHud({ label: 'PURSUIT', color: COL_HEAT });
-  const _pv = new THREE.Vector3(), _pq = new THREE.Quaternion();
-  let _prevNearest = Infinity, _nearestCop = null, _lastPx = 0, _lastPz = 0;
-  const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  // ⚠ NO CENTRE CARD IN HEAT — tried in M-8, removed the same day at the user's request: *"i dont
+  // think i need this gaining and losing card at all"*. It showed an arrow pointing away from the
+  // nearest unit and a Closing/Gaining kicker, and the honest read is that neither told you anything
+  // the siren, the flashing lights in the mirror and the minimap blips were not already saying —
+  // three cues for one fact, and the card was the only one you had to take your eyes off the road
+  // to use. `objectiveHud.setInstruction()` went with it rather than being left as dead API.
 
   // The bust/escape countdown keeps its own centre slot: it is a LIVE timer, not an event, so it
   // cannot go through fxEvent (which plays once and leaves).
   const banner = document.createElement('div');
-  banner.style.cssText = 'position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:1290;display:none;' +
+  banner.style.cssText = 'position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:1291;display:none;' +
     'font:800 13px/1 Inter,system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;text-align:center;' +
     'padding:10px 18px;border-radius:14px;pointer-events:none;user-select:none;' +
     'background:linear-gradient(168deg,rgba(14,18,26,.93),rgba(9,12,18,.93));' +
@@ -100,7 +94,6 @@ export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOri
   function renderHud() {
     const active = state === 'chase';
     card.show(active);
-    navHud.show(active);
     banner.style.display = 'none';
     if (state === 'ended') {
       result.show({
@@ -125,35 +118,12 @@ export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOri
     // The label IS the rating — "WANTED 3/5" — and the meter under it is the heat bar those five
     // ★/☆ glyphs were approximating.
     card.setLabel(`WANTED ${n}/5`);
-    card.set(`${elapsed.toFixed(0)}s`, `${cops.length} ${cops.length === 1 ? 'unit' : 'units'} on you`);
+    // The nearest-unit distance comes BACK here now the centre card is gone. Rounded to 5 m: at 46 m
+    // the last digit changes every frame and reads as a fault, and nobody navigates by the metre
+    // while being chased.
+    card.set(`${elapsed.toFixed(0)}s`,
+      `${cops.length} ${cops.length === 1 ? 'unit' : 'units'} · nearest ${Math.round(nearest / 5) * 5} m`);
     card.meter(wanted / 100, `${Math.round(wanted)}%`, n >= 4 ? '#ff3b3b' : n >= 2 ? '#ffb347' : '#ffd23f');
-
-    // ── the flee cue ──
-    // Two directions, deliberately: the ARROW is camera-relative (it has to match what is on screen,
-    // and the visual world is X-mirrored — a world bearing comes out reversed left/right, which is
-    // the bug dashMode's comment records), while the WORDS are a world compass point, because "head
-    // north-east" survives you swinging the camera and "bear left" does not.
-    if (_nearestCop && camera) {
-      const ax = _lastPx - _nearestCop.x, az = _lastPz - _nearestCop.z;   // away from the unit
-      const al = Math.hypot(ax, az) || 1;
-      _pq.copy(camera.quaternion).invert();
-      _pv.set(_lastPx + (ax / al) * 50, camera.position.y, _lastPz + (az / al) * 50)
-        .sub(camera.position).applyQuaternion(_pq);
-      const rel = Math.atan2(_pv.x, -_pv.z);
-      // World bearing for the words. Scene X is mirrored, so negate it to get a true compass.
-      const brg = (Math.atan2(-ax / al, az / al) * 180 / Math.PI + 360) % 360;
-      const closing = nearest < _prevNearest - 0.05;
-      navHud.setLabel('PURSUIT', closing ? COL_HEAT : '#2ee06a');
-      navHud.setInstruction({
-        kicker: nearest > 220 ? 'Almost clear' : closing ? 'Closing on you' : 'Gaining ground',
-        text: `Head ${COMPASS[Math.round(brg / 45) % 8]}`,
-        glyph: '↑',
-        rotateRad: rel,
-        dist: nearest >= 1000 ? `${(nearest / 1000).toFixed(1)} km` : `${Math.round(nearest)} m`,
-        sub: 'nearest unit',
-      });
-    }
-    _prevNearest = nearest;
 
     if (bustT > 0.3) {
       banner.style.display = 'block'; banner.style.color = COL_HEAT;
@@ -247,8 +217,6 @@ export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOri
     blueLightMat.color.setHex(on ? 0x081038 : 0x2a5cff);
 
     let nearest = Infinity;
-    _nearestCop = null;
-    _lastPx = playerPx; _lastPz = playerPz;
     for (const cop of cops) {
       const dx = playerPx - cop.x, dz = playerPz - cop.z, dl = Math.hypot(dx, dz) || 1;
       // desired direction = toward the car + separation from nearby cops (so they spread, not merge)
@@ -273,7 +241,7 @@ export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOri
       cop.z += Math.cos(cop.yaw) * cop.speed * dt;
       cop.group.position.set(cop.x, groundY(cop.x, cop.z), cop.z);
       cop.group.rotation.y = cop.yaw;
-      if (dl < nearest) { nearest = dl; _nearestCop = cop; }
+      if (dl < nearest) nearest = dl;
     }
     // Show cops on the minimap (red blips).
     getMinimap?.()?.setBlips?.(cops.map((cop) => { const w = worldFromScene(cop.x, cop.z); return { wx: w.wx, wz: w.wz, color: '#ff3b3b' }; }));
@@ -303,7 +271,7 @@ export function createPoliceMode({ scene, camera, getMinimap, getGroundY, getOri
   return {
     name: 'Heat', icon: '🚨', key: 'police',
     update, start, stop,
-    dispose() { stop(); card.remove(); result.remove(); navHud.remove(); banner.remove(); fallbackMat.dispose(); redLightMat.dispose(); blueLightMat.dispose(); barGeo.dispose(); },
+    dispose() { stop(); card.remove(); result.remove(); banner.remove(); fallbackMat.dispose(); redLightMat.dispose(); blueLightMat.dispose(); barGeo.dispose(); },
     isRunning: () => state === 'chase',
   };
 }

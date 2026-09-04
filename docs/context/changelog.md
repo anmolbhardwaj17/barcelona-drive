@@ -2,6 +2,30 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — M-8 REVERTED: Heat's centre card removed the day it shipped
+
+User, on seeing it: *"i dont think i need this gaining and losing card at all"*. Agreed, and the
+reasoning is worth keeping so nobody rebuilds it: **the siren, the flashing lights in your mirror and
+the red minimap blips already say "they are close and getting closer"**. The card was a fourth cue
+for the same fact and the only one that required looking away from the road. The nearest-unit
+distance went back to the corner card. `objectiveHud.setInstruction()` was deleted with it — dead API
+that looks live is how the next person concludes a thing is supported.
+
+⚠ **Two defects it shipped with first, both the same root cause — a live value recomputed from the
+raw current frame:**
+- The bust countdown was positioned at `top:96px`, which is the objective card's own top, so it drew
+  **straight through** the card. Two elements, one coordinate, no layout relationship between them.
+- The Closing/Gaining word, the compass word and the metre digit **all churned ~10 times a second**.
+  Nothing in a pursuit changes that fast; the jitter was in the measurement. `nearest < prev - 0.05`
+  compares two consecutive frames, so at a steady gap the sign is decided by noise; an 8-sector
+  compass alternates whenever a bearing sits on a boundary; and the last digit of "46 m" changes
+  every frame.
+
+The lesson outlives the card, so it is recorded in the backlog: **a live HUD value needs a dead band
+and a committed state, not the current frame's answer.** The 5 m rounding survives on the corner card
+for exactly that reason. 520 tests pass.
+
+
 ## 2026-09-05 — M-8 Heat's objective card · M-9 the ETA
 
 **M-8.** Heat was the only mode without the centre card, because it has no destination and

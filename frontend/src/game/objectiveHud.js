@@ -132,26 +132,6 @@ export function createObjectiveHud({ label = 'OBJECTIVE', color = '#35e0ff' } = 
       distEl.style.color = _color;
       if (subEl.textContent !== sub) subEl.textContent = sub;
     },
-    /**
-     * Drive the top half directly, for a mode with no ROUTE.
-     *
-     * Heat has no destination — the objective is "away" — so `update(nav)` has nothing to say and
-     * would print its honest "No road route yet" fallback forever. This is the same card, filled in
-     * by a mode that knows something a router does not.
-     *
-     * @param {{kicker?:string, text?:string, glyph?:string, rotateRad?:number, dist?:string, sub?:string}} o
-     */
-    setInstruction({ kicker = '', text = '', glyph = '↑', rotateRad = null, dist = '', sub = '' } = {}) {
-      if (glyphEl.textContent !== glyph) glyphEl.textContent = glyph;
-      glyphEl.style.color = _color;
-      // Rotating the glyph is why this exists: a fixed arrow that means "away" points at nothing.
-      glyphEl.style.transform = rotateRad === null ? '' : `rotate(${rotateRad}rad)`;
-      if (inEl.textContent !== kicker) inEl.textContent = kicker;
-      if (street.textContent !== text) street.textContent = text;
-      if (distEl.textContent !== dist) distEl.textContent = dist;
-      distEl.style.color = _color;
-      if (subEl.textContent !== sub) subEl.textContent = sub;
-    },
     remove() { el.remove(); },
   };
 }

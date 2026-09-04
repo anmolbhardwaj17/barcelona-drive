@@ -24,7 +24,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 |---|---|---|
 | Pedestrians | P-1, **P-2** | P-3, P-4, P-5, P-6 |
 | Ground layering | Z-1, Z-1b (the correction) | Z-2, Z-4 · **Z-3 dropped** |
-| Game modes | M-1 … M-7, **M-8, M-9** | M-10 |
+| Game modes | M-1 … M-7, **M-9** | M-10 · **M-8 reverted** |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
 
 ⚠ **Numbering fix:** the changelog used "Z-2" for the paint-ladder *correction* while
@@ -50,13 +50,19 @@ Pedestrians now wait at the kerb, cross, and re-join the far pavement. `window._
 runtime proof; `backend/tools/crossingCount.mjs` is the offline population. ⚠ **They do not yet look
 for traffic** — the kerb wait is a fixed interval, not gap acceptance. Follow-up folded into P-6.
 
-### ~~M-8 · Heat's objective card~~ ✅ **done 2026-09-05**
-Heat has no destination, so `update(nav)` had nothing to say — the card is driven by a new
-`setInstruction()` override instead: an arrow that rotates to point AWAY from the nearest unit
-(camera-relative, because the world is X-mirrored) over a WORLD compass word ("Head north-east",
-which survives you swinging the camera). ⚠ The corner card's "· nearest 20 m" was removed in the same
-change — the centre card owns that number now, and printing it twice was the City Cab mistake.
-No world halo: a glowing ring over a police car is noise when it already has flashing lights.
+### M-8 · Heat's objective card — ❌ **BUILT AND REMOVED THE SAME DAY. Do not rebuild it.**
+Shipped an arrow pointing away from the nearest unit over a Closing/Gaining kicker. User: *"i dont
+think i need this gaining and losing card at all"* — and on reflection that is right: **the siren, the
+lights in your mirror and the minimap blips already say "they are close and getting closer"**, three
+cues for one fact, and the card was the only one that made you look away from the road to use it.
+The nearest-unit distance went back to the corner card where it started. `setInstruction()` was
+deleted with it rather than left as dead API.
+
+⚠ It also shipped two defects worth remembering if anyone builds a live readout again — **both were
+recomputed from raw per-frame values**: the banner sat at the card's exact `top:96px` and drew
+straight through it, and the Closing/Gaining word plus the compass word plus the metre digit all
+churned ~10×/s. Nothing about a pursuit changes that fast; the jitter was in the measurement. A live
+HUD value needs a dead band and a committed state, not the current frame's answer.
 
 ### ~~M-9 · the ETA~~ ✅ **done 2026-09-05**
 `planRoute` returns `timeS` — `gScore[t]`, the number A* was already minimising. It had been computed
