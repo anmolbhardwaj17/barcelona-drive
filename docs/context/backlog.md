@@ -181,6 +181,13 @@ lives in them**; the 432 fresh tiles are 100% clean.
 
 ⚠ **Not deleted, deliberately.** They are real map data at the fringe and deleting them could open
 holes in the world — K-3 is an open ticket about exactly that, and muddying it would be expensive.
+
+⚠ **N-25's fix does not reach production on a git push.** `backend/tiles/` is gitignored (≈12 GB), so
+`main` carries the baker change and none of the 432 re-baked tiles. Prod is a static Pages deploy
+that copies `backend/tiles/barcelona` into `frontend/dist/tiles/` — until someone runs that, the
+parks stay empty on the live site. (`deploy-cloudflare.sh` in the repo root is the stale R2 variant
+with placeholder config and is NOT how this ships; see the deploy memory for the three real commands
+and the `--branch main` trap.)
 **Done when** someone establishes whether the current region bbox is meant to cover them (re-bake
 with the wider extent) or not (delete them and confirm no tile request 404s at the edge).
 
