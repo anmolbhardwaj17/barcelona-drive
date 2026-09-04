@@ -116,7 +116,10 @@ export function convertTile(jsonData) {
   }
 
   const header = {
-    version: 10,  // v10: + the R-W1 width section on every road (carriagewayW / parkingLeftW /
+    // v11 (2026-09-05): identical layout to v10. Bumped ONLY to invalidate browser tile caches after
+    // N-25 corrected the coordinate space of ~316,000 baked vegetation positions — a content change
+    // no reader can detect. Must move together with BINARY_TILE_VERSION in tileParserWorker.js.
+    version: 11,  // v10: + the R-W1 width section on every road (carriagewayW / parkingLeftW /
                   //     parkingRightW / shoulderW / kerbToKerbW / sidewalkW / corridorW). `width`
                   //     is kept as an alias of kerbToKerbW so an unmigrated consumer reads the
                   //     paved surface rather than silently changing meaning.

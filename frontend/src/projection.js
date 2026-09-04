@@ -166,8 +166,10 @@ export function checkSpace(label, sample, wantMercator) {
     _spaceWarned.add(label);
     console.error(
       `[space] ${label} is in ${is ? 'MERCATOR' : 'WORLD'} space but ${wantMercator ? 'MERCATOR' : 'WORLD'} was expected `
-      + `(sample x=${sample}). Geometry from this source is in the wrong place — this is the N-25 class `
-      + `of bug, and it does not otherwise report itself.`);
+      + `(sample x=${sample}). Geometry from this source is in the wrong place.\n`
+      + `  MOST LIKELY CAUSE: a stale browser tile cache after a re-bake. Run window._clearTileCache() `
+      + `and hard-reload. If it persists on a clean load, the BAKE is wrong — this is the N-25 class `
+      + `of bug and it does not otherwise report itself.`);
   }
   return false;
 }

@@ -73,7 +73,17 @@ function packLite(roads, water, greens, beaches) {
 }
 
 /**
- * The binary tile format this build understands (v10: + the R-W1 width section).
+ * The binary tile format this build understands.
+ *
+ * v11 (2026-09-05) is the SAME LAYOUT as v10 — it exists purely to invalidate caches. N-25 moved
+ * ~316,000 baked vegetation positions from world space into Mercator, which is a change no reader
+ * can detect and no byte of the header announces: the tiles look identical and the trees are
+ * somewhere else. A re-bake at the same version left every browser serving its cached pre-fix
+ * copies, and the `checkSpace` guard added the same day is what caught it — on the first drive.
+ *
+ * ⚠ THE RULE THIS ESTABLISHES: bump the version when tile CONTENT changes meaning, not only when the
+ * LAYOUT changes. "Run window._clearTileCache()" is not a mechanism, it is a thing to forget — and
+ * it does not reach players at all once the site is deployed.
  *
  * ⚠ THIS IS THE CACHE KEY THAT WAS MISSING. The JSON fallback path has always compared versions,
  * but the BINARY path parsed whatever IndexedDB held and served it — forever. That is precisely why
@@ -83,7 +93,7 @@ function packLite(roads, water, greens, beaches) {
  *
  * Bump this whenever convertToBinary.js' `header.version` changes; they must move together.
  */
-const BINARY_TILE_VERSION = 10;
+const BINARY_TILE_VERSION = 11;
 
 /** Read just the version out of a binary tile, without parsing the rest. */
 function peekBinaryVersion(buffer) {

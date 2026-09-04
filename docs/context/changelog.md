@@ -3920,3 +3920,16 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   alleys and slip roads. Drivable streets genuinely missing a name: **≈161**. Ticket dropped.
 - Found in passing: gantry boards fell back to the literal string `'Delhi'` when the road they span
   had no name — live code, on real signs. Gantries now skip unnamed roads (6 of 681 eligible).
+
+## 2026-09-05 — tile format v11 (cache invalidation) + P4-11 slice 1
+- **v11 = identical layout to v10.** Bumped purely to invalidate browser tile caches: N-25 moved
+  ~316,000 vegetation positions between coordinate spaces, which no reader can detect, so a re-bake
+  at v10 left every browser serving stale pre-fix tiles. The new `checkSpace` guard caught it on the
+  first drive. ⚠ **Rule: bump on a CONTENT-MEANING change, not only a layout change** —
+  `_clearTileCache()` is a thing to forget and never reaches deployed players.
+- `checkSpace`'s message now names the stale cache as the most likely cause.
+- **P4-11 slice 1**: `map/signage/textAtlas.js` — a bounded 2048×1024 R8 page, 128 cells, evicted by
+  distance from the player. Replaces three UNBOUNDED `CanvasTexture` caches keyed by street name
+  (1.00 MB per direction board, 0.50 MB per gantry, 2,427 distinct names in the region, never
+  evicted). Fixed 2 MB vs a cost that grows with how long you play. Allocation logic is pure integer
+  arithmetic so the eviction policy is testable without a browser; 8 tests.
