@@ -12,6 +12,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { GROUND_LAYERS, GROUND_LIFT, groundLift, roadDeckY, sidewalkSurfaceY, CURB_HEIGHT,
          ROAD_VISUAL_ABOVE_TERRAIN, BAKED_SURFACE_ABOVE_ROAD_Y, MIN_PAINT_CLEARANCE,
          ROAD_BASED_LIFTS, TERRAIN_LIFT, TERRAIN_BASED_LIFTS, TERRAIN_LIFT_CLASS, terrainLift }
@@ -249,4 +250,26 @@ test('paint still clears the DRAWN asphalt, not just the deck, on a slope', () =
     assert.ok(paint - drawnAsphalt >= MIN_PAINT_CLEARANCE - 1e-9,
       `${cls} clears the drawn asphalt by ${(paint - drawnAsphalt).toFixed(4)}m, under MIN_PAINT_CLEARANCE`);
   }
+});
+
+test('every ground CLASS is used by something — a dead row is an ordering guarantee that applies to nothing', () => {
+  // ⚠ Found by a `_ddPick` on a Carrer de Badajoz zebra: `"what": "crosswalk", "depthBias": -14`.
+  // Crosswalks were LIFTED as class `crossing` but DRAWN with the lane-line material, class
+  // `marking` — so the `crossing` bias (−16) that Z-1 spent a whole pass ordering was applied to
+  // nothing, and a zebra tied a lane line in bias while sitting 2 mm above it. Which won where they
+  // cross came down to 2 mm of depth precision: the viewing-angle failure Z-1 exists to remove.
+  //
+  // This is a source grep rather than a runtime check because the renderers need a WebGL context —
+  // but it catches the thing that actually went wrong: a class nobody asks for by name.
+  const src = readFileSync(new URL('../src/map/roadRenderer.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/map/roadInfraRenderer.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/map/parkingRenderer.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/map/greensRenderer.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/map/areaFeaturesRenderer.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/map/busStopRenderer.js', import.meta.url), 'utf8');
+  const unused = Object.keys(GROUND_LAYERS).filter((cls) => {
+    if (cls === 'terrain') return false;              // the base — nothing declares it
+    return !src.includes(`'${cls}'`);
+  });
+  assert.deepEqual(unused, [], `ground classes declared but never applied: ${unused.join(', ')}`);
 });

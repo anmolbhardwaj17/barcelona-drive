@@ -1470,7 +1470,7 @@ let _markingNight = false;                 // persisted so materials built AFTER
 // still albedo, so unlit paint still falls back with the asphalt. Do not push this to 0xffffff —
 // that is the "glowing paint" the P2-05 note above exists to prevent.
 const MARK_ALBEDO = 0xE6E6E6;   // fresh white paint. The look comes from lighting; this sets how much it has to give.
-/** Shared LIT material for all lane lines + zebra crosswalks (created once). */
+/** Shared LIT material for lane lines (created once). */
 function getMarkingMaterial() {
   if (!_mergedMarkingMaterial) {
     _mergedMarkingMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
@@ -1479,6 +1479,32 @@ function getMarkingMaterial() {
     }), 'marking');
   }
   return markShared(_mergedMarkingMaterial);
+}
+
+/**
+ * ⚠ CROSSWALKS GET THEIR OWN MATERIAL, and the reason is a bug a `_ddPick` caught.
+ *
+ * They used to share `getMarkingMaterial()` — so they were LIFTED as class `crossing`
+ * (`CROSSWALK_Y_ABOVE = groundLift('crossing') …`) but DRAWN as class `marking`, bias −14. The probe
+ * on a Carrer de Badajoz zebra reported exactly that: `"what": "crosswalk", "depthBias": -14`.
+ *
+ * Two consequences, both quiet. The `crossing` bias entry (−16) that Z-1 spent a whole pass ordering
+ * was applied to **nothing** — a dead row in a table the tests assert over. And a zebra sat 2 mm above
+ * a lane line by height while tying it in bias, so which won where they cross was decided by 2 mm of
+ * depth precision: the exact "depends on the viewing angle" failure Z-1 exists to remove.
+ *
+ * Same colour, same vertex colours, same everything — it differs only in the class it declares, which
+ * is the point.
+ */
+let _crosswalkMaterial = null;
+function getCrosswalkMaterial() {
+  if (!_crosswalkMaterial) {
+    _crosswalkMaterial = applyGroundLayer(new THREE.MeshLambertMaterial({
+      color: MARK_ALBEDO,
+      vertexColors: true,
+    }), 'crossing');
+  }
+  return markShared(_crosswalkMaterial);
 }
 function getWhiteLineMaterial() {
   if (!whiteLineMaterial) {
@@ -1918,7 +1944,7 @@ async function buildCrosswalks(roads, options, yieldFn) {
     }
     merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-    const mesh = new THREE.Mesh(merged, getMarkingMaterial());
+    const mesh = new THREE.Mesh(merged, getCrosswalkMaterial());
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = false; // tile-level LOD (crosswalkMesh hidden at >80m in tileManager)

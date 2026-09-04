@@ -2,6 +2,31 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — Z-1c: the `crossing` depth class was applied to NOTHING
+
+Found by the user's `_ddPick` on a Carrer de Badajoz zebra: `"what": "crosswalk", "depthBias": -14`.
+That is the `marking` class. Crosswalks were **lifted** as class `crossing`
+(`CROSSWALK_Y_ABOVE = groundLift('crossing') …`) but **drawn** with the shared lane-line material,
+which declares `marking`.
+
+- **The `crossing` bias (−16) that Z-1 spent an entire pass ordering was applied to nothing.** A dead
+  row in a table the tests assert over — the ordering guarantee held perfectly between classes, one
+  of which no material ever asked for.
+- A zebra therefore sat **2 mm above a lane line in height while tying it in bias**, so which one won
+  where they cross came down to 2 mm of depth precision. That is precisely the "depends on the
+  viewing angle" failure Z-1 exists to remove, surviving inside Z-1's own subsystem.
+- Fixed with a dedicated crosswalk material — same colour, same vertex colours, same everything, it
+  differs only in the class it declares.
+- **New guard:** a test greps the ground renderers and fails if any `GROUND_LAYERS` class is never
+  named by an `applyGroundLayer` call. A source grep rather than a runtime check because the
+  renderers need a WebGL context — but it catches what actually went wrong, which is a class nobody
+  asks for. **523 tests pass.**
+
+⚠ **The probe found in one call what four rounds of reasoning had not.** `_ddPick` prints
+`depthBias` for a reason; a class that is *declared* correctly and *used* nowhere looks identical to
+a working one from the source alone.
+
+
 ## 2026-09-05 — Console cleanup: the boot chatter is behind `?debug=init` where it belonged
 
 User: *"we have so many logs we dont need now, remove those"*. Nine lines printed on **every** boot,
