@@ -163,7 +163,41 @@ Needs P-2, **and needs bake work**: shops are not in `pbfUrbanFeatures` at all �
 
 ## Parked (no owner, no date)
 
-**K-3 · a large WHITE surface where a road/pavement should be** — seen twice near Carrer de Badajoz,
+### K-3 · REFRAMED 2026-09-05 — it is a HOLE IN THE GROUND, not a white surface
+
+The user, looking at it live: *"what white, in front there is no tile so i'll fall man"*. They are
+right and the screenshot reading was wrong — a fourth wrong guess from a screenshot on this ticket.
+The white is sky seen through missing terrain.
+
+**What is measured, and it is not the bake.** All nine tiles around the car (`16_33168_24474`,
+Carrer de la Llacuna) are baked, v10, ~600 KB each, with 128×128 elevation grids and sane min/max.
+The bake is solid 5 tiles deep in every direction. A re-bake is not the answer.
+
+**`_ddNoGround()` localised it to ONE TILE EDGE.** 128 clusters; the nearest 15 are 10–442 m away
+and **7 of the 15 report `NO TERRAIN`** — an empty column, which the probe's own docs separate from
+"road floats above ground". The coordinates are the finding: several sit at exactly `2.20276`, which
+is the `west` of tile `16_33169_24474` to five decimals, and `41.39744` ≈ its `south` (41.397415).
+**The holes trace that tile's west and south edges** — one tile's ground missing, starting at its
+boundary, not scattered damage.
+
+**Ruled out:** LOD (`TERRAIN_CUT_M` is 1500 m; these are ≤442 m) · the bake (above) · an un-streamed
+tile in the sense the old entry meant (the load logged `COMPLETE … 14 tiles resident`, not `GAVE UP`).
+So `entry.terrainMesh` is either never built for that tile or is hidden by something other than LOD.
+
+⚠ **UNRESOLVED AND IT MATTERS: the console was a SUSPENDED-TAB load.** `time-to-drive 486858 ms`
+(8 min) with `phys:terrain 1454653 ms` of main-thread time inside a 13.6 s load — arithmetically
+impossible, so the machine slept mid-load. The second paste was the SAME page load (byte-identical
+log, probes appended), so **no clean-load measurement exists yet**. A load interrupted that way can
+report COMPLETE with tiles that never finished building, which would produce exactly this. Get
+`_ddNoGround()` from a fresh load before changing any streaming code.
+
+**Fixed along the way:** `_ddGround()` could not name terrain or roads at all — they are tagged on
+the MATERIAL (`material.userData._patchTags`), not `userData.type`, so both landed in the anonymous
+`'Mesh'` bucket (129 visible / 3,555 hidden) and the one question the probe exists to answer came
+back unanswerable. It now falls back to the patch tag.
+
+**Superseded — the original entry, kept because its reasoning was sound and its premise was not:**
+a large WHITE surface where a road/pavement should be — seen twice near Carrer de Badajoz,
 not reproducible on demand; the user will re-probe when it next appears. ⚠ **Do not guess at this
 from a screenshot** — three guesses from screenshots were wrong in one session. The code narrows it
 to exactly two candidates and one probe call separates them: both the road and the panot pavement

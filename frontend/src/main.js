@@ -524,9 +524,20 @@ window._ddCrossings = () => {
 
 window._ddGround = () => {
   const by = new Map();
+  // ⚠ TERRAIN AND ROADS ARE NOT TAGGED ON userData.type — they are tagged on the MATERIAL, as
+  // `material.userData._patchTags` (that is what the light-grid patcher and `_ddNoGround` read).
+  // Without this fallback the two classes this probe exists to report land in the anonymous 'Mesh'
+  // bucket, and a run that should have said "terrain: 8 visible, 1 hidden" instead said
+  // "Mesh: 129 visible, 3555 hidden" — the one question asked, unanswerable. Found 2026-09-05 while
+  // chasing a hole in the ground that `_ddNoGround` had already localised to a single tile.
+  const patchTag = (o) => {
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    const t = m?.userData?._patchTags;
+    return Array.isArray(t) && t.length ? t[0] : null;
+  };
   scene.traverse((o) => {
     if (!o.isMesh && !o.isInstancedMesh && !o.isBatchedMesh) return;
-    const k = o.userData?.type || o.name || o.constructor.name;
+    const k = o.userData?.type || patchTag(o) || o.name || o.constructor.name;
     const e = by.get(k) || { visible: 0, hidden: 0, tris: 0 };
     // `visible` is per-object; an ancestor can still hide it, so walk up.
     let shown = true;
