@@ -20,6 +20,7 @@
  */
 
 import { getKTX2Texture } from '../loaders.js';   // the SHARED KTX2 loader — never build another
+import { CONFIG } from '../config.js';   // DEBUG_INIT gates the boot chatter below
 
 /** Roof surface kinds. Index = layer index. */
 export const ROOF_LAYERS = ['pantile', 'terrat_gravel', 'concrete'];
@@ -189,7 +190,7 @@ export async function loadAuthoredRoofArray(THREE) {
   tex.needsUpdate = true;
   for (const u of _roofUniforms) u.value = tex;
   const im = tex.image || {};
-  console.warn('[roofArray] authored array loaded: %sx%sx%s layers (%s m span) — replacing the '
+  if (CONFIG.DEBUG_INIT) console.warn('[roofArray] authored array loaded: %sx%sx%s layers (%s m span) — replacing the '
     + 'procedural fill', im.width, im.height, im.depth, ROOF_REPEAT_M);
 }
 

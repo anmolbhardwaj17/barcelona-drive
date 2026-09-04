@@ -50,6 +50,7 @@
  */
 
 import { FLOOR_HEIGHT, WALL_REPEAT_HORIZONTAL_M, STOREY_H } from '../buildingConstants.js';
+import { CONFIG } from '../config.js';   // DEBUG_INIT gates the boot chatter below
 import { getKTX2Texture } from '../loaders.js';   // the SHARED KTX2 loader — see loadFacadeArray
 import { patchMaterial } from './materialRegistry.js';
 
@@ -311,7 +312,7 @@ export function createFacadeArrays(THREE) {
       arrays[band] = tex;
       arrays[`${band}IsAuthored`] = true;
       const im = tex.image || {};
-      console.warn('[facadeArray] authored %s array loaded: %sx%sx%s layers',
+      if (CONFIG.DEBUG_INIT) console.warn('[facadeArray] authored %s array loaded: %sx%sx%s layers',
         band, im.width, im.height, im.depth);
     }).catch((e) => {
       // REPORTED, not swallowed. The first version caught this silently, so a failed load looked
@@ -529,7 +530,7 @@ export function patchFacadeArrayMaterial(material, arrays) {
     // types are actually being patched, and what the arrays look like.
     if (!_facadeTypesSeen.has(material.type)) {
       _facadeTypesSeen.add(material.type);
-      console.warn('[facadeArray] patching material type: %s (aLayer path)', material.type);
+      if (CONFIG.DEBUG_INIT) console.warn('[facadeArray] patching material type: %s (aLayer path)', material.type);
     }
     if (!_facadeDiagLogged) {
       _facadeDiagLogged = true;
@@ -539,7 +540,7 @@ export function patchFacadeArrayMaterial(material, arrays) {
       const d = (t) => t && t.image
         ? `${t.image.width}x${t.image.height}x${t.image.depth} mipLevels=${t.mipmaps?.length ?? 0} min=${t.minFilter}`
         : 'MISSING';
-      console.warn('[facadeArray] patched %s · body %s · ground %s',
+      if (CONFIG.DEBUG_INIT) console.warn('[facadeArray] patched %s · body %s · ground %s',
         material.type, d(arrays.body), d(arrays.ground));
     }
     // Legacy wall UV -> layer space. See the bandUV note: u arrives in units of

@@ -2,6 +2,33 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — Console cleanup: the boot chatter is behind `?debug=init` where it belonged
+
+User: *"we have so many logs we dont need now, remove those"*. Nine lines printed on **every** boot,
+all as `console.warn`, so they rendered as ⚠ warnings and buried the two lines that are actually
+gate metrics.
+
+Gated behind `CONFIG.DEBUG_INIT`: `[facadeArray]` array-loaded ×2, `[facadeArray]` patching /
+patched, `[roofArray]` array-loaded, `[carFleet]` colour census, and `[spawn] random start`.
+
+⚠ **The `[spawn]` line was mine, from yesterday, and I had argued for keeping it ungated** — *"when a
+player says it spawned me somewhere odd, this line is the difference between reproducing it and
+guessing"*. That was wrong for exactly the reason CLAUDE.md gives: **a line that prints on every load
+is not a diagnostic, it is the noise that buries the diagnostics.** The place is already on screen
+(street name, minimap) and `?debug=init` brings it back.
+
+⚠ **Deliberately still ungated, per CLAUDE.md** — say so if you want them gone too, but they are
+there on purpose: `[quality] tier` and `[perf] time-to-drive / initial tile load` are **v3 gate
+metrics that must appear unasked**, and every remaining `[facadeArray]` / `[roofArray]` / `[carFleet]`
+/ `[spawn]` line is a FAILURE path ("array FAILED to load — placeholder stands"). Anything reporting
+a failure is never chatter. `[carCamera] nose cam` is one-shot and only in the bumper view.
+`[assets]`, `[census]` and `[lightgrid]` were already gated.
+
+`spawnConfig` reads the flag directly rather than importing `CONFIG`: it resolves the spawn at import
+time and is read by both `main.js` and `scene.js`, so pulling the config graph in there is a cycle
+waiting to happen. 522 tests pass.
+
+
 ## 2026-09-05 — Z-2a: car parks join the ground-layer scheme
 
 - **`parkingRenderer` had no depth class at all** — no `polygonOffset`, no `applyGroundLayer`, just

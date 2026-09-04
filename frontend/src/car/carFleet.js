@@ -35,6 +35,7 @@
  * behind the camera is worth far more than the walk costs.
  */
 import * as THREE from 'three';
+import { CONFIG } from '../config.js';   // DEBUG_INIT gates the boot chatter below
 import { setGeometryIdSafe } from '../map/batchedMeshSafe.js';
 import { loadCityCarTemplates, CANON_LENGTH, CAR_KIT_PATH } from './carModels.js';
 
@@ -101,7 +102,7 @@ export function createCarPool(scene, templates) {
       const rows = [...
         _colorCensus.entries()].sort((a, b) => b[1] - a[1])
         .map(([k, v]) => `#${k.toString(16).padStart(6, '0')}x${v}`).join(' ');
-      console.warn(`[carFleet] colour census — setColorAt applied ${_colorApplied} times, `
+      if (CONFIG.DEBUG_INIT) console.warn(`[carFleet] colour census — setColorAt applied ${_colorApplied} times, `
         + `${_colorCensus.size} distinct: ${rows || '(none)'}`);
     }, 6000);
   }

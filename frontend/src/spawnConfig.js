@@ -75,6 +75,13 @@ export function isSpawnInBounds(lat, lon) {
     lon >= SPAWN_BOUNDS.minLon && lon <= SPAWN_BOUNDS.maxLon;
 }
 
+// Read directly rather than importing CONFIG: this module resolves the spawn at import time and is
+// read by main.js and scene.js, so pulling in the config graph here is a cycle waiting to happen.
+const DEBUG_INIT = (() => {
+  try { return new URLSearchParams(globalThis.location?.search || '').get('debug') === 'init'; }
+  catch { return false; }
+})();
+
 let _activeSpawn = { ...DEFAULT_SPAWN };
 
 /** Returns the current active spawn. Always returns a copy. */
@@ -125,9 +132,12 @@ try {
     const pick = SPAWN_POOL[Math.floor(Math.random() * SPAWN_POOL.length)];
     if (pick && isSpawnInBounds(pick.lat, pick.lon)) {
       setActiveSpawn({ lat: pick.lat, lon: pick.lon });
-      // Not gated behind ?debug: when a player says "it spawned me somewhere odd", this one line is
-      // the difference between reproducing it and guessing.
-      console.log(`[spawn] random start: ${pick.name} (${pick.lat}, ${pick.lon}) — ?spawn=fixed to pin`);
+      // ⚠ Gated. I argued this one should always print — "when a player says it spawned me somewhere
+      // odd, this line is the difference between reproducing it and guessing" — and that was wrong
+      // for the reason CLAUDE.md gives about boot chatter: a line that prints on EVERY load is not a
+      // diagnostic, it is noise that buries the diagnostics. The place is on screen anyway (street
+      // name, minimap), and `?debug=init` brings it back.
+      if (DEBUG_INIT) console.log(`[spawn] random start: ${pick.name} (${pick.lat}, ${pick.lon}) — ?spawn=fixed to pin`);
     }
   }
 } catch { /* no window (SSR/worker) */ }
