@@ -27,7 +27,7 @@
 | **N-54 embankments** | ✅ **verified on screen.** 18 of the ~80 "floating roads" are bridge APPROACHES at the CORRECT height with no fill beneath them; the layer model causes **zero** (`floatClassify.mjs`: APPROACH 20, ORPHAN 1, **TAG 0**), so the LOCKED vertical spec needed no amendment. Split rule: something beneath → viaduct (pillars) · clear ground → embankment (skirt), capped at 9 m. Measured 622 sections / 58 runs / 2,456 tris, **obstructed 77** (the viaduct case firing). Fixed a z-fight against the 1.2 m bridge slab band. |
 | **N-55 dead ends** | ✅ **CLOSED — do not reopen.** The triage score counts CORRECT endings as defects: of 1,180 unjoined drivable ends, **30 are tunnel portals** and **249 become pedestrian**. Name-backed actionable set is **8**, refused mostly by rule 9's 53° cone, and loosening it risks the z-fighting N-52 fixed. Use `deadEndCause.mjs`, not the raw triage score. |
 | **N-56** | ❌ **tried and REVERTED.** Stopping an at-grade road from climbing to a bridge's base height took junction steps **133 → 177**. Do not retry that shape — the predicate can only see the shared node. |
-| **N-57** | 🔄 **in flight**, see below. |
+| **N-57** | 🔄 **in flight**, see below. Shipped tiles re-measured 2026-09-05: **116** (was 133). The next step is NOT another bake — 71 steps the audit calls blendable are being declined by the pass, and why is unknown. |
 | **Texture budget** | Was measured at **exactly 24 MB of a 24 MB cap**. Roof plates → one KTX2 array (2.83 → 0.44 MB, 6.5:1, VRAM 12 → ~3 MB) and `rock_atlas` archived (**1.23 MB referenced in zero files**, orphaned when the scatter was deleted 08-28). **Now 20 MB.** |
 
 ### ▶ THE OPEN NUMBER — 133 JUNCTION HEIGHT-STEPS
@@ -43,7 +43,24 @@ runs last (after `smoothBridgeTransitions`) bending only the last metres of a pr
 of a node agree. Guards that matter: tunnels are never moved (floor slabs + commit-blocking
 validator), the far end never moves (`reach < L`), and the anchor is the least-free way present.
 First bake: **133 → 126**, throttled because a 6 m step at `CONSTRUCT_RAMP_GRADE` needs 50 m of road
-and most junction links are shorter. Second bake widens the blend to `MAX_FIX_GRADE = 0.25`.
+and most junction links are shorter. Second bake widened the blend to `MAX_FIX_GRADE = 0.25`.
+
+**RE-MEASURED 2026-09-05 against the SHIPPED tiles: 116.** So 133 → 126 → **116**, and the widened
+grade has already baked — the tiles (Sep 2) postdate the last `RampResolver` change (Aug 31, `8bc2eeb`),
+so **another bake would change nothing** and the ticket's "run the second bake" next-step is spent.
+
+The open question is now a different one. Of the 116, the audit's own arithmetic says **71 are
+blendable at ≤25% grade** and only 45 are unfixable (21 tunnel-vs-tunnel, which are never moved by
+design). So the reconciliation pass is declining 71 steps it believes it could fix. Either the
+audit's blendable predicate and the resolver's `reach` calculation disagree about the same road —
+the audit uses `max(lenA, lenB) * 0.9` while the resolver budgets `L * REACH_FRACTION * MAX_FIX_GRADE`
+per way — or the pass never sees them. ⚠ **Find out which before baking again**: a bake that does not
+move the number costs 10-30 minutes and proves nothing, and D-23 applies — a counter at the point of
+decision would not prove the decision reached the tile.
+
+Fingerprint unchanged and still pointing the same way: 106 of 116 are exactly 6 m, 8 are 12 m, 1 is
+24 m, 1 is 5 m. Worst is the Túnel de les Glòries ramp against Gran Via at 24.0 m
+(`?mode=fly&spawn=41.40167,2.18448`).
 
 ### ▶ WHAT TO KNOW BEFORE PICKING ANYTHING UP
 
