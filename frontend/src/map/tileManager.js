@@ -2212,6 +2212,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
 
     // Populate entry with Phase 1 results and store in cache immediately
     entry.greenMeshes = greenMeshesP1;
+    entry.shops = tileData.shops;   // P-6: destinations for the pedestrian crowd
     entry.roads = slimRoads;
     entry.roadMeshes = roadMeshes;
     entry.terrainMesh = terrainMesh || null;
@@ -3698,6 +3699,39 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     return out;
   }
 
+  /**
+   * Every shop in the resident tiles, as {point:[mercX,mercY], name, cat}.
+   *
+   * ⚠ `point` is real-metre WORLD, NOT Mercator — origin-subtracted and unstretched by the bake's
+   * `mercatorToWorld`. Road points are stored in the tile as absolute Mercator and normalised to
+   * world by `readRoads` (which is passed ox/oy); `readShops` is NOT passed ox/oy because its data
+   * is already world. So the two spaces coexist IN THE FILE and agree by the time they reach here.
+   * The consumer converts world → physics: `px = -(worldX - originX)`, `pz = worldZ - originZ`.
+   *
+   * Getting that wrong is silent. `backend/tools/shopSnapAudit.mjs` was first written comparing raw
+   * shop positions against raw road points and reported 0% of shops within snapping distance, with
+   * a median gap of 5,069,611 m — the Mercator northing itself. Same trap N-25 records for trees.
+   * Corrected, it reports 95.7% of 14,541 shops within 12 m of a pavement, p50 2.2 m.
+   *
+   * This exists because P-6 was on the board as blocked on "shops are not baked at all", quoting the
+   * v3 census line about 14,542 shops being parsed and discarded. The census describes what the
+   * RENDERER dropped; the bake has carried `shops` + `shopPositions` + `shopCategories` since v10
+   * and `readShops` has decoded them all along. The only thing missing was an accessor.
+   *
+   * Shares `_segCache`'s epoch discipline: the shop set changes only when the resident tile set does.
+   */
+  let _shopCache = null, _shopCacheEpoch = -1;
+  function getLoadedShops() {
+    if (_shopCache !== null && _shopCacheEpoch === _tileEpoch) return _shopCache;
+    const out = [];
+    for (const entry of tileCache.values()) {
+      if (!entry.shops) continue;
+      for (const shop of entry.shops) if (shop?.point) out.push(shop);
+    }
+    _shopCache = out; _shopCacheEpoch = _tileEpoch;
+    return out;
+  }
+
   function getLoadedRoadSegments() {
     if (_segCache !== null && _segCacheEpoch === _tileEpoch) return _segCache;
     const segments = [];
@@ -4006,6 +4040,7 @@ export function createTileManager(scene, createRoadMeshes, createBuildingMeshes,
     resetBuildPhaseTotals,
     getLoadedTrafficSignals,
     getLoadedRoadSegments,
+    getLoadedShops,
     injectSpawnTile,
     setPhotoMode,
     setPhotoRadius,

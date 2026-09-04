@@ -204,10 +204,51 @@ more variants — but per the v3 ruling, variety is not the lever until the shad
 right, and P0-11 deliberately deleted two variants for 3.1 MB of page weight. **Do not add art
 before P-4.** Engineering first — see `v3-master-plan.md`.
 
-### P-6 — groups and destinations
-Spawn in twos and threes with a shared path and a small lateral spread; give a fraction of the crowd
-a *destination* (a shop entrance, a bus stop, a crossing) instead of a direction. Needs P-2 and the
-shop/POI data that CLAUDE.md notes is **parsed and discarded today** (14,542 shops).
+### ~~P-6 — groups and destinations~~ ✅ **SHIPPED 2026-09-05**
+
+**It was never blocked.** The board said P-6 needed bake work because "shops are not in the tiles at
+all — 14,542 parsed and discarded per the census". That conflated two different statements: the
+census describes what the *renderer* dropped, not what the *bake* contains. v10 tiles have carried
+`shops` + `shopPositions` + `shopCategories` all along and `tileParserWorker.readShops` has decoded
+them; the only missing piece was an accessor. `backend/tools/shopSnapAudit.mjs` measures **14,541
+shops** across the shipped tiles — the census number to within one.
+
+**Destinations.** `attachDestinations(path, shops, ver)` mirrors P-2's `attachCrossings` exactly:
+one scan per pavement, cached against a version counter, so a walker only compares its own arc
+length against a few numbers. A pedestrian takes a destination on `DEST_CHANCE` of walks, turns
+toward it, and on arrival enters a new `browse` state.
+
+The detail that makes it read as a destination is the **facing vector**. Each hook stores the unit
+vector from the pavement toward the shop, so an arriving pedestrian turns to the window. Without it
+they stop facing down the street — indistinguishable from the `pause` they already had, which is to
+say the whole feature would have been invisible.
+
+⚠ **Two traps, both pinned by tests.** A shop sitting exactly ON the walk line has no direction to
+normalise; emitting a zero vector snaps yaw to due north and reads as one person facing the wrong
+way. And the **cooldown is not a nicety**: without it someone who has finished browsing re-targets
+the shop they are standing at, arrives instantly, browses again — a person welded to a shopfront.
+
+**Groups.** `GROUP_CHANCE` of spawns bring one or two companions, sharing the leader's speed and
+direction (without that they drift apart within metres and it is just a crowd that spawned close).
+Each carries a persistent lateral offset so a pair walks **abreast**, not in single file — the
+wobble is a gait, not a position, so it could not do this. They do *not* share the state clock:
+forcing every stop to be simultaneous looked more mechanical, not less. The leader owns the
+destination choice; three people picking three shops is three people walking apart.
+
+⚠ **The orphan leak.** A follower suppresses its own destination choice because the leader owns it.
+If the leader is culled out of range and the reference is left dangling, that suppression becomes
+permanent and the orphan walks the rest of its life unable to want anything — no error, no counter,
+just behaviour quietly draining away. Culled leaders now release their followers.
+
+**THE COORDINATE TRAP, and it nearly shipped.** Road points are stored in the tile as **absolute
+Mercator**; shop, tree and building positions are stored as real-metre **WORLD**. `tileParserWorker`
+normalises the first by passing `ox/oy` to `readRoads` and deliberately not to `readShops`, so both
+are world by the time anything reads them. The first version of `shopSnapAudit.mjs` compared the two
+*raw* and reported **0% of shops within snapping distance, median gap 5,069,611 m** — the Mercator
+northing itself. That is the same trap N-25 records for trees, and it is silent in exactly the way
+D-23 warns about: every destination would land 240 km away, no path would ever match one, and the
+feature would do nothing while every counter said it ran. Corrected, the audit reports **95.7% of
+14,541 shops within 12 m of a pavement, p50 2.2 m** — the data is good, the space was the bug.
 
 ---
 
@@ -238,3 +279,8 @@ ruling, and **P-5 must not start without the user overturning it** (Golden Rule 
 7. **P-3 — panic is a run, not a fast walk.** Drive at someone at 40 km/h and watch the legs as they
    bolt: the stance should change, not just speed up. Then park and watch a group of people standing
    still — they should not all be holding the identical pose.
+8. **P-6 — people go places, and some walk together.** Park on a shopping street (the Gothic Quarter
+   or Gràcia) for a minute. Some pedestrians should stop AT a shopfront and turn to FACE it, then
+   move off; and you should see pairs walking side by side at a matched pace, not a single file of
+   strangers. Nobody should be welded to a window for the whole minute — that is the cooldown
+   failing.

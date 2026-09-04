@@ -3847,3 +3847,12 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
 - `roadRenderer`: deleted the orphaned blend-strip block + `BLEND_STRIP_Y_OFFSET` (26 lines) — its
   builder went in v3 P1-15.
 - Tram rails split out as Z-2c: a judgement call about 5 mm of clearance, not a missing enrolment.
+
+## 2026-09-05 — P-6: pedestrians have somewhere to go, and some company
+- `pedestrians.js`: `attachDestinations()` (shops → pavement hooks, cached like P-2's crossings), a
+  `browse` state that turns to FACE the shopfront, a destination cooldown, and groups that walk
+  abreast at the leader's pace. Culled leaders release their followers.
+- `tileManager.getLoadedShops()` — new accessor; shops were baked and decoded all along.
+- `backend/tools/shopSnapAudit.mjs` (new): 14,541 shops, 95.7% within 12 m of a pavement, p50 2.2 m.
+- ⚠ Road points are MERCATOR in the tile, shop/tree positions are WORLD. The audit's first run
+  compared them raw and reported 0% / 5,069,611 m. Documented at both call sites.

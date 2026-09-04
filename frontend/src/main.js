@@ -1186,6 +1186,7 @@ spawnTileReady.finally(() => {
           pedestrians = createPedestrians({
             scene, contactShadows,
             getRoadSegments: () => tileManager.getLoadedRoadSegments(),
+            getShops: () => tileManager.getLoadedShops(),   // P-6: somewhere to walk to
             getGroundY: terrainGroundY,
             getOrigin: getOriginOffset,
           });

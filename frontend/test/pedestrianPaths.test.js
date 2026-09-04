@@ -166,3 +166,70 @@ test('nearestPathPoint refuses a match beyond its radius', () => {
   const { paths } = street();
   assert.equal(nearestPathPoint(paths, 999999, 999999), null);
 });
+
+/**
+ * ── P-6: DESTINATIONS ───────────────────────────────────────────────────────────────────────────
+ *
+ * Every walk used to be a direction. These pin the shop→pavement snap that turns one into a
+ * destination, and specifically the facing vector, which is the whole visible difference between
+ * "stopped at a shop" and "stopped".
+ */
+import { attachDestinations } from '../src/car/pedestrians.js';
+
+/** A 100 m straight pavement pair, as buildPavementPaths returns them. */
+function street100() {
+  const pts = [{ x: 1000, y: 2000 }, { x: 1000, y: 2100 }];
+  return buildPavementPaths(pts, 5, flat, ORIGIN);
+}
+
+test('a shop beside the pavement becomes a hook at the arc length it sits at', () => {
+  const [path] = street100();
+  // 30 m along, 3 m off the walk line.
+  const px = path.p[0], sign = px > 0 ? 1 : -1;
+  const dests = attachDestinations(path, [{ x: px + sign * 3, z: 30, name: 'Ester Optics' }], 1);
+  assert.equal(dests.length, 1);
+  assert.ok(Math.abs(dests[0].s - 30) < 0.5, `s ${dests[0].s}`);
+  assert.equal(dests[0].name, 'Ester Optics');
+});
+
+test('the facing vector points AT the shop, not along the street', () => {
+  // Without this a pedestrian "arrives" and stands facing down the pavement like everyone else,
+  // which is indistinguishable from the pause they already had.
+  const [path] = street100();
+  const px = path.p[0], sign = px > 0 ? 1 : -1;
+  const [d] = attachDestinations(path, [{ x: px + sign * 4, z: 50 }], 1);
+  assert.ok(Math.abs(Math.hypot(d.dx, d.dz) - 1) < 1e-6, 'not a unit vector');
+  assert.ok(Math.abs(d.dx - sign) < 0.05, `dx ${d.dx} should point across the pavement`);
+  assert.ok(Math.abs(d.dz) < 0.05, `dz ${d.dz} should not point along it`);
+});
+
+test('a shop on the far side of the block is not this pavement’s destination', () => {
+  const [path] = street100();
+  assert.equal(attachDestinations(path, [{ x: path.p[0] + 400, z: 30 }], 1).length, 0);
+});
+
+test('a shop sitting exactly ON the walk line still yields a usable facing vector', () => {
+  // The degenerate case: zero length to normalise. A zero vector would snap yaw to due north and
+  // read as one person in the crowd inexplicably facing the wrong way.
+  const [path] = street100();
+  const [d] = attachDestinations(path, [{ x: path.p[0], z: 40 }], 1);
+  assert.ok(d, 'a coincident shop was dropped rather than handled');
+  assert.ok(Math.abs(Math.hypot(d.dx, d.dz) - 1) < 1e-6, `not unit: ${d.dx},${d.dz}`);
+});
+
+test('hooks are cached against the version and rebuilt when it moves', () => {
+  const [path] = street100();
+  const a = attachDestinations(path, [{ x: path.p[0] + 3, z: 10 }], 7);
+  const b = attachDestinations(path, [{ x: path.p[0] + 3, z: 10 }, { x: path.p[0] + 3, z: 60 }], 7);
+  assert.equal(b, a, 'same version must not rescan');
+  const c = attachDestinations(path, [{ x: path.p[0] + 3, z: 10 }, { x: path.p[0] + 3, z: 60 }], 8);
+  assert.equal(c.length, 2, 'a bumped version must rescan');
+});
+
+test('destinations come back sorted by arc length', () => {
+  // A walker scans them against its own `s`; unsorted hooks make "the next one" meaningless.
+  const [path] = street100();
+  const px = path.p[0];
+  const d = attachDestinations(path, [{ x: px + 3, z: 80 }, { x: px + 3, z: 20 }, { x: px + 3, z: 50 }], 1);
+  assert.deepEqual(d.map((h) => Math.round(h.s)), [20, 50, 80]);
+});

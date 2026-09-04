@@ -57,6 +57,34 @@ const RUN_STRIDE = 2.2;    // m of ground per run cycle (a stride, not a step)
 // flipbook at 4 kHz, and it also stops the dodge's ramp-in from stuttering the cadence.
 const RUN_MIN_MPS = 2.0, RUN_MAX_MPS = 5.0;
 const IDLE_FRAC = 0.18;    // fraction STANDING at any moment — it is now a STATE, not a life sentence
+
+/**
+ * ── P-6: DESTINATIONS AND GROUPS ──────────────────────────────────────────────────────────────
+ *
+ * The last of the three original complaints was "they don't have much to do". P-1 gave them a
+ * walk/stand state machine, P-2 let them cross the road, P-3 gave them a second gait. They still
+ * had no REASON to be anywhere: every walk was a direction, never a destination, and everyone
+ * walked alone.
+ *
+ * ⚠ This ticket was on the board as BLOCKED — "shops are not in the tiles at all, 14,542 parsed and
+ * discarded per the v3 census". That is stale. v10 tiles carry `shops` + `shopPositions` +
+ * `shopCategories`, `tileParserWorker.readShops` has decoded them for a long time, and the spawn
+ * tile alone holds 110 with names. The census line describes what the RENDERER dropped, not what
+ * the bake contains, and the two were conflated. Nothing needed baking.
+ *
+ * Both halves reuse P-2's shape: the expensive question is answered ONCE PER PAVEMENT and cached
+ * against a version counter, so a walker only ever compares its own arc length against a few
+ * numbers.
+ */
+const SHOP_SNAP_M    = 12;   // how close a shop must be to a pavement to belong to it
+const DEST_CHANCE    = 0.35; // share of walks that head somewhere rather than just off
+const DEST_ARRIVE_M  = 1.6;  // arc length within which you have "arrived"
+const BROWSE_MIN = 4, BROWSE_MAX = 14;  // s spent at a shopfront
+const DEST_COOLDOWN_S = 20;  // s before the same person wants another shop — without this they
+                             // re-target the shop they are standing at and never leave
+const GROUP_CHANCE   = 0.30; // share of spawns that bring company
+const GROUP_SPREAD_M = 1.1;  // lateral gap between companions (shoulder to shoulder, not a queue)
+const GROUP_LEAD_M   = 0.9;  // how far along the path a companion trails
 const PAUSE_MIN = 2.5, PAUSE_MAX = 11;   // s standing before moving off again
 const LEG_MIN = 9, LEG_MAX = 45;         // s walking before the next pause
 const YAW_LERP = 7;        // rad-ish per s — a person turns, they do not teleport their facing
@@ -151,6 +179,7 @@ export function buildPavementPaths(pts, off, groundAt, origin, minLen = 8) {
       p: P, cum, len: w, minX, maxX, minZ, maxZ,
       cx: (P[0] + P[n * 3 - 3]) / 2, cz: (P[2] + P[n * 3 - 1]) / 2,
       hooks: null, hookVer: -1,   // P-2: crossings attached to this pavement, see attachCrossings()
+      dests: null, destVer: -1,   // P-6: shops attached to this pavement, see attachDestinations()
     });
   }
   return out.length ? out : null;
@@ -228,6 +257,52 @@ export function attachCrossings(path, crossings, ver) {
 }
 
 /**
+ * Attach every shop near `path` as a destination hook at the arc length where it meets.
+ *
+ * Mirrors attachCrossings deliberately — same caching, same bbox reject, same one-scan-per-pavement
+ * cost model. The extra field is `dx/dz`: the unit vector from the pavement TOWARD the shop, so a
+ * pedestrian who arrives can turn and face the window instead of standing in the street looking
+ * down it. That one detail is most of what makes a stop read as a destination rather than a pause.
+ *
+ * @param {object} path
+ * @param {{x:number,z:number,name?:string}[]} shops  PHYSICS space (converted by the caller)
+ * @param {number} ver   bumped when the shop set changes; hooks are cached against it
+ */
+export function attachDestinations(path, shops, ver) {
+  if (path.destVer === ver) return path.dests;
+  path.destVer = ver;
+  const dests = [];
+  const n = path.cum.length;
+  for (const shop of shops) {
+    const ex = shop.x, ez = shop.z;
+    if (ex < path.minX - SHOP_SNAP_M || ex > path.maxX + SHOP_SNAP_M
+     || ez < path.minZ - SHOP_SNAP_M || ez > path.maxZ + SHOP_SNAP_M) continue;
+    let best = Infinity, bestS = 0, bestX = 0, bestZ = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const ax = path.p[i * 3], az = path.p[i * 3 + 2];
+      const bx = path.p[i * 3 + 3], bz = path.p[i * 3 + 5];
+      const dx = bx - ax, dz = bz - az;
+      const L2 = dx * dx + dz * dz || 1;
+      let t = ((ex - ax) * dx + (ez - az) * dz) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const px = ax + dx * t, pz = az + dz * t;
+      const d2 = (ex - px) ** 2 + (ez - pz) ** 2;
+      if (d2 < best) { best = d2; bestS = path.cum[i] + Math.sqrt(L2) * t; bestX = px; bestZ = pz; }
+    }
+    if (best > SHOP_SNAP_M * SHOP_SNAP_M) continue;
+    // Facing vector. A shop sitting exactly ON the walk line has no direction to face; fall back to
+    // the pavement's own normal rather than emitting a zero vector that would snap yaw to 0.
+    let fx = ex - bestX, fz = ez - bestZ;
+    const fl = Math.hypot(fx, fz);
+    if (fl < 0.05) { fx = 0; fz = 1; } else { fx /= fl; fz /= fl; }
+    dests.push({ s: bestS, dx: fx, dz: fz, name: shop.name || '' });
+  }
+  dests.sort((a, b) => a.s - b.s);
+  path.dests = dests;
+  return dests;
+}
+
+/**
  * Position + unit tangent at arc length `s`. `out.i` is the walker's cached vertex index, so a step
  * costs one compare rather than a search back through the polyline.
  */
@@ -275,7 +350,8 @@ export function samplePath(path, s, out) {
   return out;
 }
 
-export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigin, contactShadows }) {
+export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigin, contactShadows,
+                                   getShops }) {
   let variants = [];   // [{ walk:[IM×FRAMES], run:[IM×RUN_FRAMES], idle:IM, stand:IM|null, fall:IM|null }]
   let nVar = 0;
   let _enabled = true;
@@ -312,6 +388,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
   let _lastX = Infinity, _lastZ = Infinity, _time = 0;
   let _paths = [];      // in-range pavements — a pedestrian stepping off a crossing re-joins one
   let _crossVer = 0;    // bumped when the crossing set is rebuilt; path hooks cache against it
+  let _destVer = 0;     // P-6: same, for shop destinations
 
   function newLeg(p) {
     // Alternate walking and standing. IDLE_FRAC is the share of the crowd standing at any moment,
@@ -325,10 +402,35 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       p.speed = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
       p.stateT = LEG_MIN + Math.random() * (LEG_MAX - LEG_MIN);
       if (Math.random() < 0.3) p.dir = -p.dir;   // turned around while they stood there
+      pickDestination(p);
     }
   }
 
-  function spawnPed(path, s) {
+  /**
+   * Give this walk somewhere to be, sometimes.
+   *
+   * ⚠ The cooldown is not a nicety. Without it someone who has just finished browsing re-targets the
+   * shop they are standing at — arrival is instant, so they browse again, forever, and what you see
+   * is a person welded to a shopfront. The leader also owns the choice for the whole group: three
+   * people abreast picking three different shops is three people walking apart, which is the
+   * opposite of what GROUP_CHANCE is for.
+   */
+  function pickDestination(p) {
+    p.dest = null;
+    if (p.lead) return;                         // a follower goes where the leader goes
+    if (p.destCd > 0 || Math.random() > DEST_CHANCE) return;
+    const dests = p.path?.dests;
+    if (!dests || !dests.length) return;
+    // Only ahead-or-behind by a walkable distance — a destination 400 m away is a walk with no
+    // visible destination in it, and the walker would turn round at the path end long before.
+    const near = dests.filter((h) => Math.abs(h.s - p.s) > DEST_ARRIVE_M && Math.abs(h.s - p.s) < 90);
+    if (!near.length) return;
+    const h = near[(Math.random() * near.length) | 0];
+    p.dest = h;
+    p.dir = h.s > p.s ? 1 : -1;                 // turn toward it
+  }
+
+  function spawnPed(path, s, opts) {
     const idle = Math.random() < IDLE_FRAC;
     const p = {
       path, s, i: 0,
@@ -344,9 +446,42 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       // Which standing pose this person holds, for their whole life. Re-rolling it per pause would
       // make someone waiting at a kerb snap between two poses every few seconds.
       pose: Math.random() < 0.5 ? 1 : 0,
+      // P-6. `lat` holds someone off the surveyed walk line for their whole life, which is what
+      // makes a pair walk ABREAST instead of in single file — the wobble is a gait, not a position.
+      lat: 0,
+      dest: null, destCd: 0, lead: null,
     };
     if (!idle) p.speed = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
+    if (opts) Object.assign(p, opts);
     peds.push(p);
+    return p;
+  }
+
+  /**
+   * One person, or a pair or three walking together.
+   *
+   * Companions share the leader's SPEED and DIRECTION — without that they drift apart within a few
+   * metres and the group is just a crowd that happened to spawn close. They do not share the state
+   * clock: people walking together still glance in different windows, and forcing every stop to be
+   * simultaneous looked more mechanical than the drift it replaced, not less.
+   */
+  function spawnGroup(path, s) {
+    const lead = spawnPed(path, s);
+    if (Math.random() > GROUP_CHANCE) return;
+    const n = Math.random() < 0.72 ? 1 : 2;     // mostly pairs; threes are rarer on a pavement
+    const side = Math.random() < 0.5 ? 1 : -1;
+    for (let i = 0; i < n; i++) {
+      if (peds.length >= PED_CAP) return;     // the cap is the cap; a group does not get to exceed it
+      const ds = (i + 1) * GROUP_LEAD_M * -lead.dir * (0.4 + Math.random() * 0.6);
+      const cs = Math.max(0, Math.min(path.len, s + ds));
+      spawnPed(path, cs, {
+        lead,
+        dir: lead.dir,
+        speed: lead.speed,
+        state: lead.state,
+        lat: side * GROUP_SPREAD_M * (i + 1) * (0.75 + Math.random() * 0.35),
+      });
+    }
   }
 
   // Incremental reassignment: keep people who are still in range (so a pedestrian you're driving toward
@@ -377,11 +512,20 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     const R2 = RANGE * RANGE;
 
     // Cull pedestrians who have walked out of range (thrown bodies finish their knockdown first).
+    let gone = null;
     for (let i = peds.length - 1; i >= 0; i--) {
       const p = peds[i];
       if (p.thrown) continue;
-      if ((p.cx - playerPx) ** 2 + (p.cz - playerPz) ** 2 > R2) peds.splice(i, 1);
+      if ((p.cx - playerPx) ** 2 + (p.cz - playerPz) ** 2 > R2) {
+        if (p.lead === null) (gone ||= new Set()).add(p);   // only leaders are ever followed
+        peds.splice(i, 1);
+      }
     }
+    // ⚠ A follower suppresses its own destination choice because the leader owns it. If the leader
+    // is culled and the reference is left dangling, that suppression becomes permanent and the
+    // orphan walks the rest of its life unable to want anything — a slow leak of behaviour that no
+    // error would report. Orphans become independent walkers.
+    if (gone) for (const p of peds) if (p.lead && gone.has(p.lead)) p.lead = null;
 
     // ── P-2: the marked crossings in range, rebuilt when the tile set changes ──
     const cross = [];
@@ -397,6 +541,25 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       if (cp) cross.push(cp);
     }
     _crossVer++;
+
+    // ── P-6: the shops in range, in PHYSICS space ──
+    // Same conversion the roads and crossings use — and for the same reason: by the time a shop
+    // point reaches here it is real-metre WORLD, exactly like `seg.points`. (In the TILE they differ:
+    // roads are stored as absolute Mercator, shops as world. `tileParserWorker` passes ox/oy to
+    // readRoads and not to readShops, which is what makes them agree here.)
+    //   px = -(worldX - originX)   ← the scene is X-mirrored, see CLAUDE.md
+    //   pz =  (worldZ - originZ)
+    // Getting this wrong is SILENT: every destination lands 240 km away, no path ever matches one,
+    // and the feature does nothing while every counter says it ran (D-23).
+    const shopPts = [];
+    for (const shop of (getShops?.() || [])) {
+      const pt = shop.point;
+      if (!pt) continue;
+      const sx = -(pt[0] - origin.x), sz = pt[1] - origin.z;
+      if ((sx - playerPx) ** 2 + (sz - playerPz) ** 2 > R2) continue;
+      shopPts.push({ x: sx, z: sz, name: shop.name });
+    }
+    _destVer++;
 
     const cand = [];
     let totalLen = 0;
@@ -416,6 +579,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         const reach = RANGE + path.len / 2;
         if ((path.cx - playerPx) ** 2 + (path.cz - playerPz) ** 2 > reach * reach) continue;
         attachCrossings(path, cross, _crossVer);
+        attachDestinations(path, shopPts, _destVer);
         cand.push(path);
         totalLen += Math.min(path.len, RANGE * 2);
       }
@@ -434,7 +598,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       samplePath(path, s, _hit);
       // Prefer far spots for newcomers so they appear in the distance, not right next to the car.
       if ((_hit.x - playerPx) ** 2 + (_hit.z - playerPz) ** 2 < NEAR_SPAWN_2 && guard < target * 2) continue;
-      spawnPed(path, s);
+      spawnGroup(path, s);
     }
   }
 
@@ -490,7 +654,15 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       // ── walk / stand state machine ──
       // 'kerb' and 'crossing' run their own clocks below; newLeg() would yank someone out of the
       // road halfway across.
-      if (p.state === 'walk' || p.state === 'pause') {
+      if (p.destCd > 0) p.destCd = Math.max(0, p.destCd - d);
+      if (p.state === 'browse') {
+        p.stateT -= d;
+        if (p.stateT <= 0) {
+          // Leave, and do not want another shop for a while — see pickDestination's warning.
+          p.dest = null; p.destCd = DEST_COOLDOWN_S;
+          p.state = 'pause'; newLeg(p);
+        }
+      } else if (p.state === 'walk' || p.state === 'pause') {
         p.stateT -= d;
         if (p.stateT <= 0) newLeg(p);
       }
@@ -523,6 +695,11 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         p.s += p.dir * p.speed * d;
         if (p.s > p.path.len) { p.s = p.path.len; p.dir = -1; }
         else if (p.s < 0) { p.s = 0; p.dir = 1; }
+        // P-6: arrived at the shop we set out for?
+        if (p.dest && Math.abs(p.s - p.dest.s) <= DEST_ARRIVE_M) {
+          p.state = 'browse'; p.speed = 0;
+          p.stateT = BROWSE_MIN + Math.random() * (BROWSE_MAX - BROWSE_MIN);
+        }
         // Arrived at a crossing? Only a fraction take it, or the street becomes a zigzag.
         if (p.crossCd === 0 && p.path.hooks) {
           for (const h of p.path.hooks) {
@@ -547,13 +724,21 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       // Lateral wobble along the path normal — nobody walks a surveyed line, and a column of people
       // on the exact same offset is the other half of "they look fake".
       // Only while WALKING — applied to a stander it becomes a 32 cm sway on the spot.
-      const wob = (p.state === 'walk' || p.state === 'crossing')
-        ? Math.sin(_time * WOBBLE_RATE * TWO_PI + p.wob) * WOBBLE_AMP : 0;
+      const wob = ((p.state === 'walk' || p.state === 'crossing')
+        ? Math.sin(_time * WOBBLE_RATE * TWO_PI + p.wob) * WOBBLE_AMP : 0)
+        // P-6: `lat` is a POSITION, not a gait, so it applies in every state — a pair that stops to
+        // talk should still be side by side. Crossing is the exception: the crossing path is its own
+        // polyline and this offset is measured against the pavement's normal, so carrying it into
+        // the road would push someone sideways out of the zebra.
+        + (p.state === 'crossing' ? 0 : p.lat);
       const onLine_x = _hit.x + (-_hit.tz) * wob;
       const onLine_z = _hit.z + (_hit.tx) * wob;
       const y = _hit.y;
       const moveDir = p.state === 'crossing' ? p.crossDir : p.dir;
       let targetYaw = Math.atan2(_hit.tx * moveDir, _hit.tz * moveDir);
+      // Facing the window is what tells a browse apart from a pause. Without it a destination is
+      // invisible: the person stops, but stops facing down the street like everyone else.
+      if (p.state === 'browse' && p.dest) targetYaw = Math.atan2(p.dest.dx, p.dest.dz);
 
       // ── dodge: bolt out of the way of an approaching car ──
       p.dodgeX = p.dodgeX || 0; p.dodgeZ = p.dodgeZ || 0; p.panic = p.panic || 0;
@@ -582,7 +767,7 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       // car flipped a person through 180° in one frame. Smoothing this is the cheapest single thing
       // that makes the crowd read as people instead of as sprites being re-parented.
       const rate = panicking ? YAW_LERP_PANIC : YAW_LERP;
-      if (p.state === 'walk' || p.state === 'crossing' || panicking) {
+      if (p.state === 'walk' || p.state === 'crossing' || p.state === 'browse' || panicking) {
         p.yaw += angDelta(p.yaw, targetYaw) * Math.min(1, rate * d);
       }
 

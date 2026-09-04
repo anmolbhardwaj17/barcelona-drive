@@ -22,7 +22,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 
 | stream | done | open |
 |---|---|---|
-| Pedestrians | P-1, P-2, **P-3** | P-4, P-5, P-6 |
+| Pedestrians | P-1, P-2, P-3, **P-6** | P-4, P-5 |
 | Ground layering | Z-1, Z-1b, Z-2a, **Z-2b** | Z-2c (tram rails), Z-4 · **Z-3 dropped** |
 | Game modes | M-1 … M-7, **M-9, M-10** | **M-8 reverted** |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
@@ -155,9 +155,15 @@ there is no bench builder to sit on. Full write-up in `pedestrian-system.md` §3
 landed at 69 meshes with no measured cost, so "makes the clips cheap" is a weaker argument than it
 was when this was written. Decide whether the shader work is worth it.
 
-### P-6 · groups and destinations
-Needs P-2, **and needs bake work**: shops are not in `pbfUrbanFeatures` at all — per CLAUDE.md's census
-14,542 are parsed and discarded, so there are no destinations to walk to yet.
+### ~~P-6 · groups and destinations~~ ✅ **done 2026-09-05**
+**The blocker was not real.** "Shops are not in the tiles" confused the census (what the RENDERER
+dropped) with the bake (which has carried `shops`/`shopPositions`/`shopCategories` since v10).
+`backend/tools/shopSnapAudit.mjs`: **14,541 shops**, **95.7% within 12 m of a pavement, p50 2.2 m**.
+Shipped: `attachDestinations` + a `browse` state that turns to FACE the shop, and groups that walk
+abreast at a shared pace. New `getLoadedShops()` accessor on tileManager.
+⚠ The audit's first run reported 0% — it compared raw shop positions (WORLD) against raw road points
+(MERCATOR), median gap 5,069,611 m. Same trap as N-25. Full write-up in `pedestrian-system.md` §3.
+⚠ Needs the drive check in that file's §5 item 8.
 
 ---
 
