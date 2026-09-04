@@ -4,24 +4,33 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { worldToLatLon } from '../projection.js';
+import { applyGroundLayer, TERRAIN_LIFT } from './groundLayers.js';
 
-const PARKING_Y_OFFSET = 0.04;    // above terrain
+// Z-2a: from the shared tables, not hand-rolled here. These were 0.04 / +0.02 — which put the stall
+// markings at terrain+0.06, ABOVE the road deck at +0.05, while their (absent) depth bias put them
+// below it. Height said the car park's paint wins where a street crosses it, bias said the street
+// does, and which you saw depended on the angle. See groundLayers.js.
+const PARKING_Y_OFFSET = TERRAIN_LIFT.parkingLot;                              // above terrain
 const STALL_WIDTH = 2.5;          // m per stall
 const STALL_DEPTH = 5.0;          // m per stall
-const MARKING_Y_ABOVE = 0.02;     // above parking surface
+const MARKING_Y_ABOVE = TERRAIN_LIFT.parkingPaint - TERRAIN_LIFT.parkingLot;   // above the apron
 const MARKING_THICKNESS = 0.12;   // m
 /** Max nodes for a polygon to be considered "rectangular enough" for stall markings. */
 const MAX_NODES_FOR_STALLS = 6;
 
-const parkingMat = new THREE.MeshStandardMaterial({
+// ⚠ applyGroundLayer does two jobs and the second one is easy to miss: it assigns the depth class
+// AND registers the material, and `patchLightGrid` only reaches registered materials. These two
+// never entered the registry, so at night a car park was lit by the ambient rig ALONE — the same
+// defect the module records for the road markings, which read blue under a warm lamp.
+const parkingMat = applyGroundLayer(new THREE.MeshStandardMaterial({
   color: 0x6b6b6b,   // concrete gray
   roughness: 0.9,
   metalness: 0,
-});
-const markingMat = new THREE.MeshStandardMaterial({
+}), 'parkingLot');
+const markingMat = applyGroundLayer(new THREE.MeshStandardMaterial({
   color: 0xe8e8e8,
   roughness: 0.8,
-});
+}), 'parkingPaint');
 
 /** Point-in-polygon (ray casting). poly = [{x,y},...] (y = world Z, parser convention) */
 function pointInPoly(px, pz, poly) {

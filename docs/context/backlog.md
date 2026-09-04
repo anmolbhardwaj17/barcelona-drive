@@ -23,7 +23,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 | stream | done | open |
 |---|---|---|
 | Pedestrians | P-1, **P-2** | P-3, P-4, P-5, P-6 |
-| Ground layering | Z-1, Z-1b (the correction) | Z-2, Z-4 · **Z-3 dropped** |
+| Ground layering | Z-1, Z-1b, **Z-2a** | Z-2b (bus stops, tram rails, tunnel approaches, blend strips), Z-4 · **Z-3 dropped** |
 | Game modes | M-1 … M-7, **M-9** | M-10 · **M-8 reverted** |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
 
@@ -70,7 +70,14 @@ on every plan and dropped. An ETA derived afterwards from length ÷ average spee
 worse estimate that disagrees with the route the player was actually given. Shown beside the distance
 ("420 m · 3 min"), and under 45 s it reads "under a min" rather than a spuriously precise "0:38".
 
-### Z-2 · surfaces outside the ground-layer scheme — **next**
+### ~~Z-2a · parking~~ ✅ **done 2026-09-05** · Z-2b · the rest — **next**
+Parking had **no depth class at all** and its stall markings sat above the road deck while their
+absent bias put them below it. Now `parkingLot` / `parkingPaint`, under `road` by both bias and
+height. It also had never been registered, so it was lit by ambient alone at night. The
+bias/height agreement test now covers terrain-based classes too — the gap that let this hide.
+
+**Z-2b, still open:** `busStopRenderer` (0.10 / 0.15), `railwayRenderer` tram rails (0.005),
+`tunnelRenderer` `APPROACH_Y_BIAS` (0.06), `roadRenderer` `BLEND_STRIP_Y_OFFSET` (0.10).
 Measured, and my earlier one-line summary was **wrong in a way worth recording**: the parking
 *surface* sits at terrain+0.04, which is **below** the road deck at +0.05 — it is the parking
 *markings* at +0.06 that land above it. So a car park abutting a street has its surface buried and

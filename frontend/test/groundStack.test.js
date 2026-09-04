@@ -14,7 +14,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GROUND_LAYERS, GROUND_LIFT, groundLift, roadDeckY, sidewalkSurfaceY, CURB_HEIGHT,
          ROAD_VISUAL_ABOVE_TERRAIN, BAKED_SURFACE_ABOVE_ROAD_Y, MIN_PAINT_CLEARANCE,
-         ROAD_BASED_LIFTS, TERRAIN_LIFT, terrainLift }
+         ROAD_BASED_LIFTS, TERRAIN_LIFT, TERRAIN_BASED_LIFTS, TERRAIN_LIFT_CLASS, terrainLift }
   from '../src/map/groundLayers.js';
 
 test('the drawn road surface sits above the road base by exactly the visual lift', () => {
@@ -107,6 +107,39 @@ test('tactile is excluded from the comparison because it measures from a differe
   assert.ok(!ROAD_BASED_LIFTS.includes('tactile'));
   assert.ok(GROUND_LIFT.tactile !== undefined);
   assert.ok(sidewalkSurfaceY(0) > roadDeckY(0), 'the sidewalk is above the road deck');
+});
+
+test('Z-2a: terrain-relative classes agree too — the check that only covered road paint', () => {
+  // The agreement assertion existed for ROAD_BASED_LIFTS only, so `parkingRenderer` could sit
+  // outside the scheme with its markings at terrain+0.06 — ABOVE the road deck by height while its
+  // absent bias put them below it — and nothing caught it. Same invariant, second base.
+  const inverted = [];
+  for (let i = 0; i < TERRAIN_BASED_LIFTS.length; i++) {
+    for (let j = i + 1; j < TERRAIN_BASED_LIFTS.length; j++) {
+      const a = TERRAIN_BASED_LIFTS[i], b = TERRAIN_BASED_LIFTS[j];
+      const dBias = GROUND_LAYERS[TERRAIN_LIFT_CLASS[a]] - GROUND_LAYERS[TERRAIN_LIFT_CLASS[b]];
+      const dLift = TERRAIN_LIFT[a] - TERRAIN_LIFT[b];
+      if (dBias === 0 || dLift === 0) continue;
+      if (Math.sign(dBias) === Math.sign(dLift)) {
+        inverted.push(`${a} vs ${b}: bias puts ${dBias < 0 ? a : b} on top, height puts ${dLift > 0 ? a : b} on top`);
+      }
+    }
+  }
+  assert.deepEqual(inverted, [], `\n  ${inverted.join('\n  ')}\n`);
+});
+
+test('Z-2a: a street crossing a car park wins by HEIGHT as well as by bias', () => {
+  // Both must hold, or which surface you see depends on the viewing angle — the Z-1 failure, in a
+  // renderer that had never been enrolled. The markings were the offender at terrain+0.06.
+  for (const k of ['parkingLot', 'parkingPaint']) {
+    assert.ok(TERRAIN_LIFT[k] < ROAD_VISUAL_ABOVE_TERRAIN,
+      `${k} sits at ${TERRAIN_LIFT[k]}, at or above the road deck (${ROAD_VISUAL_ABOVE_TERRAIN})`);
+    assert.ok(GROUND_LAYERS[TERRAIN_LIFT_CLASS[k]] > GROUND_LAYERS.road,
+      `${k}'s bias draws it OVER the road`);
+  }
+  // And the stall paint is above its own apron, or it is buried in the concrete it belongs to.
+  assert.ok(TERRAIN_LIFT.parkingPaint > TERRAIN_LIFT.parkingLot);
+  assert.ok(GROUND_LAYERS.parkingPaint < GROUND_LAYERS.parkingLot);
 });
 
 test('terrain-relative lifts are ordered by their biases too, and exist exactly once', () => {

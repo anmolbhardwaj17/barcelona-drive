@@ -127,20 +127,33 @@ copy, and this one wakes up on the fallback path.
 
 ## 4. What is NOT done
 
-### Z-2 — ground surfaces still outside the scheme entirely
-Measured; none of these call `applyGroundLayer()` or take their height from `GROUND_LIFT`:
+### Z-2 — ground surfaces still outside the scheme
+
+**Z-2a `parkingRenderer` ✅ done 2026-09-05.** It had **no depth class at all** — no `polygonOffset`,
+no `applyGroundLayer` — and two hand-rolled offsets. The apron at terrain+0.04 was fine (below the
+road deck at +0.05), but its stall **markings at +0.06 sat ABOVE the road deck** while their absent
+bias put them below it: height said the car park's paint wins where a street crosses it, bias said
+the street does, and which you saw depended on the angle. The Z-1 inversion, in a renderer nobody had
+enrolled. Now `parkingLot` (−3.6, lift 0.020) and `parkingPaint` (−3.8, lift 0.030) — both under
+`road` by **bias and height**.
+
+⚠ **Two things that came with it and are worth knowing.** First, `applyGroundLayer` also *registers*
+the material, and `patchLightGrid` only reaches registered materials — so a car park had been lit by
+the ambient rig **alone** at night, the same defect the module records for road markings reading blue
+under a warm lamp. Second, the bias/height agreement assertion only ever covered `ROAD_BASED_LIFTS`,
+which is precisely why this could sit outside it undetected; there is now a `TERRAIN_BASED_LIFTS` set
+and the same check runs over both.
+
+**Still outside the scheme** — each is a possible visible change, so one class per pass with its own
+drive test:
 
 | file | constant | value | note |
 |---|---|---|---|
-| `parkingRenderer.js` | `PARKING_Y_OFFSET` / `MARKING_Y_ABOVE` | 0.04 / +0.02 | car-park surface + its paint, terrain-relative. **Effective 0.06 vs the road deck's 0.05** — a car park abutting a street stacks by luck |
-| `busStopRenderer.js` | `POOL_Y_OFFSET` / `MARKING_Y_OFFSET` | 0.10 / 0.15 | the marking one is 15 cm, far above every paint class |
+| `busStopRenderer.js` | `POOL_Y_OFFSET` / `MARKING_Y_OFFSET` | 0.10 / 0.15 | the marking one is 15 cm — far above every paint class |
 | `railwayRenderer.js` | `TRAM_RAIL_Y_ABOVE` | 0.005 | tram rail in the carriageway |
-| `tunnelRenderer.js` | `APPROACH_Y_BIAS` | 0.06 | "above terrain so ramp surface wins z-fight" — a hand-rolled tie-break of the kind the bias table exists to replace |
+| `tunnelRenderer.js` | `APPROACH_Y_BIAS` | 0.06 | "above terrain so ramp surface wins z-fight" — a hand-rolled tie-break of exactly the kind the bias table exists to replace |
 | `roadRenderer.js` | `BLEND_STRIP_Y_OFFSET` | 0.10 | above terrain AND greens |
 | `vegetationRenderer.js` | `SHADOW_Y_OFFSET` | 0.02 | decal, likely exempt — check `depthWrite` |
-
-Each needs a class and a lift, and each is a potential visible change, so they want their own pass
-with a drive test — not a bulk rename.
 
 ### Z-3 — building-wall z-fighting on overlapping OSM footprints
 The original TODO's last line. **Untouched, and it does not belong in this module**: `groundLayers`

@@ -2,6 +2,28 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — Z-2a: car parks join the ground-layer scheme
+
+- **`parkingRenderer` had no depth class at all** — no `polygonOffset`, no `applyGroundLayer`, just
+  two hand-rolled offsets. The apron at terrain+0.04 was fine (below the road deck at +0.05), but the
+  stall **markings at +0.06 sat ABOVE the road deck** while their absent bias put them below it.
+  Height said the car park's paint wins where a street crosses it, bias said the street does, and
+  which you saw depended on the viewing angle. **The Z-1 inversion, in a renderer nobody had
+  enrolled.** Now `parkingLot` (−3.6 / 0.020) and `parkingPaint` (−3.8 / 0.030) — both under `road`
+  by bias *and* height, so a street crossing a car park wins twice.
+- ⚠ **`applyGroundLayer` also REGISTERS the material, and that half was silently missing.**
+  `patchLightGrid` is applied through `onMaterialRegistered`, so a material that never enters the
+  registry is lit by the ambient rig **alone** — a car park had no street lighting at night. Exactly
+  the defect the module already records for the road markings reading blue under a warm lamp.
+- ⚠ **Why it could hide:** the bias/height agreement assertion only ever ran over `ROAD_BASED_LIFTS`.
+  A guard that covers one of two bases is a guard with a hole the shape of the other one. There is now
+  a `TERRAIN_BASED_LIFTS` set with `TERRAIN_LIFT_CLASS` mapping each to its bias, and the same check
+  runs over both. **522 tests pass.**
+
+Z-2b — bus stops (0.10 / 0.15), tram rails (0.005), tunnel approaches (0.06) and blend strips (0.10)
+— stays open, one class per pass, each with its own drive test.
+
+
 ## 2026-09-05 — M-8 REVERTED: Heat's centre card removed the day it shipped
 
 User, on seeing it: *"i dont think i need this gaining and losing card at all"*. Agreed, and the

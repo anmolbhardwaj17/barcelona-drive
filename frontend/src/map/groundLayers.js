@@ -27,6 +27,13 @@ export const GROUND_LAYERS = {
   beach:       -3,     // sand polygons — beat greens at the coast edge, lose to roads/promenades
   pedArea:     -3.4,   // plazas / pedestrian squares — over greens+beach, UNDER roads/sidewalks
                        //  (conservative: promote above roads only after checking plaza-road overlaps)
+  // Z-2a: car parks. Both sit UNDER `road`, so a street crossing a car park covers it — by bias AND
+  // by height, which is the whole point. Before this they had NO depth class at all and relied on a
+  // hand-rolled Y: the surface at terrain+0.04 (below the road deck's +0.05, fine) but its MARKINGS
+  // at +0.06, i.e. ABOVE the road deck while their absent bias put them below it. Exactly the
+  // inversion Z-1 found in the road paint, in a renderer nobody had enrolled.
+  parkingLot:  -3.6,   // the concrete apron
+  parkingPaint: -3.8,  // its stall dividers — on the apron, still under the street
   road:        -4,     // asphalt ribbons (per-type priority Y-bumps still break carriageway ties)
   gore:        -5,     // junction gore fills sit ON asphalt, under everything painted
   drain:       -7,     // drain covers / utility plates — opaque, in the carriageway, ON asphalt but
@@ -136,10 +143,25 @@ export const ROAD_BASED_LIFTS = ['gore', 'drain', 'bikeLane', 'parkingZone', 'ma
 // Ordering matches the GROUND_LAYERS biases (green -2 below beach -3 / pedArea -3.4), so the same
 // agreement assertion covers this table too.
 export const TERRAIN_LIFT = {
-  green: 0.010,   // parks / gardens / grass polygons, straight onto terrain
-  area:  0.020,   // beach / plaza / pedestrian-area fills — above greens so shared coast edges
-                  //  do not z-race along the strip where a park meets the sand
+  green: 0.010,        // parks / gardens / grass polygons, straight onto terrain
+  area:  0.020,        // beach / plaza / pedestrian-area fills — above greens so shared coast edges
+                       //  do not z-race along the strip where a park meets the sand
+  parkingLot: 0.020,   // Z-2a: level with the plaza fills — it is the same kind of thing, a paved
+                       //  area on the ground. Ties in height are broken by the bias table.
+  parkingPaint: 0.030, // 1 cm of stall divider on top. ⚠ BOTH stay BELOW roadDeckY() (0.05) so a
+                       //  street crossing a car park wins by height as well as by bias. The old
+                       //  0.06 markings did not, and that disagreement is a viewing-angle bug.
 };
+
+/**
+ * Terrain-relative classes that share a base and can therefore be compared, the same way
+ * ROAD_BASED_LIFTS names the road-deck-relative set. `groundStack.test.js` asserts bias order and
+ * height order agree across this set too — the check that only covered road paint before Z-2a.
+ */
+export const TERRAIN_BASED_LIFTS = ['green', 'area', 'parkingLot', 'parkingPaint'];
+
+/** The GROUND_LAYERS class each TERRAIN_LIFT entry is ordered by (`area` covers beach + pedArea). */
+export const TERRAIN_LIFT_CLASS = { green: 'green', area: 'pedArea', parkingLot: 'parkingLot', parkingPaint: 'parkingPaint' };
 
 /**
  * Height of the top of the DRAWN asphalt, above roadDeckY(). From the paint-stack audit: the
