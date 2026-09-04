@@ -534,7 +534,17 @@ function getGantrySignTexture(roadName, connectedNames) {
   ctx.textBaseline = 'middle';
 
   // Main road name (top line)
-  const displayName = roadName || 'Delhi';
+  //
+  // ⚠ This fell back to the literal string 'Delhi' — a live leftover from the Delhi build, printed
+  // on overhead gantries in Barcelona whenever the road under them had no OSM name. Found while
+  // investigating S-1 (street-name synthesis) on 2026-09-05.
+  //
+  // The fix is NOT another placeholder. An overhead board exists to name the road it spans; with no
+  // name there is nothing true to put on it, and inventing one here would be the fake-data smell
+  // this codebase keeps paying for (see the 24 hardcoded shop NAMES). `generateGantries` now skips
+  // unnamed roads outright, so this fallback should be unreachable — it stays as an empty string so
+  // that if it ever IS reached the board is blank rather than confidently wrong.
+  const displayName = roadName || '';
   ctx.font = 'bold 38px Arial, sans-serif';
   const nameY = connectedNames?.length ? H * 0.32 : H * 0.38;
   ctx.fillText(displayName, W / 2, nameY, W - 40);
@@ -1345,6 +1355,10 @@ function generateGantries(roads, intersections, destLookup) {
     if (roadW < 8) continue; // only wide enough roads
     const layer = (road.layer != null && Number.isFinite(road.layer)) ? road.layer : 0;
     const roadName = road.name || '';
+    // A gantry names the road it spans. Unnamed → there is nothing to say, so do not build one.
+    // (Measured 2026-09-05: only 6 of 681 gantry-eligible roads region-wide are unnamed, so this
+    // removes almost nothing — it removes exactly the boards that used to read "Delhi".)
+    if (!roadName) continue;
 
     const spacing = 400;
     const samples = walkPolyline(pts, spacing);

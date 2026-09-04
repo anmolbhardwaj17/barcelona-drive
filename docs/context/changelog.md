@@ -3914,3 +3914,9 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   `readShops`. Warns once rather than throwing: the tile parser must not lose a tile to a diagnostic.
 - 548 tests. Terrain heightfield rotation and the Rapier/cannon difference deliberately left alone —
   no measured bug, and this session's lesson is to check a premise before building to it.
+
+## 2026-09-05 — S-1 dropped; the "Delhi" gantry sign fixed instead
+- S-1's premise was my own bad number: "9,514 unnamed roads" is real but is footways, steps, service
+  alleys and slip roads. Drivable streets genuinely missing a name: **≈161**. Ticket dropped.
+- Found in passing: gantry boards fell back to the literal string `'Delhi'` when the road they span
+  had no name — live code, on real signs. Gantries now skip unnamed roads (6 of 681 eligible).
