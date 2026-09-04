@@ -176,22 +176,21 @@ source of truth, read through `roadWidths.js`, never a `?? 6` at a call site.
 Measured gaps: road names **76.0%** (9,514 unnamed) · shop names 93.2% · traffic signals 4,225 nodes
 with position only and **no consumer at all**.
 
-- **S-2a · which side of the road** ✅ **done 2026-09-05.** ⚠ **The visible defect was NOT the "India"
-  comment** — that formula was already correct for a right-hand-drive country. The bug was the vector
-  it read: `findIntersections` recorded each road twice, using `pts[1]-pts[0]` (outward) at the start
-  endpoint and `pts[last]-pts[last-1]` (**inward**) at the end. Every road contributes exactly one of
-  each, so **traffic lights stood on the wrong kerb at structurally half the junctions in Barcelona**,
-  silently — a signal on the far kerb still looks like a signal. `generateLaneArrows` had already hit
-  the same inconsistency and worked around it at its own call site with an `isAtEnd` test rather than
-  fixing the source, which is how the shared value stayed wrong for the next consumer. `tx/tz` is now
-  contractually OUTWARD, held by 3 tests (verified failing with the old sign). Frontend-only, **no
-  re-bake needed**.
-- **S-2b · setback and facing from the drawn surface (remaining, ~2 d).** `isOnAnyRoad` already tests
-  candidate positions against every road at the R-W1 `pavedWidth`, so the hard part is done. What is
-  left: seed the **4,225 unused OSM signal nodes** (today's lights are generated from detected
-  intersections instead), and derive setback from the kerb rather than `roadW * 0.5 + 1.5`.
-- **S-1 · street-name synthesis (2 d).** Grammar-generated Catalan names for the 9,514 unnamed roads,
-  **seeded by way id** so a re-bake does not rename half the city.
+- **S-2 · placement from the drawn surface** — ✅ **ALREADY DONE, by T-2. Ticket withdrawn.**
+  ⚠ **I specced this from a stale reading and should have checked the live code first.**
+  `map/trafficSignalRenderer.js` already draws signals from the **4,225 baked OSM nodes**, places
+  them against the drawn carriageway via `roadClearance.js` (`buildCarriagewaySegments` /
+  `pushOffCarriageway`), derives the kerb offset from the road's own width, and faces each head back
+  down its approach. `ENABLE_TRAFFIC_SIGNALS` is **true** by default. Its file header even quotes the
+  `roadInfraRenderer.js:864` "India drives on the left" line as the defect it was written to replace.
+  That line is in **dead code** — `generateTrafficLights` has no caller — which is what I misread.
+- **S-2a · the outward-tangent fix** ✅ **done 2026-09-05, but its impact claim was WRONG and is
+  corrected here.** `findIntersections` recorded each road's two endpoints with opposite tangent
+  conventions (outward at the start, inward at the end). That is a real defect in shared data and the
+  fix stands — `generateLaneArrows` had already worked around it locally instead of fixing the source.
+  But I claimed it meant "traffic lights on the wrong kerb at half the junctions in Barcelona", and
+  that is false: its only consumer is the dead builder, so the **live visible impact today is zero**.
+  It is a latent-defect fix, not a visible one. 3 tests, verified failing with the old sign.
 
 Both carry `provenance:` in the repair layer's patch file so an invented value stays distinguishable
 from a surveyed one forever. Full design: `osm-repair-layer.md` §8. Independent of P4-11 — S-2

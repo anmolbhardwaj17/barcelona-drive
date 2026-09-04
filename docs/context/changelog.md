@@ -3898,3 +3898,8 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
 - The side formula is now anchored to `trafficSystem.buildPath` (the code visibly putting cars in the
   right-hand lane) rather than re-derived in the mirrored world, where it is easy to get backwards.
 - Frontend-only — no re-bake.
+- ⚠ **CORRECTION, same day.** The S-2a entry above claimed this put traffic lights on the wrong kerb
+  at half the junctions. That is false. `generateTrafficLights` is DEAD CODE with no caller; the live
+  signal system is `trafficSignalRenderer.js` (T-2), which uses the baked OSM nodes and
+  `roadClearance.js` and was never affected. The tangent inconsistency was real and the fix stands as
+  a latent-defect fix, but its visible impact today is zero. S-2b is withdrawn — T-2 already did it.

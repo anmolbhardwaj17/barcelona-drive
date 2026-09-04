@@ -236,12 +236,12 @@ export function findIntersections(roads) {
     // at end-endpoints. Every road contributes exactly one of each, so this was not a rare case —
     // it was structurally half of them.
     //
-    // `generateTrafficLights` is the consumer, and that is why traffic lights stood on the wrong
-    // side of the road at half the junctions in Barcelona. Nothing errored; a signal on the far kerb
-    // still looks like a signal. `generateLaneArrows` had already hit this and worked around it at
-    // its own call site with an explicit `isAtEnd` test rather than fixing the source — which is
-    // exactly how a defect like this survives: the workaround makes one caller correct and leaves
-    // the shared value wrong for the next one.
+    // The only consumer is `generateTrafficLights`, which is DEAD CODE (see the banner on it) — so
+    // this inconsistency has no visible effect today. It is fixed anyway because it is a landmine in
+    // SHARED data: `generateLaneArrows` already hit it and worked around it at its own call site
+    // with an explicit `isAtEnd` test rather than fixing the source, which is exactly how a defect
+    // like this survives — the workaround makes one caller correct and leaves the shared value wrong
+    // for whoever comes next.
     //
     // NEGATED so the contract is one thing: tx/tz always points OUTWARD, away from the junction.
     const eDx = pts[last - 1].x - pts[last].x, eDz = pts[last - 1].y - pts[last].y;
@@ -956,6 +956,18 @@ function buildSpeedSignMeshes(signInstances) {
   return meshes;
 }
 
+/**
+ * ⚠ DEAD CODE, AND SUPERSEDED — `map/trafficSignalRenderer.js` (T-2) is the live signal system.
+ *
+ * Nothing calls this. The only call site sets `const tlInstances = []` (~:1603) and the comment
+ * there says "re-enable by restoring generateTrafficLights", which is misleading: the replacement
+ * already exists, draws from the 4,225 BAKED OSM signal nodes rather than synthesising positions,
+ * and places against the drawn carriageway via `roadClearance.js`. Restoring this would regress.
+ *
+ * Kept only as the record of what T-2 replaced — and left here with this banner because reading it
+ * without one cost a wrong conclusion on 2026-09-05: the stale "India drives on the left" comment
+ * below reads like a live defect and is not.
+ */
 function generateTrafficLights(intersections, roads) {
   const instances = [];
   const MAX_PER_TILE = 20;
@@ -977,14 +989,12 @@ function generateTrafficLights(intersections, roads) {
       if (instances.length >= MAX_PER_TILE) break;
 
       const roadW = getRoadWidth(cr.road);
-      // ── WHICH SIDE OF THE ROAD (S-2) ──────────────────────────────────────────────────────
-      // Spain drives on the RIGHT, so a signal stands on the right of the lane approaching this
-      // junction. The old comment here said "left side of road (India drives on the left)" — the
-      // formula below was already right for a right-hand-drive country and the comment was left
-      // over from Delhi, so the visible defect was NOT this line. It was the tangent it reads:
-      // `cr.tx/tz` used to point outward at one end of a road and inward at the other, so this
-      // resolved to the correct side at half the junctions and the mirrored side at the rest.
-      // The contract is now "always outward" — see the note where connectedRoads is built.
+      // ── WHICH SIDE OF THE ROAD ────────────────────────────────────────────────────────────
+      // Spain drives on the RIGHT. The old comment here said "left side of road (India drives on
+      // the left)" and `trafficSignalRenderer.js` quotes it as the reason this builder was retired —
+      // but the formula itself is already the approaching driver's RIGHT, so the comment was the
+      // stale part. What WAS wrong is the tangent it reads: `cr.tx/tz` used to point outward at one
+      // end of a road and inward at the other. Fixed at the source; contract is now always outward.
       //
       // ⚠ DO NOT re-derive this from first principles in the mirrored world; it is easy to get
       // backwards. It is anchored to the one piece of code that is visibly correct on screen:
