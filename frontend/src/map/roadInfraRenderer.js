@@ -197,7 +197,14 @@ function interpolateFromEnd(points, targetDist) {
 
 // ─── Intersection detection ─────────────────────────────────────────────────
 
-function findIntersections(roads) {
+/**
+ * Junction endpoints and the roads meeting at each.
+ *
+ * Exported for `test/junctionTangent.test.js` — the outward-tangent contract below is the kind of
+ * thing that is invisible on screen (a signal on the far kerb still looks like a signal) and so has
+ * to be held by a test rather than by a drive.
+ */
+export function findIntersections(roads) {
   const byHash = new Map();
   for (const road of roads || []) {
     const pts = road.points;
@@ -207,6 +214,8 @@ function findIntersections(roads) {
     if (!byHash.has(startH)) byHash.set(startH, { x: pts[0].x, z: pts[0].y, count: 0, roads: [] });
     const startEntry = byHash.get(startH);
     startEntry.count++;
+    // ⚠ `tx/tz` IS ALWAYS THE OUTWARD TANGENT — it points AWAY from this junction, down the road.
+    // See the note on the end-endpoint below: it did not used to be, and half the city paid for it.
     const sDx = pts[1].x - pts[0].x, sDz = pts[1].y - pts[0].y;
     const sLen = Math.hypot(sDx, sDz) || 1;
     startEntry.roads.push({
@@ -220,7 +229,22 @@ function findIntersections(roads) {
     if (!byHash.has(endH)) byHash.set(endH, { x: pts[last].x, z: pts[last].y, count: 0, roads: [] });
     const endEntry = byHash.get(endH);
     endEntry.count++;
-    const eDx = pts[last].x - pts[last - 1].x, eDz = pts[last].y - pts[last - 1].y;
+    // ── S-2: THE SIGN HERE WAS THE BUG, AND IT WAS INVISIBLE ─────────────────────────────────
+    // `pts[last] - pts[last-1]` points INTO the junction; the start endpoint above points AWAY from
+    // it. So half of every `connectedRoads` list carried one convention and half the other, and any
+    // consumer deriving a SIDE from it got the correct side at start-endpoints and the mirrored side
+    // at end-endpoints. Every road contributes exactly one of each, so this was not a rare case —
+    // it was structurally half of them.
+    //
+    // `generateTrafficLights` is the consumer, and that is why traffic lights stood on the wrong
+    // side of the road at half the junctions in Barcelona. Nothing errored; a signal on the far kerb
+    // still looks like a signal. `generateLaneArrows` had already hit this and worked around it at
+    // its own call site with an explicit `isAtEnd` test rather than fixing the source — which is
+    // exactly how a defect like this survives: the workaround makes one caller correct and leaves
+    // the shared value wrong for the next one.
+    //
+    // NEGATED so the contract is one thing: tx/tz always points OUTWARD, away from the junction.
+    const eDx = pts[last - 1].x - pts[last].x, eDz = pts[last - 1].y - pts[last].y;
     const eLen = Math.hypot(eDx, eDz) || 1;
     endEntry.roads.push({
       name: road.name || '', highwayType: road.highwayType || '',
@@ -953,7 +977,22 @@ function generateTrafficLights(intersections, roads) {
       if (instances.length >= MAX_PER_TILE) break;
 
       const roadW = getRoadWidth(cr.road);
-      // Left side of road (India drives on the left, lights on the left facing oncoming)
+      // ── WHICH SIDE OF THE ROAD (S-2) ──────────────────────────────────────────────────────
+      // Spain drives on the RIGHT, so a signal stands on the right of the lane approaching this
+      // junction. The old comment here said "left side of road (India drives on the left)" — the
+      // formula below was already right for a right-hand-drive country and the comment was left
+      // over from Delhi, so the visible defect was NOT this line. It was the tangent it reads:
+      // `cr.tx/tz` used to point outward at one end of a road and inward at the other, so this
+      // resolved to the correct side at half the junctions and the mirrored side at the rest.
+      // The contract is now "always outward" — see the note where connectedRoads is built.
+      //
+      // ⚠ DO NOT re-derive this from first principles in the mirrored world; it is easy to get
+      // backwards. It is anchored to the one piece of code that is visibly correct on screen:
+      // `trafficSystem.buildPath` offsets cars into the right-hand lane with `r = (d_z, -d_x)` in
+      // the PHYSICS frame. Physics negates X (`px = -(worldX - ox)`), so the same rotation in the
+      // WORLD frame this function works in is `right(D) = (-D_z, D_x)`. The approaching driver
+      // travels D = -T, giving `(-(-T_z), -T_x)` = `(T_z, -T_x)`, which is what is written here.
+      // If cars ever visibly drive on the left, fix THAT and this follows; do not patch this alone.
       const nx = cr.tz, nz = -cr.tx;
 
       // Try progressively further offsets until clear of all roads
@@ -979,7 +1018,8 @@ function generateTrafficLights(intersections, roads) {
       if (tooClose) continue;
 
       const layer = (cr.road.layer != null && Number.isFinite(cr.road.layer)) ? cr.road.layer : 0;
-      // Arm extends in local +X; flip angle so arm reaches over the road from the left side
+      // Face back down the road the traffic is coming from — `-T` is the approach direction now that
+      // T is guaranteed outward. (The arm reaches over the carriageway from the kerb it stands on.)
       instances.push({
         x: px, z: pz,
         angle: Math.atan2(-cr.tx, -cr.tz),

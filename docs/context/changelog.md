@@ -3886,3 +3886,15 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
 - **Region re-baked 2026-09-05** (432 tiles, 520 s): wrong-space positions **15,986 → 0** across all
   four arrays; trees in a drivable driving surface **21,897 → 3,305 (-85%)**. Guards rejected
   15,021 / 70,611 / 80,359; 697 space assertions evaluated. ⚠ 12 stale orphan tiles remain (N-25b).
+
+## 2026-09-05 — S-2a: traffic lights stood on the wrong kerb at half the junctions
+- `findIntersections` recorded each road's two endpoints with OPPOSITE tangent conventions —
+  outward at the start, inward at the end. Its one consumer derives which side of the road a signal
+  stands on from that vector, so half of them were mirrored. Silent: a signal on the far kerb still
+  looks like a signal.
+- ⚠ The "India drives on the left" comment was stale but the formula under it was already correct.
+  The defect was the input, not the arithmetic.
+- `tx/tz` is now contractually OUTWARD. 3 tests, verified failing with the old sign restored.
+- The side formula is now anchored to `trafficSystem.buildPath` (the code visibly putting cars in the
+  right-hand lane) rather than re-derived in the mirrored world, where it is easy to get backwards.
+- Frontend-only — no re-bake.
