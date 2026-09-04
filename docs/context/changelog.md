@@ -3933,3 +3933,9 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   (1.00 MB per direction board, 0.50 MB per gantry, 2,427 distinct names in the region, never
   evicted). Fixed 2 MB vs a cost that grows with how long you play. Allocation logic is pure integer
   arithmetic so the eviction policy is testable without a browser; 8 tests.
+- **P4-11 slice 2**: `tools/build-sign-atlas.py` + `map/signage/signAtlasCells.js` — 18 sign faces in
+  one 2048×1024 UASTC page (2.67 MB VRAM vs 10.66 MB as RGBA). Two departures from the ticket, both
+  deliberate: Python in `tools/` (matching six working art tools, not the ticket's `scripts/*.mjs`),
+  and **UASTC not ETC1S** — `encodeKtx2.py`'s own rule is that ETC1S bands the edges of an alpha mask,
+  and a sign is a hard-edged shape on transparency. Page sized to content: UASTC is fixed-rate, so a
+  2048² page would have been 72% empty cells costing full VRAM.
