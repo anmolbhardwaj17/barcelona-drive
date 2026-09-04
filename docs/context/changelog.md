@@ -2,6 +2,37 @@
 
 Running log of changes. Append an entry at the top for every session. For structural/architectural changes, also update the relevant `/docs/context/` file. For trivial fixes, a one-line entry here is sufficient.
 
+## 2026-09-05 — One board (`backlog.md`), and three of my own status claims corrected
+
+The open tickets were spread across `TODO.md`, three subsystem docs and the v3 tracker. Consolidated
+into **[backlog.md](backlog.md)**; `TODO.md` is now a pointer to it, because two lists is how a ticket
+gets worked on twice or not at all.
+
+⚠ **Three things I had reported were wrong, and checking beat recalling every time:**
+- **"`main` and `v3` have diverged."** They have not. `git merge-base --is-ancestor v3 main` passes —
+  **v3 is fully contained in `main`**, which is 16 commits ahead at 510 tests. The v3 tracker's RESUME
+  block still says "Branch `v3`, 395 tests"; that block is stale, and backlog.md now says so at the top.
+- **"parkingRenderer lands at 0.06 against the road deck's 0.05."** Half right. The parking *surface*
+  is terrain+0.04, which is **below** the deck; it is the parking *markings* at +0.06 that sit above.
+  A car park abutting a street has its surface buried and its paint proud — a different defect from
+  the one I described.
+- **"P-4 is 39 draw calls → 3."** Stale. P-1's `visible = count > 0` gate already means only the
+  ~10-14 non-empty cells of 42 are submitted. P-4's remaining case is smooth animation, not draw
+  calls, and the ticket says to re-argue it before starting.
+
+Also settled: **Z-3 (building z-fighting) is DROPPED** — it came from a stale TODO line, nobody has
+reported seeing it, and it does not belong to `groundLayers` (flat co-planar ground only; 3D geometry
+wins by having real height). If it ever appears it is an OSM-repair data ticket. **P-5 (pedestrian
+art) is not work, it is a decision** the user has to make, because it contradicts the v3 ruling.
+
+⚠ **Numbering collision fixed:** the changelog had used "Z-2" for the paint-ladder *correction* while
+`ground-layering.md` used it for *surfaces outside the scheme*. The correction is **Z-1b** now.
+
+Verified while writing it: `crossing` really is absent from the segment whitelist (0 occurrences);
+only 3 of 11 people clips are baked; gore sits 2.4 cm and drain 0.9 cm BELOW the drawn asphalt; the
+router computes travel time and throws it away; Heat references neither the nav nor the marker.
+
+
 ## 2026-09-05 — C-2: the sea was still over Diagonal Mar — the HAND TRACE was 310-500 m inland
 
 C-1 fixed a bad OSM chain being adopted. The user re-checked at Passeig Marítim de la Mar Bella and
