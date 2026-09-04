@@ -3939,3 +3939,12 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   and **UASTC not ETC1S** — `encodeKtx2.py`'s own rule is that ETC1S bands the edges of an alpha mask,
   and a sign is a hard-edged shape on transparency. Page sized to content: UASTC is fixed-rate, so a
   2048² page would have been 72% empty cells costing full VRAM.
+- **P4-11 slice 3**: `map/signage/signQuads.js` — quad geometry + UV packing, pure typed-array
+  arithmetic so it tests in node. ⚠ **Two mechanisms, not the ticket's one.** Sign FACES are a fixed
+  18-cell set, so each gets a quad with UVs BAKED IN and rides a `BatchedMesh` like `createVegPool`
+  — no custom attribute, no shader edit. Only TEXT quads need per-instance `aUvOffset`, because the
+  text page allocates their cell at runtime; that path copies `shopSignRenderer.js`, which already
+  ships and works. 7 tests: quad origin at the post (not centred), V rising with Y, CCW winding,
+  offset round-trip, slot isolation, and an unknown cell name THROWING rather than silently drawing
+  the first cell.
+- Region re-baked at **v11**: 432 tiles, 639 s, vegetation confirmed Mercator.
