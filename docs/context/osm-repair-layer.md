@@ -322,3 +322,74 @@ which is disproven; building either now would be fixing a cause that has been ru
 
 Both need a re-bake. **(2) is likely cheaper and matches the existing design**, but (1) is the one
 that cannot drift. Decide before writing either.
+
+---
+
+## 8. SYNTHESIS — what OSM never had (added 2026-09-05)
+
+Everything above is **repair**: OSM said something and it was wrong. This section is the other half,
+raised by the user — *"we can't trust OSM position and numbers, we have to be smart and put some
+ourselves as well"*. That is **synthesis**: OSM said nothing, and a blank is not acceptable output.
+
+The two are different operations and must not be conflated in the patch file. A repair overrides a
+value; a synthesis invents one. Both carry provenance, and the provenance is what keeps them
+distinguishable forever — see §1.
+
+### 8.1 We already do this, in exactly one place, and it works
+
+`backend/worldBuilder/roads/roadWidthModel.js` (R-W1). OSM barely tags road widths. The shipped tiles
+report **100% width and 99.3% lanes coverage** — none of that is OSM. It is derived from highway
+type, oneway and a `LANE_W` table, and CLAUDE.md then makes it law: *"never re-derive a width"*. One
+model, one source of truth, every consumer reads it through `roadWidths.js`.
+
+**That is the template.** Not scattered `?? 6` fallbacks at call sites — those are the bug R-W1 was
+written to kill, and `vegetationBaker`'s `ROAD_WIDTH_BY_TYPE[type] ?? 6` is still one of them.
+
+### 8.2 Measured coverage — where OSM is actually thin (2026-09-05, shipped tiles)
+
+| field | coverage | the gap |
+|---|---|---|
+| road `width` | 100% | **already synthesised** by R-W1 |
+| road `lanes` | 99.3% | already synthesised |
+| road `name` | **76.0%** | **9,514 unnamed roads** |
+| shop `name` | 93.2% | 991 unnamed of 14,542 |
+| traffic signals | 4,225 nodes | position only — no phase, no direction, and **unused today** |
+
+### 8.3 Positions are the part to distrust most
+
+The user's phrasing was "position", and that is the sharper half. OSM gives a **centreline** and a
+**node**. Neither is a place to put an object, and this codebase has paid for treating them as one:
+
+- Trees offset from one road land inside the crossing road at every junction — the standing lesson is
+  *place props against the DRAWN surfaces, test the final position against all carriageways*, not
+  against the one road you offset from.
+- `roadInfraRenderer.js:864` places traffic signals on the **left**, with a comment citing India.
+  Barcelona drives on the right. The node did not say which side; nobody chose.
+- N-25 (2026-09-05) is the same failure at bake level: positions produced in one space, consumed in
+  another, and no assert in between.
+
+**Rule that follows:** a synthesised position is derived from the *drawn geometry* — the carriageway
+edges the width model already gives us — and then asserted against every nearby drawn surface. Never
+from the OSM node alone.
+
+### 8.4 Two tickets
+
+**S-1 · street-name synthesis (est. 2 d).** 9,514 unnamed drivable roads currently give direction
+boards and the router nothing to say. Generate a plausible Catalan/Spanish name per unnamed way,
+**seeded by OSM way id** so it is stable across bakes and across the patch file (an unstable name is
+worse than none: every re-bake would rename half the city). Grammar, not a word list —
+`{Carrer|Passatge|Avinguda} de {la|l'|els} {noun}` with a Barcelona-appropriate noun set. Emitted with
+`provenance: rule:street-name`, so `_ddPick`-style tooling and any later human pass can tell an
+invented name from a surveyed one. ⚠ **Do not** reuse the 24 hardcoded `NAMES` in
+`shopSignRenderer.js` — those are the fake-data smell this ticket exists to remove, and P4-12 already
+plans to delete them in favour of the 13,551 real shop names.
+
+**S-2 · signal + sign placement from the drawn surface (est. 3 d).** Derive side-of-road, setback and
+facing from the carriageway the width model draws, not from the OSM node. Fixes the left-hand
+placement at `roadInfraRenderer.js:864`, and gives the 4,225 unused signal nodes somewhere correct to
+stand. Asserts every placement clears `isOnAnyRoad` — the structural version of the check P4-12
+already wants.
+
+**Sequencing:** S-2 before S-1. A wrong-side sign is visible on any drive; a missing street name is
+only visible if you go looking for it. Both are independent of P4-11's atlas work — S-2 decides
+*where* signs go, P4-11 decides *how they are drawn* — so they can proceed in either order.

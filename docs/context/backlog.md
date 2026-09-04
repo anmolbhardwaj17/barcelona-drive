@@ -167,6 +167,28 @@ abreast at a shared pace. New `getLoadedShops()` accessor on tileManager.
 
 ---
 
+### S-1 / S-2 · SYNTHESIS — stop trusting OSM for what it never said
+User, 2026-09-05: *"we can't trust OSM position and numbers, we have to be smart and put some
+ourselves as well"*. Right, and **we already do it in one place**: R-W1's `roadWidthModel` is why the
+tiles show 100% road-width coverage when OSM tags almost none. That is the template — one model, one
+source of truth, read through `roadWidths.js`, never a `?? 6` at a call site.
+
+Measured gaps: road names **76.0%** (9,514 unnamed) · shop names 93.2% · traffic signals 4,225 nodes
+with position only and **no consumer at all**.
+
+- **S-2 · placement from the drawn surface (3 d) — do this first.** Side-of-road, setback and facing
+  derived from the carriageway the width model draws, not from the OSM node.
+  `roadInfraRenderer.js:864` currently places signals on the LEFT citing India. A wrong-side sign is
+  visible on any drive; a missing name is not.
+- **S-1 · street-name synthesis (2 d).** Grammar-generated Catalan names for the 9,514 unnamed roads,
+  **seeded by way id** so a re-bake does not rename half the city.
+
+Both carry `provenance:` in the repair layer's patch file so an invented value stays distinguishable
+from a surveyed one forever. Full design: `osm-repair-layer.md` §8. Independent of P4-11 — S-2
+decides *where* signs go, P4-11 decides *how they are drawn*.
+
+---
+
 ### N-25b · 12 stale orphan tiles the region bake does not produce
 The 2026-09-05 region bake wrote **432** tiles; **445** exist. These 12 (plus `citymap.bin`) date from
 2026-08-29 and are not produced by the current pipeline — a different extent, presumably. They still
