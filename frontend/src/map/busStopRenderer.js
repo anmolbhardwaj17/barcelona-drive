@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyGroundLayer } from './groundLayers.js';   // v3 P1
+import { applyGroundLayer, groundLift, roadDeckY } from './groundLayers.js';   // v3 P1, Z-2b
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 
@@ -98,7 +98,17 @@ const SHELTER_HEIGHT = 3.2;
 // (along road). Natural proportions: U/V = 256/128 = 2 → 7m along road × 3.5m across = 36.6 px/m.
 const MARKING_LENGTH = 7;
 const MARKING_WIDTH = 3.5;
-const MARKING_Y_OFFSET = 0.15;
+// Z-2b. Was a hand-rolled `0.15` measured from RAW TERRAIN. The material has been enrolled in the
+// depth-bias table as `marking` since v3 P1, but its HEIGHT never was — the same bias/height
+// disagreement Z-1 found across the whole paint ladder, surviving in a renderer that looked done.
+// Lane paint sits at roadDeckY(y) + groundLift('marking') = terrain + 0.05 + 0.047 ≈ 9.7 cm; this
+// sat at 15 cm, so a bus-bay outline floated ~5 cm over the lane lines it is coplanar with.
+//
+// ⚠ The base is the TERRAIN sample under the bay, not the road's own baked deck height (a bus stop
+// only ever resolves a nearest road, never that road's elevation array). Where a road is baked away
+// from terrain — a bridge deck, a tunnel approach — the bay marking follows the ground, not the
+// road. Bus stops are not placed on either, so this is a known limit, not a live defect.
+const MARKING_Y_OFFSET = groundLift('marking');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -314,7 +324,7 @@ const LINE_WIDTH  = 0.15; // stripe width
 
 function buildMarkingGeometry(ox, oz, oy, dirX, dirZ) {
   const pos = [], idx = [];
-  const y = oy + MARKING_Y_OFFSET;
+  const y = roadDeckY(oy) + MARKING_Y_OFFSET;
   const halfL = MARKING_LENGTH / 2;
   const halfW = MARKING_WIDTH / 2;
   // perpendicular to road direction

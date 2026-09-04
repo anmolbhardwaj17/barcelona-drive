@@ -5165,32 +5165,9 @@ function buildBridgeShadowMesh(roads, options) {
 
 // ---------------------------------------------------------------------------
 // Roadside blend strip — gradient ribbon: road dust → shoulder → terrain green
-// ---------------------------------------------------------------------------
-// 3-row ribbon per side: inner (on road), mid (road edge), outer (into terrain)
-const BLEND_INNER_OVERLAP = 0.2;  // metres overlapping onto road surface
-const BLEND_SHOULDER_W    = 0.4;  // metres of dust shoulder at road edge
-const BLEND_OUTER_FADE    = 0.6;  // metres fading into terrain
-const BLEND_STRIP_Y_OFFSET = 0.10; // above terrain AND green area meshes for consistent visibility
-
-// Vertex colors for the 3 rows (linear sRGB approximations)
-const BLEND_COL_INNER = { r: 0.46, g: 0.49, b: 0.56 };  // road grey with slight dust (~#768090)
-const BLEND_COL_MID   = { r: 0.52, g: 0.53, b: 0.40 };  // dusty earth (~#868840)
-const BLEND_COL_OUTER = { r: 0.38, g: 0.56, b: 0.32 };  // terrain green (~#618F52)
-
-// Bridge/ramp edge: dust-only gradient (no grass), narrower
-const BRIDGE_COL_INNER = { r: 0.46, g: 0.49, b: 0.56 };  // road grey
-const BRIDGE_COL_MID   = { r: 0.52, g: 0.50, b: 0.42 };  // dusty concrete
-const BRIDGE_COL_OUTER = { r: 0.48, g: 0.46, b: 0.38 };  // dust edge
-
-let blendStripMaterial = null;
-function getBlendStripMaterial() {
-  if (!blendStripMaterial) {
-    blendStripMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-  }
-  return blendStripMaterial;
-}
-
-// v3 P1-15: buildRoadsideBlendStrip() deleted — Delhi roadside dust gradient.
+// v3 P1-15 deleted buildRoadsideBlendStrip() — the Delhi roadside dust gradient — and left its
+// constants and getBlendStripMaterial() behind. Z-2b listed BLEND_STRIP_Y_OFFSET (0.10) as a
+// surface to enrol in the ground-layer scheme; it was never drawn. Deleted 2026-09-05.
 
 // ── Bridge billboard ads ────────────────────────────────────────────────────
 

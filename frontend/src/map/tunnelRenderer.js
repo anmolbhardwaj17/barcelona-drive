@@ -539,62 +539,12 @@ export function buildTunnelFloor(tunnelRoads, getGroundY) {
 //
 // This is the GTA V / Forza pattern — static mesh, zero terrain mutation.
 
-const APPROACH_RAMP_LEN = 30; // metres of approach visible before portal
-const APPROACH_Y_BIAS   = 0.06; // above terrain so ramp surface wins z-fight
-
-let _rampMat = null, _cutWallMat = null;
-function _getRampMat() {
-  if (_rampMat) return _rampMat;
-  _rampMat = new THREE.MeshLambertMaterial({ color: FLOOR_COLOR, side: THREE.FrontSide });
-  _rampMat.userData.sharedMaterial = true;
-  return _rampMat;
-}
-function _getCutWallMat() {
-  if (_cutWallMat) return _cutWallMat;
-  // P4-18: the trench CUT FACE is exposed rock, not concrete — it is the earth the trench was cut
-  // through, and the spawn sits at a trench portal so it is in frame on the first drive. Span is
-  // 3.0 m, MEASURED from the plate's own grain rather than taken from the art-bible table: at the
-  // table's 8 m its pebbles would be 14 cm, and a conglomerate's clasts run 2-6 cm. See
-  // tools/build-trench-rock.py and terrain/terrain_textures.json.
-  const ROCK_SPAN_M = 3.0;
-  const rockTex = (url, srgb) => {
-    const t = getKTX2TextureSync(url, { srgb, tiling: true, aniso: 8 });
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(1 / ROCK_SPAN_M, 1 / ROCK_SPAN_M);   // UVs are in METRES — see buildQuad
-    return t;
-  };
-  _cutWallMat = new THREE.MeshLambertMaterial({
-    color: 0xffffff, side: THREE.DoubleSide,
-    map: rockTex('/textures/terrain/rock_face_albedo.ktx2', true),
-    normalMap: rockTex('/textures/terrain/rock_face_normal.ktx2', false),
-  });
-  _cutWallMat.userData.sharedMaterial = true;
-  return _cutWallMat;
-}
-
-function _buildApproachAtPortal(portalPt, nextPt, roadHalfW, geomRamp) {
-  // Flat masking plane at road-surface level.
-  // Covers terrain in the 30m approach zone so the road is always visible.
-  // No slope — Barcelona coastal tunnels enter at grade (descent is inside the tunnel).
-  // The portal frame handles the visual "cut" appearance at the portal face.
-  const sY = APPROACH_Y_BIAS; // just above terrain so it wins z-fight
-
-  const dx = portalPt.x - nextPt.x, dz = portalPt.y - nextPt.y;
-  const len = Math.hypot(dx, dz) || 1;
-  const outX = dx / len, outZ = dz / len;
-  const perpX = -outZ, perpZ = outX;
-
-  const L = APPROACH_RAMP_LEN, hw = roadHalfW;
-
-  // Flat quad: surface end → portal face, all at Y=sY
-  const SL = { x: portalPt.x + outX*L + perpX*hw, y: sY, z: portalPt.y + outZ*L + perpZ*hw };
-  const SR = { x: portalPt.x + outX*L - perpX*hw, y: sY, z: portalPt.y + outZ*L - perpZ*hw };
-  const PL = { x: portalPt.x + perpX*hw,           y: sY, z: portalPt.y + perpZ*hw };
-  const PR = { x: portalPt.x - perpX*hw,           y: sY, z: portalPt.y - perpZ*hw };
-
-  geomRamp.push(buildQuad(SL, SR, PL, PR));
-}
-
+// The flat-masking-plane approach (_buildApproachAtPortal + its ramp/cut-wall materials) lived here
+// and was never called — buildPortalApproaches() below builds trench walls instead. Z-2b listed its
+// APPROACH_Y_BIAS (0.06) as a hand-rolled tie-break to enrol in the ground-layer scheme. It was
+// worse than that: `const sY = APPROACH_Y_BIAS` was an ABSOLUTE Y, not terrain + 0.06, so despite
+// the comment claiming "just above terrain" the quad would have sat at sea level on any real DEM.
+// Deleted 2026-09-05.
 /**
  * Build static approach geometry at each tunnel portal mouth.
  * Replaces terrain carving for portals — a sloped ramp + cut walls placed directly,

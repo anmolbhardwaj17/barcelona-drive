@@ -3837,3 +3837,13 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
 - `pedestrians.js` plays the run flipbook while panicking, cadenced from **measured displacement**
   (not `p.speed`, which barely changes during a dodge), and holds one of two standing poses per person.
 - `Sitting` is deliberately still unused — nothing in the city is baked to sit on.
+
+## 2026-09-05 — Z-2b: the rest of the ground-layer enrolment (one fix, two deletions)
+- `busStopRenderer`: bay outline height now `roadDeckY(y) + groundLift('marking')` instead of a
+  hand-rolled `0.15` off raw terrain — it was enrolled in the depth table and not the height table,
+  so it floated ~5 cm over the lane paint it is coplanar with.
+- `tunnelRenderer`: deleted `_buildApproachAtPortal` + `APPROACH_Y_BIAS` + ramp/cut-wall materials
+  (56 lines) — never called, superseded by `buildPortalApproaches`, and its Y was ABSOLUTE.
+- `roadRenderer`: deleted the orphaned blend-strip block + `BLEND_STRIP_Y_OFFSET` (26 lines) — its
+  builder went in v3 P1-15.
+- Tram rails split out as Z-2c: a judgement call about 5 mm of clearance, not a missing enrolment.

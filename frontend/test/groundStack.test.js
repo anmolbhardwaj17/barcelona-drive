@@ -273,3 +273,44 @@ test('every ground CLASS is used by something — a dead row is an ordering guar
   });
   assert.deepEqual(unused, [], `ground classes declared but never applied: ${unused.join(', ')}`);
 });
+
+/**
+ * ── Z-2b ────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * The bus bay outline was enrolled in the DEPTH table (v3 P1 gave it `applyGroundLayer(mat,
+ * 'marking')`) and never in the HEIGHT table: it kept a hand-rolled `MARKING_Y_OFFSET = 0.15`
+ * measured from RAW TERRAIN, so it floated ~5 cm over the lane paint it is coplanar with. That is
+ * the same bias/height disagreement Z-1 found across the road ladder — surviving in a renderer that
+ * looked finished because the loud half of the fix had been applied.
+ */
+test('Z-2b: the bus bay outline takes its height from the marking class, not a literal', () => {
+  const src = readFileSync(new URL('../src/map/busStopRenderer.js', import.meta.url), 'utf8');
+  assert.match(src, /const MARKING_Y_OFFSET = groundLift\('marking'\)/,
+    'a literal here silently re-opens the bias/height disagreement Z-1 closed');
+  // and it must stack on the ROAD DECK, not on the terrain sample under the bay
+  assert.match(src, /const y = roadDeckY\(oy\) \+ MARKING_Y_OFFSET/,
+    'measuring paint from terrain ignores the road ribbon it is painted on');
+});
+
+test('Z-2b: the bus bay outline lands at the same height as the lane paint beside it', () => {
+  // The number that matters on screen: both are class `marking` on the same road, so both must
+  // resolve to one height. Before this they were 9.7 cm and 15 cm.
+  const terrain = 12.5;
+  const busBay = roadDeckY(terrain) + groundLift('marking');
+  const laneLine = roadDeckY(terrain) + groundLift('marking');
+  assert.equal(busBay, laneLine);
+  assert.ok(Math.abs(busBay - (terrain + 0.097)) < 1e-9, `bus bay at ${busBay}`);
+});
+
+test('Z-2b: the two dead hand-rolled offsets stay deleted', () => {
+  // BLEND_STRIP_Y_OFFSET (0.10) outlived buildRoadsideBlendStrip(), deleted in v3 P1-15.
+  // APPROACH_Y_BIAS (0.06) belonged to _buildApproachAtPortal(), which nothing ever called — and it
+  // was an ABSOLUTE Y, so on a real DEM the quad it placed would have sat at sea level.
+  // Both were on the Z-2b list as surfaces to enrol; neither was a surface.
+  for (const [file, name] of [['roadRenderer.js', 'BLEND_STRIP_Y_OFFSET'],
+                              ['tunnelRenderer.js', 'APPROACH_Y_BIAS']]) {
+    const src = readFileSync(new URL(`../src/map/${file}`, import.meta.url), 'utf8')
+      .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    assert.doesNotMatch(src, new RegExp(name), `${name} is back in ${file}`);
+  }
+});

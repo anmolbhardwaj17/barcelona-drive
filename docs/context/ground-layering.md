@@ -177,3 +177,27 @@ for a junction gore fill, which is paint. Nobody has looked at one on screen at 
 3. **A blue-zone bay line meeting a lane line**: the lane line is on top now, at every distance.
 4. No paint anywhere flickers or disappears as the camera approaches — that is the failure mode the
    two orders produced between them.
+
+
+## Z-2b — what was left outside the scheme, and what it actually was (2026-09-05)
+
+The Z-2b list was written from a grep for hand-rolled Y constants. Three of its four entries did not
+survive contact with the code, which is worth recording because the same grep will find them again:
+
+| listed | reality |
+|---|---|
+| `busStopRenderer` 0.15 | **Real defect, fixed.** Enrolled in the *depth* table since v3 P1, never in the *height* table: `MARKING_Y_OFFSET = 0.15` off **raw terrain**, against lane paint's `roadDeckY(y) + groundLift('marking')` ≈ terrain + 9.7 cm. The bay outline floated ~5 cm over the lines it is coplanar with. |
+| `busStopRenderer` 0.10 | **Out of scope by the scheme's own rules.** Transparent, `depthWrite:false` light pool — ordered by `renderOrder`; `assertGroundLayers()` skips it, and the file said so. |
+| `tunnelRenderer` `APPROACH_Y_BIAS` 0.06 | **Dead code, deleted.** `_buildApproachAtPortal()` was never called. It was also an **absolute** Y, not terrain-relative, so on a real DEM its quad sat at sea level. |
+| `roadRenderer` `BLEND_STRIP_Y_OFFSET` 0.10 | **Dead code, deleted.** v3 P1-15 removed `buildRoadsideBlendStrip()` and left the constants behind. |
+
+**The transferable lesson** is the bus stop, not the deletions. A renderer can be half-enrolled —
+depth bias applied, height left hand-rolled — and it will look *more* correct than an unenrolled one
+while still being wrong, because the loud symptom (flicker) is gone and the quiet one (a 5 cm float,
+visible only up close or at a grazing angle) is not. `assertGroundLayers()` checks the bias. Nothing
+checks that a class's *height* is taken from `GROUND_LIFT` rather than typed in, so grep for a bare
+float next to `applyGroundLayer` when auditing a renderer.
+
+Still open: **Z-2c**, tram rails at road surface + 5 mm on a material with no bias. The rules say 3D
+geometry wins by height and a rail has height; 5 mm may not be enough height. Needs a drive down
+Diagonal, not a guess.

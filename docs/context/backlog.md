@@ -23,7 +23,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 | stream | done | open |
 |---|---|---|
 | Pedestrians | P-1, P-2, **P-3** | P-4, P-5, P-6 |
-| Ground layering | Z-1, Z-1b, **Z-2a** | Z-2b (bus stops, tram rails, tunnel approaches, blend strips), Z-4 · **Z-3 dropped** |
+| Ground layering | Z-1, Z-1b, Z-2a, **Z-2b** | Z-2c (tram rails), Z-4 · **Z-3 dropped** |
 | Game modes | M-1 … M-7, **M-9, M-10** | **M-8 reverted** |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
 
@@ -70,21 +70,50 @@ on every plan and dropped. An ETA derived afterwards from length ÷ average spee
 worse estimate that disagrees with the route the player was actually given. Shown beside the distance
 ("420 m · 3 min"), and under 45 s it reads "under a min" rather than a spuriously precise "0:38".
 
-### ~~Z-2a · parking~~ ✅ **done 2026-09-05** · Z-2b · the rest — **next**
+### ~~Z-2a · parking~~ ✅ **done 2026-09-05** · ~~Z-2b · the rest~~ ✅ **done 2026-09-05**
 Parking had **no depth class at all** and its stall markings sat above the road deck while their
 absent bias put them below it. Now `parkingLot` / `parkingPaint`, under `road` by both bias and
 height. It also had never been registered, so it was lit by ambient alone at night. The
 bias/height agreement test now covers terrain-based classes too — the gap that let this hide.
 
-**Z-2b, still open:** `busStopRenderer` (0.10 / 0.15), `railwayRenderer` tram rails (0.005),
-`tunnelRenderer` `APPROACH_Y_BIAS` (0.06), `roadRenderer` `BLEND_STRIP_Y_OFFSET` (0.10).
-Measured, and my earlier one-line summary was **wrong in a way worth recording**: the parking
-*surface* sits at terrain+0.04, which is **below** the road deck at +0.05 — it is the parking
-*markings* at +0.06 that land above it. So a car park abutting a street has its surface buried and
-its paint proud. Also outside the scheme: `busStopRenderer` (0.10 / 0.15), `railwayRenderer` tram
-rails (0.005), `tunnelRenderer` `APPROACH_Y_BIAS` (0.06 — a hand-rolled tie-break of exactly the kind
-the bias table replaces), `roadRenderer` `BLEND_STRIP_Y_OFFSET` (0.10).
-**Each is a possible visible change** → own pass, own drive test, one class at a time.
+**Z-2b turned out to be one fix, one judgement call and two deletions**, not four enrolments — the
+list was written from a grep for hand-rolled Y constants without checking whether anything drew them.
+
+1. **Bus stop bay marking — FIXED.** The one real defect, and the interesting one: the material had
+   been enrolled in the *depth* table since v3 P1 (`applyGroundLayer(mat, 'marking')`) and never in
+   the *height* table. It kept `MARKING_Y_OFFSET = 0.15` measured from **raw terrain**, while lane
+   paint sits at `roadDeckY(y) + groundLift('marking')` ≈ terrain + 9.7 cm — so a bay outline floated
+   ~5 cm above the lane lines it is coplanar with. Same bias/height disagreement Z-1 found, surviving
+   in a renderer that looked done because the loud half of the fix had been applied.
+   ⚠ Known limit, written into the code: the base is the terrain sample under the bay, not the road's
+   own baked deck array (a bus stop only ever resolves a *nearest road*, never its elevation). Bus
+   stops are not placed on bridges or tunnel approaches, so this is a limit, not a live defect.
+2. **Bus stop light pool (0.10) — not in scope, and the board was wrong to list it.** Transparent,
+   `depthWrite: false`; the scheme's own rules order those by `renderOrder`, and
+   `assertGroundLayers()` skips them for exactly that reason. The file already said so.
+3. **`tunnelRenderer` `APPROACH_Y_BIAS` (0.06) — DELETED, dead code.** `_buildApproachAtPortal()` and
+   its ramp/cut-wall materials were never called; `buildPortalApproaches()` builds trench walls
+   instead. It was also worse than "hand-rolled": `const sY = APPROACH_Y_BIAS` was an **absolute Y**,
+   not terrain + 0.06, so despite a comment reading "just above terrain" the quad would have sat at
+   sea level on any real DEM. 56 lines gone.
+4. **`roadRenderer` `BLEND_STRIP_Y_OFFSET` (0.10) — DELETED, dead code.** v3 P1-15 deleted
+   `buildRoadsideBlendStrip()` (the Delhi roadside dust gradient) and left the constants and
+   `getBlendStripMaterial()` behind. Nothing read them. 26 lines gone.
+5. **Tram rails (`TRAM_RAIL_Y_ABOVE = 0.005`) — deliberately left alone, see Z-2c.**
+
+Three tests pin it: the derivation, the resulting height matching lane paint, and the two deleted
+constants staying deleted.
+⚠ **Drive check owed:** find a bus stop and look at the dashed bay outline where it meets the lane
+lines — it should be paint on the same plane, not a rectangle hovering over the road.
+
+### Z-2c · tram rails — a judgement call, not a bug
+`railwayRenderer` places tram rails at road surface + `TRAM_RAIL_Y_ABOVE = 0.005` on a plain
+`MeshLambertMaterial` with no `polygonOffset`. The scheme's own rules say **3D geometry doesn't
+belong in the table — it wins by having real height**, and a rail does have height. But 5 mm is
+thin enough that the rail's own top face can z-fight the asphalt at distance, which is the symptom
+the table exists to remove.
+**Done when** someone has driven a tram street (Diagonal, Glòries) and either raised the rail to a
+height that cannot fight, or written down that 5 mm holds and why. Not worth guessing at from here.
 
 ### Z-4 · gore and drain sit BELOW the drawn asphalt
 Measured: gore **−2.4 cm**, drain **−0.9 cm** relative to the asphalt top, and both are exempted from
