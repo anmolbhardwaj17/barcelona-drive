@@ -8,6 +8,7 @@
  * Entry point: processBuildingsInWorker(data, config)
  */
 
+import { ORIGIN_LAT, ORIGIN_LON } from '../projection.js';   // K-1
 import {
   extrudePolygonWalls,
   extrudePolygonWallBands,
@@ -107,10 +108,8 @@ const MALL_VERT_CAP = 10000;
 const RELIGIOUS_VERT_CAP = 20000;
 const BOUNDARY_VERT_CAP = 30000;
 
-// ── Elevation origin — MUST match frontend/src/projection.js ORIGIN_LAT/ORIGIN_LON ──
+// ── Elevation origin — K-1: imported from projection.js, not re-declared ──
 const R = 6378137;
-const ORIGIN_LAT = 41.350;
-const ORIGIN_LON = 2.115;
 const _originLatRad = ORIGIN_LAT * Math.PI / 180;
 const _originLonRad = ORIGIN_LON * Math.PI / 180;
 const originMercator = {
@@ -118,7 +117,8 @@ const originMercator = {
   y: R * Math.log(Math.tan(Math.PI / 4 + _originLatRad / 2)),
 };
 // Unstretch-X (vertical-model-foundation-spec §3): world XZ = (mercator − origin) × cos(ORIGIN_LAT)
-// so 1 world unit = 1 real metre. MUST match frontend/src/projection.js MERCATOR_UNSTRETCH.
+// so 1 world unit = 1 real metre. Derived from the IMPORTED ORIGIN_LAT (K-1), so it cannot drift
+// from projection.js the way a hardcoded cos(41.350) could.
 const MERCATOR_UNSTRETCH = Math.cos(_originLatRad);
 
 // ── Facade palettes ──

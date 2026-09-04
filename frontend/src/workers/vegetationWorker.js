@@ -13,14 +13,10 @@
 // ============================================================================
 
 const R = 6378137;
-// MUST match frontend/src/projection.js ORIGIN_LAT/ORIGIN_LON
-const ORIGIN_LAT = 41.350;
-const ORIGIN_LON = 2.115;
-// Unstretch-X (vertical-model-foundation-spec §3): world XZ = (mercator − origin) × cos(ORIGIN_LAT)
-// so 1 world unit = 1 real metre. MUST match frontend/src/projection.js MERCATOR_UNSTRETCH.
-const MERCATOR_UNSTRETCH = Math.cos((ORIGIN_LAT * Math.PI) / 180);
+// K-1: imported, not re-declared. These were three local copies behind a "MUST match" comment.
 
 let _originMercator = null;
+import { ORIGIN_LAT, ORIGIN_LON, MERCATOR_UNSTRETCH } from '../projection.js';   // K-1
 import { corridorWidth } from '../map/roadWidths.js';   // R-W1
 import { isOnAnyRoad } from '../map/vegetationMask.js';   // ONE shared road guard (clusters, props, this)
 import {

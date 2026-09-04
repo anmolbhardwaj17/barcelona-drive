@@ -15,10 +15,10 @@
 
 // Unstretch-X (vertical-model-foundation-spec §3): baked horizontal coords are absolute
 // Mercator; after subtracting the origin, multiply by cos(ORIGIN_LAT) so world XZ = real metres.
-// Applied to every Mercator→world subtraction below. MUST match frontend/src/projection.js
-// MERCATOR_UNSTRETCH (ORIGIN_LAT = 41.350). Vertical (elevation) is never scaled.
-const MERCATOR_UNSTRETCH = Math.cos((41.350 * Math.PI) / 180);
+// Applied to every Mercator→world subtraction below. Vertical (elevation) is never scaled.
+// K-1: imported, not a fourth inlined copy of cos(41.350).
 
+import { MERCATOR_UNSTRETCH, checkSpace } from '../projection.js';   // K-1
 import { buildTerrainFromGrid } from './terrainGrid.js';   // v3 P4-01 — see the note at bakedTerrain
 import { smoothPolyline } from './roadSmoothing.js';
 
@@ -218,9 +218,13 @@ function parseBinaryTile(buffer, originX, originY, lite = false) {
         return r;
       })
     : [];
+  // K-1: shops are the opposite case — stored as real-metre WORLD and passed through UNCONVERTED
+  // (readShops gets no ox/oy). That asymmetry against roads, which ARE Mercator, is what the P-6
+  // audit got wrong on its first run. Assert it rather than leave it to a comment.
   const shops = (header.shops && header.shopPositions && header.shopCategories)
     ? readShops(header.shops, header.shopPositions, header.shopCategories, buffer, binOffset)
     : [];
+  if (shops.length) checkSpace('readShops.point', shops[0].point?.[0], false);
 
   // v3 P4-01: GENERATE the terrain mesh from the elevation grid instead of reading the baked one.
   //
@@ -713,6 +717,18 @@ function readBakedVegetation(bv, buffer, binOffset, ox, oy) {
     }
     return out;
   }
+
+  // K-1: every array below is converted as MERCATOR. N-25 shipped 316,063 of them in WORLD and
+  // nothing said so — the trees simply were not where anyone looked. One sample per array is enough:
+  // the two spaces are three orders of magnitude apart.
+  const probe = (label, offset, count) => {
+    if (offset === undefined || !count) return;
+    checkSpace(label, new Float32Array(buffer, binOffset + offset, 1)[0], true);
+  };
+  probe('bakedVegetation.treePositions', bv.treePositionsOffset, bv.treePositionsCount);
+  probe('bakedVegetation.bushPositions', bv.bushPositionsOffset, bv.bushPositionsCount);
+  probe('bakedVegetation.zoneTreePositions', bv.zoneTreePositionsOffset, bv.zoneTreePositionsCount);
+  probe('bakedVegetation.zoneBushPositions', bv.zoneBushPositionsOffset, bv.zoneBushPositionsCount);
 
   const result = {
     treeCount: bv.treeCount || 0,

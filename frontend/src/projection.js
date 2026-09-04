@@ -4,8 +4,14 @@ const R = 6378137;
 // MUST match ORIGIN_LAT/ORIGIN_LON in:
 //   backend/projection.js, frontend/src/workers/vegetationWorker.js,
 //   frontend/src/workers/buildingWorker.js
-const ORIGIN_LAT = 41.350;
-const ORIGIN_LON = 2.115;
+// EXPORTED so the workers can import them instead of re-declaring them. They used to carry their
+// own copies under a "MUST match frontend/src/projection.js" comment, which is a request, not a
+// guarantee — nothing checked, and a projection origin that drifts between the main thread and a
+// worker moves geometry silently. `projection.js` has no imports of its own (it is a leaf, no
+// three.js), so there was never a technical reason for the copies: the workers already import
+// `map/roadWidths.js`. K-1.
+export const ORIGIN_LAT = 41.350;
+export const ORIGIN_LON = 2.115;
 
 // Unstretch-X (vertical-model-foundation-spec §3): Web Mercator stretches XZ by 1/cos(lat).
 // Multiply (mercator − origin) by cos(ORIGIN_LAT) so 1 world unit = 1 real metre on every axis.
@@ -113,4 +119,55 @@ export { START_LAT, START_LON } from './spawnConfig.js';
 export function getTileIdFromLatLon(lat, lon) {
   const { zoom, x, y } = latLonToTile(lat, lon, TILE_ZOOM);
   return `${zoom}_${x}_${y}`;
+}
+
+
+// ── K-1: WHICH SPACE IS THIS? ─────────────────────────────────────────────────────────────────
+//
+// Every coordinate bug this project has paid for was a SPACE bug, not an arithmetic one. The
+// world→physics negation (`px = -(wx - originX)`) is written out at nine call sites and is correct
+// at all nine — it is well known and well commented. What keeps going wrong is data arriving in a
+// different space from the one the reader assumed:
+//
+//   • N-25 (2026-09-05) — the bake emitted 316,063 vegetation positions in WORLD while the reader
+//     converted them as MERCATOR. Every tree and bush in every park landed 3,800 km away. Silent.
+//   • The same file's vegetation MASK rasterised Mercator roads into a world-bounded grid, so its
+//     road guard blocked nothing, ever.
+//   • P-6 (same day) — an audit compared raw shop positions (world) against raw road points
+//     (Mercator) and reported a median gap of 5,069,611 m: the Mercator northing itself.
+//
+// The two spaces are three orders of magnitude apart, so a magnitude check separates them with no
+// ambiguity. Barcelona world coords run roughly -1 km to 20 km; Mercator eastings here are ~235-250k
+// and northings ~5.07M. Nothing legitimate sits in between.
+
+/** True if `x` looks like an absolute Mercator easting rather than a world metre. */
+export function looksMercator(x) {
+  return Number.isFinite(x) && Math.abs(x) > 100000;
+}
+
+const _spaceWarned = new Set();
+/**
+ * Warn ONCE if a coordinate is not in the space the caller expects.
+ *
+ * WARNS rather than throws, deliberately. This runs in the tile parser: throwing would abort a tile
+ * load and take out a chunk of the city over a diagnostic. The BAKE is the opposite case, and
+ * `vegetationBaker.assertVegSpace` throws there — a bad bake must not be written to disk.
+ *
+ * @param {string} label  what is being checked, e.g. 'readBakedVegetation.treePositions'
+ * @param {number} sample one representative x/easting
+ * @param {boolean} wantMercator
+ * @returns {boolean} true if it matched
+ */
+export function checkSpace(label, sample, wantMercator) {
+  if (!Number.isFinite(sample)) return true;      // nothing to judge; not a failure
+  const is = looksMercator(sample);
+  if (is === wantMercator) return true;
+  if (!_spaceWarned.has(label)) {
+    _spaceWarned.add(label);
+    console.error(
+      `[space] ${label} is in ${is ? 'MERCATOR' : 'WORLD'} space but ${wantMercator ? 'MERCATOR' : 'WORLD'} was expected `
+      + `(sample x=${sample}). Geometry from this source is in the wrong place — this is the N-25 class `
+      + `of bug, and it does not otherwise report itself.`);
+  }
+  return false;
 }

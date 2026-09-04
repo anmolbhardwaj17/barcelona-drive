@@ -25,7 +25,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 | Pedestrians | P-1, P-2, P-3, **P-6** | P-4, P-5 |
 | Ground layering | Z-1, Z-1b, Z-2a, **Z-2b** | Z-2c (tram rails), Z-4 · **Z-3 dropped** |
 | Game modes | M-1 … M-7, **M-9, M-10** | **M-8 reverted** |
-| Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
+| Parked | **K-1** | K-2 multiplayer, K-3 the hole |
 
 ⚠ **Numbering fix:** the changelog used "Z-2" for the paint-ladder *correction* while
 `ground-layering.md` used "Z-2" for *surfaces outside the scheme*. Two things, one number. The
@@ -276,9 +276,33 @@ screenshot also showed `[perf] initial tile load GAVE UP at the cap … 6 queued
 tile is a third possibility that the probes would rule in or out immediately.
 
 
-**K-1 · coordinate/mirror conventions cleanup** — consolidate the X-mirror, the terrain heightfield's
-−90° rotation and the Rapier-vs-cannon convention difference into one boundary module, so renderers
-stop re-deriving them. Reduces the class of silent misplacement the CLAUDE.md danger note describes.
+### ~~K-1 · coordinate conventions~~ ✅ **done 2026-09-05 — and RESCOPED on the evidence**
+
+⚠ **The ticket aimed at the wrong thing.** It proposed wrapping the X-mirror in a boundary module.
+But the world→physics negation `px = -(wx - originX)` is written out at nine call sites and is
+**correct at all nine** — it is well known and heavily commented. Wrapping it would have been churn.
+
+Every coordinate bug this project has actually paid for is a **SPACE** bug: data arriving in a
+different space from the one the reader assumed. Four this week alone (N-25's 316,063 misplaced
+positions, the vegetation mask's dead road guard, the same file's water, and the P-6 audit's
+5,069,611 m median). So K-1 shipped as two things that address that instead:
+
+**K-1a · one projection, checked.** `ORIGIN_LAT`/`ORIGIN_LON`/`MERCATOR_UNSTRETCH` were declared in
+FIVE places, each behind a comment saying *"MUST match frontend/src/projection.js"*. A comment is a
+request, not a guarantee. The three frontend copies are deleted and now import — `projection.js` is a
+leaf with no imports of its own, so there was never a technical reason for them; the workers already
+import `roadWidths.js`. The bake is a separate package and cannot import, so a test pins it: same
+origin, same Mercator→world result on real coordinates, sub-millimetre.
+
+**K-1b · `checkSpace()`.** A magnitude check (the two spaces are three orders of magnitude apart) at
+the boundaries where data changes space — the four `bakedVegetation` arrays and `readShops`. Warns
+once, loudly, naming the array. ⚠ Warns rather than throws **on purpose**: this runs in the tile
+parser and throwing would take out a chunk of the city over a diagnostic. The bake is the opposite
+case and `assertVegSpace` throws there, because a bad bake must not reach disk.
+
+**Still open, and deliberately not attempted:** the terrain heightfield's −90° rotation and the
+Rapier-vs-cannon convention difference. Neither has caused a measured bug, and this session's lesson
+is that the ticket's premise is worth checking before building to it.
 
 **K-2 · multiplayer** — a programme, not a task. ⚠ The blocker is not networking: **nothing in this
 game is authoritative.** Physics is client-side, traffic and pedestrians are seeded by nothing, and

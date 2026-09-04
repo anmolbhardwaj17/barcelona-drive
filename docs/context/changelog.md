@@ -3903,3 +3903,14 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   signal system is `trafficSignalRenderer.js` (T-2), which uses the baked OSM nodes and
   `roadClearance.js` and was never affected. The tangent inconsistency was real and the fix stands as
   a latent-defect fix, but its visible impact today is zero. S-2b is withdrawn — T-2 already did it.
+
+## 2026-09-05 — K-1: one projection, and a space check where data crosses spaces
+- The ticket proposed wrapping the X-mirror. Rescoped: that negation is at nine call sites and
+  correct at all nine. Every coordinate bug actually paid for was a SPACE bug instead.
+- **K-1a** — `ORIGIN_LAT`/`ORIGIN_LON`/`MERCATOR_UNSTRETCH` were declared five times behind "MUST
+  match" comments. The three frontend copies now import (`projection.js` is a leaf); a test pins the
+  bake's copy, which cannot import across packages.
+- **K-1b** — `checkSpace()` in `projection.js`, applied to the four `bakedVegetation` arrays and
+  `readShops`. Warns once rather than throwing: the tile parser must not lose a tile to a diagnostic.
+- 548 tests. Terrain heightfield rotation and the Rapier/cannon difference deliberately left alone —
+  no measured bug, and this session's lesson is to check a premise before building to it.
