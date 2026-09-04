@@ -20,6 +20,7 @@
  * ⚠ `tpl.geometry` and `tpl.material` are SHARED SINGLETONS. Never dispose them from a consumer.
  */
 import * as THREE from 'three';
+import { pickPedClips } from './pedClips.js';
 import { makeGLTFLoader } from '../loaders.js';
 import { registerMaterial } from '../map/materialRegistry.js';
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -471,7 +472,8 @@ const PED_CREASE_ANGLE = (55 * Math.PI) / 180;
  * Walk-cycle FLIPBOOK: bake `frameCount` frames of the walk animation + one idle pose into static
  * vertex-coloured geometries. Pedestrians cycle through the frames → legs actually move, while each
  * frame is still an InstancedMesh (light). All frames share ONE scale + ground offset so the body
- * doesn't jitter. Returns { frames:[geo…], idle:geo, material }.
+ * doesn't jitter. Returns { frames:[geo…], run:[geo…], idle:geo, stand:geo, fall:geo, material }.
+ * `run` and `stand` are empty/null on a file that has no such clip — the caller falls back.
  */
 export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount = 8) {
   const gltf = await _loader.loadAsync(url);
@@ -479,12 +481,11 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
   const meshes = [];
   model.traverse((c) => { if (c.isMesh) meshes.push(c); });
   if (!meshes.length) throw new Error('no meshes ' + url);
-  const walk = gltf.animations.find((a) => /walk/i.test(a.name)) || gltf.animations.find((a) => /run/i.test(a.name)) || gltf.animations[0];
-  const idleClip = gltf.animations.find((a) => /idle/i.test(a.name)) || walk;
-  // Collapsed pose for knocked-down pedestrians — a real death/hit/fall clip near its end reads as a
-  // crumpled body on the ground, instead of the rigid standing plank we get from tumbling the idle pose.
-  const fallClip = gltf.animations.find((a) => /death|dead|die|hit|faint|collapse|defeat|ko/i.test(a.name))
-                || gltf.animations.find((a) => /roll|fall/i.test(a.name)) || null;
+  // P-3: clip choice lives in pedClips.js so it can be tested without three.js or a 4 MB GLB. It
+  // also documents the clips that are deliberately NOT baked (Sitting has nothing to sit on).
+  // `fallClip` is the collapsed pose for knocked-down pedestrians: a real death/hit/fall clip near
+  // its end reads as a crumpled body, instead of the rigid standing plank a tumbled idle pose gives.
+  const { walk, idle: idleClip, run: runClip, stand: standClip, fall: fallClip } = pickPedClips(gltf.animations);
   const mixer = new THREE.AnimationMixer(model);
 
   function bakeAt(clip, time) {
@@ -507,6 +508,17 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
     if (f % 2 === 1) await new Promise((r) => setTimeout(r, 0));
   }
   const idle = bakeAt(idleClip, 0);
+  // Run: fewer frames than the walk on purpose. A run cycle is roughly half the duration, so 8
+  // frames is a comparable sample rate for a third of the bake cost and a third of the meshes.
+  const RUN_FRAMES = 8;
+  const run = [];
+  if (runClip) {
+    for (let f = 0; f < RUN_FRAMES; f++) {
+      run.push(bakeAt(runClip, (runClip.duration * f) / RUN_FRAMES));
+      if (f % 2 === 1) await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  const stand = standClip ? bakeAt(standClip, standClip.duration * 0.35) : null;
   // near the end of the fall/death clip = fully collapsed on the ground
   let fall = fallClip ? bakeAt(fallClip, fallClip.duration * 0.92) : null;
 
@@ -516,7 +528,7 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
   const s = (bb.max.y - bb.min.y) > 0.001 ? targetHeight / (bb.max.y - bb.min.y) : 1;
   const tx = -(bb.min.x + bb.max.x) / 2, ty = -bb.min.y, tz = -(bb.min.z + bb.max.z) / 2;
   const fix = (g) => { if (!g) return g; g.scale(s, s, s); g.translate(tx * s, ty * s, tz * s); return g; };
-  frames.forEach(fix); fix(idle);
+  frames.forEach(fix); fix(idle); run.forEach(fix); fix(stand);
 
   // Fall pose: same scale (consistent body size), but self-centred x/z and resting its lowest point on
   // y=0 — it's already lying down in the clip, so the renderer places it flat with a plain yaw (no PI/2 flip).
@@ -531,7 +543,7 @@ export async function loadWalkFramesTemplate(url, targetHeight = 1.8, frameCount
   // gray fill (was 0x343434) washed them into pale, desaturated ghosts in BOTH day and night, flattening
   // contrast. Now that night ambient is raised, a light floor is enough; real light does the lifting.
   const pedMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: new THREE.Color(0x111111) });
-  return { frames, idle, fall, material: pedMat };
+  return { frames, run, idle, stand, fall, material: pedMat };
 }
 
 export async function loadPeopleWalkTemplates(basePath = '/models/people/', targetHeight = 1.8, frameCount = 8) {

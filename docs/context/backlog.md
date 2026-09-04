@@ -22,7 +22,7 @@ claimed the two had *diverged*; that was wrong — the check above is the one to
 
 | stream | done | open |
 |---|---|---|
-| Pedestrians | P-1, **P-2** | P-3, P-4, P-5, P-6 |
+| Pedestrians | P-1, P-2, **P-3** | P-4, P-5, P-6 |
 | Ground layering | Z-1, Z-1b, **Z-2a** | Z-2b (bus stops, tram rails, tunnel approaches, blend strips), Z-4 · **Z-3 dropped** |
 | Game modes | M-1 … M-7, **M-9, M-10** | **M-8 reverted** |
 | Parked | — | K-1 coordinate cleanup, K-2 multiplayer |
@@ -110,17 +110,21 @@ resident set at its densest, which is where the v3 benchmark measures):
 nothing to show for it.** The board said a worker is the fix only if a number says so; the number
 says no. ⚠ Keep the bench: if the trip cap or the graph margin ever grows, this is the check.
 
-### P-3 · use the animation clips already on disk
-Every people GLB ships **11 clips**; verified only three are baked (`walk`, `idle`, a death/fall pose).
-`Sitting`, `Standing`, `Clapping`, `Run` are paid for in page weight and never appear. Panic currently
-plays the *walk* flipbook at 2.6× rate instead of the run cycle that exists.
+### ~~P-3 · use the animation clips already on disk~~ ✅ **done 2026-09-05**
+`Run` baked as an 8-frame second flipbook, `Standing` as a second stationary pose. Panic now drives
+the run cycle from **measured ground displacement** — `p.speed` is the wrong number, it barely moves
+when someone bolts because a dodge is almost entirely the lateral shove. Clip choice moved to
+`frontend/src/car/pedClips.js` (no three.js import → testable); `Sitting` stays unused on purpose,
+there is no bench builder to sit on. Full write-up in `pedestrian-system.md` §3.
+⚠ Needs the drive check in that file's §5 item 7.
 
 ### P-4 · vertex-animation texture
 ⚠ **Its headline justification is now stale and the ticket should be re-argued before anyone starts.**
 "39 draw calls → 3" was true before P-1; P-1's `visible = count > 0` gate already means only the
 ~10-14 non-empty cells of 42 are ever submitted. What remains is genuinely *smooth* animation
-(currently a 12-frame flipbook, ~10 fps) and making P-3's extra clips cheap. Decide whether that is
-worth the shader work.
+(currently a 12-frame flipbook, ~10 fps) and making P-3's extra clips cheap — though P-3 has now
+landed at 69 meshes with no measured cost, so "makes the clips cheap" is a weaker argument than it
+was when this was written. Decide whether the shader work is worth it.
 
 ### P-6 · groups and destinations
 Needs P-2, **and needs bake work**: shops are not in `pbfUrbanFeatures` at all — per CLAUDE.md's census

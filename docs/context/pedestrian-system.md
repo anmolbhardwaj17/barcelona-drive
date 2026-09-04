@@ -59,17 +59,19 @@ Every one of the three GLBs ships **eleven** animation clips:
 
     Clapping · Death · Idle · Jump · Punch · Run · RunningJump · Sitting · Standing · SwordSlash · Walk
 
-The game uses **three**: `Walk` (as the flipbook), `Idle` (one frozen pose), `Death` (one frozen
-pose, for a knockdown). `Sitting`, `Standing`, `Clapping` and `Run` are paid for in page weight and
-never appear. That is the cheapest available answer to "nothing to do" and it costs no new art.
+The game used **three**: `Walk` (as the flipbook), `Idle` (one frozen pose), `Death` (one frozen
+pose, for a knockdown). ✅ **P-3 adds two more** — `Run` as a second flipbook and `Standing` as a
+second stationary pose. `Sitting`, `Clapping`, `Jump`, `Punch` and `SwordSlash` remain unused, now
+deliberately and in writing: see `frontend/src/car/pedClips.js`, which is the single place the choice
+is made and is covered by `test/pedClips.test.js`.
 
 Behaviourally, the old build gave a pedestrian exactly one verb: pace. ✅ **P-1 adds a walk/stand
 state machine** so standing is a *state* with a duration (2.5–11 s) rather than a life sentence —
 before, `IDLE_FRAC = 0.25` froze a quarter of every crowd as permanent statues, which reads as broken
 rather than as people waiting for something.
 
-Still missing, and listed as P-2/P-3 below: crossing the road, waiting at a kerb, sitting, standing
-in twos and threes, going anywhere at all.
+Still missing, and listed as P-6 below: standing in twos and threes, and going anywhere at all.
+(Crossing the road and waiting at a kerb landed in P-2; running landed in P-3.)
 
 ### 1c. "They move randomly, not smooth" — three separate defects
 
@@ -145,12 +147,43 @@ somebody out of the road halfway across.
 acceptance — a pedestrian will step out in front of you. That is the next increment, and it wants the
 `dodge` code that already exists rather than a new system.
 
-### P-3 — use the clips that are already on disk
-Bake `Standing`, `Sitting` and `Clapping` as extra static poses and `Run` as a second flipbook.
-Immediate wins: panic uses a real run cycle instead of the walk flipbook at 2.6× rate; idlers get
-three different standing poses instead of one; groups of two or three standing together read as
-conversation. Cost is `InstancedMesh` count, which the `visible` gate in P-1 has already made cheap,
-plus bake time — which is why P-4 should probably land first.
+### ~~P-3 — use the clips that are already on disk~~ ✅ **SHIPPED 2026-09-05**
+
+**What shipped.** `Run` is baked as an 8-frame second flipbook and `Standing` as a second stationary
+pose. Clip choice moved out of `carModels.js` into **`frontend/src/car/pedClips.js`** — a module with
+no three.js import, so which clip drives which state is testable without loading a 4 MB GLB.
+
+**Panic now runs.** It used to advance the WALK flipbook at a flat `2.6` cycles/s, which reads as
+fast-forward rather than as running: the legs hold a walk's stance while the body covers 4 m/s. The
+run flipbook is driven from **measured ground displacement** instead —
+
+```js
+const mps = clamp(hypot(x - p.cx, z - p.cz) / d, RUN_MIN_MPS, RUN_MAX_MPS);
+p.cyc = (p.cyc + (mps / RUN_STRIDE) * d) % 1;
+```
+
+⚠ `p.speed` is the wrong number here and was the tempting one. It is the walk along the pavement
+line and it *barely changes* when someone bolts — the motion during a dodge is almost entirely the
+lateral shove (`DODGE_DIST`, ramped by `DODGE_LERP`), which never touches `p.speed`. Only the
+measured displacement matches the feet to the ground. The clamp is not cosmetic: on a pedestrian's
+**first** frame `p.cx/p.cz` are `(0,0)`, so the raw measurement is the distance to the world origin.
+
+**8 frames, not 12.** A run cycle is roughly half a walk's duration, so 8 samples the motion at about
+the same rate 12 does for the walk, for two-thirds of the bake and two-thirds of the meshes.
+
+**Not baked, deliberately.** `Sitting` — there is nothing in the city to sit on; `urbanFeatureRenderer`
+has no bench builder, so a seated pedestrian sits cross-legged on the pavement. `Clapping`, `Jump`,
+`Punch`, `SwordSlash` — no state asks for them. A test asserts none of these is ever selected; if a
+bench builder ever lands, that test is the one to delete, on purpose.
+
+**The trap, pinned by a test.** `walk` falls back through `/run/` when a file has no Walk clip. Picking
+`run` independently would then bake the *same clip twice*, and the gait would never change under
+panic — visually identical to the bug P-3 set out to remove. `pickPedClips` returns `run: null` in
+that case.
+
+**Cost.** Meshes go 3 × (12 walk + idle + fall) = 42 → 3 × (12 + 8 + idle + stand + fall) = 69. The
+`visible = count > 0` gate from P-1 means the empty cells are not submitted; only ~10–14 hold anyone
+on a given frame, and the run cells hold nobody at all unless a car is bearing down on someone.
 
 ### P-4 — vertex-animation texture (the real animation fix)
 Bake every frame of every clip into a `DataTexture` (position + normal), one `InstancedMesh` per
@@ -202,3 +235,6 @@ ruling, and **P-5 must not start without the user overturning it** (Golden Rule 
 4. **No lateral pop at corners.** Watch a walker take a 90° bend — no sideways jump.
 5. **Faces and shoulders are rounded**, collars and shoes still sharp.
 6. **STATS / F9**: draw calls should be **down**, not up, despite the longer flipbook.
+7. **P-3 — panic is a run, not a fast walk.** Drive at someone at 40 km/h and watch the legs as they
+   bolt: the stance should change, not just speed up. Then park and watch a group of people standing
+   still — they should not all be holding the identical pose.

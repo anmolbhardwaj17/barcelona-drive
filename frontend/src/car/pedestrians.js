@@ -46,6 +46,16 @@ const MIN_PATH_LEN = 8;    // m — below this a pavement line is a stub, not a 
 const WALK_MIN = 0.9, WALK_MAX = 1.6;
 const PED_SPACING = 22;    // m of pavement per pedestrian — density, replacing "half the segment count"
 const STRIDE = 1.4;        // m of ground covered per walk cycle; ties the flipbook to real speed (no skating)
+// P-3: the RUN cycle, which was in every GLB and never baked. A panicking pedestrian used to play the
+// WALK flipbook at a flat 2.6 cycles/s, which reads as fast-forward rather than as running — the legs
+// keep a walk's stance while the body covers 4 m/s. 8 frames because a run cycle is roughly half a
+// walk's duration, so 8 samples the motion at the same rate 12 does for the walk.
+const RUN_FRAMES = 8;
+const RUN_STRIDE = 2.2;    // m of ground per run cycle (a stride, not a step)
+// Clamp before dividing: on a pedestrian's FIRST frame the previous position is (0,0), so the measured
+// ground speed is the distance to the world origin. The clamp is what keeps that from spinning the
+// flipbook at 4 kHz, and it also stops the dodge's ramp-in from stuttering the cadence.
+const RUN_MIN_MPS = 2.0, RUN_MAX_MPS = 5.0;
 const IDLE_FRAC = 0.18;    // fraction STANDING at any moment — it is now a STATE, not a life sentence
 const PAUSE_MIN = 2.5, PAUSE_MAX = 11;   // s standing before moving off again
 const LEG_MIN = 9, LEG_MAX = 45;         // s walking before the next pause
@@ -266,7 +276,7 @@ export function samplePath(path, s, out) {
 }
 
 export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigin, contactShadows }) {
-  let variants = [];   // [{ walk:[InstancedMesh×FRAMES], idle:InstancedMesh }]
+  let variants = [];   // [{ walk:[IM×FRAMES], run:[IM×RUN_FRAMES], idle:IM, stand:IM|null, fall:IM|null }]
   let nVar = 0;
   let _enabled = true;
 
@@ -283,7 +293,15 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         scene.add(im);
         return im;
       };
-      return { walk: t.frames.map(mk), idle: mk(t.idle), fall: t.fall ? mk(t.fall) : null };
+      return {
+        walk: t.frames.map(mk),
+        run: (t.run || []).map(mk),
+        idle: mk(t.idle),
+        // Second standing pose. Optional by design: a GLB with no Standing clip just gets one idle,
+        // and the crowd looks exactly as it did before rather than throwing.
+        stand: t.stand ? mk(t.stand) : null,
+        fall: t.fall ? mk(t.fall) : null,
+      };
     });
     nVar = variants.length;
   }).catch((e) => console.warn('[pedestrians] load error', e?.message || e));
@@ -323,6 +341,9 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
       wob: Math.random() * TWO_PI,
       cx: 0, cz: 0,
       variant: (Math.random() * nVar) | 0,
+      // Which standing pose this person holds, for their whole life. Re-rolling it per pause would
+      // make someone waiting at a kerb snap between two poses every few seconds.
+      pose: Math.random() < 0.5 ? 1 : 0,
     };
     if (!idle) p.speed = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
     peds.push(p);
@@ -424,7 +445,11 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     if ((playerPx - _lastX) ** 2 + (playerPz - _lastZ) ** 2 > REBUILD_DIST * REBUILD_DIST) {
       _lastX = playerPx; _lastZ = playerPz; reassign(playerPx, playerPz);
     }
-    for (const v of variants) { for (const im of v.walk) im.count = 0; v.idle.count = 0; if (v.fall) v.fall.count = 0; }
+    for (const v of variants) {
+      for (const im of v.walk) im.count = 0;
+      for (const im of v.run) im.count = 0;
+      v.idle.count = 0; if (v.stand) v.stand.count = 0; if (v.fall) v.fall.count = 0;
+    }
 
     const canHit = Math.abs(carSpeedKmh) > HIT_MIN_KMH;
     let anyDead = false;
@@ -561,16 +586,28 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
         p.yaw += angDelta(p.yaw, targetYaw) * Math.min(1, rate * d);
       }
 
-      let im;
-      if (p.state === 'walk' || p.state === 'crossing' || panicking) {
-        // Cadence from GROUND SPEED, so the feet match the distance covered instead of drifting.
-        const cycRate = panicking ? 2.6 : Math.max(0.45, p.speed / STRIDE);
-        p.cyc = (p.cyc + cycRate * d) % 1;
-        im = V.walk[Math.min(FRAMES - 1, (p.cyc * FRAMES) | 0)];
-      } else { im = V.idle; }
-
       const x = onLine_x + p.dodgeX;
       const z = onLine_z + p.dodgeZ;
+
+      let im;
+      if (p.state === 'walk' || p.state === 'crossing' || panicking) {
+        if (panicking && V.run.length) {
+          // Cadence from MEASURED ground speed, which during a dodge is mostly the lateral shove and
+          // not p.speed at all — p.speed is the walk along the pavement line and barely changes when
+          // someone bolts. Measuring the actual displacement is the only number that matches the feet
+          // to the ground; the clamp above covers the first frame and the shove's ramp.
+          const mps = Math.min(RUN_MAX_MPS, Math.max(RUN_MIN_MPS, Math.hypot(x - p.cx, z - p.cz) / d));
+          p.cyc = (p.cyc + (mps / RUN_STRIDE) * d) % 1;
+          im = V.run[Math.min(RUN_FRAMES - 1, (p.cyc * RUN_FRAMES) | 0)];
+        } else {
+          // Cadence from GROUND SPEED, so the feet match the distance covered instead of drifting.
+          // (Also the panic path for a variant whose GLB has no run clip — old behaviour, unchanged.)
+          const cycRate = panicking ? 2.6 : Math.max(0.45, p.speed / STRIDE);
+          p.cyc = (p.cyc + cycRate * d) % 1;
+          im = V.walk[Math.min(FRAMES - 1, (p.cyc * FRAMES) | 0)];
+        }
+      } else { im = (p.pose && V.stand) ? V.stand : V.idle; }
+
       p.cx = x; p.cz = z;
 
       // ── hit by the car? (checked at the DODGED position — a ped who clears in time escapes) ──
@@ -599,9 +636,10 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     // variant most of them are empty on any given frame. Gating on `visible` is what makes a longer
     // flipbook free: 12 frames × 3 variants is 39 meshes but only ~10-14 ever hold anyone.
     for (const v of variants) {
-      for (const im of v.walk) { im.visible = im.count > 0; if (im.count) im.instanceMatrix.needsUpdate = true; }
-      v.idle.visible = v.idle.count > 0; if (v.idle.count) v.idle.instanceMatrix.needsUpdate = true;
-      if (v.fall) { v.fall.visible = v.fall.count > 0; if (v.fall.count) v.fall.instanceMatrix.needsUpdate = true; }
+      const flush = (im) => { im.visible = im.count > 0; if (im.count) im.instanceMatrix.needsUpdate = true; };
+      for (const im of v.walk) flush(im);
+      for (const im of v.run) flush(im);
+      flush(v.idle); if (v.stand) flush(v.stand); if (v.fall) flush(v.fall);
     }
   }
 
@@ -609,16 +647,28 @@ export function createPedestrians({ scene, getRoadSegments, getGroundY, getOrigi
     _enabled = on;
     for (const v of variants) {
       for (const im of v.walk) { im.visible = on && im.count > 0; if (!on) im.count = 0; }
+      for (const im of v.run) { im.visible = on && im.count > 0; if (!on) im.count = 0; }
       v.idle.visible = on && v.idle.count > 0; if (!on) v.idle.count = 0;
+      if (v.stand) { v.stand.visible = on && v.stand.count > 0; if (!on) v.stand.count = 0; }
       if (v.fall) { v.fall.visible = on && v.fall.count > 0; if (!on) v.fall.count = 0; }
     }
     if (!on) peds.length = 0;
   }
-  function getCount() { let n = 0; for (const v of variants) { for (const im of v.walk) n += im.count; n += v.idle.count; if (v.fall) n += v.fall.count; } return n; }
+  function getCount() {
+    let n = 0;
+    for (const v of variants) {
+      for (const im of v.walk) n += im.count;
+      for (const im of v.run) n += im.count;
+      n += v.idle.count; if (v.stand) n += v.stand.count; if (v.fall) n += v.fall.count;
+    }
+    return n;
+  }
   function dispose() {
     for (const v of variants) {
       for (const im of v.walk) { scene.remove(im); im.geometry.dispose(); }
+      for (const im of v.run) { scene.remove(im); im.geometry.dispose(); }
       scene.remove(v.idle); v.idle.geometry.dispose();
+      if (v.stand) { scene.remove(v.stand); v.stand.geometry.dispose(); }
       if (v.fall) { scene.remove(v.fall); v.fall.geometry.dispose(); }
     }
     variants = [];

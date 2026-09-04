@@ -3828,3 +3828,12 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   ⚠ A `_redirects` rule scoping a real 404 to `/tiles/*` was tried FIRST and **measured as inert** —
   the asset fallback still won, still 200 text/html. It was deleted rather than left in the repo
   looking like protection. The content-type guard is the whole fix.
+
+## 2026-09-05 — P-3: pedestrians use the animation clips that were already on disk
+- `frontend/src/car/pedClips.js` (new): the single place a people-GLB clip is mapped to a pedestrian
+  state. No three.js import, so `test/pedClips.test.js` can cover it without loading a 4 MB binary.
+- `carModels.js` bakes `Run` (8 frames) and `Standing` (one pose) through the same scale/ground-offset
+  pipeline as the walk frames; returns `{ frames, run, idle, stand, fall, material }`.
+- `pedestrians.js` plays the run flipbook while panicking, cadenced from **measured displacement**
+  (not `p.speed`, which barely changes during a dodge), and holds one of two standing poses per person.
+- `Sitting` is deliberately still unused — nothing in the city is baked to sit on.
