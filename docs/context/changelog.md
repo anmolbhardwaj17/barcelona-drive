@@ -3982,3 +3982,7 @@ either of which alone would have kept it broken:
   height. The resize handler read the canvas's stale size back out of its own parent and set it to
   itself. `#app { position: fixed; inset: 0 }` breaks the circle.
 3 source-level guards — neither link is visible to a unit test, and it hides until someone maximises.
+- **F = fullscreen**, listed in the controls strip along with `C Camera`, which V-14 added and never
+  advertised. Targets `documentElement`, not the canvas: the HUD is `position:fixed` on the body, so
+  fullscreening the canvas alone leaves every readout behind on a black page. Depends on the resize
+  fix above — before it, F would have grown the buffer and left the canvas windowed-sized.

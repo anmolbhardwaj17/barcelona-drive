@@ -101,6 +101,11 @@ BAKE_SINGLE_TILE=16_33161_24477 node worldBuilder/buildRegion.js --area eixample
   above `freed + shared` means the walk is holding geometry it will not free; an `UNACCOUNTED` total
   means geometry exists that the tile entry never tracked. Off by default.
 - **Tunnel debug overlay**: `?debug=tunnel` — physics-collider wireframes, tile-seam markers, per-body Y labels (`tunnelDebugOverlay.js`). Off by default, zero cost when absent.
+- **Key bindings (car mode)**: `WASD` drive · `Space` drift · `H` horn · `L` lights · `C` camera view
+  (chase / close chase / bumper) · `N` day-night · **`F` fullscreen** · `R` recover · `M` map ·
+  `P` photo mode · `F9` drive report · `Esc` menu. The on-screen strip lists these and
+  `test/fullscreenKey.test.js` asserts it stays in step — a binding nobody is told about may as well
+  not exist, which is what happened to `C` when V-14 added the third view.
 - Combine freely, e.g. `http://localhost:4040/?mode=car&debug=tunnel`.
 - **Drive report (perf work)**: press **F9** while driving — or `window._ddReport()` — to write a compact report of the drive to `backend/debug-reports/drive-report-<ts>.json` (dev server only; falls back to a download). It aggregates long frames and late-compiling shader variants and names WHICH feature each late variant differs by. The old per-event `[frame]` / `[variant]` console lines are gone: they were unreadable and could not be copied out of DevTools. See `frontend/src/ui/driveReport.js`.
 - **Re-bake cache note**: a re-bake that BUMPS the tile version now invalidates the browser cache by

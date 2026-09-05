@@ -1235,7 +1235,9 @@ spawnTileReady.finally(() => {
           "font-family:'Inter',system-ui,sans-serif;font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;" +
           'color:rgba(243,237,225,.68);text-shadow:0 1px 4px rgba(0,0,0,.4);' +
           'pointer-events:none;user-select:none;white-space:nowrap;';
-        controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; N Day/Night &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
+        // C is listed because V-14 added a third camera view and the strip never said so — a binding
+        // nobody is told about may as well not exist.
+        controlsStrip.innerHTML = 'WASD Drive &nbsp;·&nbsp; Space Drift &nbsp;·&nbsp; H Horn &nbsp;·&nbsp; L Lights &nbsp;·&nbsp; C Camera &nbsp;·&nbsp; N Day/Night &nbsp;·&nbsp; F Fullscreen &nbsp;·&nbsp; R Recover &nbsp;·&nbsp; M Map &nbsp;·&nbsp; Esc Menu';
         document.body.appendChild(controlsStrip);
       } catch (err) {
         console.error('[main] createCarDriver failed:', err);
@@ -2332,6 +2334,31 @@ function setPhotoMode(on) {
 const _reportWithBuild = (extra = {}) =>
   shipReport({ ...extra, buildPhases: tileManager?.getBuildPhaseTotals?.() ?? null });
 
+/**
+ * F — fullscreen.
+ *
+ * Requests it on `documentElement`, not on the canvas: the HUD (speedo, minimap, controls strip) is
+ * `position: fixed` on the BODY, so fullscreening the canvas alone would take the game full and
+ * leave every readout behind on a black page.
+ *
+ * The browser fires a `resize` when this lands, which is what actually re-sizes the renderer — see
+ * the resize handler and the `#app { position: fixed; inset: 0 }` note in index.html. Before that
+ * fix this key would have grown the drawing buffer and left the canvas windowed-sized.
+ *
+ * Errors are swallowed deliberately: `requestFullscreen` REJECTS when it is not called from a user
+ * gesture (some browsers count a repeat-key as one, some do not) and an unhandled rejection in a
+ * keydown handler is noise for something the user can simply press again.
+ */
+function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) { document.exitFullscreen?.(); return; }
+    // ⚠ `requestFullscreen?.()` returns undefined when the method is absent, and `.catch` on
+    // undefined THROWS — so the optional call must be resolved before chaining, not after.
+    const req = document.documentElement.requestFullscreen?.();
+    if (req?.catch) req.catch(() => {});
+  } catch { /* not permitted here — pressing F again after a click works */ }
+}
+
 window.addEventListener('keydown', (e) => {
   if (isInputBlocked() || isTypingTarget(document.activeElement)) return;
   // F9 — ship the drive report. The one keypress that ends "drive and paste the console output".
@@ -2342,6 +2369,7 @@ window.addEventListener('keydown', (e) => {
   // module: the button already owns the transition, the localStorage write and the material
   // callback fan-out, and a second entry point that re-implemented any of those would drift.
   if (e.code === 'KeyN') { e.preventDefault(); envToggle?.toggle?.(); return; }
+  if (e.code === 'KeyF') { e.preventDefault(); toggleFullscreen(); return; }
   // V-14: CHASE ↔ HOOD. Not a cockpit view — bmw_m3.glb has no interior geometry at all, so a
   // camera inside the cabin would look at culled backfaces and see through the bodywork.
   if (e.code === 'KeyC') { e.preventDefault(); carDriver?.cycleView?.(); return; }
