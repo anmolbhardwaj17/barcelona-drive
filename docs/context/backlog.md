@@ -213,6 +213,25 @@ decides *where* signs go, P4-11 decides *how they are drawn*.
 
 ---
 
+### P4-11 slice 5 · delete the three unbounded sign caches — ⏸ **GATED ON A BEFORE/AFTER MEASUREMENT**
+User, 2026-09-05: *"if this slice 5 makes my system worse and there is no proper fix to keep game as
+smooth as today just park it."* Standing instruction, recorded here rather than in a commit message.
+
+Slices 1-4 built the replacement (a fixed 2 MB text page + one 2.67 MB sign atlas). Slice 5 is the
+migration that actually deletes `_dirBoardTexCache` / `_gantryTexCache` / `_dirBoardMatCache`.
+
+**It should be strictly better** — it replaces an unbounded cache (measured 50 MB at 12 tiles, 145 MB
+at 40, 495 MB at 120, never freed) with a fixed 4.7 MB. But "should" is not a measurement, and the
+one thing it could plausibly cost is per-frame work: the text page uploads a cell when a new street
+name comes into range, where today that cost was paid once and then cached forever.
+
+**Do not merge slice 5 without:** an F9 drive report before and after on the same route, comparing
+`sameTileCountDrift.texDelta` (the leak, should go flat) AND the frame sections (must not regress).
+If the upload cost shows up in the frame, park it — the leak is real but it is not worth a worse
+frame today, and that is the user's explicit call.
+
+---
+
 ### N-25b · 12 stale orphan tiles the region bake does not produce
 The 2026-09-05 region bake wrote **432** tiles; **445** exist. These 12 (plus `citymap.bin`) date from
 2026-08-29 and are not produced by the current pipeline — a different extent, presumably. They still

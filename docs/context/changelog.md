@@ -3972,3 +3972,13 @@ the drift is the tail of the same movement instead of a snap. 6 tests pin the nu
   different leaks — geometries drift when a tile fails to release, textures drift when something
   caches by CONTENT and never evicts. The latter is the unbounded sign caches, so F9 can now prove
   or disprove the 50/145/495 MB estimate rather than leaving it an inference.
+
+## 2026-09-05 — resize: the canvas never followed the window
+User: fullscreen kept the game at its windowed size with dead space below. TWO independent links,
+either of which alone would have kept it broken:
+- `adaptiveResolution.apply()` passed `updateStyle: false` to every `renderer.setSize`. Right for an
+  adaptive change (same box, fewer pixels); wrong for a window resize, where the box changed.
+- `#app` had NO CSS size, so once the canvas was inside it the div's height WAS the canvas's inline
+  height. The resize handler read the canvas's stale size back out of its own parent and set it to
+  itself. `#app { position: fixed; inset: 0 }` breaks the circle.
+3 source-level guards — neither link is visible to a unit test, and it hides until someone maximises.

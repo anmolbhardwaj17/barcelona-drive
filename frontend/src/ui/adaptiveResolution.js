@@ -111,10 +111,26 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
   let _restoreScale = null;   // scale before the FIRST ineffective drop — the whole streak unwinds
   let _lockedOut = false;
   const PROBE_MIN_GAIN = 0.05;   // a real fill-rate win from -0.08 dpr is far more than 5%
-  function apply() {
+  /**
+   * @param {boolean} updateStyle  true ONLY when the window itself changed size.
+   *
+   * ⚠ THIS FLAG IS THE DIFFERENCE BETWEEN TWO OPERATIONS THAT LOOK IDENTICAL.
+   *
+   * An adaptive-resolution change alters the BACKING BUFFER and must leave the canvas's CSS size
+   * alone — that is the whole mechanism: same box on screen, fewer pixels in it. So `false` is right
+   * there.
+   *
+   * A WINDOW resize is the opposite: the box changed. `scene.js` calls `renderer.setSize(w, h)` once
+   * at startup, which writes inline `style.width/height` in px, and `index.html` gives the canvas no
+   * CSS size of its own (`canvas { display: block; }`). So with `updateStyle` false everywhere, that
+   * inline size was frozen at whatever the window was when the game loaded. Going fullscreen grew the
+   * drawing buffer and left the canvas element the old size — the game stayed windowed-sized with
+   * dead space below it. User-reported 2026-09-05.
+   */
+  function apply(updateStyle = false) {
     const t0 = performance.now();
     renderer.setPixelRatio(scale);
-    renderer.setSize(w, h, false); // updateStyle=false: backing buffer only, CSS size unchanged
+    renderer.setSize(w, h, updateStyle);
     if (composer.setPixelRatio) composer.setPixelRatio(scale);
     composer.setSize(w, h);
     if (bloomPass) bloomPass.resolution.set(Math.floor(w / 2), Math.floor(h / 2));
@@ -134,7 +150,7 @@ export function createAdaptiveResolution(renderer, composer, bloomPass, { width,
     /** Effective pixel ratio in [FLOOR, CAP] — for HUD readout. */
     getScale() { return scale; },
     /** Call from the resize handler instead of renderer/composer.setSize. */
-    setSize(nw, nh) { w = nw; h = nh; apply(); },
+    setSize(nw, nh) { w = nw; h = nh; apply(true); },   // the WINDOW moved — restyle the canvas
     /** Photo Mode: pin full resolution (no adaptive downscaling) for crisp screenshots. */
     setPhotoMode(on) {
       if (on === photo) return;

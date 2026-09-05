@@ -55,6 +55,18 @@
       html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e15; }
       canvas { display: block; }
 
+      /* ── #app MUST have a size of its OWN ────────────────────────────────────────────────────
+         `main.js` and `scene.js` both size the renderer from
+         `container.clientWidth || window.innerWidth`. At startup #app is EMPTY, so clientHeight is
+         0, the fallback fires and the first size is correct. Once the canvas is inside it, #app is
+         a plain block div whose height is its CONTENT — i.e. the canvas's own inline height, which
+         the renderer wrote. So every later resize read the canvas's stale size back out of its own
+         parent and set it to itself: going fullscreen grew the drawing buffer and left the element
+         windowed-sized, with dead space below the game. User-reported 2026-09-05.
+         Pinning #app to the viewport makes clientWidth/clientHeight authoritative instead of
+         circular. */
+      #app { position: fixed; inset: 0; }
+
       /* ── Loading screen (shown instantly, faded out by main.js when the world is ready) ── */
       #dd-loading {
         position: fixed; inset: 0; z-index: 9999;
