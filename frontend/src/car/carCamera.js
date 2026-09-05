@@ -63,6 +63,29 @@ const MIN_CAM_ABOVE_CAR   = 0.5;
 // the mean rate, so 0.5 s puts 0.38 m between consecutive frames — 23 m/s of camera. Readable, but
 // it whips. 0.6 s brings the peak to ~0.32 m/frame and still clears in well under a second.
 const TRANSITION_TIME    = 0.6;   // s — long enough to read as a move, short enough not to annoy
+/**
+ * ── WHY THE TRANSITION NEEDS A SETTLE TAIL ────────────────────────────────────────────────────
+ *
+ * User, driving fast and pressing C: *"first camera comes in its actual position for that close
+ * look but then as im moving fast it goes a little more back too quick"*. That is exactly right and
+ * it is arithmetic, not taste.
+ *
+ * During a transition `ap` is forced to 1 — the camera sits exactly on the eased arc, which is what
+ * keeps it clear of the roof. So at t=1 the camera is AT the ideal, with zero lag. The very next
+ * frame the normal follow resumes at LERP_POSITION, and a first-order follow at speed settles a
+ * real distance BEHIND its target: τ = dt/lerp ≈ 0.10 s, so the steady-state offset is v·τ —
+ *
+ *     40 km/h → 1.16 m      70 km/h → 2.03 m      90 km/h → 2.60 m
+ *
+ * 2.6 m is larger than the 2.1 m gap between the two chase rigs. So the camera performs a smooth
+ * 0.6 s move, arrives, and then re-establishes its design lag within ~0.1 s — a drift back that is
+ * bigger than the move you just watched and six times faster.
+ *
+ * The lag itself is correct and wanted (a chase cam trails at speed). What is wrong is that it
+ * re-appears as a step. So `ap` eases from 1 back down to LERP_POSITION over this window instead of
+ * switching on the next frame, and the drift becomes the tail of the same movement.
+ */
+const SETTLE_TIME        = 0.45;  // s to hand control back from the arc to the trailing follow
 const TRANSITION_CLEAR_R = 2.6;   // m — car half-length plus margin; inside this the path needs lift
 const TRANSITION_LIFT    = 0.8;   // m of arc at the apex, scaled by how close the path passes
 const LOOK_ABOVE          = 0.9;   // lifted with the eye so the pitch-down stays ~8-9 deg
@@ -176,6 +199,8 @@ export function createCarCamera(camera, domElement) {
   let _transT = 1;                 // 1 = settled
   let _transFromMode = VIEW_CHASE;
   let _transLift = 0;
+  // 0 while the arc owns the camera, easing to 1 as the trailing follow takes back over.
+  let _settleT = 1;
   const _transFrom = new THREE.Vector3();
   const _transTo = new THREE.Vector3();
   const _invYaw = new THREE.Quaternion();
@@ -354,8 +379,14 @@ export function createCarCamera(camera, domElement) {
     // moving blend point would drag the camera off the arc — and off its clearance over the roof —
     // and the two rigs disagree on the rate anyway (0.85 bolted-on bumper vs 0.16 trailing chase),
     // which is what would put a pop at the far end of an otherwise smooth move.
-    const ap = transitioning ? 1
-      : 1 - Math.pow(1 - (_mode === VIEW_HOOD ? HOOD_LERP : LERP_POSITION), dt * 60);
+    const baseLerp = _mode === VIEW_HOOD ? HOOD_LERP : LERP_POSITION;
+    if (transitioning) _settleT = 0;
+    else if (_settleT < 1) _settleT = Math.min(1, _settleT + (dt || 0.016) / SETTLE_TIME);
+    // Ease the follow stiffness from "locked to the arc" back to the trailing chase — see
+    // SETTLE_TIME. smoothstep so neither end has a velocity step.
+    const se = _settleT * _settleT * (3 - 2 * _settleT);
+    const followLerp = baseLerp + (1 - baseLerp) * (1 - se);
+    const ap = transitioning ? 1 : 1 - Math.pow(1 - followLerp, dt * 60);
     camera.position.lerp(_idealPos, ap);
 
     // Soft clamp horizontal distance (lerp toward max instead of hard snap)

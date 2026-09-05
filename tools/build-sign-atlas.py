@@ -201,27 +201,37 @@ def no_entry(img):
     d.rectangle([c - r * 0.62, c - r * 0.17, c + r * 0.62, c + r * 0.17], fill=WHITE)
 
 
-# name → (painter, note). ORDER IS THE CELL ORDER and it is part of the manifest, so appending is
-# safe and reordering is not.
+# name → (painter, size in metres, orientation, note).
+#
+# ORDER IS THE CELL ORDER and it is part of the manifest: appending is safe, reordering is not.
+#
+# SIZE lives here, not in the renderer, for the same reason `treeAtlas.js` carries heightM/canopyM:
+# it is a property of the artwork, and a second table in a second file is the duplicate-constant
+# failure this repo keeps paying for. Spanish signage is standardised, so these are real dimensions —
+# a regulatory disc is 0.90 m, an urban direction panel 1.20 m.
+#
+# ORIENTATION says how it is mounted, because it changes who draws it: 'post' faces are vertical
+# plates on a pole (this pool), 'road' pictograms lie flat on the asphalt and belong to the ground
+# layer scheme with the rest of the paint (P4-12 owns those — see groundLayers' `stencil` class).
 CELLS = [
-    ('plate_white',    lambda im: plate(im),                    'blank retroreflective panel — the text page draws the street name onto this'),
-    ('plate_blue',     lambda im: plate(im, BLUE, WHITE),       'blue urban direction panel'),
-    ('speed_20',       lambda im: speed_plate(im, 20),          'zona 30 side streets and school zones'),
-    ('speed_30',       lambda im: speed_plate(im, 30),          'the Barcelona default — most of the city'),
-    ('speed_40',       lambda im: speed_plate(im, 40),          ''),
-    ('speed_50',       lambda im: speed_plate(im, 50),          'primary/secondary in town'),
-    ('speed_60',       lambda im: speed_plate(im, 60),          ''),
-    ('speed_80',       lambda im: speed_plate(im, 80),          'ronda / autovia'),
-    ('stop',           stop_sign,                               ''),
-    ('yield',          yield_sign,                              'ceda el paso'),
-    ('no_entry',       no_entry,                                'direccion prohibida'),
-    ('arrow_straight',       lambda im: arrow(im, 'straight'),       'lane pictogram, painted on asphalt'),
-    ('arrow_left',           lambda im: arrow(im, 'left'),           ''),
-    ('arrow_right',          lambda im: arrow(im, 'right'),          ''),
-    ('arrow_straight_left',  lambda im: arrow(im, 'straight_left'),  ''),
-    ('arrow_straight_right', lambda im: arrow(im, 'straight_right'), ''),
-    ('pharmacy_cross', pharmacy_cross,                          'P4-13 night set — emissive'),
-    ('metro_roundel',  metro_roundel,                           'P4-13 night set — emissive'),
+    ('plate_white',    lambda im: plate(im), 1.20, 'post',                    'blank retroreflective panel — the text page draws the street name onto this'),
+    ('plate_blue',     lambda im: plate(im, BLUE, WHITE), 1.20, 'post',       'blue urban direction panel'),
+    ('speed_20',       lambda im: speed_plate(im, 20), 0.90, 'post',          'zona 30 side streets and school zones'),
+    ('speed_30',       lambda im: speed_plate(im, 30), 0.90, 'post',          'the Barcelona default — most of the city'),
+    ('speed_40',       lambda im: speed_plate(im, 40), 0.90, 'post',          ''),
+    ('speed_50',       lambda im: speed_plate(im, 50), 0.90, 'post',          'primary/secondary in town'),
+    ('speed_60',       lambda im: speed_plate(im, 60), 0.90, 'post',          ''),
+    ('speed_80',       lambda im: speed_plate(im, 80), 0.90, 'post',          'ronda / autovia'),
+    ('stop',           stop_sign, 0.90, 'post',                               ''),
+    ('yield',          yield_sign, 0.90, 'post',                              'ceda el paso'),
+    ('no_entry',       no_entry, 0.90, 'post',                                'direccion prohibida'),
+    ('arrow_straight',       lambda im: arrow(im, 'straight'), 3.50, 'road',       'lane pictogram, painted on asphalt'),
+    ('arrow_left',           lambda im: arrow(im, 'left'), 3.50, 'road',           ''),
+    ('arrow_right',          lambda im: arrow(im, 'right'), 3.50, 'road',          ''),
+    ('arrow_straight_left',  lambda im: arrow(im, 'straight_left'), 3.50, 'road',  ''),
+    ('arrow_straight_right', lambda im: arrow(im, 'straight_right'), 3.50, 'road', ''),
+    ('pharmacy_cross', pharmacy_cross, 0.80, 'post',                          'P4-13 night set — emissive'),
+    ('metro_roundel',  metro_roundel, 0.85, 'post',                           'P4-13 night set — emissive'),
 ]
 
 
@@ -233,13 +243,15 @@ def main():
 
     page = Image.new('RGBA', (COLS * CELL, ROWS * CELL), (0, 0, 0, 0))
     entries = []
-    for i, (name, paint, note) in enumerate(CELLS):
+    for i, (name, paint, size_m, orient, note) in enumerate(CELLS):
         cell = Image.new('RGBA', (CELL, CELL), (0, 0, 0, 0))
         paint(cell)
         cx, cy = (i % COLS) * CELL, (i // COLS) * CELL
         page.paste(cell, (cx, cy))
         entries.append({
             'name': name, 'cell': i, 'note': note,
+            # Real-world size and how it is mounted — see the note on CELLS.
+            'sizeM': size_m, 'mount': orient,
             # u0,v0,u1,v1 with V measured from the BOTTOM, because that is what a GL sampler wants and
             # converting at every call site is how a flipped atlas ships.
             'uv': [cx / page.width, 1 - (cy + CELL) / page.height,

@@ -3948,3 +3948,23 @@ answer it. Fourth time "beige pavement" has been diagnosed as something it was n
   offset round-trip, slot isolation, and an unknown cell name THROWING rather than silently drawing
   the first cell.
 - Region re-baked at **v11**: 432 tiles, 639 s, vegetation confirmed Mercator.
+- **P4-11 slice 4**: `map/signage/signPool.js` — post-mounted sign faces ride `createVegPoolSet`
+  rather than a second `BatchedMesh` wrapper, so they inherit its hard-won rules (never
+  `deleteInstance`, per-object culling off, a `userData.type` so `_ddGround` can name it). Road-paint
+  cells (`mount: 'road'`) are deliberately excluded — they are ground paint and belong to P4-12.
+  ⚠ Two API assumptions were wrong and caught before shipping: `getKTX2Texture` returns a PROMISE
+  (must use `getKTX2TextureSync`, as `urbanFeatureRenderer` does), and `patchMaterial`'s second
+  argument is a patch FUNCTION — passing a string returns the material untouched, silently.
+  `registerMaterial` is what enrols it for the night light grid.
+- Sign sizes moved into the atlas manifest (`sizeM`, `mount`) rather than a second table in the
+  renderer — the same choice `treeAtlas.js` makes with `heightM`/`canopyM`.
+
+## 2026-09-05 — camera: the drift-back after a view transition
+User, at speed: *"first camera comes in its actual position for that close look but then as im
+moving fast it goes a little more back too quick."* Correct, and it is arithmetic. During a
+transition the follow stiffness is forced to 1, so the arc ends with the camera exactly ON its ideal
+and zero lag. The trailing follow then resumes at `LERP_POSITION` and settles `v·τ` behind:
+**1.16 m at 40 km/h, 2.03 m at 70, 2.60 m at 90** — larger than the 2.1 m gap between the two chase
+rigs, re-established in ~0.10 s after a 0.6 s move. The lag is correct and wanted; its reappearance
+as a step is not. `SETTLE_TIME` (0.45 s) now eases the stiffness from locked back to trailing, so
+the drift is the tail of the same movement instead of a snap. 6 tests pin the numbers.

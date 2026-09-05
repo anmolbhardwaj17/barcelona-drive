@@ -10,6 +10,8 @@ export default {
       "name": "plate_white",
       "cell": 0,
       "note": "blank retroreflective panel \u2014 the text page draws the street name onto this",
+      "sizeM": 1.2,
+      "mount": "post",
       "uv": [
         0.0,
         0.75,
@@ -21,6 +23,8 @@ export default {
       "name": "plate_blue",
       "cell": 1,
       "note": "blue urban direction panel",
+      "sizeM": 1.2,
+      "mount": "post",
       "uv": [
         0.125,
         0.75,
@@ -32,6 +36,8 @@ export default {
       "name": "speed_20",
       "cell": 2,
       "note": "zona 30 side streets and school zones",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.25,
         0.75,
@@ -43,6 +49,8 @@ export default {
       "name": "speed_30",
       "cell": 3,
       "note": "the Barcelona default \u2014 most of the city",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.375,
         0.75,
@@ -54,6 +62,8 @@ export default {
       "name": "speed_40",
       "cell": 4,
       "note": "",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.5,
         0.75,
@@ -65,6 +75,8 @@ export default {
       "name": "speed_50",
       "cell": 5,
       "note": "primary/secondary in town",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.625,
         0.75,
@@ -76,6 +88,8 @@ export default {
       "name": "speed_60",
       "cell": 6,
       "note": "",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.75,
         0.75,
@@ -87,6 +101,8 @@ export default {
       "name": "speed_80",
       "cell": 7,
       "note": "ronda / autovia",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.875,
         0.75,
@@ -98,6 +114,8 @@ export default {
       "name": "stop",
       "cell": 8,
       "note": "",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.0,
         0.5,
@@ -109,6 +127,8 @@ export default {
       "name": "yield",
       "cell": 9,
       "note": "ceda el paso",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.125,
         0.5,
@@ -120,6 +140,8 @@ export default {
       "name": "no_entry",
       "cell": 10,
       "note": "direccion prohibida",
+      "sizeM": 0.9,
+      "mount": "post",
       "uv": [
         0.25,
         0.5,
@@ -131,6 +153,8 @@ export default {
       "name": "arrow_straight",
       "cell": 11,
       "note": "lane pictogram, painted on asphalt",
+      "sizeM": 3.5,
+      "mount": "road",
       "uv": [
         0.375,
         0.5,
@@ -142,6 +166,8 @@ export default {
       "name": "arrow_left",
       "cell": 12,
       "note": "",
+      "sizeM": 3.5,
+      "mount": "road",
       "uv": [
         0.5,
         0.5,
@@ -153,6 +179,8 @@ export default {
       "name": "arrow_right",
       "cell": 13,
       "note": "",
+      "sizeM": 3.5,
+      "mount": "road",
       "uv": [
         0.625,
         0.5,
@@ -164,6 +192,8 @@ export default {
       "name": "arrow_straight_left",
       "cell": 14,
       "note": "",
+      "sizeM": 3.5,
+      "mount": "road",
       "uv": [
         0.75,
         0.5,
@@ -175,6 +205,8 @@ export default {
       "name": "arrow_straight_right",
       "cell": 15,
       "note": "",
+      "sizeM": 3.5,
+      "mount": "road",
       "uv": [
         0.875,
         0.5,
@@ -186,6 +218,8 @@ export default {
       "name": "pharmacy_cross",
       "cell": 16,
       "note": "P4-13 night set \u2014 emissive",
+      "sizeM": 0.8,
+      "mount": "post",
       "uv": [
         0.0,
         0.25,
@@ -197,6 +231,8 @@ export default {
       "name": "metro_roundel",
       "cell": 17,
       "note": "P4-13 night set \u2014 emissive",
+      "sizeM": 0.85,
+      "mount": "post",
       "uv": [
         0.125,
         0.25,
