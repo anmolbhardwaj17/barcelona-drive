@@ -242,7 +242,19 @@ function residencySummary() {
   const sameTileDrift = [...byTiles.entries()]
     .filter(([, e]) => e.last.t > e.first.t + 5000)
     .map(([tiles, e]) => ({ tiles, spanS: Math.round((e.last.t - e.first.t) / 1000),
-                            geomDelta: e.last.geometries - e.first.geometries }));
+                            geomDelta: e.last.geometries - e.first.geometries,
+                            // ⚠ TEXTURES TOO, and for a different leak. Geometries drift when a tile
+                            // fails to release. Textures drift when something CACHES BY CONTENT and
+                            // never evicts — which is exactly what roadInfraRenderer's three
+                            // CanvasTexture maps do, keyed by street name and marked
+                            // `sharedMaterial` so the tile-unload walk deliberately skips them.
+                            // Measured from the shipped tiles: 1.00 MB per distinct street name,
+                            // 0.50 MB per gantry, and a spiral drive out from the Gran Via spawn
+                            // reaches 47 names by 12 tiles, 140 by 40, 483 by 120. That is 50 / 145 /
+                            // 495 MB, none of it ever freed, against a 200 MiB budget for every
+                            // texture in the game. P4-11 replaces them with one bounded 2 MB page.
+                            // A rising count at a FLAT tile count is the proof; this is where to read it.
+                            texDelta: e.last.textures - e.first.textures }));
   return {
     samples: _res.length,
     settledSamples: settled.length,

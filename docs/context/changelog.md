@@ -3968,3 +3968,7 @@ and zero lag. The trailing follow then resumes at `LERP_POSITION` and settles `v
 rigs, re-established in ~0.10 s after a 0.6 s move. The lag is correct and wanted; its reappearance
 as a step is not. `SETTLE_TIME` (0.45 s) now eases the stiffness from locked back to trailing, so
 the drift is the tail of the same movement instead of a snap. 6 tests pin the numbers.
+- Drive report: `sameTileCountDrift` now carries `texDelta` alongside `geomDelta`. They catch
+  different leaks — geometries drift when a tile fails to release, textures drift when something
+  caches by CONTENT and never evicts. The latter is the unbounded sign caches, so F9 can now prove
+  or disprove the 50/145/495 MB estimate rather than leaving it an inference.
